@@ -55,7 +55,7 @@ export function parseAuthResultsHeader(raw: unknown): AuthenticationSignals {
   const headerText = normalizeHeaderText(raw);
   if (!headerText) return base;
   const extract = (name: string): AuthenticationSignals["spf"] => {
-    const m = headerText.match(new RegExp(`${name}=(\\w+)`, "i"));
+    const m = headerText.match(new RegExp(`(?:^|[^a-z0-9_-])${name}\\s*=\\s*([\\w-]+)`, "i"));
     const val = m?.[1]?.toLowerCase();
     if (val === "pass" || val === "fail" || val === "softfail" || val === "neutral" || val === "none") return val;
     return "unknown";
@@ -93,7 +93,6 @@ function extractLinks(mail: ParsedMail): LinkInfo[] {
     }
     links.push({ visibleText, rawUrl, normalizedUrl, claimedBrand, brandDomainMismatch });
   }
-  // Also pick up bare URLs in plain text for text-only messages.
   if (!html && mail.text) {
     const bareRe = /https?:\/\/[^\s<>"']+/g;
     let m: RegExpExecArray | null;
