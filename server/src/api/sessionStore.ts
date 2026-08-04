@@ -31,6 +31,7 @@ export interface AccountSession {
 
 const emptyFeed: ThreatFeedCache = { getVerifiedEntries: () => [] };
 const MAX_UNSUBSCRIBE_ACTIONS = 5_000;
+const UNSUBSCRIBE_ACTION_TTL_MS = 30 * 60 * 1_000;
 
 export class SessionStore {
   private sessions = new Map<string, AccountSession>();
@@ -124,6 +125,10 @@ export class SessionStore {
     }
     const action = session.unsubscribeActions.get(token);
     if (!action) throw new Error("The unsubscribe action is unknown or expired. Rescan the mailbox.");
+    if (Date.now() - action.createdAt > UNSUBSCRIBE_ACTION_TTL_MS) {
+      session.unsubscribeActions.delete(token);
+      throw new Error("The unsubscribe action expired. Rescan the mailbox.");
+    }
     return action;
   }
 
