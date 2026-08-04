@@ -3,6 +3,11 @@ import { createHash } from "node:crypto";
 import type { EmailAdapter, FetchPage, FolderDescriptor } from "../../canonical/adapter.js";
 import type { CanonicalEnvelope, NormalizedFolder, Provider } from "../../canonical/envelope.js";
 import { normalizeRawMessage } from "../../util/mimeNormalize.js";
+import {
+  buildSyntheticRawMessage,
+  decodeTextBuffer,
+  inspectBodyStructure,
+} from "./mimeParts.js";
 
 export interface ImapCredentials {
   host: string;
@@ -12,7 +17,8 @@ export interface ImapCredentials {
   appPassword: string;
 }
 
-const MAX_MESSAGE_PREFIX_BYTES = 32 * 1024;
+const MAX_TEXT_PART_BYTES = 24 * 1024;
+const MIN_USEFUL_PLAIN_TEXT_CHARS = 80;
 const COMMAND_TIMEOUT_MS = 15_000;
 
 function normalizeFolderName(name: string): NormalizedFolder {
@@ -42,6 +48,47 @@ async function withDeadline<T>(promise: Promise<T>, signal: AbortSignal, ms = CO
       signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
     }),
   ]).finally(() => { if (timeout) clearTimeout(timeout); });
+}
+
+async function collectStream(stream: AsyncIterable<Buffer | Uint8Array | string>, signal: AbortSignal): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+async function downloadTextPart(
+  client: ImapFlow,
+  uid: number,
+  part: string,
+  signal: AbortSignal,
+): Promise<{ text: string; contentType: "text/plain" | "text/html"; truncated: boolean }> {
+  const download = await withDeadline(
+    client.download(uid, part, { uid: true, maxBytes: MAX_TEXT_PART_BYTES }) as Promise<any>,
+    signal,
+  );
+  const buffer = await withDeadline(collectStream(download.content, signal), signal);
+  const contentType = String(download.meta?.contentType ?? "text/plain").toLowerCase() === "text/html"
+    ? "text/html"
+    : "text/plain";
+  const expectedSize = Number(download.meta?.expectedSize ?? buffer.length);
+  return {
+    text: decodeTextBuffer(buffer, download.meta?.charset),
+    contentType,
+    truncated: Number.isFinite(expectedSize) && expectedSize > buffer.length,
+  };
+}
+
+function fallbackHeaders(uid: number): Buffer {
+  return Buffer.from([
+    "From: unknown <unknown@invalid.local>",
+    "Subject: Unreadable message",
+    `Message-ID: <imap-${uid}@local.invalid>`,
+    `Date: ${new Date().toUTCString()}`,
+    "",
+  ].join("\r\n"));
 }
 
 export class ImapAdapter implements EmailAdapter {
@@ -96,30 +143,81 @@ export class ImapAdapter implements EmailAdapter {
       let cursor = decodeCursor(cursorValue);
       if (cursor.uidValidity && uidValidity && cursor.uidValidity !== uidValidity) cursor = { offset: 0, uidValidity };
 
-      // Search returns the provider's real UIDs. We do not invent continuous UID ranges.
       const allUids = await withDeadline(client.search({ all: true }, { uid: true }) as Promise<number[]>, signal);
       const newestFirst = [...allUids].sort((a, b) => b - a);
       const selected = newestFirst.slice(cursor.offset, cursor.offset + Math.max(1, Math.min(pageSize, 25)));
       if (selected.length === 0) return { envelopes: [], nextCursor: null, done: true };
 
+      // Complete the metadata command before issuing any body-part downloads.
+      // Running nested commands inside a fetch iterator can deadlock ImapFlow.
+      const metadataMessages = await withDeadline(
+        client.fetchAll(selected, {
+          uid: true,
+          headers: true,
+          bodyStructure: true,
+          size: true,
+        }, { uid: true }) as Promise<any[]>,
+        signal,
+      );
+      const metadataByUid = new Map<number, any>(
+        metadataMessages.map((message) => [Number(message.uid), message]),
+      );
+
       const envelopes: CanonicalEnvelope[] = [];
-      const uidSet = selected.sort((a, b) => a - b).join(",");
-      // Fetch only a bounded RFC822 prefix. It contains headers and normal short-message bodies,
-      // but cannot pull multi-megabyte attachments into memory during a normal scan.
-      const query: any = { uid: true, source: { start: 0, maxLength: MAX_MESSAGE_PREFIX_BYTES } };
-      for await (const message of client.fetch({ uid: uidSet }, query) as any) {
+      for (const uid of selected) {
         if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-        if (!message.source) continue;
-        const envelope = await normalizeRawMessage(message.source, {
+        const message = metadataByUid.get(uid);
+        const headers = message?.headers ?? fallbackHeaders(uid);
+        const selection = inspectBodyStructure(message?.bodyStructure);
+
+        let body = "";
+        let contentType: "text/plain" | "text/html" = "text/plain";
+        let truncated = false;
+        const parseNotes: string[] = [];
+
+        try {
+          if (selection.plainPart) {
+            const plain = await downloadTextPart(client, uid, selection.plainPart, signal);
+            body = plain.text;
+            contentType = "text/plain";
+            truncated = plain.truncated;
+
+            // Some multipart messages expose only a tiny placeholder in the
+            // plain part and keep the meaningful content in HTML.
+            if (body.trim().length < MIN_USEFUL_PLAIN_TEXT_CHARS && selection.htmlPart) {
+              const html = await downloadTextPart(client, uid, selection.htmlPart, signal);
+              body = html.text;
+              contentType = "text/html";
+              truncated = html.truncated;
+            }
+          } else if (selection.htmlPart) {
+            const html = await downloadTextPart(client, uid, selection.htmlPart, signal);
+            body = html.text;
+            contentType = "text/html";
+            truncated = html.truncated;
+          } else {
+            parseNotes.push("No readable text/plain or text/html MIME part was available.");
+          }
+        } catch (error) {
+          if (signal.aborted) throw error;
+          parseNotes.push(`Readable MIME part could not be downloaded: ${(error as Error).message}`);
+        }
+
+        const syntheticRaw = buildSyntheticRawMessage({ headers, body, contentType });
+        const envelope = await normalizeRawMessage(syntheticRaw, {
           provider: this.provider,
           accountProof: this.accountProof,
           providerFolderName: folder.providerFolderName,
           normalizedFolder: folder.normalized,
-          providerNativeId: encodeNativeId(folder.providerFolderName, Number(message.uid)),
+          providerNativeId: encodeNativeId(folder.providerFolderName, uid),
         });
-        if (Buffer.byteLength(message.source) >= MAX_MESSAGE_PREFIX_BYTES) {
+        envelope.attachments = selection.attachments;
+        envelope.diagnostics.sizeBytes = Number(message?.size ?? syntheticRaw.length);
+
+        if (!body.trim() || truncated || parseNotes.length) {
           envelope.parseStatus = "partial";
-          envelope.parseNotes.push(`Message content was bounded to ${MAX_MESSAGE_PREFIX_BYTES} bytes; attachments and later MIME parts were not downloaded.`);
+          if (truncated) parseNotes.push(`Readable text was bounded to ${MAX_TEXT_PART_BYTES} bytes.`);
+          envelope.parseNotes.push(...parseNotes);
         }
         envelopes.push(envelope);
       }
