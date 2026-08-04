@@ -10,31 +10,38 @@ const evidence = (code: string, scoreContribution: number) => ({
 });
 
 describe("computeVerdict — structural safety guarantee", () => {
-  it("never returns Safe when parsing is partial and no evidence is available", () => {
+  it("never returns Safe when parsing is partial and no evidence is available by default", () => {
     const result = computeVerdict({
       parseStatus: "partial",
-      layerResults: [
-        { layer: "transport_auth", applicable: true, evidence: [], incomplete: false },
-      ],
+      layerResults: [{ layer: "transport_auth", applicable: true, evidence: [], incomplete: false }],
       confirmedByRule: false,
     });
     expect(result.verdict).toBe("unknown");
   });
 
+  it("allows Safe only when the pipeline explicitly approves bounded content", () => {
+    const result = computeVerdict({
+      parseStatus: "partial",
+      layerResults: [{ layer: "transport_auth", applicable: true, evidence: [], incomplete: false }],
+      confirmedByRule: false,
+      boundedContentAllowsSafe: true,
+    });
+    expect(result.verdict).toBe("safe");
+  });
+
   it("never returns Safe when genuinely unavailable content blocks a complete decision", () => {
     const result = computeVerdict({
       parseStatus: "complete",
-      layerResults: [
-        {
-          layer: "message_intent",
-          applicable: true,
-          evidence: [],
-          incomplete: true,
-          incompleteReason: "no body text available",
-          blocksSafeVerdict: true,
-        },
-      ],
+      layerResults: [{
+        layer: "message_intent",
+        applicable: true,
+        evidence: [],
+        incomplete: true,
+        incompleteReason: "no body text available",
+        blocksSafeVerdict: true,
+      }],
       confirmedByRule: false,
+      boundedContentAllowsSafe: true,
     });
     expect(result.verdict).toBe("unknown");
   });
@@ -60,14 +67,12 @@ describe("computeVerdict — structural safety guarantee", () => {
   it("preserves Review for partial messages with moderate evidence", () => {
     const result = computeVerdict({
       parseStatus: "partial",
-      layerResults: [
-        {
-          layer: "identity_impersonation",
-          applicable: true,
-          incomplete: false,
-          evidence: [evidence("BRAND_DOMAIN_MISMATCH", 3)],
-        },
-      ],
+      layerResults: [{
+        layer: "identity_impersonation",
+        applicable: true,
+        incomplete: false,
+        evidence: [evidence("BRAND_DOMAIN_MISMATCH", 3)],
+      }],
       confirmedByRule: false,
     });
     expect(result.score).toBe(3);
@@ -77,24 +82,19 @@ describe("computeVerdict — structural safety guarantee", () => {
   it("preserves High Risk for partial messages with strong evidence", () => {
     const result = computeVerdict({
       parseStatus: "partial",
-      layerResults: [
-        {
-          layer: "identity_impersonation",
-          applicable: true,
-          incomplete: false,
-          evidence: [
-            evidence("BRAND_DOMAIN_MISMATCH", 3),
-            evidence("CALLBACK_SCAM_INTENT", 4),
-          ],
-        },
-      ],
+      layerResults: [{
+        layer: "identity_impersonation",
+        applicable: true,
+        incomplete: false,
+        evidence: [evidence("BRAND_DOMAIN_MISMATCH", 3), evidence("CALLBACK_SCAM_INTENT", 4)],
+      }],
       confirmedByRule: false,
     });
     expect(result.score).toBe(7);
     expect(result.verdict).toBe("high_risk");
   });
 
-  it("returns Safe only when parsing is complete and evidence is below Review", () => {
+  it("returns Safe when parsing is complete and evidence is below Review", () => {
     const result = computeVerdict({
       parseStatus: "complete",
       layerResults: [
@@ -107,11 +107,7 @@ describe("computeVerdict — structural safety guarantee", () => {
   });
 
   it("Confirmed Threat short-circuits regardless of parse status", () => {
-    const result = computeVerdict({
-      parseStatus: "partial",
-      layerResults: [],
-      confirmedByRule: true,
-    });
+    const result = computeVerdict({ parseStatus: "partial", layerResults: [], confirmedByRule: true });
     expect(result.verdict).toBe("confirmed_threat");
   });
 });
