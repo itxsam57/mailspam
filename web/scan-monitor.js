@@ -24,6 +24,10 @@
     .scan-diagnostics .diag-high_risk {color:#e8632e}
     .scan-diagnostics .diag-confirmed_threat {color:#e23d4f}
     .scan-diagnostics .diag-unknown {color:#8b93a3}
+    .trash-action-status {margin-top:9px;font-size:11px;color:#8b93a3}
+    .trash-action-status.success {color:#3fb88a}
+    .trash-action-status.error {color:#ff9a9f}
+    .card.trash-moved {opacity:.72;border-style:dashed}
     @keyframes emailShieldSpin {to{transform:rotate(360deg)}}
   `;
   document.head.appendChild(style);
@@ -171,6 +175,82 @@
       finish();
     };
   }
+
+  async function handleTrashAction(event) {
+    const button = event.target instanceof Element
+      ? event.target.closest('[data-action="trash"]')
+      : null;
+    if (!(button instanceof HTMLButtonElement) || button.disabled) return;
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+
+    const id = selectedAccountId();
+    const providerNativeId = button.dataset.nativeId;
+    const card = button.closest('.card');
+    const subject = card?.querySelector('.card-subject')?.textContent?.trim() || '(no subject)';
+    const sender = card?.querySelector('.card-from')?.textContent?.trim() || 'unknown sender';
+
+    if (!id || !providerNativeId) {
+      setStatus('Move failed: the account or provider message identifier is missing.', 'error');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Move exactly this message to the provider Trash folder?\n\n${subject}\n${sender}\n\nThis is reversible from Trash.`,
+    );
+    if (!confirmed) return;
+
+    const previousText = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Moving…';
+    let actionStatus = card?.querySelector('.trash-action-status');
+    if (!actionStatus && card) {
+      actionStatus = document.createElement('div');
+      actionStatus.className = 'trash-action-status';
+      actionStatus.setAttribute('role', 'status');
+      card.appendChild(actionStatus);
+    }
+    if (actionStatus) {
+      actionStatus.className = 'trash-action-status';
+      actionStatus.textContent = 'Requesting a reversible provider Trash move…';
+    }
+
+    try {
+      const response = await fetch(`/api/accounts/${encodeURIComponent(id)}/messages/trash`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ providerNativeIds: [providerNativeId] }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || `Server returned HTTP ${response.status}`);
+      const failedReason = Array.isArray(result.failed) && result.failed.length
+        ? result.failed[0]?.reason
+        : null;
+      if (result.requested !== 1 || result.moved !== 1 || failedReason) {
+        throw new Error(failedReason || `Provider reported moved ${result.moved ?? 0} of ${result.requested ?? 1}.`);
+      }
+
+      button.textContent = 'Moved to Trash ✓';
+      card?.classList.add('trash-moved');
+      if (actionStatus) {
+        actionStatus.className = 'trash-action-status success';
+        actionStatus.textContent = 'Provider confirmed that exactly one message was moved to Trash.';
+      }
+      setStatus('Exactly one message was moved to the provider Trash folder.', 'complete');
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = previousText || 'Move to Trash';
+      const message = error instanceof Error ? error.message : String(error);
+      if (actionStatus) {
+        actionStatus.className = 'trash-action-status error';
+        actionStatus.textContent = `Move failed: ${message}`;
+      }
+      setStatus(`Move failed: ${message}`, 'error');
+    }
+  }
+
+  document.addEventListener('click', handleTrashAction, true);
 
   for (const [id, type] of [
     ['quickScanBtn', 'quick'],
