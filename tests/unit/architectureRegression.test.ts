@@ -32,6 +32,15 @@ describe("transport architecture regressions", () => {
     expect(monitor).toContain("Could not open the scan stream");
   });
 
+  it("never claims a Trash move without confirmation and a successful provider result", () => {
+    const monitor = read("web/scan-monitor.js");
+    expect(monitor).toContain("Move exactly this message to the provider Trash folder?");
+    expect(monitor).toContain("providerNativeIds: [providerNativeId]");
+    expect(monitor).toContain("result.requested !== 1 || result.moved !== 1 || failedReason");
+    expect(monitor).toContain("Provider confirmed that exactly one message was moved to Trash.");
+    expect(monitor).not.toContain(".then(() => { btn.textContent = 'Moved'");
+  });
+
   it("fetches bounded readable IMAP parts instead of raw messages or attachment bodies", () => {
     const imap = read("server/src/adapters/imap/imapAdapter.ts");
     expect(imap).not.toContain("source: true");
