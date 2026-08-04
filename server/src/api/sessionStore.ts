@@ -56,6 +56,20 @@ export class SessionStore {
     this.policyRepository.save(session.policyAccountKey, session.personalPolicy.snapshot());
   }
 
+  mutateAndPersistPersonalPolicy(
+    session: AccountSession,
+    mutation: (policy: InMemoryPersonalPolicyStore) => void,
+  ): void {
+    const previous = session.personalPolicy.snapshot();
+    mutation(session.personalPolicy);
+    try {
+      this.persistPersonalPolicy(session);
+    } catch (error) {
+      session.personalPolicy.replace(previous);
+      throw error;
+    }
+  }
+
   get(id: string): AccountSession | undefined {
     return this.sessions.get(id);
   }
