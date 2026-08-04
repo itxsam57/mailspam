@@ -23,6 +23,7 @@ const emptyFeed: ThreatFeedCache = { getVerifiedEntries: () => [] };
 
 export class SessionStore {
   private sessions = new Map<string, AccountSession>();
+  private policyStores = new Map<string, InMemoryPersonalPolicyStore>();
   readonly threatFeed = emptyFeed;
 
   constructor(
@@ -31,8 +32,12 @@ export class SessionStore {
 
   create(provider: string, label: string, config: AdapterConfig): AccountSession {
     const accountKey = policyAccountKey(config);
-    const personalPolicy = new InMemoryPersonalPolicyStore();
-    personalPolicy.restore(this.policyRepository.load(accountKey));
+    let personalPolicy = this.policyStores.get(accountKey);
+    if (!personalPolicy) {
+      personalPolicy = new InMemoryPersonalPolicyStore();
+      personalPolicy.restore(this.policyRepository.load(accountKey));
+      this.policyStores.set(accountKey, personalPolicy);
+    }
 
     const session: AccountSession = {
       id: randomUUID(),
