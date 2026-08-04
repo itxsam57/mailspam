@@ -14,6 +14,10 @@ const controller = new AbortController();
 parentPort?.on("message", (message) => { if (message?.type === "cancel") controller.abort(); });
 
 async function main() {
+  parentPort?.postMessage({
+    type: "status",
+    status: { phase: "starting", message: `Starting ${data.type} scan worker…` },
+  });
   const adapter = createAdapter(data.config);
   const personalPolicy = new InMemoryPersonalPolicyStore();
   personalPolicy.restore(data.personalPolicy ?? {});
@@ -21,12 +25,26 @@ async function main() {
     personalPolicy,
     threatFeed: { getVerifiedEntries: () => [] },
   };
+  parentPort?.postMessage({
+    type: "status",
+    status: { phase: "connecting", message: "Connecting to the mail provider and discovering folders…" },
+  });
   const generator = data.type === "quick"
     ? quickScan(adapter, deps, controller.signal, data.pageSize ?? 20)
     : data.type === "spam"
       ? spamJunkScan(adapter, deps, controller.signal, data.pageSize ?? 20)
       : fullMailboxAudit(adapter, deps, controller.signal, { pageSize: data.pageSize ?? 20 });
-  for await (const progress of generator) parentPort?.postMessage({ type: "progress", progress });
+  let emittedProgress = false;
+  for await (const progress of generator) {
+    emittedProgress = true;
+    parentPort?.postMessage({ type: "progress", progress });
+  }
+  parentPort?.postMessage({
+    type: "status",
+    status: emittedProgress
+      ? { phase: "complete", message: "Scan completed." }
+      : { phase: "complete", message: "Scan completed, but the selected folder contained no readable messages." },
+  });
   parentPort?.postMessage({ type: "complete" });
 }
 
