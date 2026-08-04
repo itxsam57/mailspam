@@ -20,8 +20,6 @@ export function createServer() {
   const webDir = join(__dirname, "../../../web");
   app.use(express.static(webDir));
 
-  // ---- Accounts ----
-
   app.post("/api/accounts/connect", async (req: Request, res: Response) => {
     const { provider, mode, credentials = {}, label } = req.body as {
       provider: Provider;
@@ -58,8 +56,6 @@ export function createServer() {
     res.status(204).send();
   });
 
-  // ---- Scans (Server-Sent Events for live progress) ----
-
   function sseHeaders(res: Response) {
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -72,32 +68,81 @@ export function createServer() {
     const session = sessionStore.get(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
     const type = req.params.type as "quick" | "full" | "spam";
-    if (!['quick','full','spam'].includes(type)) return res.status(400).json({ error: "Unknown scan type" });
+    if (!["quick", "full", "spam"].includes(type)) return res.status(400).json({ error: "Unknown scan type" });
     if (session.activeScanWorker) return res.status(409).json({ error: "A scan is already active" });
 
     sseHeaders(res);
-    const workerUrl = import.meta.url.endsWith(".ts")
-      ? new URL("../workers/scanWorker.ts", import.meta.url)
-      : new URL("../workers/scanWorker.js", import.meta.url);
-    const worker = new Worker(workerUrl, {
-      workerData: { config: session.config, type, pageSize: 20, personalPolicy: sessionStore.personalPolicy.snapshot() },
-    });
+    res.flushHeaders();
+    res.write(`event: scan-started\ndata: ${JSON.stringify({ type, provider: session.provider })}\n\n`);
+
+    const isTypeScriptRuntime = import.meta.url.endsWith(".ts");
+    const workerUrl = new URL(
+      isTypeScriptRuntime ? "../workers/scanWorker.ts" : "../workers/scanWorker.js",
+      import.meta.url,
+    );
+
+    let worker: Worker;
+    try {
+      worker = new Worker(workerUrl, {
+        workerData: { config: session.config, type, pageSize: 20, personalPolicy: sessionStore.personalPolicy.snapshot() },
+        ...(isTypeScriptRuntime ? { execArgv: ["--import", "tsx"] } : {}),
+      });
+    } catch (error) {
+      res.write(`event: scan-error\ndata: ${JSON.stringify({ message: `Could not start scan worker: ${(error as Error).message}` })}\n\n`);
+      res.end();
+      return;
+    }
+
     session.activeScanWorker = worker;
     let finished = false;
-    const cleanup = async () => {
+    let terminalEventSent = false;
+
+    const writeEvent = (event: string, data: unknown) => {
+      if (!res.writableEnded && !res.destroyed) {
+        res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      }
+    };
+
+    const cleanup = () => {
       if (finished) return;
       finished = true;
       if (session.activeScanWorker === worker) session.activeScanWorker = null;
-      res.end();
+      if (!res.writableEnded) res.end();
     };
+
     worker.on("message", (message) => {
-      if (message.type === "progress") res.write(`data: ${JSON.stringify(message.progress)}\n\n`);
-      else if (message.type === "complete") { res.write(`event: complete\ndata: {}\n\n`); void cleanup(); }
-      else if (message.type === "error") { res.write(`event: error\ndata: ${JSON.stringify({ message: message.message })}\n\n`); void cleanup(); }
+      if (message.type === "status") writeEvent("scan-status", message.status);
+      else if (message.type === "progress") {
+        if (!res.writableEnded && !res.destroyed) res.write(`data: ${JSON.stringify(message.progress)}\n\n`);
+      } else if (message.type === "complete") {
+        terminalEventSent = true;
+        writeEvent("scan-complete", {});
+        cleanup();
+      } else if (message.type === "error") {
+        terminalEventSent = true;
+        writeEvent("scan-error", { message: message.message, name: message.name });
+        cleanup();
+      }
     });
-    worker.on("error", (error) => { res.write(`event: error\ndata: ${JSON.stringify({ message: error.message })}\n\n`); void cleanup(); });
-    worker.on("exit", () => { void cleanup(); });
-    req.on("close", async () => {
+
+    worker.on("error", (error) => {
+      terminalEventSent = true;
+      writeEvent("scan-error", { message: error.message, name: error.name });
+      cleanup();
+    });
+
+    worker.on("exit", (code) => {
+      if (!terminalEventSent && !finished) {
+        writeEvent("scan-error", {
+          message: code === 0
+            ? "Scan worker exited before returning a result."
+            : `Scan worker exited unexpectedly with code ${code}.`,
+        });
+      }
+      cleanup();
+    });
+
+    res.on("close", () => {
       if (!finished) {
         worker.postMessage({ type: "cancel" });
         setTimeout(() => { if (!finished) void worker.terminate(); }, 1000).unref();
@@ -115,8 +160,6 @@ export function createServer() {
     hardStop.unref();
     res.json({ stopped: true, active: true });
   });
-
-  // ---- Message actions ----
 
   app.post("/api/accounts/:id/messages/block-sender", (req: Request, res: Response) => {
     const { address } = req.body as { address: string };
@@ -142,24 +185,18 @@ export function createServer() {
 
   app.post("/api/accounts/:id/messages/unsubscribe", async (req: Request, res: Response) => {
     const { method, target } = req.body as { method: string; target: string };
-    if (method !== "one_click_post") {
-      return res.json({ handledClientSide: true }); // link_only/mailto are surfaced as normal links, not auto-invoked
-    }
+    if (method !== "one_click_post") return res.json({ handledClientSide: true });
     const result = await executeOneClickUnsubscribe(target, (url) => fetch(url, { method: "POST" }));
     res.json(result);
   });
 
-  // Explicit per-message action only — never called automatically during any scan (spec 8.1/8.5).
   app.post("/api/accounts/:id/messages/analyze-links", async (req: Request, res: Response) => {
     const session = sessionStore.get(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
     const { envelope } = req.body as { envelope: import("../canonical/envelope.js").CanonicalEnvelope };
-
     const result = await analyzeLinks(envelope, hardenedFetch);
     res.json(result);
   });
-
-  // ---- Developer Testing Suite (spec: one command / one dashboard panel) ----
 
   app.get("/api/dev/test-suite", async (_req: Request, res: Response) => {
     const report = await runDeveloperTestSuite();
