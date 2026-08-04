@@ -48,6 +48,17 @@ async function main() {
   parentPort?.postMessage({ type: "complete" });
 }
 
-main().catch((error: Error) => {
-  parentPort?.postMessage({ type: "error", message: error.message, name: error.name });
-});
+async function run() {
+  try {
+    await main();
+  } catch (error) {
+    const err = error as Error;
+    parentPort?.postMessage({ type: "error", message: err.message, name: err.name });
+  } finally {
+    // A live parentPort message listener otherwise keeps the worker thread alive
+    // after completion. Closing it prevents leaked workers across repeated scans.
+    parentPort?.close();
+  }
+}
+
+void run();
