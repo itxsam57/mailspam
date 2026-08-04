@@ -3,10 +3,14 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { normalizeRawMessage } from "../../server/src/util/mimeNormalize.js";
 import { InMemoryPersonalPolicyStore } from "../../server/src/engine/layers/personalRules.js";
-import { blockSender, blockDomain, moveMessagesToTrash } from "../../server/src/workflows/blockAndCleanup.js";
+import {
+  blockSender,
+  blockDomain,
+  moveMessagesToTrash,
+  normalizeProviderNativeIds,
+} from "../../server/src/workflows/blockAndCleanup.js";
 import { unsubscribeCapability, executeOneClickUnsubscribe } from "../../server/src/workflows/unsubscribe.js";
-import type { EmailAdapter, FetchPage, FolderDescriptor } from "../../server/src/canonical/adapter.js";
-import type { Provider } from "../../server/src/canonical/envelope.js";
+import type { EmailAdapter } from "../../server/src/canonical/adapter.js";
 
 const CORPUS_DIR = join(import.meta.dirname, "../../fixtures/scam-corpus");
 
@@ -27,26 +31,59 @@ describe("block and cleanup", () => {
     expect(store.isBlockedDomain(envelope.from.domain!)).toBe(true);
   });
 
-  it("moveMessagesToTrash batches into a single adapter call, not one per message", async () => {
-    let callCount = 0;
-    let lastBatchSize = 0;
+  it("normalizes, deduplicates, and preserves the selected provider identifiers", () => {
+    expect(normalizeProviderNativeIds([" selected-id ", "selected-id", "other-id"])).toEqual([
+      "selected-id",
+      "other-id",
+    ]);
+  });
+
+  it("rejects empty, malformed, or oversized trash action requests", () => {
+    expect(() => normalizeProviderNativeIds([])).toThrow("At least one");
+    expect(() => normalizeProviderNativeIds([""])).toThrow("non-empty string");
+    expect(() => normalizeProviderNativeIds("selected-id")).toThrow("must be an array");
+    expect(() => normalizeProviderNativeIds(["a", "b"], 1)).toThrow("maximum of 1");
+  });
+
+  it("moves exactly one selected message in one adapter call", async () => {
+    const calls: string[][] = [];
     const adapter: Pick<EmailAdapter, "moveToTrash"> = {
-      async moveToTrash(ids: string[]) { callCount++; lastBatchSize = ids.length; },
+      async moveToTrash(ids: string[]) { calls.push([...ids]); },
     };
-    const result = await moveMessagesToTrash(adapter as EmailAdapter, ["a", "b", "c"], new AbortController().signal);
+
+    const result = await moveMessagesToTrash(
+      adapter as EmailAdapter,
+      ["selected-native-id"],
+      new AbortController().signal,
+    );
+
+    expect(calls).toEqual([["selected-native-id"]]);
+    expect(result).toEqual({ requested: 1, moved: 1, failed: [] });
+  });
+
+  it("batches multiple unique messages into a single adapter call", async () => {
+    let callCount = 0;
+    let received: string[] = [];
+    const adapter: Pick<EmailAdapter, "moveToTrash"> = {
+      async moveToTrash(ids: string[]) { callCount++; received = [...ids]; },
+    };
+    const result = await moveMessagesToTrash(adapter as EmailAdapter, ["a", "b", "a"], new AbortController().signal);
     expect(callCount).toBe(1);
-    expect(lastBatchSize).toBe(3);
-    expect(result.moved).toBe(3);
+    expect(received).toEqual(["a", "b"]);
+    expect(result.moved).toBe(2);
     expect(result.failed).toEqual([]);
   });
 
-  it("reports failures per-message without throwing when the adapter call fails", async () => {
+  it("reports failures per message without claiming a move", async () => {
     const adapter: Pick<EmailAdapter, "moveToTrash"> = {
       async moveToTrash() { throw new Error("provider unavailable"); },
     };
     const result = await moveMessagesToTrash(adapter as EmailAdapter, ["a", "b"], new AbortController().signal);
     expect(result.moved).toBe(0);
-    expect(result.failed).toHaveLength(2);
+    expect(result.failed).toEqual([
+      { messageId: "a", reason: "provider unavailable" },
+      { messageId: "b", reason: "provider unavailable" },
+    ]);
   });
 });
 
