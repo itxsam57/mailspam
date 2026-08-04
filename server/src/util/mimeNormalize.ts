@@ -23,13 +23,39 @@ function firstAddress(addr: AddressObject | AddressObject[] | undefined): FromFi
   return { displayName: entry.name ?? null, address: address?.toLowerCase() ?? null, domain };
 }
 
-function parseAuthResultsHeader(raw: string | undefined): AuthenticationSignals {
+export function normalizeHeaderText(raw: unknown): string | undefined {
+  if (raw === null || raw === undefined) return undefined;
+  if (typeof raw === "string") return raw;
+  if (Buffer.isBuffer(raw)) return raw.toString("utf8");
+  if (Array.isArray(raw)) {
+    const parts = raw
+      .map((value) => normalizeHeaderText(value))
+      .filter((value): value is string => Boolean(value));
+    return parts.length ? parts.join("; ") : undefined;
+  }
+  if (typeof raw === "number" || typeof raw === "boolean" || typeof raw === "bigint") {
+    return String(raw);
+  }
+  if (typeof raw === "object") {
+    const record = raw as Record<string, unknown>;
+    for (const key of ["value", "text", "name"]) {
+      const normalized = normalizeHeaderText(record[key]);
+      if (normalized) return normalized;
+    }
+    const customString = String(raw);
+    if (customString && customString !== "[object Object]") return customString;
+  }
+  return undefined;
+}
+
+export function parseAuthResultsHeader(raw: unknown): AuthenticationSignals {
   const base: AuthenticationSignals = {
     spf: "unknown", dkim: "unknown", dmarc: "unknown", arc: "unknown",
   };
-  if (!raw) return base;
+  const headerText = normalizeHeaderText(raw);
+  if (!headerText) return base;
   const extract = (name: string): AuthenticationSignals["spf"] => {
-    const m = raw.match(new RegExp(`${name}=(\\w+)`, "i"));
+    const m = headerText.match(new RegExp(`(?:^|[^a-z0-9_-])${name}\\s*=\\s*([\\w-]+)`, "i"));
     const val = m?.[1]?.toLowerCase();
     if (val === "pass" || val === "fail" || val === "softfail" || val === "neutral" || val === "none") return val;
     return "unknown";
@@ -39,7 +65,7 @@ function parseAuthResultsHeader(raw: string | undefined): AuthenticationSignals 
     dkim: extract("dkim") as AuthenticationSignals["dkim"],
     dmarc: extract("dmarc") as AuthenticationSignals["dmarc"],
     arc: extract("arc") as AuthenticationSignals["arc"],
-    rawHeader: raw,
+    rawHeader: headerText,
   };
 }
 
@@ -67,7 +93,6 @@ function extractLinks(mail: ParsedMail): LinkInfo[] {
     }
     links.push({ visibleText, rawUrl, normalizedUrl, claimedBrand, brandDomainMismatch });
   }
-  // Also pick up bare URLs in plain text for text-only messages.
   if (!html && mail.text) {
     const bareRe = /https?:\/\/[^\s<>"']+/g;
     let m: RegExpExecArray | null;
@@ -96,7 +121,7 @@ function extractAttachments(mail: ParsedMail): AttachmentInfo[] {
       mimeType: a.contentType ?? "application/octet-stream",
       sizeBytes: a.size ?? (a.content ? a.content.length : 0),
       extension,
-      sha256: null, // hashed lazily only when safe/needed — never store attachment content
+      sha256: null,
       suspiciousNamePattern,
     };
   });
@@ -107,9 +132,7 @@ export interface NormalizeOptions {
   accountProof: string;
   providerFolderName: string;
   normalizedFolder: NormalizedFolder;
-  /** The provider's own native message id, used for action calls (Trash/move). Required for live adapters; fixtures may pass a synthetic value. */
   providerNativeId: string;
-  /** Local mailbox history facts, computed by the caller (never sent anywhere). */
   threadContext?: CanonicalEnvelope["threadContext"];
 }
 
@@ -121,8 +144,6 @@ export async function normalizeRawMessage(raw: string | Buffer, opts: NormalizeO
   try {
     mail = await simpleParser(raw);
   } catch (err) {
-    // Even a parser exception must not become a silent skip — surface a
-    // malformed envelope with parseStatus reflecting the failure.
     return malformedEnvelope(opts, `MIME parse threw: ${(err as Error).message}`);
   }
 
@@ -133,7 +154,7 @@ export async function normalizeRawMessage(raw: string | Buffer, opts: NormalizeO
 
   const from = firstAddress(mail.from) ?? { displayName: null, address: null, domain: null };
   const replyTo = firstAddress(mail.replyTo);
-  const authHeader = mail.headers.get("authentication-results") as string | undefined;
+  const authHeader = mail.headers.get("authentication-results");
 
   const textPreview = mail.text ? mail.text.slice(0, TEXT_PREVIEW_MAX_CHARS) : mail.html ? null : null;
   const htmlText = mail.html ? mail.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, TEXT_PREVIEW_MAX_CHARS) : null;
