@@ -1,6 +1,13 @@
 import type { CanonicalEnvelope } from "../../canonical/envelope.js";
 import type { LayerResult } from "../verdict.js";
 
+export interface PersonalPolicySnapshot {
+  blockedSenders: string[];
+  blockedDomains: string[];
+  trustedSenders: string[];
+  approvedExceptions: string[];
+}
+
 export interface PersonalPolicyStore {
   isBlockedSender(address: string): boolean;
   isBlockedDomain(domain: string): boolean;
@@ -20,17 +27,33 @@ export class InMemoryPersonalPolicyStore implements PersonalPolicyStore {
   approveException(address: string) { this.approvedExceptions.add(address.toLowerCase()); }
   unblockSender(address: string) { this.blockedSenders.delete(address.toLowerCase()); }
   unblockDomain(domain: string) { this.blockedDomains.delete(domain.toLowerCase()); }
-  snapshot() {
+
+  clear() {
+    this.blockedSenders.clear();
+    this.blockedDomains.clear();
+    this.trustedSenders.clear();
+    this.approvedExceptions.clear();
+  }
+
+  snapshot(): PersonalPolicySnapshot {
     return {
-      blockedSenders: [...this.blockedSenders], blockedDomains: [...this.blockedDomains],
-      trustedSenders: [...this.trustedSenders], approvedExceptions: [...this.approvedExceptions],
+      blockedSenders: [...this.blockedSenders],
+      blockedDomains: [...this.blockedDomains],
+      trustedSenders: [...this.trustedSenders],
+      approvedExceptions: [...this.approvedExceptions],
     };
   }
-  restore(snapshot: { blockedSenders?: string[]; blockedDomains?: string[]; trustedSenders?: string[]; approvedExceptions?: string[] }) {
+
+  restore(snapshot: Partial<PersonalPolicySnapshot>) {
     for (const value of snapshot.blockedSenders ?? []) this.blockSender(value);
     for (const value of snapshot.blockedDomains ?? []) this.blockDomain(value);
     for (const value of snapshot.trustedSenders ?? []) this.trustSender(value);
     for (const value of snapshot.approvedExceptions ?? []) this.approveException(value);
+  }
+
+  replace(snapshot: Partial<PersonalPolicySnapshot>) {
+    this.clear();
+    this.restore(snapshot);
   }
 
   isBlockedSender(address: string) { return this.blockedSenders.has(address.toLowerCase()); }
@@ -39,14 +62,9 @@ export class InMemoryPersonalPolicyStore implements PersonalPolicyStore {
   isApprovedException(address: string) { return this.approvedExceptions.has(address.toLowerCase()); }
 }
 
-/**
- * Returns both the layer result (for the explain card) and whether this
- * message is confirmed-by-personal-block, which the pipeline uses to
- * short-circuit straight to "confirmed_threat" per spec Section 7.
- */
 export function personalRulesLayer(
   envelope: CanonicalEnvelope,
-  store: PersonalPolicyStore
+  store: PersonalPolicyStore,
 ): { result: LayerResult; confirmedByPersonalBlock: boolean } {
   const evidence: LayerResult["evidence"] = [];
   const address = envelope.from.address ?? "";
