@@ -81,17 +81,14 @@ export function createServer() {
     res.flushHeaders();
     res.write(`event: scan-started\ndata: ${JSON.stringify({ type, provider: session.provider })}\n\n`);
 
-    const isTypeScriptRuntime = import.meta.url.endsWith(".ts");
-    const workerUrl = new URL(
-      isTypeScriptRuntime ? "../workers/scanWorker.ts" : "../workers/scanWorker.js",
-      import.meta.url,
-    );
+    // The normal run path is compiled before startup. Always launch the compiled
+    // JavaScript worker so Windows and Linux use the exact same runtime path.
+    const workerUrl = new URL("../workers/scanWorker.js", import.meta.url);
 
     let worker: Worker;
     try {
       worker = new Worker(workerUrl, {
         workerData: { config: session.config, type, pageSize: 20, personalPolicy: sessionStore.personalPolicy.snapshot() },
-        ...(isTypeScriptRuntime ? { execArgv: ["--import", "tsx"] } : {}),
       });
     } catch (error) {
       res.write(`event: scan-error\ndata: ${JSON.stringify({ message: `Could not start scan worker: ${(error as Error).message}` })}\n\n`);
