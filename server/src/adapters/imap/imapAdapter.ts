@@ -1,8 +1,9 @@
 import { ImapFlow } from "imapflow";
 import { createHash } from "node:crypto";
 import type { EmailAdapter, FetchPage, FolderDescriptor } from "../../canonical/adapter.js";
-import type { CanonicalEnvelope, NormalizedFolder, Provider } from "../../canonical/envelope.js";
+import type { CanonicalEnvelope, Provider } from "../../canonical/envelope.js";
 import { normalizeRawMessage } from "../../util/mimeNormalize.js";
+import { normalizeImapFolder, providerFolderPath } from "./folderNames.js";
 import {
   buildSyntheticRawMessage,
   decodeTextBuffer,
@@ -19,6 +20,7 @@ export interface ImapCredentials {
 
 const MAX_TEXT_PART_BYTES = 24 * 1024;
 const MIN_USEFUL_PLAIN_TEXT_CHARS = 80;
+const MIN_BOUNDED_VISIBLE_CHARS = 500;
 const CONNECT_TIMEOUT_MS = 25_000;
 const FOLDER_TIMEOUT_MS = 20_000;
 const LOCK_TIMEOUT_MS = 20_000;
@@ -49,10 +51,7 @@ export async function withImapDeadline<T>(
   const guard = new Promise<T>((_, reject) => {
     onAbort = () => reject(new DOMException("Aborted", "AbortError"));
     signal.addEventListener("abort", onAbort, { once: true });
-    timeout = setTimeout(
-      () => reject(new ImapCommandTimeoutError(stage, timeoutMs)),
-      timeoutMs,
-    );
+    timeout = setTimeout(() => reject(new ImapCommandTimeoutError(stage, timeoutMs)), timeoutMs);
   });
 
   try {
@@ -61,17 +60,6 @@ export async function withImapDeadline<T>(
     if (timeout) clearTimeout(timeout);
     if (onAbort) signal.removeEventListener("abort", onAbort);
   }
-}
-
-function normalizeFolderName(name: string): NormalizedFolder {
-  const lower = name.toLowerCase();
-  if (lower === "inbox") return "inbox";
-  if (/(junk|spam)/.test(lower)) return "spam";
-  if (/sent/.test(lower)) return "sent";
-  if (/draft/.test(lower)) return "drafts";
-  if (/trash|deleted/.test(lower)) return "trash";
-  if (/archive|all mail/.test(lower)) return "archive";
-  return "other";
 }
 
 interface ImapCursor { offset: number; uidValidity: string | null }
@@ -173,8 +161,13 @@ export class ImapAdapter implements EmailAdapter {
     const client = this.requireClient();
     const folders = await withImapDeadline(client.list(), signal, "folder discovery", FOLDER_TIMEOUT_MS);
     return folders.map((folder: any) => {
-      const normalized = normalizeFolderName(folder.specialUse ?? folder.name ?? folder.path);
-      return { providerFolderName: folder.path, normalized, includedByDefault: !["sent", "drafts", "trash"].includes(normalized) };
+      const providerFolderName = providerFolderPath(folder);
+      const normalized = normalizeImapFolder(folder);
+      return {
+        providerFolderName,
+        normalized,
+        includedByDefault: !["sent", "drafts", "trash"].includes(normalized),
+      };
     });
   }
 
@@ -213,9 +206,7 @@ export class ImapAdapter implements EmailAdapter {
         `metadata fetch for ${selected.length} messages in ${folder.providerFolderName}`,
         METADATA_TIMEOUT_MS,
       );
-      const metadataByUid = new Map<number, any>(
-        metadataMessages.map((message) => [Number(message.uid), message]),
-      );
+      const metadataByUid = new Map<number, any>(metadataMessages.map((message) => [Number(message.uid), message]));
 
       const envelopes: CanonicalEnvelope[] = [];
       for (const uid of selected) {
@@ -266,10 +257,19 @@ export class ImapAdapter implements EmailAdapter {
         envelope.attachments = selection.attachments;
         envelope.diagnostics.sizeBytes = Number(message?.size ?? syntheticRaw.length);
 
-        if (!body.trim() || truncated || parseNotes.length) {
+        const readableText = `${envelope.textPreview ?? ""} ${envelope.htmlSignals?.extractedText ?? ""}`.trim();
+        if (!body.trim() || parseNotes.length) {
           envelope.parseStatus = "partial";
-          if (truncated) parseNotes.push(`Readable text was bounded to ${MAX_TEXT_PART_BYTES} bytes.`);
+          envelope.diagnostics.contentCoverage = "insufficient";
           envelope.parseNotes.push(...parseNotes);
+        } else if (truncated) {
+          envelope.parseStatus = "partial";
+          envelope.diagnostics.contentCoverage = readableText.length >= MIN_BOUNDED_VISIBLE_CHARS
+            ? "bounded_sufficient"
+            : "insufficient";
+          envelope.parseNotes.push(`Readable text was bounded to ${MAX_TEXT_PART_BYTES} bytes.`);
+        } else {
+          envelope.diagnostics.contentCoverage = "complete";
         }
         envelopes.push(envelope);
       }
@@ -295,12 +295,7 @@ export class ImapAdapter implements EmailAdapter {
     const trash = (await this.listFolders(signal)).find((folder) => folder.normalized === "trash");
     if (!trash) throw new Error("No Trash folder found on this account.");
     for (const [folder, uids] of byFolder) {
-      const lock = await withImapDeadline(
-        client.getMailboxLock(folder),
-        signal,
-        `mailbox lock for ${folder}`,
-        LOCK_TIMEOUT_MS,
-      );
+      const lock = await withImapDeadline(client.getMailboxLock(folder), signal, `mailbox lock for ${folder}`, LOCK_TIMEOUT_MS);
       try {
         await withImapDeadline(
           client.messageMove(uids, trash.providerFolderName, { uid: true }) as Promise<any>,
