@@ -11,7 +11,12 @@ import {
   normalizeSenderAddress,
   normalizeSenderDomain,
 } from "../../server/src/workflows/blockAndCleanup.js";
-import { unsubscribeCapability, executeOneClickUnsubscribe } from "../../server/src/workflows/unsubscribe.js";
+import {
+  executeOneClickUnsubscribe,
+  isPublicNetworkAddress,
+  normalizeOneClickTarget,
+  unsubscribeCapability,
+} from "../../server/src/workflows/unsubscribe.js";
 import type { EmailAdapter } from "../../server/src/canonical/adapter.js";
 
 const CORPUS_DIR = join(import.meta.dirname, "../../fixtures/scam-corpus");
@@ -105,22 +110,60 @@ describe("unsubscribe", () => {
   it("prefers RFC 8058 one-click POST over a bare link when both are present", async () => {
     const raw = readFileSync(join(CORPUS_DIR, "newsletter_marketing_abuse/legit-plain.eml"), "utf-8");
     const envelope = await normalizeRawMessage(raw, { provider: "gmail", accountProof: "x", providerFolderName: "INBOX", normalizedFolder: "inbox", providerNativeId: "test-id" });
-    const cap = unsubscribeCapability(envelope);
-    expect(cap.method).toBe("one_click_post");
-    expect(cap.target).toBe("https://realnewsco.com/unsubscribe?one-click=true");
+    const capability = unsubscribeCapability(envelope);
+    expect(capability.method).toBe("one_click_post");
+    expect(capability.target).toBe("https://realnewsco.com/unsubscribe?one-click=true");
   });
 
-  it("falls back to link_only when List-Unsubscribe-Post is absent or not one-click", async () => {
+  it("does not auto-invoke a bare List-Unsubscribe link", async () => {
     const raw = readFileSync(join(CORPUS_DIR, "newsletter_marketing_abuse/malicious-plain.eml"), "utf-8");
     const envelope = await normalizeRawMessage(raw, { provider: "gmail", accountProof: "x", providerFolderName: "INBOX", normalizedFolder: "inbox", providerNativeId: "test-id" });
-    const cap = unsubscribeCapability(envelope);
-    expect(cap.method).toBe("link_only");
+    const capability = unsubscribeCapability(envelope);
+    expect(capability.method).toBe("link_only");
   });
 
-  it("executeOneClickUnsubscribe reports success only on 2xx", async () => {
-    const ok = await executeOneClickUnsubscribe("https://example.test/unsub", async () => ({ status: 200 }));
-    expect(ok.success).toBe(true);
-    const fail = await executeOneClickUnsubscribe("https://example.test/unsub", async () => ({ status: 500 }));
+  it("accepts only credential-free standard-port HTTPS one-click targets", () => {
+    expect(normalizeOneClickTarget(" https://example.test/unsub#fragment ")).toBe("https://example.test/unsub");
+    expect(() => normalizeOneClickTarget("http://example.test/unsub")).toThrow("requires HTTPS");
+    expect(() => normalizeOneClickTarget("https://user:secret@example.test/unsub")).toThrow("must not contain credentials");
+    expect(() => normalizeOneClickTarget("https://example.test:8443/unsub")).toThrow("standard HTTPS port");
+    expect(() => normalizeOneClickTarget("https://localhost/unsub")).toThrow("host is not allowed");
+  });
+
+  it("rejects private, loopback, link-local, and mapped network addresses", () => {
+    expect(isPublicNetworkAddress("8.8.8.8")).toBe(true);
+    expect(isPublicNetworkAddress("2606:4700:4700::1111")).toBe(true);
+    expect(isPublicNetworkAddress("127.0.0.1")).toBe(false);
+    expect(isPublicNetworkAddress("10.1.2.3")).toBe(false);
+    expect(isPublicNetworkAddress("169.254.169.254")).toBe(false);
+    expect(isPublicNetworkAddress("192.168.1.5")).toBe(false);
+    expect(isPublicNetworkAddress("::1")).toBe(false);
+    expect(isPublicNetworkAddress("fd00::1")).toBe(false);
+    expect(isPublicNetworkAddress("::ffff:127.0.0.1")).toBe(false);
+  });
+
+  it("passes only the normalized target to the injected POST and trusts only 2xx", async () => {
+    const calls: string[] = [];
+    const ok = await executeOneClickUnsubscribe("https://example.test/unsub#ignored", async (url) => {
+      calls.push(url);
+      return { status: 204 };
+    });
+    expect(calls).toEqual(["https://example.test/unsub"]);
+    expect(ok).toEqual({ success: true, status: 204, reason: undefined });
+
+    const fail = await executeOneClickUnsubscribe("https://example.test/unsub", async () => ({ status: 302 }));
     expect(fail.success).toBe(false);
+    expect(fail.reason).toContain("HTTP 302");
+  });
+
+  it("returns a visible reason for invalid targets and network failures", async () => {
+    const invalid = await executeOneClickUnsubscribe("http://localhost/unsub", async () => ({ status: 200 }));
+    expect(invalid.success).toBe(false);
+    expect(invalid.reason).toContain("requires HTTPS");
+
+    const failed = await executeOneClickUnsubscribe("https://example.test/unsub", async () => {
+      throw new Error("connection reset");
+    });
+    expect(failed).toEqual({ success: false, reason: "connection reset" });
   });
 });
