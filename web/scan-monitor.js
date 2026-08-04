@@ -11,6 +11,19 @@
     }
     .scan-monitor-status.error {color:#ff9a9f;border-color:rgba(226,61,79,.55)}
     .scan-monitor-status.complete {color:#3fb88a;border-color:rgba(63,184,138,.45)}
+    .scan-diagnostics {margin:10px 0 14px;border:1px solid #2a2f3a;border-radius:6px;background:rgba(255,255,255,.01)}
+    .scan-diagnostics summary {cursor:pointer;padding:9px 12px;color:#8b93a3;font-size:12px;user-select:none}
+    .scan-diagnostics-note {padding:0 12px 8px;color:#5b6272;font-size:11px}
+    .scan-diagnostics-scroll {overflow:auto;max-height:340px;border-top:1px solid #2a2f3a}
+    .scan-diagnostics table {width:100%;border-collapse:collapse;font-size:11px}
+    .scan-diagnostics th,.scan-diagnostics td {padding:7px 9px;border-bottom:1px solid #2a2f3a;text-align:left;vertical-align:top}
+    .scan-diagnostics th {position:sticky;top:0;background:#1b1f27;color:#8b93a3;font-weight:600}
+    .scan-diagnostics td {color:#c9ced8}
+    .scan-diagnostics .diag-safe {color:#3fb88a}
+    .scan-diagnostics .diag-review {color:#e8b23d}
+    .scan-diagnostics .diag-high_risk {color:#e8632e}
+    .scan-diagnostics .diag-confirmed_threat {color:#e23d4f}
+    .scan-diagnostics .diag-unknown {color:#8b93a3}
     @keyframes emailShieldSpin {to{transform:rotate(360deg)}}
   `;
   document.head.appendChild(style);
@@ -29,9 +42,28 @@
   status.textContent = 'Ready to scan.';
   counters.before(status);
 
+  const diagnostics = document.createElement('details');
+  diagnostics.id = 'scanDiagnosticAudit';
+  diagnostics.className = 'scan-diagnostics';
+  diagnostics.innerHTML = `
+    <summary>Diagnostic audit (0 messages)</summary>
+    <div class="scan-diagnostics-note">Local test view only. Shows metadata, verdicts, evidence codes, and parse notes—never message bodies, raw HTML, credentials, or attachment content.</div>
+    <div class="scan-diagnostics-scroll"><table>
+      <thead><tr><th>Verdict</th><th>Score</th><th>Subject</th><th>Sender</th><th>Parse</th><th>Evidence / notes</th></tr></thead>
+      <tbody></tbody>
+    </table></div>`;
+  cards.before(diagnostics);
+
   let source = null;
   let accountId = null;
   let receivedServerEvent = false;
+  let diagnosticRows = [];
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[character]);
+  }
 
   function setStatus(message, state = '') {
     status.textContent = message;
@@ -48,11 +80,32 @@
     source = null;
   }
 
+  function renderDiagnostics() {
+    diagnostics.querySelector('summary').textContent = `Diagnostic audit (${diagnosticRows.length} messages)`;
+    const tbody = diagnostics.querySelector('tbody');
+    tbody.innerHTML = diagnosticRows.map((item) => {
+      const evidence = item.evidenceCodes?.length ? item.evidenceCodes.join(', ') : 'none';
+      const notes = item.parseNotes?.length ? item.parseNotes.join(' | ') : 'none';
+      return `<tr>
+        <td class="diag-${escapeHtml(item.verdict)}">${escapeHtml(item.verdict)}</td>
+        <td>${escapeHtml(item.score)}</td>
+        <td>${escapeHtml(item.subject)}</td>
+        <td>${escapeHtml(item.fromAddress || item.fromDomain || 'unknown')}</td>
+        <td>${escapeHtml(item.parseStatus)}</td>
+        <td><strong>${escapeHtml(evidence)}</strong><br>${escapeHtml(notes)}</td>
+      </tr>`;
+    }).join('');
+  }
+
   function renderProgress(progress) {
     if (typeof window.renderCounters === 'function') window.renderCounters(progress.counters);
     else counters.textContent = `${progress.counters.examined} messages examined`;
 
     setStatus(`Scanning… ${progress.counters.examined} messages examined.`, 'running');
+    if (progress.diagnosticSummaries?.length) {
+      diagnosticRows.push(...progress.diagnosticSummaries);
+      renderDiagnostics();
+    }
     if (progress.suspiciousCards?.length && typeof window.renderCard === 'function') {
       cards.innerHTML = progress.suspiciousCards.map(window.renderCard).join('') + cards.innerHTML;
       if (typeof window.wireCardActions === 'function') window.wireCardActions();
@@ -69,6 +122,9 @@
     source?.close();
     counters.innerHTML = '';
     cards.innerHTML = '';
+    diagnosticRows = [];
+    diagnostics.open = false;
+    renderDiagnostics();
     stopButton.disabled = false;
     receivedServerEvent = false;
     setStatus(`Starting ${type} scan…`, 'running');

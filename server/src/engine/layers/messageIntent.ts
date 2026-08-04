@@ -1,13 +1,6 @@
 import type { CanonicalEnvelope } from "../../canonical/envelope.js";
 import type { LayerResult } from "../verdict.js";
 
-/**
- * Layer 3 — Message-intent analysis (spec Section 5).
- * Combined phrase + context rules only — spec explicitly forbids scoring
- * on a single keyword. Each rule below requires co-occurrence of an
- * "intent phrase" with a "pressure/action phrase" in the same message.
- */
-
 interface IntentRule {
   code: string;
   category: string;
@@ -101,13 +94,16 @@ const RULES: IntentRule[] = [
 ];
 
 export function messageIntentLayer(envelope: CanonicalEnvelope): LayerResult {
-  const haystack = `${envelope.subject}\n${envelope.textPreview ?? ""}\n${envelope.htmlSignals?.extractedText ?? ""}`;
+  const linkText = envelope.links
+    .map((link) => `${link.visibleText ?? ""}\n${link.rawUrl}`)
+    .join("\n");
+  const haystack = `${envelope.subject}\n${envelope.textPreview ?? ""}\n${envelope.htmlSignals?.extractedText ?? ""}\n${linkText}`;
   const evidence: LayerResult["evidence"] = [];
   const incomplete = envelope.textPreview === null && envelope.htmlSignals === null;
 
   for (const rule of RULES) {
-    const hasIntent = rule.intentPhrases.some((p) => p.test(haystack));
-    const hasPressure = rule.pressurePhrases.some((p) => p.test(haystack));
+    const hasIntent = rule.intentPhrases.some((pattern) => pattern.test(haystack));
+    const hasPressure = rule.pressurePhrases.some((pattern) => pattern.test(haystack));
     if (hasIntent && hasPressure) {
       evidence.push({
         layer: "message_intent",
@@ -119,12 +115,27 @@ export function messageIntentLayer(envelope: CanonicalEnvelope): LayerResult {
     }
   }
 
+  const romanceContext = /(?:let'?s meet|i(?:'|’)m waiting for you|meet me|private photos?|looking for someone|lonely)/i.test(haystack);
+  const profileAction = /(?:view|see|open|visit).{0,24}(?:my\s+)?(?:profile|photos?)/i.test(haystack);
+  const hasExternalLink = envelope.links.some((link) => /^https?:\/\//i.test(link.normalizedUrl || link.rawUrl));
+  const alreadyMatchedRomance = evidence.some((item) => item.code === "ROMANCE_ADULT_INTENT");
+
+  if (romanceContext && profileAction && hasExternalLink && !alreadyMatchedRomance) {
+    evidence.push({
+      layer: "message_intent",
+      code: "PROFILE_LURE_REDIRECT",
+      description: "Romance/profile lure directs the recipient to an external profile or photo link.",
+      scoreContribution: 3,
+      source: "local",
+    });
+  }
+
   return {
     layer: "message_intent",
     applicable: true,
     evidence,
     incomplete,
     incompleteReason: incomplete ? "No body text was available to analyze." : undefined,
-    blocksSafeVerdict: incomplete, // genuinely missing content — must not be presented as "safe"
+    blocksSafeVerdict: incomplete,
   };
 }
