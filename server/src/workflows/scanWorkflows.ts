@@ -1,4 +1,6 @@
 import type { EmailAdapter, FolderDescriptor } from "../canonical/adapter.js";
+import type { ParseStatus } from "../canonical/envelope.js";
+import type { Verdict } from "../engine/verdict.js";
 import type { PersonalPolicyStore } from "../engine/layers/personalRules.js";
 import type { ThreatFeedCache } from "../engine/layers/globalIntelligence.js";
 import { scanMessage, type ScanResult } from "../engine/pipeline.js";
@@ -31,10 +33,40 @@ function tally(counters: ScanCounters, result: ScanResult) {
   }
 }
 
+export interface ScanDiagnosticSummary {
+  subject: string;
+  fromAddress: string | null;
+  fromDomain: string | null;
+  folder: string;
+  verdict: Verdict;
+  score: number;
+  parseStatus: ParseStatus;
+  parseNotes: string[];
+  evidenceCodes: string[];
+}
+
+function diagnosticSummary(result: ScanResult): ScanDiagnosticSummary {
+  return {
+    subject: result.envelope.subject || "(no subject)",
+    fromAddress: result.envelope.from.address,
+    fromDomain: result.envelope.from.domain,
+    folder: result.envelope.providerFolderName,
+    verdict: result.scored.verdict,
+    score: result.scored.score,
+    parseStatus: result.envelope.parseStatus,
+    parseNotes: [...result.envelope.parseNotes],
+    evidenceCodes: result.scored.evidence
+      .filter((item) => item.scoreContribution !== 0)
+      .map((item) => item.code),
+  };
+}
+
 export interface ScanProgress {
   counters: ScanCounters;
-  /** Only warning+ verdicts are ever included here — spec: never render individual safe messages. */
+  /** Only warning+ verdicts are ever included here — never render individual Safe messages as normal cards. */
   suspiciousCards: ScanResult[];
+  /** Privacy-reduced local audit data: no message body, raw HTML, links, credentials, or attachment content. */
+  diagnosticSummaries: ScanDiagnosticSummary[];
   cursor: string | null;
   done: boolean;
 }
@@ -50,20 +82,16 @@ function isSuspicious(result: ScanResult): boolean {
 
 const DEFAULT_PAGE_SIZE = 50;
 
-/**
- * Quick Scan (spec 8.1): newest bounded set of messages, one page, no
- * automatic live link visits, cancellable mid-fetch.
- */
 export async function* quickScan(
   adapter: EmailAdapter,
   deps: ScanDeps,
   signal: AbortSignal,
-  pageSize = DEFAULT_PAGE_SIZE
+  pageSize = DEFAULT_PAGE_SIZE,
 ): AsyncGenerator<ScanProgress> {
   await adapter.connect(signal);
   try {
     const folders = await adapter.listFolders(signal);
-    const inbox = folders.find((f) => f.normalized === "inbox");
+    const inbox = folders.find((folder) => folder.normalized === "inbox");
     if (!inbox) {
       throw new Error(`Inbox folder was not found. Discovered folders: ${folders.map((folder) => folder.providerFolderName).join(", ") || "none"}.`);
     }
@@ -71,32 +99,27 @@ export async function* quickScan(
     const counters = emptyCounters();
     const page = await adapter.fetchPage(inbox, null, pageSize, signal);
     const suspiciousCards: ScanResult[] = [];
+    const diagnosticSummaries: ScanDiagnosticSummary[] = [];
 
     for (const envelope of page.envelopes) {
       if (signal.aborted) return;
       const result = scanMessage(envelope, deps);
       tally(counters, result);
+      diagnosticSummaries.push(diagnosticSummary(result));
       if (isSuspicious(result)) suspiciousCards.push(result);
     }
 
-    yield { counters, suspiciousCards, cursor: page.nextCursor, done: true };
+    yield { counters, suspiciousCards, diagnosticSummaries, cursor: page.nextCursor, done: true };
   } finally {
     await adapter.disconnect();
   }
 }
 
-/**
- * Full Mailbox Audit (spec 8.2): discovers folders lazily, excludes
- * Sent/Drafts/Trash by default, pages through everything with a resumable
- * cursor per folder, deduplicating by messageId across folders/labels,
- * yielding incremental progress after every page rather than blocking on
- * a full pre-count.
- */
 export async function* fullMailboxAudit(
   adapter: EmailAdapter,
   deps: ScanDeps,
   signal: AbortSignal,
-  opts: { includeExcludedFolders?: boolean; pageSize?: number; resumeCursors?: Record<string, string | null> } = {}
+  opts: { includeExcludedFolders?: boolean; pageSize?: number; resumeCursors?: Record<string, string | null> } = {},
 ): AsyncGenerator<ScanProgress & { folder: string }> {
   const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
   await adapter.connect(signal);
@@ -107,7 +130,7 @@ export async function* fullMailboxAudit(
     const allFolders = await adapter.listFolders(signal);
     const targetFolders: FolderDescriptor[] = opts.includeExcludedFolders
       ? allFolders
-      : allFolders.filter((f) => f.includedByDefault);
+      : allFolders.filter((folder) => folder.includedByDefault);
     if (targetFolders.length === 0) {
       throw new Error(`No eligible mailbox folders were found. Discovered folders: ${allFolders.map((folder) => folder.providerFolderName).join(", ") || "none"}.`);
     }
@@ -120,6 +143,7 @@ export async function* fullMailboxAudit(
         if (signal.aborted) return;
         const page = await adapter.fetchPage(folder, cursor, pageSize, signal);
         const suspiciousCards: ScanResult[] = [];
+        const diagnosticSummaries: ScanDiagnosticSummary[] = [];
 
         for (const envelope of page.envelopes) {
           if (signal.aborted) return;
@@ -127,12 +151,20 @@ export async function* fullMailboxAudit(
           seenMessageIds.add(envelope.messageId);
           const result = scanMessage(envelope, deps);
           tally(counters, result);
+          diagnosticSummaries.push(diagnosticSummary(result));
           if (isSuspicious(result)) suspiciousCards.push(result);
         }
 
         cursor = page.nextCursor;
         done = page.done;
-        yield { counters: { ...counters }, suspiciousCards, cursor, done: done && folder === targetFolders[targetFolders.length - 1], folder: folder.providerFolderName };
+        yield {
+          counters: { ...counters },
+          suspiciousCards,
+          diagnosticSummaries,
+          cursor,
+          done: done && folder === targetFolders[targetFolders.length - 1],
+          folder: folder.providerFolderName,
+        };
       }
     }
   } finally {
@@ -140,21 +172,16 @@ export async function* fullMailboxAudit(
   }
 }
 
-/**
- * Spam/Junk Scan (spec 8.3): only the Spam/Junk folder, same complete
- * engine as Inbox (never a weaker pass), batched fetch per page, never
- * renders every safe Junk message.
- */
 export async function* spamJunkScan(
   adapter: EmailAdapter,
   deps: ScanDeps,
   signal: AbortSignal,
-  pageSize = DEFAULT_PAGE_SIZE
+  pageSize = DEFAULT_PAGE_SIZE,
 ): AsyncGenerator<ScanProgress> {
   await adapter.connect(signal);
   try {
     const folders = await adapter.listFolders(signal);
-    const spam = folders.find((f) => f.normalized === "spam");
+    const spam = folders.find((folder) => folder.normalized === "spam");
     if (!spam) {
       throw new Error(`Spam/Junk folder was not found. Discovered folders: ${folders.map((folder) => folder.providerFolderName).join(", ") || "none"}.`);
     }
@@ -167,17 +194,19 @@ export async function* spamJunkScan(
       if (signal.aborted) return;
       const page = await adapter.fetchPage(spam, cursor, pageSize, signal);
       const suspiciousCards: ScanResult[] = [];
+      const diagnosticSummaries: ScanDiagnosticSummary[] = [];
 
       for (const envelope of page.envelopes) {
         if (signal.aborted) return;
         const result = scanMessage(envelope, deps);
         tally(counters, result);
+        diagnosticSummaries.push(diagnosticSummary(result));
         if (isSuspicious(result)) suspiciousCards.push(result);
       }
 
       cursor = page.nextCursor;
       done = page.done;
-      yield { counters: { ...counters }, suspiciousCards, cursor, done };
+      yield { counters: { ...counters }, suspiciousCards, diagnosticSummaries, cursor, done };
     }
   } finally {
     await adapter.disconnect();
