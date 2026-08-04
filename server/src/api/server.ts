@@ -55,8 +55,22 @@ export function createServer() {
         clearTimeout(timeout);
         await adapter.disconnect();
       }
+
       const session = sessionStore.create(provider, label ?? `${provider} (${mode})`, config);
-      res.json({ accountId: session.id, provider: session.provider, label: session.label, mode });
+      const policy = session.personalPolicy.snapshot();
+      res.json({
+        accountId: session.id,
+        provider: session.provider,
+        label: session.label,
+        mode,
+        personalPolicy: {
+          persistent: true,
+          blockedSenders: policy.blockedSenders.length,
+          blockedDomains: policy.blockedDomains.length,
+          trustedSenders: policy.trustedSenders.length,
+          approvedExceptions: policy.approvedExceptions.length,
+        },
+      });
     } catch (err) {
       res.status(502).json({ error: `Failed to connect: ${(err as Error).message}` });
     }
@@ -186,12 +200,29 @@ export function createServer() {
     const session = sessionStore.get(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
 
+    let address: string;
     try {
-      const address = normalizeSenderAddress((req.body as { address?: unknown }).address);
-      session.personalPolicy.blockSender(address);
-      res.json({ blocked: true, scope: "sender", value: address, accountId: session.id });
+      address = normalizeSenderAddress((req.body as { address?: unknown }).address);
     } catch (error) {
-      res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+      return res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+    }
+
+    const previous = session.personalPolicy.snapshot();
+    session.personalPolicy.blockSender(address);
+    try {
+      sessionStore.persistPersonalPolicy(session);
+      res.json({
+        blocked: true,
+        persisted: true,
+        scope: "sender",
+        value: address,
+        accountId: session.id,
+      });
+    } catch (error) {
+      session.personalPolicy.replace(previous);
+      res.status(500).json({
+        error: `Sender block was not saved: ${error instanceof Error ? error.message : String(error)}`,
+      });
     }
   });
 
@@ -199,19 +230,36 @@ export function createServer() {
     const session = sessionStore.get(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
 
+    let domain: string;
     try {
-      const domain = normalizeSenderDomain((req.body as { domain?: unknown }).domain);
-      session.personalPolicy.blockDomain(domain);
-      res.json({ blocked: true, scope: "domain", value: domain, accountId: session.id });
+      domain = normalizeSenderDomain((req.body as { domain?: unknown }).domain);
     } catch (error) {
-      res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+      return res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+    }
+
+    const previous = session.personalPolicy.snapshot();
+    session.personalPolicy.blockDomain(domain);
+    try {
+      sessionStore.persistPersonalPolicy(session);
+      res.json({
+        blocked: true,
+        persisted: true,
+        scope: "domain",
+        value: domain,
+        accountId: session.id,
+      });
+    } catch (error) {
+      session.personalPolicy.replace(previous);
+      res.status(500).json({
+        error: `Domain block was not saved: ${error instanceof Error ? error.message : String(error)}`,
+      });
     }
   });
 
   app.get("/api/accounts/:id/personal-policy", (req: Request, res: Response) => {
     const session = sessionStore.get(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
-    res.json(session.personalPolicy.snapshot());
+    res.json({ persistent: true, ...session.personalPolicy.snapshot() });
   });
 
   app.post("/api/accounts/:id/messages/trash", async (req: Request, res: Response) => {
