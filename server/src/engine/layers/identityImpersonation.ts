@@ -1,34 +1,51 @@
 import type { CanonicalEnvelope } from "../../canonical/envelope.js";
+import {
+  isKnownSenderRelay,
+  normalizeDomainName,
+  sameOrganizationalDomain,
+} from "../../util/domainRelation.js";
 import type { LayerResult } from "../verdict.js";
 
 /**
  * Layer 2 — Identity and impersonation (spec Section 5).
  * Detects display-name abuse, reply-to mismatch, and brand/domain mismatch
- * using an official-domain registry + punycode normalization + string
- * distance — never a bare keyword match.
+ * using an official-domain registry + normalized domain relationships.
  */
-
-// Minimal seed registry; production version should be data-driven and
-// expanded to cover every brand named in spec Section 6.
 export const OFFICIAL_BRAND_DOMAINS: Record<string, string[]> = {
   paypal: ["paypal.com"],
   apple: ["apple.com", "icloud.com"],
   google: ["google.com", "gmail.com"],
   microsoft: ["microsoft.com", "outlook.com", "live.com"],
   amazon: ["amazon.com"],
+  tiktok: ["tiktok.com"],
+  instagram: ["instagram.com"],
+  codecademy: ["codecademy.com"],
+  adobe: ["adobe.com"],
+  discord: ["discord.com"],
+  tumblr: ["tumblr.com"],
+  eventbrite: ["eventbrite.com"],
+  supabase: ["supabase.com", "supabase.io"],
+  xai: ["x.ai"],
+  alibaba: ["alibaba.com"],
+  foodpanda: ["foodpanda.com", "foodpanda.pk"],
+  glovo: ["glovoapp.com"],
+  sadapay: ["sadapay.pk"],
+  nayapay: ["nayapay.com"],
+  redotpay: ["redotpay.com"],
+  respondent: ["respondent.io"],
+  streamyard: ["streamyard.com"],
+  supercell: ["supercell.com"],
+  "clash royale": ["supercell.com"],
+  "iq option": ["iqoption.com"],
+  "tractor supply": ["tractorsupply.com"],
   "bank of america": ["bankofamerica.com"],
   chase: ["chase.com"],
   ups: ["ups.com"],
   fedex: ["fedex.com"],
   usps: ["usps.com"],
   docusign: ["docusign.net", "docusign.com"],
-  "irs": ["irs.gov"],
+  irs: ["irs.gov"],
 };
-
-function normalizeDomain(domain: string): string {
-  // Punycode-aware lowering; full IDNA handled by adapter normalization upstream.
-  return domain.trim().toLowerCase();
-}
 
 function levenshtein(a: string, b: string): number {
   const dp: number[][] = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
@@ -47,14 +64,22 @@ function levenshtein(a: string, b: string): number {
 export function claimedBrandFromText(text: string): string | null {
   const lower = text.toLowerCase();
   for (const brand of Object.keys(OFFICIAL_BRAND_DOMAINS)) {
-    // Word-boundary match only — naive substring matching false-positives on
-    // e.g. "chase" inside "purchased". \b alone doesn't handle multi-word
-    // brands cleanly, so use lookaround boundaries around the whole phrase.
     const escaped = brand.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const re = new RegExp(`(?<![a-z0-9])${escaped}(?![a-z0-9])`, "i");
     if (re.test(lower)) return brand;
   }
   return null;
+}
+
+export function isOfficialBrandSender(envelope: CanonicalEnvelope): boolean {
+  const claimedBrand =
+    claimedBrandFromText(envelope.from.displayName ?? "") ??
+    claimedBrandFromText(envelope.subject);
+  if (!claimedBrand || !envelope.from.domain) return false;
+  const senderDomain = normalizeDomainName(envelope.from.domain);
+  return OFFICIAL_BRAND_DOMAINS[claimedBrand]!.some(
+    (domain) => senderDomain === domain || senderDomain.endsWith(`.${domain}`),
+  );
 }
 
 export function identityImpersonationLayer(envelope: CanonicalEnvelope): LayerResult {
@@ -66,11 +91,11 @@ export function identityImpersonationLayer(envelope: CanonicalEnvelope): LayerRe
 
   if (claimedBrand && envelope.from.domain) {
     const officialDomains = OFFICIAL_BRAND_DOMAINS[claimedBrand]!;
-    const senderDomain = normalizeDomain(envelope.from.domain);
-    const isOfficial = officialDomains.some((d) => senderDomain === d || senderDomain.endsWith(`.${d}`));
+    const senderDomain = normalizeDomainName(envelope.from.domain);
+    const isOfficial = officialDomains.some((domain) => senderDomain === domain || senderDomain.endsWith(`.${domain}`));
 
-    if (!isOfficial) {
-      const closest = Math.min(...officialDomains.map((d) => levenshtein(senderDomain, d)));
+    if (!isOfficial && !isKnownSenderRelay(senderDomain)) {
+      const closest = Math.min(...officialDomains.map((domain) => levenshtein(senderDomain, domain)));
       const lookalike = closest > 0 && closest <= 3 && senderDomain.length > 3;
 
       evidence.push({
@@ -86,13 +111,16 @@ export function identityImpersonationLayer(envelope: CanonicalEnvelope): LayerRe
   }
 
   if (envelope.replyTo?.domain && envelope.from.domain) {
-    const fromDomain = normalizeDomain(envelope.from.domain);
-    const replyDomain = normalizeDomain(envelope.replyTo.domain);
-    if (fromDomain !== replyDomain) {
+    const fromDomain = normalizeDomainName(envelope.from.domain);
+    const replyDomain = normalizeDomainName(envelope.replyTo.domain);
+    const related = sameOrganizationalDomain(fromDomain, replyDomain);
+    const senderUsesRelay = isKnownSenderRelay(fromDomain);
+
+    if (!related && !senderUsesRelay) {
       evidence.push({
         layer: "identity_impersonation",
         code: "REPLY_TO_MISMATCH",
-        description: `Reply-To domain "${replyDomain}" differs from the From domain "${fromDomain}".`,
+        description: `Reply-To domain "${replyDomain}" is unrelated to the From domain "${fromDomain}".`,
         scoreContribution: 2,
         source: "local",
       });
