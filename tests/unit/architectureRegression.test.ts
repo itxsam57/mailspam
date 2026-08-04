@@ -13,9 +13,13 @@ describe("transport architecture regressions", () => {
     expect(server).toContain('res.on("close"');
     expect(server).not.toContain('req.on("close"');
   });
-  it("loads TypeScript scan workers explicitly in development", () => {
+  it("launches the compiled JavaScript worker on every platform", () => {
     const server = read("server/src/api/server.ts");
-    expect(server).toContain('execArgv: ["--import", "tsx"]');
+    const packageJson = read("server/package.json");
+    expect(server).toContain('new URL("../workers/scanWorker.js", import.meta.url)');
+    expect(server).not.toContain("scanWorker.ts");
+    expect(server).not.toContain('execArgv: ["--import", "tsx"]');
+    expect(packageJson).toContain('"dev": "npm run build && node dist/index.js"');
   });
   it("surfaces scan startup and failures in the dashboard", () => {
     const server = read("server/src/api/server.ts");
