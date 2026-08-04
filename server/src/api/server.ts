@@ -1,6 +1,7 @@
 import express from "express";
 import type { Request, Response } from "express";
 import { dirname, join } from "node:path";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { sessionStore } from "./sessionStore.js";
 import { createAdapter, type AdapterConfig } from "./adapterConfig.js";
@@ -18,6 +19,11 @@ export function createServer() {
 
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const webDir = join(__dirname, "../../../web");
+  const dashboardHtml = readFileSync(join(webDir, "index.html"), "utf8").replace(
+    "</body>",
+    '<script src="/scan-monitor.js"></script></body>',
+  );
+  app.get("/", (_req, res) => res.type("html").send(dashboardHtml));
   app.use(express.static(webDir));
 
   app.post("/api/accounts/connect", async (req: Request, res: Response) => {
