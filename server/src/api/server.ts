@@ -11,7 +11,11 @@ import {
   normalizeSenderAddress,
   normalizeSenderDomain,
 } from "../workflows/blockAndCleanup.js";
-import { executeOneClickUnsubscribe } from "../workflows/unsubscribe.js";
+import {
+  executeOneClickUnsubscribe,
+  normalizeOneClickTarget,
+  unsubscribeCapability,
+} from "../workflows/unsubscribe.js";
 import { analyzeLinks } from "../workflows/analyzeLinks.js";
 import { hardenedFetch } from "../util/hardenedFetch.js";
 import type { Provider } from "../canonical/envelope.js";
@@ -25,7 +29,7 @@ export function createServer() {
   const webDir = join(__dirname, "../../../web");
   const dashboardHtml = readFileSync(join(webDir, "index.html"), "utf8").replace(
     "</body>",
-    '<script src="/scan-monitor.js"></script></body>',
+    '<script src="/scan-monitor.js"></script><script src="/unsubscribe-monitor.js"></script></body>',
   );
   app.get("/", (_req, res) => res.type("html").send(dashboardHtml));
   app.use(express.static(webDir));
@@ -104,6 +108,7 @@ export function createServer() {
     if (!["quick", "full", "spam"].includes(type)) return res.status(400).json({ error: "Unknown scan type" });
     if (session.activeScanWorker) return res.status(409).json({ error: "A scan is already active" });
 
+    sessionStore.clearUnsubscribeActions(session);
     sseHeaders(res);
     res.flushHeaders();
     res.write(`event: scan-started\ndata: ${JSON.stringify({ type, provider: session.provider })}\n\n`);
@@ -148,7 +153,35 @@ export function createServer() {
     worker.on("message", (message) => {
       if (message.type === "status") writeEvent("scan-status", message.status);
       else if (message.type === "progress") {
-        if (!res.writableEnded && !res.destroyed) res.write(`data: ${JSON.stringify(message.progress)}\n\n`);
+        const progress = message.progress as { suspiciousCards?: any[] };
+        for (const result of progress.suspiciousCards ?? []) {
+          const capability = unsubscribeCapability(result.envelope);
+          if (capability.method === "one_click_post" && capability.target) {
+            try {
+              const target = normalizeOneClickTarget(capability.target);
+              result.unsubscribeAction = {
+                available: true,
+                method: "one_click_post",
+                ...sessionStore.registerUnsubscribeAction(
+                  session,
+                  target,
+                  result.envelope.providerNativeId,
+                ),
+              };
+            } catch {
+              result.unsubscribeAction = { available: false, method: "none" };
+            }
+          }
+
+          // The browser receives only an opaque action token. It never needs
+          // the provider-supplied destination URL to execute one-click POST.
+          result.envelope.listHeaders = {
+            listId: result.envelope.listHeaders?.listId ?? null,
+            listUnsubscribe: null,
+            listUnsubscribePost: null,
+          };
+        }
+        if (!res.writableEnded && !res.destroyed) res.write(`data: ${JSON.stringify(progress)}\n\n`);
       } else if (message.type === "complete") {
         terminalEventSent = true;
         writeEvent("scan-complete", {});
@@ -278,10 +311,45 @@ export function createServer() {
   });
 
   app.post("/api/accounts/:id/messages/unsubscribe", async (req: Request, res: Response) => {
-    const { method, target } = req.body as { method: string; target: string };
-    if (method !== "one_click_post") return res.json({ handledClientSide: true });
-    const result = await executeOneClickUnsubscribe(target, (url) => fetch(url, { method: "POST" }));
-    res.json(result);
+    const session = sessionStore.get(req.params.id!);
+    if (!session) return res.status(404).json({ error: "Unknown account" });
+
+    let action;
+    try {
+      action = sessionStore.resolveUnsubscribeAction(
+        session,
+        (req.body as { token?: unknown }).token,
+      );
+    } catch (error) {
+      return res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+    }
+
+    if (session.unsubscribedActionKeys.has(action.actionKey)) {
+      return res.json({
+        success: true,
+        alreadyUnsubscribed: true,
+        accountId: session.id,
+        actionKey: action.actionKey,
+      });
+    }
+
+    const result = await executeOneClickUnsubscribe(action.target);
+    if (!result.success) {
+      return res.status(502).json({
+        ...result,
+        error: result.reason ?? "The unsubscribe endpoint did not confirm success.",
+        accountId: session.id,
+        actionKey: action.actionKey,
+      });
+    }
+
+    sessionStore.markUnsubscribed(session, action.actionKey);
+    res.json({
+      ...result,
+      accountId: session.id,
+      actionKey: action.actionKey,
+      alreadyUnsubscribed: false,
+    });
   });
 
   app.post("/api/accounts/:id/messages/analyze-links", async (req: Request, res: Response) => {
