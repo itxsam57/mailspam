@@ -4,10 +4,13 @@ import type { IncomingMessage } from "node:http";
 import { isIP } from "node:net";
 import type { CanonicalEnvelope } from "../canonical/envelope.js";
 
+export type UnsubscribeMethod = "one_click_post" | "mailto" | "link_only" | "none";
+
 export interface UnsubscribeCapability {
   available: boolean;
-  method: "one_click_post" | "mailto" | "link_only" | "none";
+  method: UnsubscribeMethod;
   target: string | null;
+  source: "list_header" | "message_footer" | "none";
 }
 
 export interface OneClickUnsubscribeResult {
@@ -16,57 +19,106 @@ export interface OneClickUnsubscribeResult {
   reason?: string;
 }
 
-export interface OneClickPostResponse {
-  status: number;
-}
+export interface OneClickPostResponse { status: number }
 
 const ONE_CLICK_BODY = "List-Unsubscribe=One-Click";
-const MAX_TARGET_LENGTH = 2048;
+const MAX_TARGET_LENGTH = 4096;
 const REQUEST_TIMEOUT_MS = 10_000;
+const UNSUBSCRIBE_TEXT = /\b(?:unsubscribe|opt[ -]?out|stop emails?|email preferences?|manage (?:email )?preferences?|subscription settings)\b/i;
 
-/** Prefer RFC 8058 one-click POST. Bare links and mailto values are surfaced
- * for an explicit user-managed flow only; Email Shield never auto-opens them. */
+function headerTargets(raw: string | null): string[] {
+  if (!raw) return [];
+  const angleValues = [...raw.matchAll(/<([^>]+)>/g)].map((match) => match[1]!.trim());
+  if (angleValues.length) return angleValues;
+  return raw.split(",").map((value) => value.trim()).filter(Boolean);
+}
+
+function normalizedFooterTarget(envelope: CanonicalEnvelope): string | null {
+  for (const link of envelope.links) {
+    if (!UNSUBSCRIBE_TEXT.test(link.visibleText ?? "")) continue;
+    const target = link.normalizedUrl || link.rawUrl;
+    if (/^https?:\/\//i.test(target)) return target;
+  }
+  return null;
+}
+
+/**
+ * Every canonical provider uses this same capability resolver. RFC 8058 is
+ * preferred, but normal List-Unsubscribe links, mailto actions, and explicit
+ * footer unsubscribe links are also exposed to the user.
+ */
 export function unsubscribeCapability(envelope: CanonicalEnvelope): UnsubscribeCapability {
-  const { listUnsubscribe, listUnsubscribePost } = envelope.listHeaders;
-  if (!listUnsubscribe) return { available: false, method: "none", target: null };
+  const targets = headerTargets(envelope.listHeaders.listUnsubscribe);
+  const oneClickDeclared = /list-unsubscribe\s*=\s*one-click/i.test(
+    envelope.listHeaders.listUnsubscribePost ?? "",
+  );
 
-  const isOneClick = listUnsubscribePost?.toLowerCase().includes("one-click") ?? false;
-  const mailtoMatch = listUnsubscribe.match(/mailto:([^>\s,]+)/i);
-  const httpMatch = listUnsubscribe.match(/https?:\/\/[^>\s,]+/i);
+  const httpsTarget = targets.find((target) => /^https:\/\//i.test(target));
+  if (oneClickDeclared && httpsTarget) {
+    return { available: true, method: "one_click_post", target: httpsTarget, source: "list_header" };
+  }
 
-  if (isOneClick && httpMatch) {
-    return { available: true, method: "one_click_post", target: httpMatch[0] };
+  const webTarget = targets.find((target) => /^https?:\/\//i.test(target));
+  if (webTarget) {
+    return { available: true, method: "link_only", target: webTarget, source: "list_header" };
   }
-  if (httpMatch) {
-    return { available: true, method: "link_only", target: httpMatch[0] };
+
+  const mailtoTarget = targets.find((target) => /^mailto:/i.test(target));
+  if (mailtoTarget) {
+    return { available: true, method: "mailto", target: mailtoTarget, source: "list_header" };
   }
-  if (mailtoMatch) {
-    return { available: true, method: "mailto", target: mailtoMatch[1]! };
+
+  const footerTarget = normalizedFooterTarget(envelope);
+  if (footerTarget) {
+    return { available: true, method: "link_only", target: footerTarget, source: "message_footer" };
   }
-  return { available: false, method: "none", target: null };
+
+  return { available: false, method: "none", target: null, source: "none" };
+}
+
+function normalizeWebTarget(input: unknown, automatic: boolean): string {
+  if (typeof input !== "string") throw new Error("Unsubscribe target must be a string.");
+  const value = input.trim();
+  if (!value || value.length > MAX_TARGET_LENGTH) throw new Error("Unsubscribe target is empty or too long.");
+
+  let url: URL;
+  try { url = new URL(value); }
+  catch { throw new Error("Unsubscribe target is not a valid URL."); }
+
+  const allowedProtocols = automatic ? ["https:"] : ["https:", "http:"];
+  if (!allowedProtocols.includes(url.protocol)) {
+    throw new Error(automatic ? "One-click unsubscribe requires HTTPS." : "Unsubscribe page must use HTTP or HTTPS.");
+  }
+  if (url.username || url.password) throw new Error("Unsubscribe target must not contain credentials.");
+  if (automatic && url.port && url.port !== "443") throw new Error("One-click unsubscribe must use the standard HTTPS port.");
+  if (!automatic && url.port && !["80", "443"].includes(url.port)) throw new Error("Unsubscribe page uses an unsupported network port.");
+  if (!url.hostname || url.hostname === "localhost" || url.hostname.endsWith(".local")) {
+    throw new Error("Unsubscribe target host is not allowed.");
+  }
+  if (isIP(url.hostname) && !isPublicNetworkAddress(url.hostname)) {
+    throw new Error("Unsubscribe target points to a non-public address.");
+  }
+  url.hash = "";
+  return url.toString();
 }
 
 export function normalizeOneClickTarget(input: unknown): string {
-  if (typeof input !== "string") throw new Error("Unsubscribe target must be a string.");
+  return normalizeWebTarget(input, true);
+}
+
+export function normalizeManualUnsubscribeTarget(method: "link_only" | "mailto", input: unknown): string {
+  if (method === "link_only") return normalizeWebTarget(input, false);
+  if (typeof input !== "string") throw new Error("Mail unsubscribe target must be a string.");
   const value = input.trim();
-  if (!value || value.length > MAX_TARGET_LENGTH) {
-    throw new Error("Unsubscribe target is empty or too long.");
+  if (!value || value.length > MAX_TARGET_LENGTH || /[\r\n]/.test(value)) {
+    throw new Error("Mail unsubscribe target is invalid.");
   }
-
   let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error("Unsubscribe target is not a valid URL.");
+  try { url = new URL(value); }
+  catch { throw new Error("Mail unsubscribe target is invalid."); }
+  if (url.protocol !== "mailto:" || !url.pathname.includes("@")) {
+    throw new Error("Mail unsubscribe target is invalid.");
   }
-
-  if (url.protocol !== "https:") throw new Error("One-click unsubscribe requires HTTPS.");
-  if (url.username || url.password) throw new Error("Unsubscribe target must not contain credentials.");
-  if (url.port && url.port !== "443") throw new Error("Unsubscribe target must use the standard HTTPS port.");
-  if (!url.hostname || url.hostname.endsWith(".local") || url.hostname === "localhost") {
-    throw new Error("Unsubscribe target host is not allowed.");
-  }
-  url.hash = "";
   return url.toString();
 }
 
@@ -89,8 +141,7 @@ function isPrivateIpv6(address: string): boolean {
   if (value === "::" || value === "::1") return true;
   if (value.startsWith("fc") || value.startsWith("fd")) return true;
   if (/^fe[89ab]/.test(value)) return true;
-  if (value.startsWith("ff")) return true;
-  if (value.startsWith("2001:db8:")) return true;
+  if (value.startsWith("ff") || value.startsWith("2001:db8:")) return true;
   const mapped = value.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
   return mapped ? isPrivateIpv4(mapped[1]!) : false;
 }
@@ -107,16 +158,12 @@ async function resolvePinnedPublicAddress(hostname: string): Promise<{ address: 
     if (!isPublicNetworkAddress(hostname)) throw new Error("Unsubscribe target resolves to a non-public address.");
     return { address: hostname, family: isIP(hostname) as 4 | 6 };
   }
-
   const answers = await lookup(hostname, { all: true, verbatim: true });
   const selected = answers.find((answer) => isPublicNetworkAddress(answer.address));
   if (!selected) throw new Error("Unsubscribe target did not resolve to a public address.");
   return { address: selected.address, family: selected.family as 4 | 6 };
 }
 
-/** Sends the exact RFC 8058 form body to a DNS-pinned public HTTPS endpoint.
- * Redirects are deliberately not followed because changing destinations or
- * methods would no longer be the message-authorized one-click action. */
 export async function postRfc8058OneClick(target: string): Promise<OneClickPostResponse> {
   const normalized = normalizeOneClickTarget(target);
   const url = new URL(normalized);
@@ -140,9 +187,7 @@ export async function postRfc8058OneClick(target: string): Promise<OneClickPostR
       path: `${url.pathname}${url.search}`,
       method: "POST",
       servername: url.hostname,
-      lookup: ((_hostname: string, _options: unknown, callback: (error: Error | null, address: string, family: number) => void) => {
-        callback(null, pinned.address, pinned.family);
-      }) as any,
+      lookup: ((_hostname: string, _options: unknown, callback: (error: Error | null, address: string, family: number) => void) => callback(null, pinned.address, pinned.family)) as any,
       headers: {
         Host: url.host,
         "User-Agent": "EmailShieldUnsubscribe/1.0",
@@ -157,10 +202,7 @@ export async function postRfc8058OneClick(target: string): Promise<OneClickPostR
       response.once("error", (error) => finish(() => reject(error)));
     });
 
-    totalTimer = setTimeout(() => {
-      req.destroy(new Error(`One-click unsubscribe exceeded ${REQUEST_TIMEOUT_MS}ms deadline.`));
-    }, REQUEST_TIMEOUT_MS);
-
+    totalTimer = setTimeout(() => req.destroy(new Error(`One-click unsubscribe exceeded ${REQUEST_TIMEOUT_MS}ms deadline.`)), REQUEST_TIMEOUT_MS);
     req.once("error", (error) => finish(() => reject(error)));
     req.end(body);
   });
@@ -171,11 +213,8 @@ export async function executeOneClickUnsubscribe(
   postImpl: (url: string) => Promise<OneClickPostResponse> = postRfc8058OneClick,
 ): Promise<OneClickUnsubscribeResult> {
   let normalized: string;
-  try {
-    normalized = normalizeOneClickTarget(target);
-  } catch (error) {
-    return { success: false, reason: error instanceof Error ? error.message : String(error) };
-  }
+  try { normalized = normalizeOneClickTarget(target); }
+  catch (error) { return { success: false, reason: error instanceof Error ? error.message : String(error) }; }
 
   try {
     const response = await postImpl(normalized);

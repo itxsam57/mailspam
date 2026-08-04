@@ -93,11 +93,18 @@ const RULES: IntentRule[] = [
   },
 ];
 
+const FREE_MAIL_DOMAINS = new Set([
+  "gmail.com", "googlemail.com", "yahoo.com", "outlook.com", "hotmail.com", "live.com", "icloud.com",
+]);
+
+function pushUnique(evidence: LayerResult["evidence"], item: LayerResult["evidence"][number]) {
+  if (!evidence.some((existing) => existing.code === item.code)) evidence.push(item);
+}
+
 export function messageIntentLayer(envelope: CanonicalEnvelope): LayerResult {
-  const linkText = envelope.links
-    .map((link) => `${link.visibleText ?? ""}\n${link.rawUrl}`)
-    .join("\n");
+  const linkText = envelope.links.map((link) => `${link.visibleText ?? ""}\n${link.rawUrl}`).join("\n");
   const haystack = `${envelope.subject}\n${envelope.textPreview ?? ""}\n${envelope.htmlSignals?.extractedText ?? ""}\n${linkText}`;
+  const subject = envelope.subject.trim();
   const evidence: LayerResult["evidence"] = [];
   const incomplete = envelope.textPreview === null && envelope.htmlSignals === null;
 
@@ -115,17 +122,83 @@ export function messageIntentLayer(envelope: CanonicalEnvelope): LayerResult {
     }
   }
 
+  // A support or webinar message can contain the words "subscription" and a
+  // phone number without being a callback scam. Require a commerce/refund
+  // subject or explicit unauthorized/call-now language before retaining it.
+  const callbackIndex = evidence.findIndex((item) => item.code === "CALLBACK_SCAM_INTENT");
+  if (callbackIndex >= 0) {
+    const callbackContext =
+      /(?:invoice|order|purchase|payment|refund|auto[- ]?debit|subscription).{0,80}(?:call|\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}|not authorize)/i.test(haystack) ||
+      /(?:call|not authorize).{0,80}(?:invoice|order|purchase|payment|refund|subscription)/i.test(haystack) ||
+      /(?:invoice|order|payment|refund|auto[- ]?debit)/i.test(subject);
+    if (!callbackContext) evidence.splice(callbackIndex, 1);
+  }
+
   const romanceContext = /(?:let'?s meet|i(?:'|’)m waiting for you|meet me|private photos?|looking for someone|lonely)/i.test(haystack);
   const profileAction = /(?:view|see|open|visit).{0,24}(?:my\s+)?(?:profile|photos?)/i.test(haystack);
   const hasExternalLink = envelope.links.some((link) => /^https?:\/\//i.test(link.normalizedUrl || link.rawUrl));
   const alreadyMatchedRomance = evidence.some((item) => item.code === "ROMANCE_ADULT_INTENT");
 
   if (romanceContext && profileAction && hasExternalLink && !alreadyMatchedRomance) {
-    evidence.push({
+    pushUnique(evidence, {
       layer: "message_intent",
       code: "PROFILE_LURE_REDIRECT",
       description: "Romance/profile lure directs the recipient to an external profile or photo link.",
       scoreContribution: 3,
+      source: "local",
+    });
+  }
+
+  const fromDomain = envelope.from.domain ?? "";
+  const firstContactFreeMail = envelope.threadContext.isFirstContact && FREE_MAIL_DOMAINS.has(fromDomain);
+  if (
+    firstContactFreeMail &&
+    /(?:meet new people|wanna see (?:my )?photos?|see photos? me|free right now|how can i contact you|what if i said i want you|do you like to meet|\bdates?\b|actual person)/i.test(subject)
+  ) {
+    pushUnique(evidence, {
+      layer: "message_intent",
+      code: "UNSOLICITED_ROMANCE_LURE",
+      description: "A first-contact personal email account uses a romance or private-photo lure.",
+      scoreContribution: 2,
+      source: "local",
+    });
+  }
+
+  if (
+    /(?:evaluator|mystery|intel|insta)?\s*shopper|driving your own car/i.test(haystack) &&
+    /(?:earn|\$[4-9]\d{2}|per assignment|bonus)/i.test(haystack)
+  ) {
+    pushUnique(evidence, {
+      layer: "message_intent",
+      code: "UNSOLICITED_HIGH_PAY_JOB",
+      description: "Unsolicited evaluator/shopper work promises unusually high payment.",
+      scoreContribution: 3,
+      source: "local",
+    });
+  }
+
+  if (
+    firstContactFreeMail &&
+    /(?:your order|order received|invoice|receipt confirmation|payment confirmation|account reset)/i.test(subject)
+  ) {
+    pushUnique(evidence, {
+      layer: "message_intent",
+      code: "COMMERCE_NOTICE_FROM_FREE_MAIL",
+      description: "An unrelated personal email address sent an order, invoice, payment, or account notice.",
+      scoreContribution: 2,
+      source: "local",
+    });
+  }
+
+  if (
+    envelope.threadContext.isFirstContact &&
+    /(?:flash reward|claim yours|free (?:medicare )?(?:kit|tool set|gift|reward)|claim your free)/i.test(subject)
+  ) {
+    pushUnique(evidence, {
+      layer: "message_intent",
+      code: "FREE_REWARD_LURE",
+      description: "First-contact message advertises an unsolicited free reward or claim.",
+      scoreContribution: 2,
       source: "local",
     });
   }

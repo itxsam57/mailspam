@@ -63,7 +63,7 @@ describe("transport architecture regressions", () => {
     expect(monitor).toContain("result.blocked !== true || result.scope !== scope || result.accountId !== id");
   });
 
-  it("uses opaque server-issued tokens for one-click unsubscribe", () => {
+  it("uses opaque tokens for every unsubscribe method", () => {
     const server = read("server/src/api/server.ts");
     const sessions = read("server/src/api/sessionStore.ts");
     const workflow = read("server/src/workflows/unsubscribe.ts");
@@ -71,18 +71,41 @@ describe("transport architecture regressions", () => {
 
     expect(server).toContain("registerUnsubscribeAction");
     expect(server).toContain("resolveUnsubscribeAction");
+    expect(server).toContain("normalizeManualUnsubscribeTarget");
+    expect(server).toContain("manualAction: true");
     expect(server).toContain("result.envelope.listHeaders =");
     expect(server).toContain("listUnsubscribe: null");
     expect(server).not.toContain("const { method, target } = req.body");
     expect(sessions).toContain("UNSUBSCRIBE_ACTION_TTL_MS");
     expect(sessions).toContain("unsubscribeActions: new Map()");
     expect(workflow).toContain('const ONE_CLICK_BODY = "List-Unsubscribe=One-Click"');
-    expect(workflow).toContain('url.protocol !== "https:"');
+    expect(workflow).toContain("normalizedFooterTarget");
     expect(workflow).toContain("resolvePinnedPublicAddress");
     expect(workflow).not.toContain('fetch(url, { method: "POST" })');
     expect(monitor).toContain("body: JSON.stringify({ token })");
-    expect(monitor).not.toContain("target:");
+    expect(monitor).toContain("Open unsubscribe page");
+    expect(monitor).toContain("Email unsubscribe request");
     expect(monitor).toContain("Matching duplicate buttons were synchronized");
+  });
+
+  it("normalizes IMAP paths and special-use tokens before selecting INBOX", () => {
+    const adapter = read("server/src/adapters/imap/imapAdapter.ts");
+    const folders = read("server/src/adapters/imap/folderNames.ts");
+    expect(adapter).toContain("normalizeImapFolder(folder)");
+    expect(adapter).toContain("providerFolderPath(folder)");
+    expect(folders).toContain('value === "inbox"');
+    expect(folders).toContain('replace(/^\\\\+/, "")');
+  });
+
+  it("distinguishes bounded sufficient content from missing content", () => {
+    const adapter = read("server/src/adapters/imap/imapAdapter.ts");
+    const pipeline = read("server/src/engine/pipeline.ts");
+    const verdict = read("server/src/engine/verdict.ts");
+    expect(adapter).toContain('"bounded_sufficient"');
+    expect(adapter).toContain("MIN_BOUNDED_VISIBLE_CHARS");
+    expect(pipeline).toContain("boundedContentAllowsSafe");
+    expect(pipeline).toContain("authenticationPassed");
+    expect(verdict).toContain("boundedContentAllowsSafe");
   });
 
   it("uses stage-specific IMAP deadlines and force-closes stalled logout sockets", () => {

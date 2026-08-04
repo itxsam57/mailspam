@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { Worker } from "node:worker_threads";
 import { InMemoryPersonalPolicyStore } from "../engine/layers/personalRules.js";
 import type { ThreatFeedCache } from "../engine/layers/globalIntelligence.js";
+import type { UnsubscribeMethod } from "../workflows/unsubscribe.js";
 import type { AdapterConfig } from "./adapterConfig.js";
 import {
   EncryptedFilePolicyRepository,
@@ -12,6 +13,7 @@ import {
 export interface RegisteredUnsubscribeAction {
   token: string;
   actionKey: string;
+  method: Exclude<UnsubscribeMethod, "none">;
   target: string;
   providerNativeId: string;
   createdAt: number;
@@ -39,9 +41,7 @@ export class SessionStore {
   private unsubscribeHistories = new Map<string, Set<string>>();
   readonly threatFeed = emptyFeed;
 
-  constructor(
-    private readonly policyRepository: PersonalPolicyRepository = new EncryptedFilePolicyRepository(),
-  ) {}
+  constructor(private readonly policyRepository: PersonalPolicyRepository = new EncryptedFilePolicyRepository()) {}
 
   create(provider: string, label: string, config: AdapterConfig): AccountSession {
     const accountKey = policyAccountKey(config);
@@ -77,18 +77,11 @@ export class SessionStore {
     this.policyRepository.save(session.policyAccountKey, session.personalPolicy.snapshot());
   }
 
-  mutateAndPersistPersonalPolicy(
-    session: AccountSession,
-    mutation: (policy: InMemoryPersonalPolicyStore) => void,
-  ): void {
+  mutateAndPersistPersonalPolicy(session: AccountSession, mutation: (policy: InMemoryPersonalPolicyStore) => void): void {
     const previous = session.personalPolicy.snapshot();
     mutation(session.personalPolicy);
-    try {
-      this.persistPersonalPolicy(session);
-    } catch (error) {
-      session.personalPolicy.replace(previous);
-      throw error;
-    }
+    try { this.persistPersonalPolicy(session); }
+    catch (error) { session.personalPolicy.replace(previous); throw error; }
   }
 
   clearUnsubscribeActions(session: AccountSession): void {
@@ -97,17 +90,19 @@ export class SessionStore {
 
   registerUnsubscribeAction(
     session: AccountSession,
+    method: Exclude<UnsubscribeMethod, "none">,
     target: string,
     providerNativeId: string,
   ): { token: string; actionKey: string; alreadyUnsubscribed: boolean } {
     if (session.unsubscribeActions.size >= MAX_UNSUBSCRIBE_ACTIONS) {
       throw new Error("Too many unsubscribe actions are registered for this scan.");
     }
-    const actionKey = createHash("sha256").update(target).digest("hex");
+    const actionKey = createHash("sha256").update(`${method}\n${target}`).digest("hex");
     const token = randomUUID();
     session.unsubscribeActions.set(token, {
       token,
       actionKey,
+      method,
       target,
       providerNativeId,
       createdAt: Date.now(),
@@ -115,7 +110,7 @@ export class SessionStore {
     return {
       token,
       actionKey,
-      alreadyUnsubscribed: session.unsubscribedActionKeys.has(actionKey),
+      alreadyUnsubscribed: method === "one_click_post" && session.unsubscribedActionKeys.has(actionKey),
     };
   }
 
@@ -136,13 +131,8 @@ export class SessionStore {
     session.unsubscribedActionKeys.add(actionKey);
   }
 
-  get(id: string): AccountSession | undefined {
-    return this.sessions.get(id);
-  }
-
-  list(): AccountSession[] {
-    return [...this.sessions.values()];
-  }
+  get(id: string): AccountSession | undefined { return this.sessions.get(id); }
+  list(): AccountSession[] { return [...this.sessions.values()]; }
 
   async remove(id: string): Promise<void> {
     const session = this.sessions.get(id);
