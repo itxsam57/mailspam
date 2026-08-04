@@ -1,54 +1,85 @@
 # Email Shield — Milestone 1
 
 Local-first email scam detection engine. Runs entirely on your machine; no
-message content is ever sent anywhere.
+message content is sent to Email Shield servers.
 
 ## Run it
 
 ```bash
 npm install
-npm run test          # full test suite (22 tests, includes 56-fixture scam corpus x 5 providers)
-npm run dev            # starts the server + dashboard at http://localhost:4173
+npm run verify
+npm run dev
 ```
 
-Open http://localhost:4173, click **Connect** with "Fixture demo mailbox"
-selected (no credentials needed) — this loads the synthetic scam corpus so
-you can see the whole engine working immediately. Click **Quick Scan** to
-see it flag the malicious fixtures live.
+Open `http://127.0.0.1:4173`. Fixture mode loads the synthetic scam corpus
+without credentials. Live mode connects directly from your computer to the
+selected mail provider.
 
-## Connecting your real inbox
+## Connecting a real mailbox
 
-Select "Live account" and the provider. Credentials needed:
+- **iCloud / Yahoo**: email address plus an app-specific password.
+- **Generic IMAP**: host, port, username and app password.
+- **Gmail / Outlook**: the adapters support OAuth credentials, but the guided
+  browser OAuth onboarding flow is not exposed in the dashboard yet.
 
-- **Gmail**: OAuth `clientId` / `clientSecret` / `refreshToken` with
-  `gmail.readonly` (+ `gmail.modify` if you want the Trash action) scopes.
-- **Outlook**: Azure app registration `clientId` / `clientSecret` /
-  `tenantId` / `refreshToken` with `Mail.ReadWrite` scope.
-- **iCloud / Yahoo**: your email address + an **app-specific password**
-  (not your account password — both providers require this for IMAP).
-- **Generic IMAP**: host/port/user/app-password for any other provider.
+The iCloud IMAP path has been exercised against a real Junk folder on Windows,
+including bounded MIME text retrieval, scan cancellation, one-message Trash,
+Block sender, Block domain and repeated rescans.
 
-This sandbox couldn't test these against real mailboxes (no live
-credentials, and network egress here is locked to package registries) — the
-adapters are fully implemented and type-checked, but exercising them
-against your actual inbox is the first real-world test.
+## Local policy persistence
 
-## What's built (Milestone 1)
+Personal rules now survive application restarts and mailbox reconnection.
+Email Shield stores only these rule lists:
 
-- 9 of 11 detection layers (destination classification is correctly gated
-  to the explicit "Analyze Links" action only, never automatic — see
-  `server/src/engine/layers/destinationClassification.ts`)
-- Shared canonical MIME normalizer used identically by all 5 providers
-- Quick / Full Mailbox / Spam scans with real cancellation, cursors, dedup
-- Block sender/domain, batched Trash moves, RFC 8058 one-click unsubscribe
-- Developer Testing Suite (`GET /api/dev/test-suite`, also a dashboard button)
-- 56-fixture synthetic scam corpus, all 16 categories from spec Section 6
+- blocked sender addresses
+- blocked sender domains
+- trusted sender addresses
+- approved exceptions
 
-## Known limitations to flag before Milestone 2
+The rules are stored in an AES-256-GCM encrypted file under:
 
-- Live adapters are untested against real mailboxes (see above)
-- Destination classification's hardened resolver (`hardenedFetch.ts`) is
-  implemented but untested against real URLs for the same reason
-- QR code decoding is stubbed behind an injectable `decodeQr` function —
-  no real image/QR library is wired in yet
-- Community reporting aggregation (Layer 10) is explicitly Milestone 2 scope
+```text
+~/.email-shield/personal-policies.enc.json
+```
+
+A random 32-byte local key is stored separately at:
+
+```text
+~/.email-shield/personal-policy.key
+```
+
+On Windows, `~` means the current Windows user profile directory. The storage
+location can be overridden with `EMAIL_SHIELD_DATA_DIR`.
+
+Mailbox passwords, app passwords, email bodies, subjects, scan results,
+provider message IDs and attachment content are not written to this policy
+store. The mailbox lookup identity is SHA-256 hashed before it is used as a
+record key.
+
+The local key protects against accidental plaintext disclosure. It is not a
+replacement for full-disk encryption or operating-system account security.
+
+## What's built
+
+- Shared canonical MIME normalization across all provider adapters
+- Quick, Full Mailbox and Spam/Junk scans
+- Killable scan Workers and one safe retry for early transient IMAP timeouts
+- Stage-specific IMAP timeout diagnostics
+- Selective bounded `text/plain` / `text/html` retrieval without attachment bodies
+- Account-scoped persistent Block sender and Block domain rules
+- Reversible provider Trash moves with exact-one-message verification
+- RFC 8058 one-click unsubscribe workflow
+- Privacy-reduced local diagnostic audit
+- Developer Testing Suite and synthetic multi-provider scam corpus
+
+## Known limitations before production Milestone 1 completion
+
+- Gmail and Outlook still need guided OAuth onboarding and real-account validation.
+- The encrypted policy key is local-file protected rather than stored in the OS keychain.
+- Two legitimate-looking iCloud messages remain Unknown because their readable text
+  exceeds the bounded extraction limit and no reliable evidence is available.
+- Hardened destination analysis still needs controlled real-URL testing.
+- QR decoding remains behind an injectable interface without a production decoder.
+- API session authentication and CSRF protection are not implemented yet; the server
+  therefore binds to localhost by default.
+- Community reporting aggregation remains Milestone 2 scope.
