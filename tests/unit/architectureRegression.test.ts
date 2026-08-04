@@ -13,6 +13,7 @@ describe("transport architecture regressions", () => {
     expect(server).toContain('res.on("close"');
     expect(server).not.toContain('req.on("close"');
   });
+
   it("launches the compiled JavaScript worker on every platform", () => {
     const server = read("server/src/api/server.ts");
     const packageJson = read("server/package.json");
@@ -21,6 +22,7 @@ describe("transport architecture regressions", () => {
     expect(server).not.toContain('execArgv: ["--import", "tsx"]');
     expect(packageJson).toContain('"dev": "npm run build && node dist/index.js"');
   });
+
   it("surfaces scan startup and failures in the dashboard", () => {
     const server = read("server/src/api/server.ts");
     const monitor = read("web/scan-monitor.js");
@@ -29,16 +31,30 @@ describe("transport architecture regressions", () => {
     expect(monitor).toContain("scanMonitorStatus");
     expect(monitor).toContain("Could not open the scan stream");
   });
-  it("does not fetch unrestricted complete IMAP sources", () => {
+
+  it("fetches bounded readable IMAP parts instead of raw messages or attachment bodies", () => {
     const imap = read("server/src/adapters/imap/imapAdapter.ts");
     expect(imap).not.toContain("source: true");
-    expect(imap).toContain("MAX_MESSAGE_PREFIX_BYTES");
+    expect(imap).not.toContain("MAX_MESSAGE_PREFIX_BYTES");
+    expect(imap).toContain("bodyStructure: true");
+    expect(imap).toContain("headers: true");
+    expect(imap).toContain("client.download(uid, part");
+    expect(imap).toContain("maxBytes: MAX_TEXT_PART_BYTES");
+    expect(imap).not.toContain("downloadMany");
   });
+
+  it("completes metadata fetches before issuing text-part downloads", () => {
+    const imap = read("server/src/adapters/imap/imapAdapter.ts");
+    expect(imap).toContain("client.fetchAll(selected");
+    expect(imap).not.toContain("for await (const message of client.fetch");
+  });
+
   it("does not invent UID ranges from uidNext", () => {
     const imap = read("server/src/adapters/imap/imapAdapter.ts");
     expect(imap).not.toContain("uidNext -");
     expect(imap).toContain("client.search({ all: true }");
   });
+
   it("keeps Microsoft continuation URLs opaque", () => {
     const outlook = read("server/src/adapters/outlook/outlookAdapter.ts");
     expect(outlook).not.toContain('searchParams.get("$skiptoken")');
