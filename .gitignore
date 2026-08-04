@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+.vitest/
+.env
+.env.*
+!.env.example
+*.log
+npm-debug.log*
+test-report.json
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
