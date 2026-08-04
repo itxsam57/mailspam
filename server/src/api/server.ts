@@ -13,6 +13,7 @@ import {
 } from "../workflows/blockAndCleanup.js";
 import {
   executeOneClickUnsubscribe,
+  normalizeManualUnsubscribeTarget,
   normalizeOneClickTarget,
   unsubscribeCapability,
 } from "../workflows/unsubscribe.js";
@@ -75,8 +76,8 @@ export function createServer() {
           approvedExceptions: policy.approvedExceptions.length,
         },
       });
-    } catch (err) {
-      res.status(502).json({ error: `Failed to connect: ${(err as Error).message}` });
+    } catch (error) {
+      res.status(502).json({ error: `Failed to connect: ${(error as Error).message}` });
     }
   });
 
@@ -156,14 +157,18 @@ export function createServer() {
         const progress = message.progress as { suspiciousCards?: any[] };
         for (const result of progress.suspiciousCards ?? []) {
           const capability = unsubscribeCapability(result.envelope);
-          if (capability.method === "one_click_post" && capability.target) {
+          if (capability.available && capability.method !== "none" && capability.target) {
             try {
-              const target = normalizeOneClickTarget(capability.target);
+              const target = capability.method === "one_click_post"
+                ? normalizeOneClickTarget(capability.target)
+                : normalizeManualUnsubscribeTarget(capability.method, capability.target);
               result.unsubscribeAction = {
                 available: true,
-                method: "one_click_post",
+                method: capability.method,
+                source: capability.source,
                 ...sessionStore.registerUnsubscribeAction(
                   session,
+                  capability.method,
                   target,
                   result.envelope.providerNativeId,
                 ),
@@ -173,8 +178,7 @@ export function createServer() {
             }
           }
 
-          // The browser receives only an opaque action token. It never needs
-          // the provider-supplied destination URL to execute one-click POST.
+          // Destinations remain server-side until the user explicitly clicks.
           result.envelope.listHeaders = {
             listId: result.envelope.listHeaders?.listId ?? null,
             listUnsubscribe: null,
@@ -232,60 +236,36 @@ export function createServer() {
   app.post("/api/accounts/:id/messages/block-sender", (req: Request, res: Response) => {
     const session = sessionStore.get(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
-
     let address: string;
-    try {
-      address = normalizeSenderAddress((req.body as { address?: unknown }).address);
-    } catch (error) {
-      return res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
-    }
+    try { address = normalizeSenderAddress((req.body as { address?: unknown }).address); }
+    catch (error) { return res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); }
 
     const previous = session.personalPolicy.snapshot();
     session.personalPolicy.blockSender(address);
     try {
       sessionStore.persistPersonalPolicy(session);
-      res.json({
-        blocked: true,
-        persisted: true,
-        scope: "sender",
-        value: address,
-        accountId: session.id,
-      });
+      res.json({ blocked: true, persisted: true, scope: "sender", value: address, accountId: session.id });
     } catch (error) {
       session.personalPolicy.replace(previous);
-      res.status(500).json({
-        error: `Sender block was not saved: ${error instanceof Error ? error.message : String(error)}`,
-      });
+      res.status(500).json({ error: `Sender block was not saved: ${error instanceof Error ? error.message : String(error)}` });
     }
   });
 
   app.post("/api/accounts/:id/messages/block-domain", (req: Request, res: Response) => {
     const session = sessionStore.get(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
-
     let domain: string;
-    try {
-      domain = normalizeSenderDomain((req.body as { domain?: unknown }).domain);
-    } catch (error) {
-      return res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
-    }
+    try { domain = normalizeSenderDomain((req.body as { domain?: unknown }).domain); }
+    catch (error) { return res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); }
 
     const previous = session.personalPolicy.snapshot();
     session.personalPolicy.blockDomain(domain);
     try {
       sessionStore.persistPersonalPolicy(session);
-      res.json({
-        blocked: true,
-        persisted: true,
-        scope: "domain",
-        value: domain,
-        accountId: session.id,
-      });
+      res.json({ blocked: true, persisted: true, scope: "domain", value: domain, accountId: session.id });
     } catch (error) {
       session.personalPolicy.replace(previous);
-      res.status(500).json({
-        error: `Domain block was not saved: ${error instanceof Error ? error.message : String(error)}`,
-      });
+      res.status(500).json({ error: `Domain block was not saved: ${error instanceof Error ? error.message : String(error)}` });
     }
   });
 
@@ -316,18 +296,27 @@ export function createServer() {
 
     let action;
     try {
-      action = sessionStore.resolveUnsubscribeAction(
-        session,
-        (req.body as { token?: unknown }).token,
-      );
+      action = sessionStore.resolveUnsubscribeAction(session, (req.body as { token?: unknown }).token);
     } catch (error) {
       return res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+    }
+
+    if (action.method === "link_only" || action.method === "mailto") {
+      return res.json({
+        success: true,
+        manualAction: true,
+        method: action.method,
+        target: action.target,
+        accountId: session.id,
+        actionKey: action.actionKey,
+      });
     }
 
     if (session.unsubscribedActionKeys.has(action.actionKey)) {
       return res.json({
         success: true,
         alreadyUnsubscribed: true,
+        method: action.method,
         accountId: session.id,
         actionKey: action.actionKey,
       });
@@ -346,6 +335,7 @@ export function createServer() {
     sessionStore.markUnsubscribed(session, action.actionKey);
     res.json({
       ...result,
+      method: action.method,
       accountId: session.id,
       actionKey: action.actionKey,
       alreadyUnsubscribed: false,
