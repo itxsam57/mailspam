@@ -1,8 +1,16 @@
 import { describe, it, expect } from "vitest";
 import { computeVerdict } from "../../server/src/engine/verdict.js";
 
+const evidence = (code: string, scoreContribution: number) => ({
+  layer: "identity_impersonation",
+  code,
+  description: code,
+  scoreContribution,
+  source: "local" as const,
+});
+
 describe("computeVerdict — structural safety guarantee", () => {
-  it("never returns 'safe' when parseStatus is not 'complete', even with zero evidence", () => {
+  it("never returns Safe when parsing is partial and no evidence is available", () => {
     const result = computeVerdict({
       parseStatus: "partial",
       layerResults: [
@@ -10,11 +18,10 @@ describe("computeVerdict — structural safety guarantee", () => {
       ],
       confirmedByRule: false,
     });
-    expect(result.verdict).not.toBe("safe");
     expect(result.verdict).toBe("unknown");
   });
 
-  it("never returns 'safe' when a layer is incomplete due to genuinely unavailable content (blocksSafeVerdict)", () => {
+  it("never returns Safe when genuinely unavailable content blocks a complete decision", () => {
     const result = computeVerdict({
       parseStatus: "complete",
       layerResults: [
@@ -32,7 +39,7 @@ describe("computeVerdict — structural safety guarantee", () => {
     expect(result.verdict).toBe("unknown");
   });
 
-  it("does NOT force 'unknown' when a layer is deliberately not run by design (e.g. destination classification during a scan)", () => {
+  it("does not force Unknown when a layer is deliberately deferred by design", () => {
     const result = computeVerdict({
       parseStatus: "complete",
       layerResults: [
@@ -42,7 +49,6 @@ describe("computeVerdict — structural safety guarantee", () => {
           evidence: [],
           incomplete: true,
           incompleteReason: "only runs via explicit Analyze Links action",
-          // blocksSafeVerdict intentionally omitted/false
         },
         { layer: "transport_auth", applicable: true, evidence: [], incomplete: false },
       ],
@@ -51,7 +57,24 @@ describe("computeVerdict — structural safety guarantee", () => {
     expect(result.verdict).toBe("safe");
   });
 
-  it("still surfaces high_risk from partial data if evidence is strong enough, rather than downgrading danger", () => {
+  it("preserves Review for partial messages with moderate evidence", () => {
+    const result = computeVerdict({
+      parseStatus: "partial",
+      layerResults: [
+        {
+          layer: "identity_impersonation",
+          applicable: true,
+          incomplete: false,
+          evidence: [evidence("BRAND_DOMAIN_MISMATCH", 3)],
+        },
+      ],
+      confirmedByRule: false,
+    });
+    expect(result.score).toBe(3);
+    expect(result.verdict).toBe("review");
+  });
+
+  it("preserves High Risk for partial messages with strong evidence", () => {
     const result = computeVerdict({
       parseStatus: "partial",
       layerResults: [
@@ -60,17 +83,18 @@ describe("computeVerdict — structural safety guarantee", () => {
           applicable: true,
           incomplete: false,
           evidence: [
-            { layer: "identity_impersonation", code: "BRAND_LOOKALIKE_DOMAIN", description: "x", scoreContribution: 5, source: "local" },
-            { layer: "identity_impersonation", code: "REPLY_TO_MISMATCH", description: "x", scoreContribution: 2, source: "local" },
+            evidence("BRAND_DOMAIN_MISMATCH", 3),
+            evidence("CALLBACK_SCAM_INTENT", 4),
           ],
         },
       ],
       confirmedByRule: false,
     });
+    expect(result.score).toBe(7);
     expect(result.verdict).toBe("high_risk");
   });
 
-  it("returns 'safe' only when parsing is complete, all layers complete, and evidence is below review threshold", () => {
+  it("returns Safe only when parsing is complete and evidence is below Review", () => {
     const result = computeVerdict({
       parseStatus: "complete",
       layerResults: [
@@ -82,9 +106,9 @@ describe("computeVerdict — structural safety guarantee", () => {
     expect(result.verdict).toBe("safe");
   });
 
-  it("confirmed_threat short-circuits regardless of parse status", () => {
+  it("Confirmed Threat short-circuits regardless of parse status", () => {
     const result = computeVerdict({
-      parseStatus: "complete",
+      parseStatus: "partial",
       layerResults: [],
       confirmedByRule: true,
     });
