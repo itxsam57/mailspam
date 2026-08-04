@@ -63,6 +63,28 @@ describe("transport architecture regressions", () => {
     expect(monitor).toContain("result.blocked !== true || result.scope !== scope || result.accountId !== id");
   });
 
+  it("uses opaque server-issued tokens for one-click unsubscribe", () => {
+    const server = read("server/src/api/server.ts");
+    const sessions = read("server/src/api/sessionStore.ts");
+    const workflow = read("server/src/workflows/unsubscribe.ts");
+    const monitor = read("web/unsubscribe-monitor.js");
+
+    expect(server).toContain("registerUnsubscribeAction");
+    expect(server).toContain("resolveUnsubscribeAction");
+    expect(server).toContain("result.envelope.listHeaders =");
+    expect(server).toContain("listUnsubscribe: null");
+    expect(server).not.toContain("const { method, target } = req.body");
+    expect(sessions).toContain("UNSUBSCRIBE_ACTION_TTL_MS");
+    expect(sessions).toContain("unsubscribeActions: new Map()");
+    expect(workflow).toContain('const ONE_CLICK_BODY = "List-Unsubscribe=One-Click"');
+    expect(workflow).toContain('url.protocol !== "https:"');
+    expect(workflow).toContain("resolvePinnedPublicAddress");
+    expect(workflow).not.toContain('fetch(url, { method: "POST" })');
+    expect(monitor).toContain("body: JSON.stringify({ token })");
+    expect(monitor).not.toContain("target:");
+    expect(monitor).toContain("Matching duplicate buttons were synchronized");
+  });
+
   it("uses stage-specific IMAP deadlines and force-closes stalled logout sockets", () => {
     const imap = read("server/src/adapters/imap/imapAdapter.ts");
     expect(imap).toContain("class ImapCommandTimeoutError");
