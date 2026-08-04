@@ -41,6 +41,21 @@ describe("transport architecture regressions", () => {
     expect(monitor).not.toContain(".then(() => { btn.textContent = 'Moved'");
   });
 
+  it("scopes personal blocks to the selected account and verifies browser confirmation", () => {
+    const server = read("server/src/api/server.ts");
+    const sessions = read("server/src/api/sessionStore.ts");
+    const monitor = read("web/scan-monitor.js");
+
+    expect(sessions).toContain("personalPolicy: InMemoryPersonalPolicyStore");
+    expect(sessions).not.toContain("readonly personalPolicy =");
+    expect(server).toContain("personalPolicy: session.personalPolicy.snapshot()");
+    expect(server).toContain("session.personalPolicy.blockSender(address)");
+    expect(server).toContain("session.personalPolicy.blockDomain(domain)");
+    expect(monitor).toContain("Block this ${scope} for the selected account?");
+    expect(monitor).toContain("This does not move or delete mail.");
+    expect(monitor).toContain("result.blocked !== true || result.scope !== scope || result.accountId !== id");
+  });
+
   it("fetches bounded readable IMAP parts instead of raw messages or attachment bodies", () => {
     const imap = read("server/src/adapters/imap/imapAdapter.ts");
     expect(imap).not.toContain("source: true");
