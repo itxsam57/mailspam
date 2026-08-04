@@ -1,0 +1,14 @@
+From: "Michael Chen (CEO)" <ceo.office@company-corp-inc.com>
+To: user@example-mailbox.test
+Reply-To: <m.chen.ceo@company-corp-inc.co>
+Subject: Quick request
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <2jxfrz38ujq@fixture.test>
+Authentication-Results: mx.example.test; spf=fail; dkim=fail; dmarc=fail
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: base64
+
+QXJlIHlvdSBhdmFpbGFibGUgcmlnaHQgbm93PyBJIG5lZWQgeW91IHRvIHByb2Nlc3MgYW4gdXJn
+ZW50IHdpcmUgdHJhbnNmZXIgdG8gYSBuZXcgdmVuZG9yIHRvZGF5LiBLZWVwIHRoaXMgY29uZmlk
+ZW50aWFsIGZvciBub3csIGRvbid0IGRpc2N1c3MgaXQgd2l0aCBhbnlvbmUgZWxzZSBvbiB0aGUg
+dGVhbSwgSSdsbCBleHBsYWluIGxhdGVyLiBDYW4geW91IGRvIHRoaXMgcmlnaHQgYXdheT8=

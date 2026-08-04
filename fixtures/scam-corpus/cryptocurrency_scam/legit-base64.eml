@@ -1,0 +1,11 @@
+From: "Coinbase" <no-reply@coinbase.com>
+To: user@example-mailbox.test
+Subject: Your BTC purchase confirmation
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <lxccpa9zmh@fixture.test>
+Authentication-Results: mx.example.test; spf=pass; dkim=pass; dmarc=pass
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: base64
+
+WW91IHN1Y2Nlc3NmdWxseSBwdXJjaGFzZWQgMC4wMSBCVEMuIFZpZXcgeW91ciB0cmFuc2FjdGlv
+biBoaXN0b3J5IGF0IGh0dHBzOi8vY29pbmJhc2UuY29tL3RyYW5zYWN0aW9ucw==

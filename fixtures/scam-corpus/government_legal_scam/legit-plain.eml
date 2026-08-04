@@ -1,0 +1,10 @@
+From: "IRS" <no-reply@irs.gov>
+To: user@example-mailbox.test
+Subject: Your Economic Impact Payment status
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <1z5z8urasz7@fixture.test>
+Authentication-Results: mx.example.test; spf=pass; dkim=pass; dmarc=pass
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+You can check your payment status by logging into your account at https://irs.gov/account. The IRS never demands immediate payment by email.

@@ -1,0 +1,10 @@
+From: "CryptoInvest Support" <support@crypto-invest-platform.io>
+To: user@example-mailbox.test
+Subject: Your wallet requires validation — guaranteed returns inside
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <xebmwbo08h@fixture.test>
+Authentication-Results: mx.example.test; spf=fail; dkim=fail; dmarc=fail
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+<p>Our investment platform offers guaranteed returns and can double your Bitcoin in 30 days. Act now, limited spots. Please validate your wallet by entering your seed phrase at http://crypto-invest-platform.io/validate</p>

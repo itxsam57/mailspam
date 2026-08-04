@@ -1,0 +1,12 @@
+From: "Google" <no-reply@google.com>
+To: user@example-mailbox.test
+Subject: Security alert: new sign-in from Chrome on Windows
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <2vsuwrvvvq8@fixture.test>
+Authentication-Results: mx.example.test; spf=pass; dkim=pass; dmarc=pass
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: base64
+
+QSBuZXcgc2lnbi1pbiB0byB5b3VyIEdvb2dsZSBBY2NvdW50IHdhcyBkZXRlY3RlZC4gSWYgdGhp
+cyB3YXMgeW91LCBubyBhY3Rpb24gaXMgbmVlZGVkLiBSZXZpZXcgYWN0aXZpdHkgYXQgaHR0cHM6
+Ly9teWFjY291bnQuZ29vZ2xlLmNvbS9zZWN1cml0eQ==

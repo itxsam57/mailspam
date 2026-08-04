@@ -1,0 +1,17 @@
+From: "Account Services" <no-reply@accounts-verify-secure.com>
+To: user@example-mailbox.test
+Subject: Unusual sign-in activity detected — verify your account
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <3eugtxbsm8r@fixture.test>
+Authentication-Results: mx.example.test; spf=fail; dkim=fail; dmarc=fail
+Content-Type: multipart/alternative; boundary="altBoundary_yc7hotlwcvq"
+
+--altBoundary_yc7hotlwcvq
+Content-Type: text/plain; charset=utf-8
+
+We noticed unusual sign-in activity on your account. Your account will be suspended within 24 hours. Please confirm your identity and enter your password and one-time passcode here: http://accounts-verify-secure.com/login
+--altBoundary_yc7hotlwcvq
+Content-Type: text/html; charset=utf-8
+
+<p>We noticed unusual sign-in activity. Your account will be suspended within 24 hours.</p><a href="http://accounts-verify-secure.com/login">https://accounts.google.com/login</a>
+--altBoundary_yc7hotlwcvq--

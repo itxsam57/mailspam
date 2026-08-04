@@ -1,0 +1,10 @@
+From: "RealDatingApp" <notifications@realdatingapp.com>
+To: user@example-mailbox.test
+Subject: You have a new match!
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <uf2jr07g0ho@fixture.test>
+Authentication-Results: mx.example.test; spf=pass; dkim=pass; dmarc=pass
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+You matched with someone new. Open the app to start chatting. https://realdatingapp.com/matches

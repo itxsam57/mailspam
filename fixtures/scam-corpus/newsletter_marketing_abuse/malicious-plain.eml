@@ -1,0 +1,12 @@
+From: "Mega Deals Daily" <deals@bulk-marketing-blast.com>
+To: user@example-mailbox.test
+Subject: RE: RE: You're still subscribed — click to unsubscribe (fake)
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <bv2ky6gayxs@fixture.test>
+Authentication-Results: mx.example.test; spf=fail; dkim=fail; dmarc=fail
+List-ID: <megadeals.bulk-marketing-blast.com>
+List-Unsubscribe: <http://bulk-marketing-blast.com/unsub?track=1>
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+You are receiving this because you're on our list. Click the link below to unsubscribe: http://bulk-marketing-blast.com/unsub?track=1

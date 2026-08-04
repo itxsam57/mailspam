@@ -1,0 +1,13 @@
+From: "CryptoInvest Support" <support@crypto-invest-platform.io>
+To: user@example-mailbox.test
+Subject: Your wallet requires validation — guaranteed returns inside
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <w0y98rgkeld@fixture.test>
+Authentication-Results: mx.example.test; spf=fail; dkim=fail; dmarc=fail
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: base64
+
+T3VyIGludmVzdG1lbnQgcGxhdGZvcm0gb2ZmZXJzIGd1YXJhbnRlZWQgcmV0dXJucyBhbmQgY2Fu
+IGRvdWJsZSB5b3VyIEJpdGNvaW4gaW4gMzAgZGF5cy4gQWN0IG5vdywgbGltaXRlZCBzcG90cy4g
+UGxlYXNlIHZhbGlkYXRlIHlvdXIgd2FsbGV0IGJ5IGVudGVyaW5nIHlvdXIgc2VlZCBwaHJhc2Ug
+YXQgaHR0cDovL2NyeXB0by1pbnZlc3QtcGxhdGZvcm0uaW8vdmFsaWRhdGU=

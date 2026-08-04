@@ -1,0 +1,13 @@
+From: "RealNews Weekly" <newsletter@realnewsco.com>
+To: user@example-mailbox.test
+Subject: Your weekly digest
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <77io2jgsz2m@fixture.test>
+Authentication-Results: mx.example.test; spf=pass; dkim=pass; dmarc=pass
+List-ID: <weekly.realnewsco.com>
+List-Unsubscribe: <https://realnewsco.com/unsubscribe?one-click=true>
+List-Unsubscribe-Post: List-Unsubscribe=One-Click
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Here's your weekly digest of top stories.

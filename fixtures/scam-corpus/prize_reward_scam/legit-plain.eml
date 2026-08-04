@@ -1,0 +1,10 @@
+From: "RealRetailer Rewards" <rewards@realretailer.com>
+To: user@example-mailbox.test
+Subject: You've earned 500 loyalty points
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <q07lh5twdeb@fixture.test>
+Authentication-Results: mx.example.test; spf=pass; dkim=pass; dmarc=pass
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+You've earned 500 loyalty points on your last purchase. Redeem them any time at https://realretailer.com/rewards

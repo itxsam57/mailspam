@@ -1,0 +1,10 @@
+From: "RealAntivirus" <no-reply@realantivirus.com>
+To: user@example-mailbox.test
+Subject: Your subscription renewal receipt
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <bancd0m3tc5@fixture.test>
+Authentication-Results: mx.example.test; spf=pass; dkim=pass; dmarc=pass
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Your RealAntivirus subscription was renewed. View your receipt at https://realantivirus.com/account

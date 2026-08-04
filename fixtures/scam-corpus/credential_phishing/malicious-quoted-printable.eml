@@ -1,0 +1,10 @@
+From: "Account Services" <no-reply@accounts-verify-secure.com>
+To: user@example-mailbox.test
+Subject: Unusual sign-in activity detected — verify your account
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <0mdlg6elka7l@fixture.test>
+Authentication-Results: mx.example.test; spf=fail; dkim=fail; dmarc=fail
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+We noticed unusual sign-in activity on your account. Your account will be suspended within 24 hours. Please confirm your identity and enter your password and one-time passcode here: http://accounts-verify-secure.com/login

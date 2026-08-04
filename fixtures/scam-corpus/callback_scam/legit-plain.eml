@@ -1,0 +1,10 @@
+From: "RealSoftwareCo Billing" <billing@realsoftwareco.com>
+To: user@example-mailbox.test
+Subject: Your invoice from RealSoftwareCo
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <o8gbt5qyywe@fixture.test>
+Authentication-Results: mx.example.test; spf=pass; dkim=pass; dmarc=pass
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Your monthly subscription invoice is attached. Manage your subscription any time at https://realsoftwareco.com/account

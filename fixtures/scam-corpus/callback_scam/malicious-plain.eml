@@ -1,0 +1,10 @@
+From: "Order Support" <billing@subscription-renewals.net>
+To: user@example-mailbox.test
+Subject: Invoice: Your subscription has been renewed for $499.99
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <aln704df89e@fixture.test>
+Authentication-Results: mx.example.test; spf=fail; dkim=fail; dmarc=fail
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Your annual subscription has been renewed for $499.99. If you did not authorize this charge, call us now at (888) 555-0134 to request a refund within 24 hours.

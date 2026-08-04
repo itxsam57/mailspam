@@ -1,0 +1,10 @@
+From: "UPS" <tracking@ups.com>
+To: user@example-mailbox.test
+Subject: Your package has shipped
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <bt6rc6ul0kl@fixture.test>
+Authentication-Results: mx.example.test; spf=pass; dkim=pass; dmarc=pass
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Your package is on its way. Track your shipment at https://ups.com/track

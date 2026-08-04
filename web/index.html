@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Email Shield</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #12151a;
+    --panel: #1b1f27;
+    --panel-raised: #222732;
+    --border: #2a2f3a;
+    --text: #e7e9ee;
+    --text-muted: #8b93a3;
+    --text-faint: #5b6272;
+    --safe: #3fb88a;
+    --review: #e8b23d;
+    --high-risk: #e8632e;
+    --confirmed: #e23d4f;
+    --unknown: #6c7684;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  code, .mono { font-family: 'IBM Plex Mono', monospace; }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 28px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 10;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand-mark {
+    width: 26px; height: 26px;
+    border-radius: 6px;
+    background: linear-gradient(135deg, var(--safe), #2a8f6a);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 700; color: #0b1210;
+  }
+  .brand h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: 0.02em; }
+  .brand .sub { font-size: 11px; color: var(--text-faint); font-family: 'IBM Plex Mono', monospace; }
+
+  main { max-width: 980px; margin: 0 auto; padding: 28px; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .panel h2 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-faint);
+    margin: 0 0 14px 0;
+    font-weight: 600;
+  }
+
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  select, button, input {
+    background: var(--panel-raised);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  button.primary { background: var(--safe); color: #0b1210; border: none; font-weight: 600; }
+  button.danger { background: var(--confirmed); color: #fff; border: none; font-weight: 600; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button:hover:not(:disabled) { filter: brightness(1.1); }
+
+  .accounts-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+  .account-chip {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px; background: var(--panel-raised); border-radius: 8px; border: 1px solid var(--border);
+  }
+  .account-chip.active { border-color: var(--safe); }
+
+  .counters { display: flex; gap: 14px; flex-wrap: wrap; margin: 14px 0; }
+  .counter { text-align: center; min-width: 68px; }
+  .counter .n { font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 600; }
+  .counter .l { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint); }
+  .c-safe .n { color: var(--safe); }
+  .c-review .n { color: var(--review); }
+  .c-high .n { color: var(--high-risk); }
+  .c-confirmed .n { color: var(--confirmed); }
+  .c-unknown .n { color: var(--unknown); }
+
+  .card {
+    border: 1px solid var(--border);
+    border-left-width: 3px;
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    background: var(--panel-raised);
+  }
+  .card.high_risk { border-left-color: var(--high-risk); }
+  .card.confirmed_threat { border-left-color: var(--confirmed); }
+  .card.review { border-left-color: var(--review); }
+  .card.unknown { border-left-color: var(--unknown); }
+
+  .card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+  .card-subject { font-weight: 600; font-size: 14px; }
+  .card-from { font-size: 12px; color: var(--text-muted); font-family: 'IBM Plex Mono', monospace; margin-top: 2px; }
+  .verdict-badge {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700;
+    padding: 3px 8px; border-radius: 4px; white-space: nowrap;
+  }
+  .verdict-badge.high_risk { background: rgba(232,99,46,0.15); color: var(--high-risk); }
+  .verdict-badge.confirmed_threat { background: rgba(226,61,79,0.15); color: var(--confirmed); }
+  .verdict-badge.review { background: rgba(232,178,61,0.15); color: var(--review); }
+  .verdict-badge.unknown { background: rgba(108,118,132,0.15); color: var(--unknown); }
+
+  /* Signature element: layer readout strip — one tick per detection layer,
+     lit if it fired evidence, dim if clean, hatched if not run this pass. */
+  .readout { display: flex; gap: 3px; margin-top: 10px; }
+  .tick {
+    flex: 1; height: 5px; border-radius: 2px; background: #333a48;
+    position: relative; cursor: default;
+  }
+  .tick.fired { background: var(--high-risk); }
+  .tick.skipped {
+    background: repeating-linear-gradient(45deg, #333a48, #333a48 3px, #262b35 3px, #262b35 6px);
+  }
+  .tick[title]:hover::after {
+    content: attr(title);
+    position: absolute; bottom: 10px; left: 0;
+    background: #05070a; color: var(--text); font-size: 11px;
+    padding: 6px 8px; border-radius: 4px; white-space: pre-wrap; width: 220px;
+    z-index: 20; border: 1px solid var(--border); font-family: 'IBM Plex Sans', sans-serif;
+  }
+
+  .evidence-list { margin-top: 10px; font-size: 12px; color: var(--text-muted); }
+  .evidence-item { padding: 4px 0; border-top: 1px solid var(--border); }
+  .evidence-item code { color: var(--text); font-size: 11px; }
+
+  .card-actions { display: flex; gap: 8px; margin-top: 12px; }
+  .card-actions button { font-size: 11px; padding: 5px 10px; }
+
+  .dev-panel { border: 1px dashed var(--border); }
+  .dev-summary { font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 1.8; }
+  .pass { color: var(--safe); font-weight: 600; }
+  .fail { color: var(--confirmed); font-weight: 600; }
+
+  .empty-state { text-align: center; padding: 40px 20px; color: var(--text-faint); font-size: 13px; }
+  .hint { font-size: 11px; color: var(--text-faint); margin-top: 6px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="brand-mark">ES</div>
+    <div>
+      <h1>Email Shield</h1>
+      <div class="sub">local scam-detection engine — milestone 1</div>
+    </div>
+  </div>
+  <div class="row">
+    <button id="devSuiteBtn">Run Developer Test Suite</button>
+  </div>
+</header>
+
+<main>
+
+  <section class="panel">
+    <h2>Connect an account</h2>
+    <div class="row">
+      <select id="providerSelect">
+        <option value="gmail">Gmail</option>
+        <option value="icloud">iCloud</option>
+        <option value="outlook">Outlook</option>
+        <option value="yahoo">Yahoo</option>
+        <option value="imap">Generic IMAP</option>
+      </select>
+      <select id="modeSelect">
+        <option value="fixture">Fixture demo mailbox (no credentials needed)</option>
+        <option value="live">Live account (requires credentials — see README)</option>
+      </select>
+      <button class="primary" id="connectBtn">Connect</button>
+    </div>
+    <div id="credentialFields" class="row" style="margin-top:10px;"></div>
+    <div class="hint">Fixture mode loads the synthetic scam corpus so you can see the engine work immediately. Live mode requires OAuth or an app password for the chosen provider.</div>
+    <div class="accounts-list" id="accountsList"></div>
+  </section>
+
+  <section class="panel" id="scanPanel" style="display:none;">
+    <h2>Scan</h2>
+    <div class="row">
+      <button id="quickScanBtn">Quick Scan</button>
+      <button id="fullScanBtn">Full Mailbox Audit</button>
+      <button id="spamScanBtn">Spam / Junk Scan</button>
+      <button class="danger" id="stopScanBtn" disabled>Stop Scan</button>
+    </div>
+    <div class="counters" id="counters"></div>
+    <div id="cards"></div>
+  </section>
+
+  <section class="panel dev-panel" id="devPanel" style="display:none;">
+    <h2>Developer Testing Suite</h2>
+    <div id="devResults" class="dev-summary"></div>
+  </section>
+
+</main>
+
+<script>
+const API = '';
+let currentAccountId = null;
+let currentEventSource = null;
+
+const providerSelect = document.getElementById('providerSelect');
+const modeSelect = document.getElementById('modeSelect');
+const connectBtn = document.getElementById('connectBtn');
+const accountsList = document.getElementById('accountsList');
+const scanPanel = document.getElementById('scanPanel');
+const countersEl = document.getElementById('counters');
+const cardsEl = document.getElementById('cards');
+const stopBtn = document.getElementById('stopScanBtn');
+const credentialFields = document.getElementById('credentialFields');
+
+const LAYER_ORDER = [
+  'transport_auth', 'identity_impersonation', 'message_intent', 'link_structure',
+  'destination_classification', 'attachment_qr', 'relationship_context',
+  'personal_rules', 'global_intelligence'
+];
+const LAYER_LABEL = {
+  transport_auth: 'Transport/Auth', identity_impersonation: 'Identity/Impersonation',
+  message_intent: 'Message Intent', link_structure: 'Link Structure',
+  destination_classification: 'Destination (Analyze Links only)', attachment_qr: 'Attachment/QR',
+  relationship_context: 'Relationship Context', personal_rules: 'Personal Rules',
+  global_intelligence: 'Global Intelligence'
+};
+
+async function refreshAccounts() {
+  const res = await fetch(`${API}/api/accounts`);
+  const accounts = await res.json();
+  accountsList.innerHTML = accounts.map(a => `
+    <div class="account-chip ${a.accountId === currentAccountId ? 'active' : ''}" data-id="${a.accountId}">
+      <span>${a.label} <span class="hint mono">(${a.provider})</span></span>
+      <button data-select="${a.accountId}">Use</button>
+    </div>
+  `).join('') || '<div class="hint">No accounts connected yet.</div>';
+
+  accountsList.querySelectorAll('[data-select]').forEach(btn => {
+    btn.addEventListener('click', () => selectAccount(btn.dataset.select));
+  });
+}
+
+function selectAccount(id) {
+  currentAccountId = id;
+  scanPanel.style.display = 'block';
+  countersEl.innerHTML = '';
+  cardsEl.innerHTML = '';
+  refreshAccounts();
+}
+
+function renderCredentialFields() {
+  if (modeSelect.value === 'fixture') { credentialFields.innerHTML = ''; return; }
+  const p = providerSelect.value;
+  if (p === 'icloud' || p === 'yahoo') credentialFields.innerHTML = `
+    <input id="credUser" type="email" placeholder="${p === 'icloud' ? 'iCloud' : 'Yahoo'} email" autocomplete="username">
+    <input id="credPassword" type="password" placeholder="App-specific password" autocomplete="current-password">`;
+  else if (p === 'imap') credentialFields.innerHTML = `
+    <input id="credHost" placeholder="IMAP host"><input id="credPort" value="993" size="5">
+    <input id="credUser" type="email" placeholder="Username/email" autocomplete="username">
+    <input id="credPassword" type="password" placeholder="App password" autocomplete="current-password">`;
+  else credentialFields.innerHTML = `<div class="hint">OAuth browser setup is not yet exposed in this hard-test build. Use fixture mode for ${p}, or configure provider credentials through the documented local developer flow.</div>`;
+}
+providerSelect.addEventListener('change', renderCredentialFields);
+modeSelect.addEventListener('change', renderCredentialFields);
+renderCredentialFields();
+
+function collectCredentials() {
+  const p = providerSelect.value;
+  if (modeSelect.value === 'fixture') return {};
+  if (p === 'icloud' || p === 'yahoo') return { user: document.getElementById('credUser')?.value || '', appPassword: document.getElementById('credPassword')?.value || '' };
+  if (p === 'imap') return { host: document.getElementById('credHost')?.value || '', port: document.getElementById('credPort')?.value || '993', secure: 'true', user: document.getElementById('credUser')?.value || '', appPassword: document.getElementById('credPassword')?.value || '' };
+  return {};
+}
+
+connectBtn.addEventListener('click', async () => {
+  connectBtn.disabled = true;
+  connectBtn.textContent = 'Connecting…';
+  try {
+    const res = await fetch(`${API}/api/accounts/connect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: providerSelect.value, mode: modeSelect.value, credentials: collectCredentials(), label: `${providerSelect.value} (${modeSelect.value})` })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Connect failed');
+    await refreshAccounts();
+    selectAccount(data.accountId);
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    connectBtn.disabled = false;
+    connectBtn.textContent = 'Connect';
+  }
+});
+
+function verdictLabel(v) {
+  return { safe: 'Safe', review: 'Review', high_risk: 'High Risk', confirmed_threat: 'Confirmed Threat', unknown: 'Unknown' }[v] || v;
+}
+
+function renderReadout(layerResults) {
+  return LAYER_ORDER.map(layerName => {
+    const lr = layerResults.find(l => l.layer === layerName);
+    if (!lr) return `<div class="tick"></div>`;
+    const fired = lr.evidence.some(e => e.scoreContribution > 0);
+    const skipped = lr.incomplete;
+    const cls = skipped ? 'skipped' : (fired ? 'fired' : '');
+    const tip = skipped
+      ? `${LAYER_LABEL[layerName]}: ${lr.incompleteReason || 'not run this pass'}`
+      : fired
+        ? `${LAYER_LABEL[layerName]}: ${lr.evidence.map(e => escapeHtml(e.description)).join(' ')}`
+        : `${LAYER_LABEL[layerName]}: clean`;
+    return `<div class="tick ${cls}" title="${tip.replace(/"/g, '&quot;')}"></div>`;
+  }).join('');
+}
+
+function renderCard(result) {
+  const env = result.envelope;
+  const verdict = result.scored.verdict;
+  const evidenceHtml = result.scored.evidence.filter(e => e.scoreContribution !== 0).map(e => `
+    <div class="evidence-item"><code>${e.code}</code> — ${escapeHtml(e.description)}</div>
+  `).join('') || '<div class="evidence-item">No scored evidence — flagged by missing/partial data only.</div>';
+
+  return `
+    <div class="card ${verdict}">
+      <div class="card-top">
+        <div>
+          <div class="card-subject">${escapeHtml(env.subject || '(no subject)')}</div>
+          <div class="card-from">${escapeHtml(env.from.displayName || '')} &lt;${escapeHtml(env.from.address || 'unknown')}&gt;</div>
+        </div>
+        <span class="verdict-badge ${verdict}">${verdictLabel(verdict)}</span>
+      </div>
+      <div class="readout">${renderReadout(result.scored.layerResults)}</div>
+      <div class="evidence-list">${evidenceHtml}</div>
+      <div class="card-actions">
+        <button data-action="block-sender" data-address="${escapeHtml(env.from.address || '')}">Block sender</button>
+        <button data-action="block-domain" data-domain="${escapeHtml(env.from.domain || '')}">Block domain</button>
+        <button data-action="trash" data-native-id="${escapeHtml(env.providerNativeId)}">Move to Trash</button>
+      </div>
+    </div>
+  `;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+function renderCounters(c) {
+  countersEl.innerHTML = `
+    <div class="counter c-safe"><div class="n">${c.safe}</div><div class="l">Safe</div></div>
+    <div class="counter c-review"><div class="n">${c.review}</div><div class="l">Review</div></div>
+    <div class="counter c-high"><div class="n">${c.highRisk}</div><div class="l">High Risk</div></div>
+    <div class="counter c-confirmed"><div class="n">${c.confirmedThreat}</div><div class="l">Confirmed</div></div>
+    <div class="counter c-unknown"><div class="n">${c.unknown}</div><div class="l">Unknown</div></div>
+  `;
+}
+
+function startScan(type) {
+  if (!currentAccountId) return;
+  if (currentEventSource) currentEventSource.close();
+  cardsEl.innerHTML = '';
+  countersEl.innerHTML = '';
+  stopBtn.disabled = false;
+
+  const es = new EventSource(`${API}/api/accounts/${currentAccountId}/scan/${type}`);
+  currentEventSource = es;
+
+  es.onmessage = (e) => {
+    const progress = JSON.parse(e.data);
+    renderCounters(progress.counters);
+    if (progress.suspiciousCards.length) {
+      cardsEl.innerHTML = progress.suspiciousCards.map(renderCard).join('') + cardsEl.innerHTML;
+      wireCardActions();
+    }
+  };
+  es.addEventListener('complete', () => { stopBtn.disabled = true; es.close(); });
+  es.addEventListener('error', () => { stopBtn.disabled = true; es.close(); });
+}
+
+function wireCardActions() {
+  cardsEl.querySelectorAll('[data-action="block-sender"]').forEach(btn => {
+    btn.onclick = () => fetch(`${API}/api/accounts/${currentAccountId}/messages/block-sender`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address: btn.dataset.address })
+    }).then(() => { btn.textContent = 'Blocked'; btn.disabled = true; });
+  });
+  cardsEl.querySelectorAll('[data-action="block-domain"]').forEach(btn => {
+    btn.onclick = () => fetch(`${API}/api/accounts/${currentAccountId}/messages/block-domain`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ domain: btn.dataset.domain })
+    }).then(() => { btn.textContent = 'Blocked'; btn.disabled = true; });
+  });
+  cardsEl.querySelectorAll('[data-action="trash"]').forEach(btn => {
+    btn.onclick = () => fetch(`${API}/api/accounts/${currentAccountId}/messages/trash`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ providerNativeIds: [btn.dataset.nativeId] })
+    }).then(() => { btn.textContent = 'Moved'; btn.disabled = true; });
+  });
+}
+
+document.getElementById('quickScanBtn').addEventListener('click', () => startScan('quick'));
+document.getElementById('fullScanBtn').addEventListener('click', () => startScan('full'));
+document.getElementById('spamScanBtn').addEventListener('click', () => startScan('spam'));
+stopBtn.addEventListener('click', () => {
+  if (currentAccountId) fetch(`${API}/api/accounts/${currentAccountId}/scan/stop`, { method: 'POST' });
+  if (currentEventSource) currentEventSource.close();
+  stopBtn.disabled = true;
+});
+
+document.getElementById('devSuiteBtn').addEventListener('click', async () => {
+  const devPanel = document.getElementById('devPanel');
+  const devResults = document.getElementById('devResults');
+  devPanel.style.display = 'block';
+  devResults.innerHTML = 'Running full corpus across all 5 providers…';
+  const res = await fetch(`${API}/api/dev/test-suite`);
+  const r = await res.json();
+  const parityFails = r.crossProviderParityFailures.length;
+  devResults.innerHTML = `
+    Total scans: ${r.totalScans} (fixtures × 5 providers)<br/>
+    Malicious caught: <span class="${r.maliciousCaught === r.maliciousTotal ? 'pass' : 'fail'}">${r.maliciousCaught}/${r.maliciousTotal}</span><br/>
+    Legitimate correctly clean: <span class="${r.legitClean === r.legitTotal ? 'pass' : 'fail'}">${r.legitClean}/${r.legitTotal}</span><br/>
+    Cross-provider parity failures: <span class="${parityFails === 0 ? 'pass' : 'fail'}">${parityFails}</span><br/>
+    False positives: <span class="${r.falsePositives.length === 0 ? 'pass' : 'fail'}">${r.falsePositives.length}</span><br/>
+    False negatives: <span class="${r.falseNegatives.length === 0 ? 'pass' : 'fail'}">${r.falseNegatives.length}</span>
+    <div class="hint" style="margin-top:10px;">Generated ${new Date(r.generatedAt).toLocaleString()}</div>
+  `;
+});
+
+refreshAccounts();
+</script>
+</body>
+</html>

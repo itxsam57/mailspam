@@ -1,0 +1,17 @@
+From: "Michael Chen" <michael.chen@company-corp.com>
+To: user@example-mailbox.test
+Subject: Q3 planning doc
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <5k9f647ip7a@fixture.test>
+Authentication-Results: mx.example.test; spf=pass; dkim=pass; dmarc=pass
+Content-Type: multipart/alternative; boundary="altBoundary_kz40jwz75ob"
+
+--altBoundary_kz40jwz75ob
+Content-Type: text/plain; charset=utf-8
+
+Hi team, attached is the draft Q3 planning doc for review before Thursday's meeting. Let me know your thoughts.
+--altBoundary_kz40jwz75ob
+Content-Type: text/html; charset=utf-8
+
+<p>Hi team, attached is the draft Q3 planning doc for review before Thursday's meeting. Let me know your thoughts.</p>
+--altBoundary_kz40jwz75ob--

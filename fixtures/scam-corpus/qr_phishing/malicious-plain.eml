@@ -1,0 +1,10 @@
+From: "IT Security" <no-reply@secure-mfa-update.com>
+To: user@example-mailbox.test
+Subject: Scan to re-verify your MFA device
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <txwslvfm9np@fixture.test>
+Authentication-Results: mx.example.test; spf=fail; dkim=fail; dmarc=fail
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Your MFA device needs re-verification. Scan the attached QR code with your phone camera to confirm your identity. This image-only link cannot be inspected before scanning.

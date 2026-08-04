@@ -1,0 +1,10 @@
+From: "Sofia" <sofia.lonely.heart@meetup-connect-now.com>
+To: user@example-mailbox.test
+Subject: I've been feeling so lonely, view my profile?
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <t1lk2s4m7l8@fixture.test>
+Authentication-Results: mx.example.test; spf=fail; dkim=fail; dmarc=fail
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Hi, I've been feeling lonely and looking for love. Click to view my profile and photos, let's chat: http://meetup-connect-now.com/profile. Please keep this secret between us for now.

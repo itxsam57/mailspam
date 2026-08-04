@@ -1,0 +1,30 @@
+{
+  "name": "@email-shield/server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:report": "vitest run --reporter=json --outputFile=../test-report.json && vitest run",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@azure/msal-node": "^2.16.3",
+    "express": "^4.19.2",
+    "googleapis": "^140.0.1",
+    "imapflow": "^1.6.5",
+    "mailparser": "^3.9.14"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.25",
+    "@types/imapflow": "^1.0.23",
+    "@types/mailparser": "^3.4.6",
+    "@types/node": "^20.19.43",
+    "tsx": "^4.23.1",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
+  }
+}

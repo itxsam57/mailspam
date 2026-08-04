@@ -1,0 +1,10 @@
+From: "RealCompany IT" <it-support@realcompany.com>
+To: user@example-mailbox.test
+Subject: Reminder: badge photo for new ID card
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <9xaastt0zi7@fixture.test>
+Authentication-Results: mx.example.test; spf=pass; dkim=pass; dmarc=pass
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Reminder to submit your badge photo for your new employee ID card by Friday.

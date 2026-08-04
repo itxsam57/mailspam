@@ -1,0 +1,10 @@
+From: "PayPal" <service@paypal.com>
+To: user@example-mailbox.test
+Subject: Your receipt for a payment to Example Store
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <hrq18gjujyv@fixture.test>
+Authentication-Results: mx.example.test; spf=pass smtp.mailfrom=paypal.com; dkim=pass; dmarc=pass
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+You sent a payment of $42.00 USD to Example Store. This is your receipt. View details at https://paypal.com/activity

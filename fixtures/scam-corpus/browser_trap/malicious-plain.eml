@@ -1,0 +1,10 @@
+From: "Browser Security Alert" <alert@browser-security-check.com>
+To: user@example-mailbox.test
+Subject: Your computer is infected — call now for support
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <9q7dp71g29@fixture.test>
+Authentication-Results: mx.example.test; spf=fail; dkim=fail; dmarc=fail
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Warning: your computer is infected with 3 viruses. Call now to speak with a support agent. Enable notifications to receive real-time protection updates: http://browser-security-check.com/enable

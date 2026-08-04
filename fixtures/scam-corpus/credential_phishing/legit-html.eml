@@ -1,0 +1,10 @@
+From: "Google" <no-reply@google.com>
+To: user@example-mailbox.test
+Subject: Security alert: new sign-in from Chrome on Windows
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <r0gq4eohaug@fixture.test>
+Authentication-Results: mx.example.test; spf=pass; dkim=pass; dmarc=pass
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+<p>A new sign-in to your Google Account was detected. If this was you, no action is needed. Review activity at https://myaccount.google.com/security</p>

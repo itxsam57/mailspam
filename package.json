@@ -1,0 +1,15 @@
+{
+  "name": "email-shield",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "workspaces": ["server"],
+  "scripts": {
+    "test": "npm run test -w server",
+    "test:report": "npm run test:report -w server",
+    "dev": "npm run dev -w server",
+    "build": "npm run build -w server",
+    "start": "npm run start -w server",
+    "verify": "npm run build && npm test"
+  }
+}

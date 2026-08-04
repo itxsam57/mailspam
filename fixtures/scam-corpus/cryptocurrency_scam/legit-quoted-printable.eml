@@ -1,0 +1,10 @@
+From: "Coinbase" <no-reply@coinbase.com>
+To: user@example-mailbox.test
+Subject: Your BTC purchase confirmation
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <kj23lv0osia@fixture.test>
+Authentication-Results: mx.example.test; spf=pass; dkim=pass; dmarc=pass
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+You successfully purchased 0.01 BTC. View your transaction history at https://coinbase.com/transactions

@@ -1,0 +1,11 @@
+From: "Michael Chen" <michael.chen@company-corp.com>
+To: user@example-mailbox.test
+Subject: Q3 planning doc
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <o49k9gwrh3@fixture.test>
+Authentication-Results: mx.example.test; spf=pass; dkim=pass; dmarc=pass
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: base64
+
+SGkgdGVhbSwgYXR0YWNoZWQgaXMgdGhlIGRyYWZ0IFEzIHBsYW5uaW5nIGRvYyBmb3IgcmV2aWV3
+IGJlZm9yZSBUaHVyc2RheSdzIG1lZXRpbmcuIExldCBtZSBrbm93IHlvdXIgdGhvdWdodHMu

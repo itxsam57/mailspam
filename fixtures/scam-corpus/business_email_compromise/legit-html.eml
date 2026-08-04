@@ -1,0 +1,10 @@
+From: "Michael Chen" <michael.chen@company-corp.com>
+To: user@example-mailbox.test
+Subject: Q3 planning doc
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <dgn31q0r4oh@fixture.test>
+Authentication-Results: mx.example.test; spf=pass; dkim=pass; dmarc=pass
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+<p>Hi team, attached is the draft Q3 planning doc for review before Thursday's meeting. Let me know your thoughts.</p>

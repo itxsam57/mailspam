@@ -1,0 +1,10 @@
+From: "International Lottery" <claims@lottery-winner-notice.com>
+To: user@example-mailbox.test
+Subject: Congratulations, you've won! Claim now, offer expires today
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <9qdlqaf87l8@fixture.test>
+Authentication-Results: mx.example.test; spf=fail; dkim=fail; dmarc=fail
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+You've won a $1,000,000 prize in our loyalty rewards lottery. Claim your prize now, this expires today. A small processing fee (advance fee) is required to release your voucher.

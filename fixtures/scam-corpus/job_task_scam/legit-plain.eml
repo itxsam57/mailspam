@@ -1,0 +1,10 @@
+From: "RealCompany Careers" <careers@realcompany.com>
+To: user@example-mailbox.test
+Subject: Your application to RealCompany
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <ic1zc4wv5na@fixture.test>
+Authentication-Results: mx.example.test; spf=pass; dkim=pass; dmarc=pass
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Thank you for applying to RealCompany. Our recruiting team will reach out within two weeks if there's a match.

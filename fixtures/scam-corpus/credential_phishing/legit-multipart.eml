@@ -1,0 +1,17 @@
+From: "Google" <no-reply@google.com>
+To: user@example-mailbox.test
+Subject: Security alert: new sign-in from Chrome on Windows
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <1c31j5mzc08i@fixture.test>
+Authentication-Results: mx.example.test; spf=pass; dkim=pass; dmarc=pass
+Content-Type: multipart/alternative; boundary="altBoundary_21erv1g1q9r"
+
+--altBoundary_21erv1g1q9r
+Content-Type: text/plain; charset=utf-8
+
+A new sign-in to your Google Account was detected. If this was you, no action is needed. Review activity at https://myaccount.google.com/security
+--altBoundary_21erv1g1q9r
+Content-Type: text/html; charset=utf-8
+
+<p>A new sign-in to your Google Account was detected. If this was you, no action is needed. Review activity at https://myaccount.google.com/security</p>
+--altBoundary_21erv1g1q9r--

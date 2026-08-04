@@ -1,0 +1,11 @@
+From: "Michael Chen (CEO)" <ceo.office@company-corp-inc.com>
+To: user@example-mailbox.test
+Reply-To: <m.chen.ceo@company-corp-inc.co>
+Subject: Quick request
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <tynmnphqmpr@fixture.test>
+Authentication-Results: mx.example.test; spf=fail; dkim=fail; dmarc=fail
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+<p>Are you available right now? I need you to process an urgent wire transfer to a new vendor today. Keep this confidential for now, don't discuss it with anyone else on the team, I'll explain later. Can you do this right away?</p>

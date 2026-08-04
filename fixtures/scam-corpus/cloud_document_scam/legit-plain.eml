@@ -1,0 +1,10 @@
+From: "DocuSign" <no-reply@docusign.net>
+To: user@example-mailbox.test
+Subject: Completed: Your document has been signed by all parties
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <5np0nvdbq6x@fixture.test>
+Authentication-Results: mx.example.test; spf=pass; dkim=pass; dmarc=pass
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Your document 'Service Agreement' has been signed by all parties. View the completed document at https://docusign.net/documents

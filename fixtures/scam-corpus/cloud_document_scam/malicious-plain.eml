@@ -1,0 +1,10 @@
+From: "DocuSign" <no-reply@docusign-notify-secure.com>
+To: user@example-mailbox.test
+Subject: A document requires your signature — expires in 24 hours
+Date: Sun, 02 Aug 2026 12:04:13 GMT
+Message-ID: <0l2n75tpwdoc@fixture.test>
+Authentication-Results: mx.example.test; spf=fail; dkim=fail; dmarc=fail
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+John Smith has shared a document with you via DocuSign that requires your signature. This expires in 24 hours. Click to review and sign: http://docusign-notify-secure.com/sign
