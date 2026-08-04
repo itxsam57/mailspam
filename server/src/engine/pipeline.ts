@@ -1,7 +1,10 @@
 import type { CanonicalEnvelope } from "../canonical/envelope.js";
 import { computeVerdict, type ScoredMessage, type Verdict } from "./verdict.js";
 import { transportAuthLayer } from "./layers/transportAuth.js";
-import { identityImpersonationLayer, isOfficialBrandSender } from "./layers/identityImpersonation.js";
+import {
+  hasDeterministicOfficialIdentity,
+  identityImpersonationLayer,
+} from "./layers/identityImpersonation.js";
 import { messageIntentLayer } from "./layers/messageIntent.js";
 import { linkStructureLayer } from "./layers/linkStructure.js";
 import { destinationLayerNotRun } from "./layers/destinationClassification.js";
@@ -33,7 +36,7 @@ function responsePolicy(verdict: Verdict): ResponseAction {
   }
 }
 
-function authenticationPassed(envelope: CanonicalEnvelope): boolean {
+export function authenticationPassed(envelope: CanonicalEnvelope): boolean {
   const auth = envelope.authentication;
   return auth.dmarc === "pass" || auth.dkim === "pass" || auth.spf === "pass";
 }
@@ -42,13 +45,12 @@ function boundedContentAllowsSafe(envelope: CanonicalEnvelope): boolean {
   if (envelope.diagnostics.contentCoverage !== "bounded_sufficient") return false;
   if (!authenticationPassed(envelope)) return false;
 
-  const deterministicIdentity =
-    Boolean(envelope.listHeaders.listId || envelope.listHeaders.listUnsubscribe) ||
-    isOfficialBrandSender(envelope);
-  if (!deterministicIdentity) return false;
-
   const visibleLength = `${envelope.textPreview ?? ""} ${envelope.htmlSignals?.extractedText ?? ""}`.trim().length;
-  return visibleLength >= 500;
+  const officialIdentity = hasDeterministicOfficialIdentity(envelope);
+  if (officialIdentity) return visibleLength >= 80;
+
+  const listIdentity = Boolean(envelope.listHeaders.listId || envelope.listHeaders.listUnsubscribe);
+  return listIdentity && visibleLength >= 160;
 }
 
 export function scanMessage(
