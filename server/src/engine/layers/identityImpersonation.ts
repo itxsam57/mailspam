@@ -48,6 +48,7 @@ export const OFFICIAL_BRAND_DOMAINS: Record<string, string[]> = {
   irs: ["irs.gov"],
 };
 
+const CONSUMER_MAILBOX_DOMAINS = new Set(["gmail.com", "outlook.com", "live.com", "icloud.com"]);
 const ALL_OFFICIAL_DOMAINS = [...new Set(Object.values(OFFICIAL_BRAND_DOMAINS).flat())];
 
 function levenshtein(a: string, b: string): number {
@@ -67,8 +68,6 @@ function levenshtein(a: string, b: string): number {
 export function claimedBrandFromText(text: string): string | null {
   const lower = text.trim().toLowerCase();
   for (const brand of Object.keys(OFFICIAL_BRAND_DOMAINS)) {
-    // The one-character X brand is accepted only as an exact label so a
-    // random standalone letter never becomes a brand claim.
     if (brand.length === 1) {
       if (lower === brand) return brand;
       continue;
@@ -87,8 +86,10 @@ export function claimedBrandForEnvelope(envelope: CanonicalEnvelope): string | n
 export function isDirectOfficialSenderDomain(envelope: CanonicalEnvelope): boolean {
   if (!envelope.from.domain) return false;
   const senderDomain = normalizeDomainName(envelope.from.domain);
+  if (CONSUMER_MAILBOX_DOMAINS.has(senderDomain)) return false;
   return ALL_OFFICIAL_DOMAINS.some(
-    (domain) => senderDomain === domain || senderDomain.endsWith(`.${domain}`),
+    (domain) => !CONSUMER_MAILBOX_DOMAINS.has(domain)
+      && (senderDomain === domain || senderDomain.endsWith(`.${domain}`)),
   );
 }
 
