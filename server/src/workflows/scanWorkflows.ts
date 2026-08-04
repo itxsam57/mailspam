@@ -64,7 +64,9 @@ export async function* quickScan(
   try {
     const folders = await adapter.listFolders(signal);
     const inbox = folders.find((f) => f.normalized === "inbox");
-    if (!inbox) return;
+    if (!inbox) {
+      throw new Error(`Inbox folder was not found. Discovered folders: ${folders.map((folder) => folder.providerFolderName).join(", ") || "none"}.`);
+    }
 
     const counters = emptyCounters();
     const page = await adapter.fetchPage(inbox, null, pageSize, signal);
@@ -106,6 +108,9 @@ export async function* fullMailboxAudit(
     const targetFolders: FolderDescriptor[] = opts.includeExcludedFolders
       ? allFolders
       : allFolders.filter((f) => f.includedByDefault);
+    if (targetFolders.length === 0) {
+      throw new Error(`No eligible mailbox folders were found. Discovered folders: ${allFolders.map((folder) => folder.providerFolderName).join(", ") || "none"}.`);
+    }
 
     for (const folder of targetFolders) {
       let cursor: string | null = opts.resumeCursors?.[folder.providerFolderName] ?? null;
@@ -118,7 +123,7 @@ export async function* fullMailboxAudit(
 
         for (const envelope of page.envelopes) {
           if (signal.aborted) return;
-          if (seenMessageIds.has(envelope.messageId)) continue; // cross-folder/label dedup
+          if (seenMessageIds.has(envelope.messageId)) continue;
           seenMessageIds.add(envelope.messageId);
           const result = scanMessage(envelope, deps);
           tally(counters, result);
@@ -150,7 +155,9 @@ export async function* spamJunkScan(
   try {
     const folders = await adapter.listFolders(signal);
     const spam = folders.find((f) => f.normalized === "spam");
-    if (!spam) return;
+    if (!spam) {
+      throw new Error(`Spam/Junk folder was not found. Discovered folders: ${folders.map((folder) => folder.providerFolderName).join(", ") || "none"}.`);
+    }
 
     const counters = emptyCounters();
     let cursor: string | null = null;
@@ -177,15 +184,6 @@ export async function* spamJunkScan(
   }
 }
 
-/**
- * Stop Scan (spec 8.4). Scan workflows above already check `signal.aborted`
- * before every provider call and after every message, so the caller only
- * needs to call AbortController.abort() — cancellation propagates through
- * adapter.fetchPage()'s own signal checks and to the adapter's live
- * sockets (each adapter's implementation is responsible for rejecting
- * pending commands and never writing to a destroyed transport; see the
- * imap adapter for the concrete case).
- */
 export function createStoppableScan() {
   const controller = new AbortController();
   return {
