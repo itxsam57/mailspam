@@ -1,5 +1,6 @@
 import { lookup } from "node:dns/promises";
 import { request } from "node:https";
+import type { IncomingMessage } from "node:http";
 import { isIP } from "node:net";
 import type { CanonicalEnvelope } from "../canonical/envelope.js";
 
@@ -124,10 +125,11 @@ export async function postRfc8058OneClick(target: string): Promise<OneClickPostR
 
   return await new Promise<OneClickPostResponse>((resolve, reject) => {
     let settled = false;
+    let totalTimer: NodeJS.Timeout | undefined;
     const finish = (fn: () => void) => {
       if (settled) return;
       settled = true;
-      clearTimeout(totalTimer);
+      if (totalTimer) clearTimeout(totalTimer);
       fn();
     };
 
@@ -148,14 +150,14 @@ export async function postRfc8058OneClick(target: string): Promise<OneClickPostR
         "Content-Type": "application/x-www-form-urlencoded",
         "Content-Length": String(body.length),
       },
-    } as any, (response) => {
+    } as any, (response: IncomingMessage) => {
       const status = response.statusCode ?? 0;
       response.resume();
       response.once("end", () => finish(() => resolve({ status })));
       response.once("error", (error) => finish(() => reject(error)));
     });
 
-    const totalTimer = setTimeout(() => {
+    totalTimer = setTimeout(() => {
       req.destroy(new Error(`One-click unsubscribe exceeded ${REQUEST_TIMEOUT_MS}ms deadline.`));
     }, REQUEST_TIMEOUT_MS);
 
