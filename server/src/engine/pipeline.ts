@@ -41,8 +41,14 @@ export function authenticationPassed(envelope: CanonicalEnvelope): boolean {
   return auth.dmarc === "pass" || auth.dkim === "pass" || auth.spf === "pass";
 }
 
+function isBoundedReadableContent(envelope: CanonicalEnvelope): boolean {
+  if (envelope.diagnostics.contentCoverage === "bounded_sufficient") return true;
+  if (envelope.parseStatus !== "partial" || envelope.parseNotes.length === 0) return false;
+  return envelope.parseNotes.every((note) => /^Readable text was bounded to \d+ bytes\.$/.test(note));
+}
+
 function boundedContentAllowsSafe(envelope: CanonicalEnvelope): boolean {
-  if (envelope.diagnostics.contentCoverage !== "bounded_sufficient") return false;
+  if (!isBoundedReadableContent(envelope)) return false;
   if (!authenticationPassed(envelope)) return false;
 
   const visibleLength = `${envelope.textPreview ?? ""} ${envelope.htmlSignals?.extractedText ?? ""}`.trim().length;
