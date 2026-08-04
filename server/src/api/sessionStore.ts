@@ -3,6 +3,11 @@ import type { Worker } from "node:worker_threads";
 import { InMemoryPersonalPolicyStore } from "../engine/layers/personalRules.js";
 import type { ThreatFeedCache } from "../engine/layers/globalIntelligence.js";
 import type { AdapterConfig } from "./adapterConfig.js";
+import {
+  EncryptedFilePolicyRepository,
+  policyAccountKey,
+  type PersonalPolicyRepository,
+} from "./policyPersistence.js";
 
 export interface AccountSession {
   id: string;
@@ -11,6 +16,7 @@ export interface AccountSession {
   config: AdapterConfig;
   activeScanWorker: Worker | null;
   personalPolicy: InMemoryPersonalPolicyStore;
+  policyAccountKey: string;
 }
 
 const emptyFeed: ThreatFeedCache = { getVerifiedEntries: () => [] };
@@ -19,17 +25,30 @@ export class SessionStore {
   private sessions = new Map<string, AccountSession>();
   readonly threatFeed = emptyFeed;
 
+  constructor(
+    private readonly policyRepository: PersonalPolicyRepository = new EncryptedFilePolicyRepository(),
+  ) {}
+
   create(provider: string, label: string, config: AdapterConfig): AccountSession {
+    const accountKey = policyAccountKey(config);
+    const personalPolicy = new InMemoryPersonalPolicyStore();
+    personalPolicy.restore(this.policyRepository.load(accountKey));
+
     const session: AccountSession = {
       id: randomUUID(),
       provider,
       label,
       config,
       activeScanWorker: null,
-      personalPolicy: new InMemoryPersonalPolicyStore(),
+      personalPolicy,
+      policyAccountKey: accountKey,
     };
     this.sessions.set(session.id, session);
     return session;
+  }
+
+  persistPersonalPolicy(session: AccountSession): void {
+    this.policyRepository.save(session.policyAccountKey, session.personalPolicy.snapshot());
   }
 
   get(id: string): AccountSession | undefined {
