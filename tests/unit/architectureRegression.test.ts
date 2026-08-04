@@ -41,16 +41,23 @@ describe("transport architecture regressions", () => {
     expect(monitor).not.toContain(".then(() => { btn.textContent = 'Moved'");
   });
 
-  it("scopes personal blocks to the selected account and verifies browser confirmation", () => {
+  it("scopes, encrypts, and transactionally persists personal block rules", () => {
     const server = read("server/src/api/server.ts");
     const sessions = read("server/src/api/sessionStore.ts");
+    const persistence = read("server/src/api/policyPersistence.ts");
     const monitor = read("web/scan-monitor.js");
 
-    expect(sessions).toContain("personalPolicy: InMemoryPersonalPolicyStore");
-    expect(sessions).not.toContain("readonly personalPolicy =");
+    expect(sessions).toContain("policyStores = new Map");
+    expect(sessions).toContain("policyRepository.load(accountKey)");
+    expect(sessions).toContain("persistPersonalPolicy(session");
     expect(server).toContain("personalPolicy: session.personalPolicy.snapshot()");
-    expect(server).toContain("session.personalPolicy.blockSender(address)");
-    expect(server).toContain("session.personalPolicy.blockDomain(domain)");
+    expect(server).toContain("sessionStore.persistPersonalPolicy(session)");
+    expect(server).toContain("session.personalPolicy.replace(previous)");
+    expect(server).toContain("persisted: true");
+    expect(persistence).toContain('const ALGORITHM = "aes-256-gcm"');
+    expect(persistence).toContain('join(homedir(), ".email-shield")');
+    expect(persistence).toContain("personal-policies.enc.json");
+    expect(persistence).not.toContain("appPassword:");
     expect(monitor).toContain("Block this ${scope} for the selected account?");
     expect(monitor).toContain("This does not move or delete mail.");
     expect(monitor).toContain("result.blocked !== true || result.scope !== scope || result.accountId !== id");
