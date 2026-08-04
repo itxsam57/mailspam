@@ -21,10 +21,17 @@
     status.className = `scan-monitor-status ${state}`.trim();
   }
 
+  function labelFor(action) {
+    if (action.alreadyUnsubscribed && action.method === 'one_click_post') return 'Unsubscribed ✓';
+    if (action.method === 'link_only') return 'Open unsubscribe page';
+    if (action.method === 'mailto') return 'Email unsubscribe request';
+    return 'Unsubscribe';
+  }
+
   window.renderCard = function renderCardWithUnsubscribe(result) {
     const html = originalRenderCard(result);
     const action = result?.unsubscribeAction;
-    if (!action?.available || action.method !== 'one_click_post' || !action.token || !action.actionKey) {
+    if (!action?.available || !action.token || !action.actionKey || !['one_click_post', 'link_only', 'mailto'].includes(action.method)) {
       return html;
     }
 
@@ -35,18 +42,19 @@
     if (!card || !actions) return html;
 
     const button = document.createElement('button');
-    button.dataset.action = 'unsubscribe-one-click';
+    button.dataset.action = 'unsubscribe';
     button.dataset.unsubscribeToken = action.token;
     button.dataset.unsubscribeKey = action.actionKey;
-    button.textContent = action.alreadyUnsubscribed ? 'Unsubscribed ✓' : 'Unsubscribe';
-    button.disabled = Boolean(action.alreadyUnsubscribed);
+    button.dataset.unsubscribeMethod = action.method;
+    button.textContent = labelFor(action);
+    button.disabled = Boolean(action.alreadyUnsubscribed && action.method === 'one_click_post');
     actions.appendChild(button);
     return card.outerHTML;
   };
 
   document.addEventListener('click', async (event) => {
     const button = event.target instanceof Element
-      ? event.target.closest('[data-action="unsubscribe-one-click"]')
+      ? event.target.closest('[data-action="unsubscribe"]')
       : null;
     if (!(button instanceof HTMLButtonElement) || button.disabled) return;
 
@@ -56,23 +64,32 @@
     const accountId = selectedAccountId();
     const token = button.dataset.unsubscribeToken;
     const actionKey = button.dataset.unsubscribeKey;
+    const method = button.dataset.unsubscribeMethod;
     const card = button.closest('.card');
     const subject = card?.querySelector('.card-subject')?.textContent?.trim() || '(no subject)';
     const sender = card?.querySelector('.card-from')?.textContent?.trim() || 'unknown sender';
 
-    if (!accountId || !token || !actionKey) {
+    if (!accountId || !token || !actionKey || !method) {
       setGlobalStatus('Unsubscribe failed: the selected account or action token is missing.', 'error');
       return;
     }
 
+    const explanation = method === 'one_click_post'
+      ? 'Email Shield will send the message-authorized RFC 8058 request without opening the destination.'
+      : method === 'link_only'
+        ? 'The service unsubscribe page will open in a new browser tab. Complete any confirmation shown there.'
+        : 'Your default email application will open a pre-addressed unsubscribe request. You must send it.';
     const confirmed = window.confirm(
-      `Send the message-authorized one-click unsubscribe request?\n\n${subject}\n${sender}\n\nEmail Shield will send the RFC 8058 form POST to the HTTPS destination declared in this message. It will not open the link in your browser.`,
+      `Continue with this unsubscribe option?\n\n${subject}\n${sender}\n\n${explanation}`,
     );
     if (!confirmed) return;
 
+    const pendingWindow = method === 'link_only'
+      ? window.open('about:blank', '_blank', 'noopener,noreferrer')
+      : null;
     const previousText = button.textContent;
     button.disabled = true;
-    button.textContent = 'Unsubscribing…';
+    button.textContent = method === 'one_click_post' ? 'Unsubscribing…' : 'Preparing…';
 
     let actionStatus = card?.querySelector('.unsubscribe-action-status');
     if (!actionStatus && card) {
@@ -83,7 +100,9 @@
     }
     if (actionStatus) {
       actionStatus.className = 'unsubscribe-action-status';
-      actionStatus.textContent = 'Sending a bounded RFC 8058 one-click request…';
+      actionStatus.textContent = method === 'one_click_post'
+        ? 'Sending the bounded one-click request…'
+        : 'Resolving the message-authorized unsubscribe action…';
     }
 
     try {
@@ -98,7 +117,37 @@
         throw new Error('The server did not confirm the expected unsubscribe action.');
       }
 
-      document.querySelectorAll('[data-action="unsubscribe-one-click"]').forEach((candidate) => {
+      if (result.manualAction === true) {
+        if (result.method !== method || typeof result.target !== 'string') {
+          throw new Error('The server returned an unexpected manual unsubscribe action.');
+        }
+        if (method === 'link_only') {
+          if (pendingWindow && !pendingWindow.closed) pendingWindow.location.replace(result.target);
+          else window.open(result.target, '_blank', 'noopener,noreferrer');
+          button.textContent = 'Open unsubscribe page again';
+          if (actionStatus) {
+            actionStatus.className = 'unsubscribe-action-status success';
+            actionStatus.textContent = 'The service unsubscribe page was opened. Complete any confirmation on that page.';
+          }
+        } else {
+          const anchor = document.createElement('a');
+          anchor.href = result.target;
+          anchor.style.display = 'none';
+          document.body.appendChild(anchor);
+          anchor.click();
+          anchor.remove();
+          button.textContent = 'Open email request again';
+          if (actionStatus) {
+            actionStatus.className = 'unsubscribe-action-status success';
+            actionStatus.textContent = 'A pre-addressed unsubscribe email was opened. Send it to complete the request.';
+          }
+        }
+        button.disabled = false;
+        setGlobalStatus('The available unsubscribe option was opened.', 'complete');
+        return;
+      }
+
+      document.querySelectorAll('[data-action="unsubscribe"]').forEach((candidate) => {
         if (candidate.dataset.unsubscribeKey === actionKey) {
           candidate.disabled = true;
           candidate.textContent = 'Unsubscribed ✓';
@@ -113,6 +162,7 @@
       }
       setGlobalStatus('One-click unsubscribe was confirmed. Matching duplicate buttons were synchronized.', 'complete');
     } catch (error) {
+      if (pendingWindow && !pendingWindow.closed) pendingWindow.close();
       button.disabled = false;
       button.textContent = previousText || 'Unsubscribe';
       const message = error instanceof Error ? error.message : String(error);
