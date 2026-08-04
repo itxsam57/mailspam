@@ -24,7 +24,7 @@ function buildDependencies() {
   };
 }
 
-async function runScanAttempt(): Promise<boolean> {
+async function runScanAttempt(onProgress: () => void): Promise<boolean> {
   const adapter = createAdapter(data.config);
   const deps = buildDependencies();
   const generator = data.type === "quick"
@@ -36,6 +36,7 @@ async function runScanAttempt(): Promise<boolean> {
   let emittedProgress = false;
   for await (const progress of generator) {
     emittedProgress = true;
+    onProgress();
     parentPort?.postMessage({ type: "progress", progress });
   }
   return emittedProgress;
@@ -51,15 +52,18 @@ async function main() {
     status: { phase: "connecting", message: "Connecting to the mail provider and discovering folders…" },
   });
 
+  let firstAttemptHadProgress = false;
   const emittedProgress = await runWithSingleRetry(
-    async () => await runScanAttempt(),
+    async (attempt) => await runScanAttempt(() => {
+      if (attempt === 1) firstAttemptHadProgress = true;
+    }),
     async (error) => {
       if (controller.signal.aborted) throw new DOMException("Aborted", "AbortError");
+      if (firstAttemptHadProgress) throw error;
       parentPort?.postMessage({
         type: "status",
         status: {
           phase: "retrying",
-          reset: true,
           message: `${error.message}. Reconnecting and retrying the read-only scan once…`,
         },
       });
