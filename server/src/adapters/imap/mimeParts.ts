@@ -35,14 +35,15 @@ function attachmentInfo(node: ImapBodyNode): AttachmentInfo | null {
     parameterText(node.parameters?.name) ??
     "unnamed";
   const pieces = name.split(".");
-  const extension = pieces.length > 1 ? pieces.at(-1)!.toLowerCase() : null;
+  const extension = pieces.length > 1 ? pieces[pieces.length - 1]!.toLowerCase() : null;
   const documentLike = new Set(["pdf", "doc", "docx", "xls", "xlsx", "jpg", "jpeg", "png", "txt"]);
-  const suspiciousNamePattern = pieces.length >= 3 && documentLike.has(pieces.at(-2)!.toLowerCase());
+  const suspiciousNamePattern = pieces.length >= 3 && documentLike.has(pieces[pieces.length - 2]!.toLowerCase());
+  const sizeBytes = typeof node.size === "number" && Number.isFinite(node.size) ? node.size : 0;
 
   return {
     name,
     mimeType: type,
-    sizeBytes: Number.isFinite(node.size) ? Number(node.size) : 0,
+    sizeBytes,
     extension,
     sha256: null,
     suspiciousNamePattern,
