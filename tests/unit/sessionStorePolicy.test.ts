@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { SessionStore } from "../../server/src/api/sessionStore.js";
-import { InMemoryPolicyRepository } from "../../server/src/api/policyPersistence.js";
+import {
+  InMemoryPolicyRepository,
+  type PersonalPolicyRepository,
+} from "../../server/src/api/policyPersistence.js";
 
 describe("account-scoped personal policy", () => {
   it("does not leak blocked senders or domains between different accounts", () => {
@@ -70,14 +73,23 @@ describe("account-scoped personal policy", () => {
     expect(reconnected.personalPolicy.isBlockedDomain("example.net")).toBe(true);
   });
 
-  it("rolls back cleanly when a caller replaces a failed mutation snapshot", () => {
-    const store = new SessionStore(new InMemoryPolicyRepository());
+  it("rolls back the mutation when encrypted persistence fails", () => {
+    const failingRepository: PersonalPolicyRepository = {
+      load: () => ({
+        blockedSenders: ["original@example.com"],
+        blockedDomains: [],
+        trustedSenders: [],
+        approvedExceptions: [],
+      }),
+      save: () => { throw new Error("disk full"); },
+    };
+    const store = new SessionStore(failingRepository);
     const session = store.create("icloud", "fixture", { provider: "icloud", mode: "fixture" });
-    session.personalPolicy.blockSender("original@example.com");
-    const previous = session.personalPolicy.snapshot();
 
-    session.personalPolicy.blockSender("should-not-remain@example.com");
-    session.personalPolicy.replace(previous);
+    expect(() => store.mutateAndPersistPersonalPolicy(
+      session,
+      (policy) => policy.blockSender("should-not-remain@example.com"),
+    )).toThrow("disk full");
 
     expect(session.personalPolicy.isBlockedSender("original@example.com")).toBe(true);
     expect(session.personalPolicy.isBlockedSender("should-not-remain@example.com")).toBe(false);
