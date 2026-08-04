@@ -1,10 +1,11 @@
 /**
  * Verdict model (spec Section 7).
  *
- * Hard rule: incomplete or unavailable content must never be presented as
- * proof of safety. Partial analysis may still produce Review or High Risk
- * when the evidence available is strong enough; only evidence-free partial
- * analysis falls back to Unknown.
+ * Hard rule: genuinely unavailable content must never be presented as proof
+ * of safety. A provider may deliberately bound a very large readable part;
+ * the pipeline may permit Safe only when that bounded content is sufficient,
+ * authentication passed, and a deterministic bulk/official identity signal
+ * is present.
  */
 
 export type Verdict = "safe" | "review" | "high_risk" | "confirmed_threat" | "unknown";
@@ -23,11 +24,6 @@ export interface LayerResult {
   evidence: Evidence[];
   incomplete: boolean;
   incompleteReason?: string;
-  /**
-   * Set only when incomplete means content genuinely could not be read or
-   * fetched. Deliberately deferred layers, such as manual destination
-   * analysis, do not block a Safe verdict by themselves.
-   */
   blocksSafeVerdict?: boolean;
 }
 
@@ -46,30 +42,29 @@ export function computeVerdict(params: {
   parseStatus: "complete" | "partial" | "malformed" | "inaccessible" | "skipped";
   layerResults: LayerResult[];
   confirmedByRule: boolean;
+  /** True only for authenticated, deterministically identified bounded mail. */
+  boundedContentAllowsSafe?: boolean;
 }): ScoredMessage {
-  const { parseStatus, layerResults, confirmedByRule } = params;
+  const { parseStatus, layerResults, confirmedByRule, boundedContentAllowsSafe = false } = params;
 
   const evidence = layerResults.flatMap((layer) => layer.evidence);
   const score = evidence.reduce((sum, item) => sum + item.scoreContribution, 0);
+  const parseBlocksSafe = parseStatus !== "complete" && !boundedContentAllowsSafe;
   const hasUnavailableContent =
-    parseStatus !== "complete" ||
+    parseBlocksSafe ||
     layerResults.some((layer) => layer.incomplete && layer.blocksSafeVerdict);
 
   if (confirmedByRule) {
     return { score, evidence, verdict: "confirmed_threat", confirmedByRule: true, layerResults };
   }
-
   if (score >= HIGH_RISK_THRESHOLD) {
     return { score, evidence, verdict: "high_risk", confirmedByRule: false, layerResults };
   }
-
   if (score >= REVIEW_THRESHOLD) {
     return { score, evidence, verdict: "review", confirmedByRule: false, layerResults };
   }
-
   if (hasUnavailableContent) {
     return { score, evidence, verdict: "unknown", confirmedByRule: false, layerResults };
   }
-
   return { score, evidence, verdict: "safe", confirmedByRule: false, layerResults };
 }
