@@ -33,12 +33,10 @@ export function normalizeHeaderText(raw: unknown): string | undefined {
       .filter((value): value is string => Boolean(value));
     return parts.length ? parts.join("; ") : undefined;
   }
-  if (typeof raw === "number" || typeof raw === "boolean" || typeof raw === "bigint") {
-    return String(raw);
-  }
+  if (typeof raw === "number" || typeof raw === "boolean" || typeof raw === "bigint") return String(raw);
   if (typeof raw === "object") {
     const record = raw as Record<string, unknown>;
-    for (const key of ["value", "text", "name"]) {
+    for (const key of ["value", "text", "name", "url"]) {
       const normalized = normalizeHeaderText(record[key]);
       if (normalized) return normalized;
     }
@@ -55,9 +53,9 @@ export function parseAuthResultsHeader(raw: unknown): AuthenticationSignals {
   const headerText = normalizeHeaderText(raw);
   if (!headerText) return base;
   const extract = (name: string): AuthenticationSignals["spf"] => {
-    const m = headerText.match(new RegExp(`(?:^|[^a-z0-9_-])${name}\\s*=\\s*([\\w-]+)`, "i"));
-    const val = m?.[1]?.toLowerCase();
-    if (val === "pass" || val === "fail" || val === "softfail" || val === "neutral" || val === "none") return val;
+    const match = headerText.match(new RegExp(`(?:^|[^a-z0-9_-])${name}\\s*=\\s*([\\w-]+)`, "i"));
+    const value = match?.[1]?.toLowerCase();
+    if (value === "pass" || value === "fail" || value === "softfail" || value === "neutral" || value === "none") return value;
     return "unknown";
   };
   return {
@@ -69,40 +67,56 @@ export function parseAuthResultsHeader(raw: unknown): AuthenticationSignals {
   };
 }
 
+function urlCandidate(raw: string): string {
+  const trimmed = raw.trim();
+  if (/^www\./i.test(trimmed)) return `https://${trimmed}`;
+  if (/^\/\//.test(trimmed)) return `https:${trimmed}`;
+  return trimmed;
+}
+
 function extractLinks(mail: ParsedMail): LinkInfo[] {
   const links: LinkInfo[] = [];
   const html = mail.html || "";
   const anchorRe = /<a\s+[^>]*href=["']([^"']+)["'][^>]*>(.*?)<\/a>/gis;
   let match: RegExpExecArray | null;
   while ((match = anchorRe.exec(html))) {
-    const rawUrl = match[1]!;
-    const visibleText = match[2]!.replace(/<[^>]+>/g, "").trim() || null;
+    const originalRawUrl = match[1]!;
+    const rawUrl = urlCandidate(originalRawUrl);
+    const visibleText = match[2]!.replace(/<[^>]+>/g, "").replace(/&nbsp;/gi, " ").trim() || null;
     let normalizedUrl = rawUrl;
     let claimedBrand: string | null = null;
     let brandDomainMismatch: boolean | null = null;
     try {
-      const u = new URL(rawUrl);
-      normalizedUrl = u.toString();
+      const url = new URL(rawUrl);
+      normalizedUrl = url.toString();
       claimedBrand = claimedBrandFromText(visibleText ?? "") ?? claimedBrandFromText(rawUrl);
       if (claimedBrand) {
         const officialDomains = OFFICIAL_BRAND_DOMAINS[claimedBrand]!;
-        brandDomainMismatch = !officialDomains.some((d) => u.hostname === d || u.hostname.endsWith(`.${d}`));
+        brandDomainMismatch = !officialDomains.some(
+          (domain) => url.hostname === domain || url.hostname.endsWith(`.${domain}`),
+        );
       }
     } catch {
-      // leave normalizedUrl as raw; link_structure layer will flag MALFORMED_URL
+      // link_structure layer will report truly malformed values.
     }
     links.push({ visibleText, rawUrl, normalizedUrl, claimedBrand, brandDomainMismatch });
   }
   if (!html && mail.text) {
-    const bareRe = /https?:\/\/[^\s<>"']+/g;
-    let m: RegExpExecArray | null;
-    while ((m = bareRe.exec(mail.text))) {
-      const rawUrl = m[0];
+    const bareRe = /(?:https?:\/\/|www\.)[^\s<>"']+/gi;
+    let bare: RegExpExecArray | null;
+    while ((bare = bareRe.exec(mail.text))) {
+      const rawUrl = urlCandidate(bare[0]);
       try {
-        const u = new URL(rawUrl);
-        links.push({ visibleText: rawUrl, rawUrl, normalizedUrl: u.toString(), claimedBrand: claimedBrandFromText(rawUrl), brandDomainMismatch: null });
+        const url = new URL(rawUrl);
+        links.push({
+          visibleText: bare[0],
+          rawUrl,
+          normalizedUrl: url.toString(),
+          claimedBrand: claimedBrandFromText(rawUrl),
+          brandDomainMismatch: null,
+        });
       } catch {
-        links.push({ visibleText: rawUrl, rawUrl, normalizedUrl: rawUrl, claimedBrand: null, brandDomainMismatch: null });
+        links.push({ visibleText: bare[0], rawUrl, normalizedUrl: rawUrl, claimedBrand: null, brandDomainMismatch: null });
       }
     }
   }
@@ -110,16 +124,16 @@ function extractLinks(mail: ParsedMail): LinkInfo[] {
 }
 
 function extractAttachments(mail: ParsedMail): AttachmentInfo[] {
-  return (mail.attachments ?? []).map((a) => {
-    const name = a.filename ?? "unnamed";
+  return (mail.attachments ?? []).map((attachment) => {
+    const name = attachment.filename ?? "unnamed";
     const parts = name.split(".");
     const extension = parts.length > 1 ? parts[parts.length - 1]!.toLowerCase() : null;
     const knownDocLike = new Set(["pdf", "doc", "docx", "xls", "xlsx", "jpg", "jpeg", "png", "txt"]);
     const suspiciousNamePattern = parts.length >= 3 && knownDocLike.has(parts[parts.length - 2]!.toLowerCase());
     return {
       name,
-      mimeType: a.contentType ?? "application/octet-stream",
-      sizeBytes: a.size ?? (a.content ? a.content.length : 0),
+      mimeType: attachment.contentType ?? "application/octet-stream",
+      sizeBytes: attachment.size ?? (attachment.content ? attachment.content.length : 0),
       extension,
       sha256: null,
       suspiciousNamePattern,
@@ -143,8 +157,8 @@ export async function normalizeRawMessage(raw: string | Buffer, opts: NormalizeO
 
   try {
     mail = await simpleParser(raw);
-  } catch (err) {
-    return malformedEnvelope(opts, `MIME parse threw: ${(err as Error).message}`);
+  } catch (error) {
+    return malformedEnvelope(opts, `MIME parse threw: ${(error as Error).message}`);
   }
 
   if (!mail.text && !mail.html) {
@@ -155,9 +169,10 @@ export async function normalizeRawMessage(raw: string | Buffer, opts: NormalizeO
   const from = firstAddress(mail.from) ?? { displayName: null, address: null, domain: null };
   const replyTo = firstAddress(mail.replyTo);
   const authHeader = mail.headers.get("authentication-results");
-
-  const textPreview = mail.text ? mail.text.slice(0, TEXT_PREVIEW_MAX_CHARS) : mail.html ? null : null;
-  const htmlText = mail.html ? mail.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, TEXT_PREVIEW_MAX_CHARS) : null;
+  const textPreview = mail.text ? mail.text.slice(0, TEXT_PREVIEW_MAX_CHARS) : null;
+  const htmlText = mail.html
+    ? mail.html.replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, TEXT_PREVIEW_MAX_CHARS)
+    : null;
 
   const links = extractLinks(mail);
   const attachments = extractAttachments(mail);
@@ -165,9 +180,15 @@ export async function normalizeRawMessage(raw: string | Buffer, opts: NormalizeO
   const listHeader = mail.headers.get("list") as
     | { id?: { name?: string }; unsubscribe?: { url?: string }; ["unsubscribe-post"]?: { name?: string } }
     | undefined;
-  const listId = listHeader?.id?.name ?? null;
-  const listUnsub = listHeader?.unsubscribe?.url ?? null;
-  const listUnsubPost = listHeader?.["unsubscribe-post"]?.name ?? null;
+  const listId = listHeader?.id?.name ?? normalizeHeaderText(mail.headers.get("list-id")) ?? null;
+  const listUnsubscribe =
+    listHeader?.unsubscribe?.url ??
+    normalizeHeaderText(mail.headers.get("list-unsubscribe")) ??
+    null;
+  const listUnsubscribePost =
+    listHeader?.["unsubscribe-post"]?.name ??
+    normalizeHeaderText(mail.headers.get("list-unsubscribe-post")) ??
+    null;
 
   return {
     provider: opts.provider,
@@ -185,21 +206,22 @@ export async function normalizeRawMessage(raw: string | Buffer, opts: NormalizeO
     htmlSignals: mail.html
       ? {
           extractedText: htmlText,
-          hrefs: links.map((l) => l.rawUrl),
+          hrefs: links.map((link) => link.rawUrl),
           hasForm: /<form[\s>]/i.test(mail.html),
           hasPasswordField: /<input[^>]+type=["']?password/i.test(mail.html),
         }
       : null,
     links,
     attachments,
-    listHeaders: { listId, listUnsubscribe: listUnsub, listUnsubscribePost: listUnsubPost },
+    listHeaders: { listId, listUnsubscribe, listUnsubscribePost },
     threadContext: opts.threadContext ?? { isFirstContact: true, threadContinuityBroken: false, replyToChangedMidThread: false },
     parseStatus,
     parseNotes,
     diagnostics: {
       fetchedAt: new Date().toISOString(),
       sizeBytes: typeof raw === "string" ? Buffer.byteLength(raw) : raw.length,
-      encoding: mail.html ? (mail.attachments?.length ? "multipart" : "multipart") : "plain",
+      encoding: mail.html ? "multipart" : "plain",
+      contentCoverage: parseStatus === "complete" ? "complete" : "insufficient",
     },
   };
 }
@@ -225,6 +247,11 @@ function malformedEnvelope(opts: NormalizeOptions, reason: string): CanonicalEnv
     threadContext: { isFirstContact: true, threadContinuityBroken: false, replyToChangedMidThread: false },
     parseStatus: "malformed",
     parseNotes: [reason],
-    diagnostics: { fetchedAt: new Date().toISOString(), sizeBytes: 0, encoding: "unknown" },
+    diagnostics: {
+      fetchedAt: new Date().toISOString(),
+      sizeBytes: 0,
+      encoding: "unknown",
+      contentCoverage: "insufficient",
+    },
   };
 }
