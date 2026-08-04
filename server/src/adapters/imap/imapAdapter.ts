@@ -19,7 +19,49 @@ export interface ImapCredentials {
 
 const MAX_TEXT_PART_BYTES = 24 * 1024;
 const MIN_USEFUL_PLAIN_TEXT_CHARS = 80;
-const COMMAND_TIMEOUT_MS = 15_000;
+const CONNECT_TIMEOUT_MS = 25_000;
+const FOLDER_TIMEOUT_MS = 20_000;
+const LOCK_TIMEOUT_MS = 20_000;
+const SEARCH_TIMEOUT_MS = 20_000;
+const METADATA_TIMEOUT_MS = 30_000;
+const TEXT_PART_TIMEOUT_MS = 20_000;
+const MOVE_TIMEOUT_MS = 30_000;
+const SOCKET_IDLE_TIMEOUT_MS = 45_000;
+
+export class ImapCommandTimeoutError extends Error {
+  readonly code = "IMAP_TIMEOUT";
+  constructor(readonly stage: string, readonly timeoutMs: number) {
+    super(`IMAP ${stage} exceeded ${timeoutMs}ms deadline`);
+    this.name = "ImapCommandTimeoutError";
+  }
+}
+
+export async function withImapDeadline<T>(
+  promise: Promise<T>,
+  signal: AbortSignal,
+  stage: string,
+  timeoutMs: number,
+): Promise<T> {
+  if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+
+  let timeout: NodeJS.Timeout | undefined;
+  let onAbort: (() => void) | undefined;
+  const guard = new Promise<T>((_, reject) => {
+    onAbort = () => reject(new DOMException("Aborted", "AbortError"));
+    signal.addEventListener("abort", onAbort, { once: true });
+    timeout = setTimeout(
+      () => reject(new ImapCommandTimeoutError(stage, timeoutMs)),
+      timeoutMs,
+    );
+  });
+
+  try {
+    return await Promise.race([promise, guard]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    if (onAbort) signal.removeEventListener("abort", onAbort);
+  }
+}
 
 function normalizeFolderName(name: string): NormalizedFolder {
   const lower = name.toLowerCase();
@@ -38,18 +80,6 @@ function decodeCursor(cursor: string | null): ImapCursor { if (!cursor) return {
 function encodeNativeId(folder: string, uid: number): string { return Buffer.from(JSON.stringify({ folder, uid })).toString("base64url"); }
 function decodeNativeId(value: string): { folder: string; uid: number } | null { try { const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")); return typeof parsed.folder === "string" && Number.isInteger(parsed.uid) ? parsed : null; } catch { return null; } }
 
-async function withDeadline<T>(promise: Promise<T>, signal: AbortSignal, ms = COMMAND_TIMEOUT_MS): Promise<T> {
-  if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-  let timeout: NodeJS.Timeout | undefined;
-  return await Promise.race([
-    promise,
-    new Promise<T>((_, reject) => {
-      timeout = setTimeout(() => reject(new Error(`IMAP command exceeded ${ms}ms deadline`)), ms);
-      signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
-    }),
-  ]).finally(() => { if (timeout) clearTimeout(timeout); });
-}
-
 async function collectStream(stream: AsyncIterable<Buffer | Uint8Array | string>, signal: AbortSignal): Promise<Buffer> {
   const chunks: Buffer[] = [];
   for await (const chunk of stream) {
@@ -65,11 +95,19 @@ async function downloadTextPart(
   part: string,
   signal: AbortSignal,
 ): Promise<{ text: string; contentType: "text/plain" | "text/html"; truncated: boolean }> {
-  const download = await withDeadline(
+  const stage = `text-part download for UID ${uid}`;
+  const download = await withImapDeadline(
     client.download(uid, part, { uid: true, maxBytes: MAX_TEXT_PART_BYTES }) as Promise<any>,
     signal,
+    stage,
+    TEXT_PART_TIMEOUT_MS,
   );
-  const buffer = await withDeadline(collectStream(download.content, signal), signal);
+  const buffer = await withImapDeadline(
+    collectStream(download.content, signal),
+    signal,
+    `${stage} stream`,
+    TEXT_PART_TIMEOUT_MS,
+  );
   const contentType = String(download.meta?.contentType ?? "text/plain").toLowerCase() === "text/html"
     ? "text/html"
     : "text/plain";
@@ -113,21 +151,27 @@ export class ImapAdapter implements EmailAdapter {
       secure: this.credentials.secure,
       auth: { user: this.credentials.user, pass: this.credentials.appPassword },
       logger: false,
-      socketTimeout: COMMAND_TIMEOUT_MS,
-      greetingTimeout: COMMAND_TIMEOUT_MS,
-      connectionTimeout: COMMAND_TIMEOUT_MS,
+      socketTimeout: SOCKET_IDLE_TIMEOUT_MS,
+      greetingTimeout: CONNECT_TIMEOUT_MS,
+      connectionTimeout: CONNECT_TIMEOUT_MS,
     } as any);
     this.client = client;
     const onAbort = () => { this.aborted = true; try { client.close(); } catch {} };
     signal.addEventListener("abort", onAbort, { once: true });
-    try { await withDeadline(client.connect(), signal); }
-    catch (error) { try { client.close(); } catch {} this.client = null; throw error; }
-    finally { signal.removeEventListener("abort", onAbort); }
+    try {
+      await withImapDeadline(client.connect(), signal, "connection", CONNECT_TIMEOUT_MS);
+    } catch (error) {
+      try { client.close(); } catch {}
+      this.client = null;
+      throw error;
+    } finally {
+      signal.removeEventListener("abort", onAbort);
+    }
   }
 
   async listFolders(signal: AbortSignal): Promise<FolderDescriptor[]> {
     const client = this.requireClient();
-    const folders = await withDeadline(client.list(), signal);
+    const folders = await withImapDeadline(client.list(), signal, "folder discovery", FOLDER_TIMEOUT_MS);
     return folders.map((folder: any) => {
       const normalized = normalizeFolderName(folder.specialUse ?? folder.name ?? folder.path);
       return { providerFolderName: folder.path, normalized, includedByDefault: !["sent", "drafts", "trash"].includes(normalized) };
@@ -136,21 +180,29 @@ export class ImapAdapter implements EmailAdapter {
 
   async fetchPage(folder: FolderDescriptor, cursorValue: string | null, pageSize: number, signal: AbortSignal): Promise<FetchPage> {
     const client = this.requireClient();
-    const lock = await withDeadline(client.getMailboxLock(folder.providerFolderName), signal);
+    const lock = await withImapDeadline(
+      client.getMailboxLock(folder.providerFolderName),
+      signal,
+      `mailbox lock for ${folder.providerFolderName}`,
+      LOCK_TIMEOUT_MS,
+    );
     try {
       const mailbox: any = client.mailbox;
       const uidValidity = mailbox?.uidValidity ? String(mailbox.uidValidity) : null;
       let cursor = decodeCursor(cursorValue);
       if (cursor.uidValidity && uidValidity && cursor.uidValidity !== uidValidity) cursor = { offset: 0, uidValidity };
 
-      const allUids = await withDeadline(client.search({ all: true }, { uid: true }) as Promise<number[]>, signal);
+      const allUids = await withImapDeadline(
+        client.search({ all: true }, { uid: true }) as Promise<number[]>,
+        signal,
+        `UID search in ${folder.providerFolderName}`,
+        SEARCH_TIMEOUT_MS,
+      );
       const newestFirst = [...allUids].sort((a, b) => b - a);
       const selected = newestFirst.slice(cursor.offset, cursor.offset + Math.max(1, Math.min(pageSize, 25)));
       if (selected.length === 0) return { envelopes: [], nextCursor: null, done: true };
 
-      // Complete the metadata command before issuing any body-part downloads.
-      // Running nested commands inside a fetch iterator can deadlock ImapFlow.
-      const metadataMessages = await withDeadline(
+      const metadataMessages = await withImapDeadline(
         client.fetchAll(selected, {
           uid: true,
           headers: true,
@@ -158,6 +210,8 @@ export class ImapAdapter implements EmailAdapter {
           size: true,
         }, { uid: true }) as Promise<any[]>,
         signal,
+        `metadata fetch for ${selected.length} messages in ${folder.providerFolderName}`,
+        METADATA_TIMEOUT_MS,
       );
       const metadataByUid = new Map<number, any>(
         metadataMessages.map((message) => [Number(message.uid), message]),
@@ -182,8 +236,6 @@ export class ImapAdapter implements EmailAdapter {
             contentType = "text/plain";
             truncated = plain.truncated;
 
-            // Some multipart messages expose only a tiny placeholder in the
-            // plain part and keep the meaningful content in HTML.
             if (body.trim().length < MIN_USEFUL_PLAIN_TEXT_CHARS && selection.htmlPart) {
               const html = await downloadTextPart(client, uid, selection.htmlPart, signal);
               body = html.text;
@@ -199,7 +251,7 @@ export class ImapAdapter implements EmailAdapter {
             parseNotes.push("No readable text/plain or text/html MIME part was available.");
           }
         } catch (error) {
-          if (signal.aborted) throw error;
+          if (signal.aborted || error instanceof ImapCommandTimeoutError) throw error;
           parseNotes.push(`Readable MIME part could not be downloaded: ${(error as Error).message}`);
         }
 
@@ -225,7 +277,9 @@ export class ImapAdapter implements EmailAdapter {
       const nextOffset = cursor.offset + selected.length;
       const done = nextOffset >= newestFirst.length;
       return { envelopes, nextCursor: done ? null : encodeCursor({ offset: nextOffset, uidValidity }), done };
-    } finally { lock.release(); }
+    } finally {
+      lock.release();
+    }
   }
 
   async moveToTrash(providerNativeIds: string[], signal: AbortSignal): Promise<void> {
@@ -235,14 +289,28 @@ export class ImapAdapter implements EmailAdapter {
       const decoded = decodeNativeId(value);
       if (!decoded) continue;
       const list = byFolder.get(decoded.folder) ?? [];
-      list.push(decoded.uid); byFolder.set(decoded.folder, list);
+      list.push(decoded.uid);
+      byFolder.set(decoded.folder, list);
     }
     const trash = (await this.listFolders(signal)).find((folder) => folder.normalized === "trash");
     if (!trash) throw new Error("No Trash folder found on this account.");
     for (const [folder, uids] of byFolder) {
-      const lock = await withDeadline(client.getMailboxLock(folder), signal);
-      try { await withDeadline(client.messageMove(uids, trash.providerFolderName, { uid: true }) as Promise<any>, signal); }
-      finally { lock.release(); }
+      const lock = await withImapDeadline(
+        client.getMailboxLock(folder),
+        signal,
+        `mailbox lock for ${folder}`,
+        LOCK_TIMEOUT_MS,
+      );
+      try {
+        await withImapDeadline(
+          client.messageMove(uids, trash.providerFolderName, { uid: true }) as Promise<any>,
+          signal,
+          `move of ${uids.length} message(s) from ${folder} to Trash`,
+          MOVE_TIMEOUT_MS,
+        );
+      } finally {
+        lock.release();
+      }
     }
   }
 
@@ -250,12 +318,28 @@ export class ImapAdapter implements EmailAdapter {
     const client = this.client;
     this.client = null;
     if (!client) return;
-    if (this.aborted) { try { client.close(); } catch {} return; }
-    try { await Promise.race([client.logout(), new Promise((resolve) => setTimeout(resolve, 1000))]); }
-    catch { try { client.close(); } catch {} }
+    if (this.aborted) {
+      try { client.close(); } catch {}
+      return;
+    }
+
+    let logoutCompleted = false;
+    try {
+      await Promise.race([
+        client.logout().then(() => { logoutCompleted = true; }),
+        new Promise<void>((resolve) => setTimeout(resolve, 1000)),
+      ]);
+    } catch {}
+
+    if (!logoutCompleted) {
+      try { client.close(); } catch {}
+    }
   }
 
-  private requireClient(): ImapFlow { if (!this.client) throw new Error("Not connected"); return this.client; }
+  private requireClient(): ImapFlow {
+    if (!this.client) throw new Error("Not connected");
+    return this.client;
+  }
 }
 
 export function createIcloudAdapter(user: string, appPassword: string): ImapAdapter { return new ImapAdapter("icloud", { host: "imap.mail.me.com", port: 993, secure: true, user, appPassword }); }

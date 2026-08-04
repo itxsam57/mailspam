@@ -56,6 +56,26 @@ describe("transport architecture regressions", () => {
     expect(monitor).toContain("result.blocked !== true || result.scope !== scope || result.accountId !== id");
   });
 
+  it("uses stage-specific IMAP deadlines and force-closes stalled logout sockets", () => {
+    const imap = read("server/src/adapters/imap/imapAdapter.ts");
+    expect(imap).toContain("class ImapCommandTimeoutError");
+    expect(imap).toContain("metadata fetch for ${selected.length} messages");
+    expect(imap).toContain("UID search in ${folder.providerFolderName}");
+    expect(imap).toContain("if (!logoutCompleted)");
+    expect(imap).toContain("client.close()");
+    expect(imap).not.toContain("IMAP command exceeded ${ms}ms deadline");
+  });
+
+  it("uses smaller live IMAP pages and retries only before visible progress", () => {
+    const server = read("server/src/api/server.ts");
+    const worker = read("server/src/workers/scanWorker.ts");
+    expect(server).toContain('const pageSize = liveImap ? 10 : 20');
+    expect(worker).toContain("runWithSingleRetry");
+    expect(worker).toContain("firstAttemptHadProgress");
+    expect(worker).toContain("if (firstAttemptHadProgress) throw error");
+    expect(worker).toContain("Reconnecting and retrying the read-only scan once");
+  });
+
   it("fetches bounded readable IMAP parts instead of raw messages or attachment bodies", () => {
     const imap = read("server/src/adapters/imap/imapAdapter.ts");
     expect(imap).not.toContain("source: true");

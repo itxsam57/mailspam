@@ -47,9 +47,14 @@ export function createServer() {
 
       const adapter = createAdapter(config);
       const ac = new AbortController();
-      const timeout = setTimeout(() => ac.abort(), 15000);
-      try { await adapter.connect(ac.signal); await adapter.listFolders(ac.signal); }
-      finally { clearTimeout(timeout); await adapter.disconnect(); }
+      const timeout = setTimeout(() => ac.abort(), 35_000);
+      try {
+        await adapter.connect(ac.signal);
+        await adapter.listFolders(ac.signal);
+      } finally {
+        clearTimeout(timeout);
+        await adapter.disconnect();
+      }
       const session = sessionStore.create(provider, label ?? `${provider} (${mode})`, config);
       res.json({ accountId: session.id, provider: session.provider, label: session.label, mode });
     } catch (err) {
@@ -90,6 +95,8 @@ export function createServer() {
     res.write(`event: scan-started\ndata: ${JSON.stringify({ type, provider: session.provider })}\n\n`);
 
     const workerUrl = new URL("../workers/scanWorker.js", import.meta.url);
+    const liveImap = session.config.mode === "live" && ["icloud", "yahoo", "imap"].includes(session.provider);
+    const pageSize = liveImap ? 10 : 20;
 
     let worker: Worker;
     try {
@@ -97,7 +104,7 @@ export function createServer() {
         workerData: {
           config: session.config,
           type,
-          pageSize: 20,
+          pageSize,
           personalPolicy: session.personalPolicy.snapshot(),
         },
       });
