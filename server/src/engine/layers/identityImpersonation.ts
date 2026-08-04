@@ -17,6 +17,7 @@ export const OFFICIAL_BRAND_DOMAINS: Record<string, string[]> = {
   google: ["google.com", "gmail.com"],
   microsoft: ["microsoft.com", "outlook.com", "live.com"],
   amazon: ["amazon.com"],
+  x: ["x.com"],
   tiktok: ["tiktok.com"],
   instagram: ["instagram.com"],
   codecademy: ["codecademy.com"],
@@ -47,6 +48,9 @@ export const OFFICIAL_BRAND_DOMAINS: Record<string, string[]> = {
   irs: ["irs.gov"],
 };
 
+const CONSUMER_MAILBOX_DOMAINS = new Set(["gmail.com", "outlook.com", "live.com", "icloud.com"]);
+const ALL_OFFICIAL_DOMAINS = [...new Set(Object.values(OFFICIAL_BRAND_DOMAINS).flat())];
+
 function levenshtein(a: string, b: string): number {
   const dp: number[][] = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
   for (let i = 0; i <= a.length; i++) dp[i]![0] = i;
@@ -62,8 +66,12 @@ function levenshtein(a: string, b: string): number {
 }
 
 export function claimedBrandFromText(text: string): string | null {
-  const lower = text.toLowerCase();
+  const lower = text.trim().toLowerCase();
   for (const brand of Object.keys(OFFICIAL_BRAND_DOMAINS)) {
+    if (brand.length === 1) {
+      if (lower === brand) return brand;
+      continue;
+    }
     const escaped = brand.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const re = new RegExp(`(?<![a-z0-9])${escaped}(?![a-z0-9])`, "i");
     if (re.test(lower)) return brand;
@@ -71,30 +79,66 @@ export function claimedBrandFromText(text: string): string | null {
   return null;
 }
 
+export function claimedBrandForEnvelope(envelope: CanonicalEnvelope): string | null {
+  return claimedBrandFromText(envelope.from.displayName ?? "") ?? claimedBrandFromText(envelope.subject);
+}
+
+export function isDirectOfficialSenderDomain(envelope: CanonicalEnvelope): boolean {
+  if (!envelope.from.domain) return false;
+  const senderDomain = normalizeDomainName(envelope.from.domain);
+  if (CONSUMER_MAILBOX_DOMAINS.has(senderDomain)) return false;
+  return ALL_OFFICIAL_DOMAINS.some(
+    (domain) => !CONSUMER_MAILBOX_DOMAINS.has(domain)
+      && (senderDomain === domain || senderDomain.endsWith(`.${domain}`)),
+  );
+}
+
+function relayLocalPartEncodesDomain(address: string, domain: string): boolean {
+  const localPart = address.split("@")[0]?.toLowerCase() ?? "";
+  const encodedDomain = normalizeDomainName(domain).replace(/\./g, "_");
+  if (!localPart || !encodedDomain) return false;
+  return localPart.includes(`_at_${encodedDomain}_`)
+    || localPart.endsWith(`_at_${encodedDomain}`)
+    || localPart.includes(`_${encodedDomain}_`)
+    || localPart.endsWith(`_${encodedDomain}`);
+}
+
+export function isOfficialPrivateRelaySender(envelope: CanonicalEnvelope): boolean {
+  if (!envelope.from.domain || !envelope.from.address || !isKnownSenderRelay(envelope.from.domain)) return false;
+  const claimedBrand = claimedBrandForEnvelope(envelope);
+  if (!claimedBrand) return false;
+  return OFFICIAL_BRAND_DOMAINS[claimedBrand]!.some(
+    (domain) => relayLocalPartEncodesDomain(envelope.from.address!, domain),
+  );
+}
+
+export function hasDeterministicOfficialIdentity(envelope: CanonicalEnvelope): boolean {
+  return isDirectOfficialSenderDomain(envelope) || isOfficialPrivateRelaySender(envelope);
+}
+
+/** Backward-compatible claim-aware helper used by existing tests/callers. */
 export function isOfficialBrandSender(envelope: CanonicalEnvelope): boolean {
-  const claimedBrand =
-    claimedBrandFromText(envelope.from.displayName ?? "") ??
-    claimedBrandFromText(envelope.subject);
+  const claimedBrand = claimedBrandForEnvelope(envelope);
   if (!claimedBrand || !envelope.from.domain) return false;
   const senderDomain = normalizeDomainName(envelope.from.domain);
   return OFFICIAL_BRAND_DOMAINS[claimedBrand]!.some(
     (domain) => senderDomain === domain || senderDomain.endsWith(`.${domain}`),
-  );
+  ) || isOfficialPrivateRelaySender(envelope);
 }
 
 export function identityImpersonationLayer(envelope: CanonicalEnvelope): LayerResult {
   const evidence: LayerResult["evidence"] = [];
-
-  const claimedBrand =
-    claimedBrandFromText(envelope.from.displayName ?? "") ??
-    claimedBrandFromText(envelope.subject);
+  const claimedBrand = claimedBrandForEnvelope(envelope);
 
   if (claimedBrand && envelope.from.domain) {
     const officialDomains = OFFICIAL_BRAND_DOMAINS[claimedBrand]!;
     const senderDomain = normalizeDomainName(envelope.from.domain);
-    const isOfficial = officialDomains.some((domain) => senderDomain === domain || senderDomain.endsWith(`.${domain}`));
+    const isOfficial = officialDomains.some(
+      (domain) => senderDomain === domain || senderDomain.endsWith(`.${domain}`),
+    );
+    const verifiedRelay = isOfficialPrivateRelaySender(envelope);
 
-    if (!isOfficial && !isKnownSenderRelay(senderDomain)) {
+    if (!isOfficial && !verifiedRelay && !isKnownSenderRelay(senderDomain)) {
       const closest = Math.min(...officialDomains.map((domain) => levenshtein(senderDomain, domain)));
       const lookalike = closest > 0 && closest <= 3 && senderDomain.length > 3;
 

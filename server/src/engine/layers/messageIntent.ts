@@ -1,4 +1,5 @@
 import type { CanonicalEnvelope } from "../../canonical/envelope.js";
+import { isDirectOfficialSenderDomain } from "./identityImpersonation.js";
 import type { LayerResult } from "../verdict.js";
 
 interface IntentRule {
@@ -101,6 +102,11 @@ function pushUnique(evidence: LayerResult["evidence"], item: LayerResult["eviden
   if (!evidence.some((existing) => existing.code === item.code)) evidence.push(item);
 }
 
+function authenticationPassed(envelope: CanonicalEnvelope): boolean {
+  const auth = envelope.authentication;
+  return auth.dmarc === "pass" || auth.dkim === "pass" || auth.spf === "pass";
+}
+
 export function messageIntentLayer(envelope: CanonicalEnvelope): LayerResult {
   const linkText = envelope.links.map((link) => `${link.visibleText ?? ""}\n${link.rawUrl}`).join("\n");
   const haystack = `${envelope.subject}\n${envelope.textPreview ?? ""}\n${envelope.htmlSignals?.extractedText ?? ""}\n${linkText}`;
@@ -122,9 +128,6 @@ export function messageIntentLayer(envelope: CanonicalEnvelope): LayerResult {
     }
   }
 
-  // A support or webinar message can contain the words "subscription" and a
-  // phone number without being a callback scam. Require a commerce/refund
-  // subject or explicit unauthorized/call-now language before retaining it.
   const callbackIndex = evidence.findIndex((item) => item.code === "CALLBACK_SCAM_INTENT");
   if (callbackIndex >= 0) {
     const callbackContext =
@@ -132,6 +135,15 @@ export function messageIntentLayer(envelope: CanonicalEnvelope): LayerResult {
       /(?:call|not authorize).{0,80}(?:invoice|order|purchase|payment|refund|subscription)/i.test(haystack) ||
       /(?:invoice|order|payment|refund|auto[- ]?debit)/i.test(subject);
     if (!callbackContext) evidence.splice(callbackIndex, 1);
+  }
+
+  // Authenticated mail from a directly recognized official domain may
+  // legitimately report an account lock, password change, or verification
+  // event. Identity/link layers still run, so unrelated destinations or a
+  // spoofed sender remain visible as evidence.
+  if (authenticationPassed(envelope) && isDirectOfficialSenderDomain(envelope)) {
+    const credentialIndex = evidence.findIndex((item) => item.code === "CREDENTIAL_PHISH_INTENT");
+    if (credentialIndex >= 0) evidence.splice(credentialIndex, 1);
   }
 
   const romanceContext = /(?:let'?s meet|i(?:'|’)m waiting for you|meet me|private photos?|looking for someone|lonely)/i.test(haystack);
