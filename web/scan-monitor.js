@@ -24,9 +24,9 @@
     .scan-diagnostics .diag-high_risk {color:#e8632e}
     .scan-diagnostics .diag-confirmed_threat {color:#e23d4f}
     .scan-diagnostics .diag-unknown {color:#8b93a3}
-    .trash-action-status {margin-top:9px;font-size:11px;color:#8b93a3}
-    .trash-action-status.success {color:#3fb88a}
-    .trash-action-status.error {color:#ff9a9f}
+    .trash-action-status,.policy-action-status {margin-top:9px;font-size:11px;color:#8b93a3}
+    .trash-action-status.success,.policy-action-status.success {color:#3fb88a}
+    .trash-action-status.error,.policy-action-status.error {color:#ff9a9f}
     .card.trash-moved {opacity:.72;border-style:dashed}
     @keyframes emailShieldSpin {to{transform:rotate(360deg)}}
   `;
@@ -176,6 +176,90 @@
     };
   }
 
+  async function handlePolicyAction(event) {
+    const button = event.target instanceof Element
+      ? event.target.closest('[data-action="block-sender"],[data-action="block-domain"]')
+      : null;
+    if (!(button instanceof HTMLButtonElement) || button.disabled) return;
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+
+    const id = selectedAccountId();
+    const isSender = button.dataset.action === 'block-sender';
+    const scope = isSender ? 'sender' : 'domain';
+    const value = isSender ? button.dataset.address : button.dataset.domain;
+    const card = button.closest('.card');
+    const subject = card?.querySelector('.card-subject')?.textContent?.trim() || '(no subject)';
+
+    if (!id || !value) {
+      setStatus(`Block ${scope} failed: the selected account or value is missing.`, 'error');
+      return;
+    }
+
+    const consequence = isSender
+      ? 'Future messages from this exact address in the selected account will be Confirmed Threat.'
+      : 'Future messages from every address on this domain in the selected account will be Confirmed Threat.';
+    const confirmed = window.confirm(
+      `Block this ${scope} for the selected account?\n\n${value}\nMessage: ${subject}\n\n${consequence}\nThis does not move or delete mail.`,
+    );
+    if (!confirmed) return;
+
+    const previousText = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Blocking…';
+    let actionStatus = card?.querySelector('.policy-action-status');
+    if (!actionStatus && card) {
+      actionStatus = document.createElement('div');
+      actionStatus.className = 'policy-action-status';
+      actionStatus.setAttribute('role', 'status');
+      card.appendChild(actionStatus);
+    }
+    if (actionStatus) {
+      actionStatus.className = 'policy-action-status';
+      actionStatus.textContent = `Saving an account-scoped ${scope} block…`;
+    }
+
+    try {
+      const endpoint = isSender ? 'block-sender' : 'block-domain';
+      const payload = isSender ? { address: value } : { domain: value };
+      const response = await fetch(`/api/accounts/${encodeURIComponent(id)}/messages/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || `Server returned HTTP ${response.status}`);
+      if (result.blocked !== true || result.scope !== scope || result.accountId !== id) {
+        throw new Error('The server did not confirm the expected account-scoped block.');
+      }
+
+      const normalizedValue = String(result.value || value).toLowerCase();
+      cards.querySelectorAll(`[data-action="${isSender ? 'block-sender' : 'block-domain'}"]`).forEach((candidate) => {
+        const candidateValue = String(isSender ? candidate.dataset.address : candidate.dataset.domain).toLowerCase();
+        if (candidateValue === normalizedValue) {
+          candidate.disabled = true;
+          candidate.textContent = isSender ? 'Sender blocked ✓' : 'Domain blocked ✓';
+        }
+      });
+
+      if (actionStatus) {
+        actionStatus.className = 'policy-action-status success';
+        actionStatus.textContent = `${isSender ? 'Sender' : 'Domain'} block saved for this connected account. Rescan to verify Confirmed Threat verdicts.`;
+      }
+      setStatus(`${isSender ? 'Sender' : 'Domain'} blocked for the selected account. Rescan to verify.`, 'complete');
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = previousText || (isSender ? 'Block sender' : 'Block domain');
+      const message = error instanceof Error ? error.message : String(error);
+      if (actionStatus) {
+        actionStatus.className = 'policy-action-status error';
+        actionStatus.textContent = `Block failed: ${message}`;
+      }
+      setStatus(`Block ${scope} failed: ${message}`, 'error');
+    }
+  }
+
   async function handleTrashAction(event) {
     const button = event.target instanceof Element
       ? event.target.closest('[data-action="trash"]')
@@ -250,6 +334,7 @@
     }
   }
 
+  document.addEventListener('click', handlePolicyAction, true);
   document.addEventListener('click', handleTrashAction, true);
 
   for (const [id, type] of [
