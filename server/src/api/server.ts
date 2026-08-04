@@ -6,7 +6,11 @@ import { fileURLToPath } from "node:url";
 import { sessionStore } from "./sessionStore.js";
 import { createAdapter, type AdapterConfig } from "./adapterConfig.js";
 import { Worker } from "node:worker_threads";
-import { blockSender, blockDomain, moveMessagesToTrash } from "../workflows/blockAndCleanup.js";
+import {
+  moveMessagesToTrash,
+  normalizeSenderAddress,
+  normalizeSenderDomain,
+} from "../workflows/blockAndCleanup.js";
 import { executeOneClickUnsubscribe } from "../workflows/unsubscribe.js";
 import { analyzeLinks } from "../workflows/analyzeLinks.js";
 import { hardenedFetch } from "../util/hardenedFetch.js";
@@ -54,7 +58,11 @@ export function createServer() {
   });
 
   app.get("/api/accounts", (_req: Request, res: Response) => {
-    res.json(sessionStore.list().map((s) => ({ accountId: s.id, provider: s.provider, label: s.label })));
+    res.json(sessionStore.list().map((session) => ({
+      accountId: session.id,
+      provider: session.provider,
+      label: session.label,
+    })));
   });
 
   app.delete("/api/accounts/:id", async (req: Request, res: Response) => {
@@ -81,14 +89,17 @@ export function createServer() {
     res.flushHeaders();
     res.write(`event: scan-started\ndata: ${JSON.stringify({ type, provider: session.provider })}\n\n`);
 
-    // The normal run path is compiled before startup. Always launch the compiled
-    // JavaScript worker so Windows and Linux use the exact same runtime path.
     const workerUrl = new URL("../workers/scanWorker.js", import.meta.url);
 
     let worker: Worker;
     try {
       worker = new Worker(workerUrl, {
-        workerData: { config: session.config, type, pageSize: 20, personalPolicy: sessionStore.personalPolicy.snapshot() },
+        workerData: {
+          config: session.config,
+          type,
+          pageSize: 20,
+          personalPolicy: session.personalPolicy.snapshot(),
+        },
       });
     } catch (error) {
       res.write(`event: scan-error\ndata: ${JSON.stringify({ message: `Could not start scan worker: ${(error as Error).message}` })}\n\n`);
@@ -165,15 +176,35 @@ export function createServer() {
   });
 
   app.post("/api/accounts/:id/messages/block-sender", (req: Request, res: Response) => {
-    const { address } = req.body as { address: string };
-    if (address) sessionStore.personalPolicy.blockSender(address);
-    res.json({ blocked: true });
+    const session = sessionStore.get(req.params.id!);
+    if (!session) return res.status(404).json({ error: "Unknown account" });
+
+    try {
+      const address = normalizeSenderAddress((req.body as { address?: unknown }).address);
+      session.personalPolicy.blockSender(address);
+      res.json({ blocked: true, scope: "sender", value: address, accountId: session.id });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+    }
   });
 
   app.post("/api/accounts/:id/messages/block-domain", (req: Request, res: Response) => {
-    const { domain } = req.body as { domain: string };
-    if (domain) sessionStore.personalPolicy.blockDomain(domain);
-    res.json({ blocked: true });
+    const session = sessionStore.get(req.params.id!);
+    if (!session) return res.status(404).json({ error: "Unknown account" });
+
+    try {
+      const domain = normalizeSenderDomain((req.body as { domain?: unknown }).domain);
+      session.personalPolicy.blockDomain(domain);
+      res.json({ blocked: true, scope: "domain", value: domain, accountId: session.id });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.get("/api/accounts/:id/personal-policy", (req: Request, res: Response) => {
+    const session = sessionStore.get(req.params.id!);
+    if (!session) return res.status(404).json({ error: "Unknown account" });
+    res.json(session.personalPolicy.snapshot());
   });
 
   app.post("/api/accounts/:id/messages/trash", async (req: Request, res: Response) => {
@@ -182,8 +213,13 @@ export function createServer() {
     const { providerNativeIds } = req.body as { providerNativeIds: string[] };
     const ac = new AbortController();
     const adapter = createAdapter(session.config);
-    try { await adapter.connect(ac.signal); const result = await moveMessagesToTrash(adapter, providerNativeIds, ac.signal); res.json(result); }
-    finally { await adapter.disconnect(); }
+    try {
+      await adapter.connect(ac.signal);
+      const result = await moveMessagesToTrash(adapter, providerNativeIds, ac.signal);
+      res.json(result);
+    } finally {
+      await adapter.disconnect();
+    }
   });
 
   app.post("/api/accounts/:id/messages/unsubscribe", async (req: Request, res: Response) => {

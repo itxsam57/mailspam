@@ -8,6 +8,8 @@ import {
   blockDomain,
   moveMessagesToTrash,
   normalizeProviderNativeIds,
+  normalizeSenderAddress,
+  normalizeSenderDomain,
 } from "../../server/src/workflows/blockAndCleanup.js";
 import { unsubscribeCapability, executeOneClickUnsubscribe } from "../../server/src/workflows/unsubscribe.js";
 import type { EmailAdapter } from "../../server/src/canonical/adapter.js";
@@ -15,6 +17,18 @@ import type { EmailAdapter } from "../../server/src/canonical/adapter.js";
 const CORPUS_DIR = join(import.meta.dirname, "../../fixtures/scam-corpus");
 
 describe("block and cleanup", () => {
+  it("normalizes exact sender addresses and sender domains", () => {
+    expect(normalizeSenderAddress("  User.Name@Example.COM ")).toBe("user.name@example.com");
+    expect(normalizeSenderDomain(" @Example.COM. ")).toBe("example.com");
+  });
+
+  it("rejects malformed sender and domain block values", () => {
+    expect(() => normalizeSenderAddress("not-an-email")).toThrow("valid sender email");
+    expect(() => normalizeSenderAddress(123)).toThrow("must be a string");
+    expect(() => normalizeSenderDomain("localhost")).toThrow("valid sender domain");
+    expect(() => normalizeSenderDomain("bad domain.example")).toThrow("valid sender domain");
+  });
+
   it("blockSender adds the exact sender address to the personal policy store", async () => {
     const raw = readFileSync(join(CORPUS_DIR, "brand_impersonation/malicious-plain.eml"), "utf-8");
     const envelope = await normalizeRawMessage(raw, { provider: "gmail", accountProof: "x", providerFolderName: "INBOX", normalizedFolder: "inbox", providerNativeId: "test-id" });

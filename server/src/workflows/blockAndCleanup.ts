@@ -2,12 +2,33 @@ import type { EmailAdapter } from "../canonical/adapter.js";
 import type { CanonicalEnvelope } from "../canonical/envelope.js";
 import type { InMemoryPersonalPolicyStore } from "../engine/layers/personalRules.js";
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const DOMAIN_PATTERN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
+
+export function normalizeSenderAddress(input: unknown): string {
+  if (typeof input !== "string") throw new Error("Sender address must be a string.");
+  const value = input.trim().toLowerCase();
+  if (!value || value.length > 320 || !EMAIL_PATTERN.test(value)) {
+    throw new Error("A valid sender email address is required.");
+  }
+  return value;
+}
+
+export function normalizeSenderDomain(input: unknown): string {
+  if (typeof input !== "string") throw new Error("Sender domain must be a string.");
+  const value = input.trim().toLowerCase().replace(/^@/, "").replace(/\.$/, "");
+  if (!value || !DOMAIN_PATTERN.test(value)) {
+    throw new Error("A valid sender domain is required.");
+  }
+  return value;
+}
+
 export function blockSender(store: InMemoryPersonalPolicyStore, envelope: CanonicalEnvelope) {
-  if (envelope.from.address) store.blockSender(envelope.from.address);
+  if (envelope.from.address) store.blockSender(normalizeSenderAddress(envelope.from.address));
 }
 
 export function blockDomain(store: InMemoryPersonalPolicyStore, envelope: CanonicalEnvelope) {
-  if (envelope.from.domain) store.blockDomain(envelope.from.domain);
+  if (envelope.from.domain) store.blockDomain(normalizeSenderDomain(envelope.from.domain));
 }
 
 export interface CleanupResult {
