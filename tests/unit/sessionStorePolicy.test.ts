@@ -27,21 +27,41 @@ describe("account-scoped personal policy", () => {
     expect(second.personalPolicy.isBlockedDomain("msbinstitute.com")).toBe(false);
   });
 
+  it("shares one live policy object between simultaneous sessions for the same mailbox", () => {
+    const store = new SessionStore(new InMemoryPolicyRepository());
+    const first = store.create("icloud", "first tab", {
+      provider: "icloud",
+      mode: "live",
+      credentials: { user: "same@icloud.com", appPassword: "first" },
+    });
+    const second = store.create("icloud", "second tab", {
+      provider: "icloud",
+      mode: "live",
+      credentials: { user: "SAME@ICLOUD.COM", appPassword: "second" },
+    });
+
+    first.personalPolicy.blockSender("blocked@example.com");
+
+    expect(second.personalPolicy).toBe(first.personalPolicy);
+    expect(second.personalPolicy.isBlockedSender("blocked@example.com")).toBe(true);
+  });
+
   it("restores persisted rules when the same mailbox reconnects", async () => {
     const repository = new InMemoryPolicyRepository();
-    const store = new SessionStore(repository);
+    const firstProcess = new SessionStore(repository);
     const config = {
       provider: "icloud" as const,
       mode: "live" as const,
       credentials: { user: "Usama@iCloud.com", appPassword: "first-password" },
     };
-    const original = store.create("icloud", "original", config);
+    const original = firstProcess.create("icloud", "original", config);
     original.personalPolicy.blockSender("blocked@example.com");
     original.personalPolicy.blockDomain("example.net");
-    store.persistPersonalPolicy(original);
+    firstProcess.persistPersonalPolicy(original);
+    await firstProcess.remove(original.id);
 
-    await store.remove(original.id);
-    const reconnected = store.create("icloud", "reconnected", {
+    const restartedProcess = new SessionStore(repository);
+    const reconnected = restartedProcess.create("icloud", "reconnected", {
       ...config,
       credentials: { user: "usama@icloud.com", appPassword: "new-password" },
     });
