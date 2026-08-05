@@ -96,6 +96,7 @@
         data-review-token="${escapeHtml(review.token || '')}"
         data-already-approved="${review.alreadyApproved === true ? 'true' : 'false'}"
         data-sender-trusted="${review.senderTrusted === true ? 'true' : 'false'}"
+        data-can-report-spam="${review.canReportSpam === true ? 'true' : 'false'}"
         data-unsubscribe-available="${unsubscribe.available === true ? 'true' : 'false'}"
         data-unsubscribe-token="${escapeHtml(unsubscribe.token || '')}"
         data-unsubscribe-key="${escapeHtml(unsubscribe.actionKey || '')}"
