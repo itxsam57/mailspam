@@ -137,10 +137,6 @@ export function messageIntentLayer(envelope: CanonicalEnvelope): LayerResult {
     if (!callbackContext) evidence.splice(callbackIndex, 1);
   }
 
-  // Authenticated mail from a directly recognized official domain may
-  // legitimately report an account lock, password change, or verification
-  // event. Identity/link layers still run, so unrelated destinations or a
-  // spoofed sender remain visible as evidence.
   if (authenticationPassed(envelope) && isDirectOfficialSenderDomain(envelope)) {
     const credentialIndex = evidence.findIndex((item) => item.code === "CREDENTIAL_PHISH_INTENT");
     if (credentialIndex >= 0) evidence.splice(credentialIndex, 1);
@@ -184,6 +180,19 @@ export function messageIntentLayer(envelope: CanonicalEnvelope): LayerResult {
       layer: "message_intent",
       code: "UNSOLICITED_HIGH_PAY_JOB",
       description: "Unsolicited evaluator/shopper work promises unusually high payment.",
+      scoreContribution: 3,
+      source: "local",
+    });
+  }
+
+  if (
+    /(?:bitcoin|ethereum|\bBTC\b|\bETH\b|cryptocurrency|crypto)/i.test(haystack) &&
+    /(?:earn\s+\d+(?:\.\d+)?%|\d+(?:\.\d+)?%\s+(?:interest|yield|apy)|win\s+free\s+(?:bitcoin|ethereum|crypto)|free\s+(?:bitcoin|ethereum|crypto).{0,30}(?:hour|daily|every)|guaranteed\s+(?:interest|yield|return))/i.test(haystack)
+  ) {
+    pushUnique(evidence, {
+      layer: "message_intent",
+      code: "CRYPTO_YIELD_REWARD_PROMOTION",
+      description: "Unsolicited cryptocurrency promotion advertises yield, interest, or recurring free-coin rewards.",
       scoreContribution: 3,
       source: "local",
     });
