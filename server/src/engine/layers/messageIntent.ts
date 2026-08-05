@@ -132,9 +132,6 @@ export function messageIntentLayer(envelope: CanonicalEnvelope): LayerResult {
     if (!callbackContext) evidence.splice(callbackIndex, 1);
   }
 
-  // Authentication proves control of a domain, not the visible claim. Suppress
-  // generic credential language only when both the organizational domain and
-  // any repeated organization-like display/subject claim align.
   if (hasAuthenticatedOrganizationalIdentity(envelope) && organizationClaimAligned(envelope)) {
     const credentialIndex = evidence.findIndex((item) => item.code === "CREDENTIAL_PHISH_INTENT");
     if (credentialIndex >= 0) evidence.splice(credentialIndex, 1);
@@ -154,16 +151,17 @@ export function messageIntentLayer(envelope: CanonicalEnvelope): LayerResult {
     });
   }
 
+  const firstContact = envelope.threadContext.isFirstContact;
   const fromDomain = envelope.from.domain ?? "";
-  const firstContactFreeMail = envelope.threadContext.isFirstContact && isSharedMailboxDomain(fromDomain);
+  const firstContactFreeMail = firstContact && isSharedMailboxDomain(fromDomain);
   if (
-    firstContactFreeMail &&
+    firstContact &&
     /(?:meet new people|wanna see (?:my )?photos?|see photos? me|free right now|how can i contact you|what if i said i want you|do you like to meet|\bdates?\b|actual person)/i.test(subject)
   ) {
     pushUnique(evidence, {
       layer: "message_intent",
       code: "UNSOLICITED_ROMANCE_LURE",
-      description: "A first-contact personal mailbox uses a romance or private-photo lure.",
+      description: "A first-contact message uses an unsolicited romance or private-photo lure.",
       scoreContribution: 2,
       source: "local",
     });
@@ -206,8 +204,8 @@ export function messageIntentLayer(envelope: CanonicalEnvelope): LayerResult {
   }
 
   if (
-    envelope.threadContext.isFirstContact &&
-    /(?:flash reward|claim yours|free (?:medicare )?(?:kit|tool set|gift|reward)|claim your free)/i.test(subject)
+    firstContact &&
+    /(?:flash reward|claim yours|claim your free|(?:free|complimentary).{0,35}(?:medicare )?(?:kit|tool set|gift|reward))/i.test(subject)
   ) {
     pushUnique(evidence, {
       layer: "message_intent",

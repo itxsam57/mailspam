@@ -19,17 +19,11 @@ import type { LayerResult } from "../verdict.js";
 
 /**
  * Layer 2 — Identity and impersonation.
- *
- * The local engine intentionally contains no company/brand allowlist. It uses
- * authenticated organizational domains, Reply-To alignment, relay provenance,
- * explicit domain claims, and organization-like claims repeated in a risky
- * subject. Optional known-brand mappings belong to the signed intelligence
- * feed, where they can be updated without shipping new application code.
+ * Local decisions use authenticated organizational structure rather than a
+ * compiled company allowlist. Updateable aliases/domains belong to the signed
+ * intelligence feed.
  */
-
-/** Deprecated compatibility export. Identity mappings are no longer code data. */
 export const OFFICIAL_BRAND_DOMAINS: Readonly<Record<string, readonly string[]>> = Object.freeze({});
-/** Deprecated compatibility export. Dynamic identity knowledge lives in the signed feed. */
 export function claimedBrandFromText(_text: string): null { return null; }
 export function claimedBrandForEnvelope(_envelope: CanonicalEnvelope): null { return null; }
 
@@ -42,7 +36,7 @@ export {
 };
 
 const GENERIC_IDENTITY_WORDS = new Set([
-  "account", "alerts", "billing", "care", "customer", "email", "info", "mail",
+  "account", "alerts", "billing", "care", "customer", "email", "find", "info", "mail",
   "marketing", "message", "news", "newsletter", "notification", "notifications",
   "official", "payments", "promo", "rewards", "security", "service", "services",
   "support", "team", "update", "updates",
@@ -105,20 +99,21 @@ function repeatedOrganizationClaim(envelope: CanonicalEnvelope): string[] {
   const shared = displayWords.filter((word) => subjectWords.has(word));
   if (!shared.length) return [];
 
+  // A single short word is often a product feature or ordinary verb (for
+  // example "Find My"), not a reliable organization claim. Require either a
+  // multi-word identity or one distinctive word of at least five characters.
+  const distinctive = shared.length >= 2 ? shared : shared.filter((word) => word.length >= 5);
+  if (!distinctive.length) return [];
+
   const riskyContext = TRANSACTIONAL_CONTEXT.test(`${envelope.subject} ${envelope.textPreview ?? ""}`);
-  if (!riskyContext && shared.length < 2) return [];
-  return shared;
+  if (!riskyContext && distinctive.length < 2) return [];
+  return distinctive;
 }
 
 function claimMatchesLabels(claimWords: string[], labels: string[]): boolean {
   return claimWords.some((claim) => labels.some((label) => label.includes(claim) || claim.includes(label)));
 }
 
-/**
- * Authentication proves who owns the sending domain, not that the visible
- * organization claim is true. This extra gate prevents an authenticated
- * attacker domain from receiving the same trust as an aligned organization.
- */
 export function organizationClaimAligned(envelope: CanonicalEnvelope): boolean {
   const claimWords = repeatedOrganizationClaim(envelope);
   if (!claimWords.length) return true;

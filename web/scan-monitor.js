@@ -51,7 +51,7 @@
   diagnostics.className = 'scan-diagnostics';
   diagnostics.innerHTML = `
     <summary>Diagnostic audit (0 messages)</summary>
-    <div class="scan-diagnostics-note">Local test view only. Shows metadata, verdicts, evidence codes, and parse notes—never message bodies, raw HTML, credentials, or attachment content.</div>
+    <div class="scan-diagnostics-note">Local test view only. Shows metadata, verdicts, evidence codes, and parse notes—never message bodies, raw HTML, credentials, unsubscribe destinations, or attachment content.</div>
     <div class="scan-diagnostics-scroll"><table>
       <thead><tr><th>Verdict</th><th>Score</th><th>Subject</th><th>Sender</th><th>Parse</th><th>Evidence / notes</th></tr></thead>
       <tbody></tbody>
@@ -90,11 +90,21 @@
     tbody.innerHTML = diagnosticRows.map((item) => {
       const evidence = item.evidenceCodes?.length ? item.evidenceCodes.join(', ') : 'none';
       const notes = item.parseNotes?.length ? item.parseNotes.join(' | ') : 'none';
-      return `<tr>
+      const review = item.reviewAction || {};
+      const unsubscribe = item.unsubscribeAction || {};
+      return `<tr data-message-row="true"
+        data-review-token="${escapeHtml(review.token || '')}"
+        data-already-approved="${review.alreadyApproved === true ? 'true' : 'false'}"
+        data-sender-trusted="${review.senderTrusted === true ? 'true' : 'false'}"
+        data-unsubscribe-available="${unsubscribe.available === true ? 'true' : 'false'}"
+        data-unsubscribe-token="${escapeHtml(unsubscribe.token || '')}"
+        data-unsubscribe-key="${escapeHtml(unsubscribe.actionKey || '')}"
+        data-unsubscribe-method="${escapeHtml(unsubscribe.method || 'none')}"
+        data-unsubscribe-done="${unsubscribe.alreadyUnsubscribed === true ? 'true' : 'false'}">
         <td class="diag-${escapeHtml(item.verdict)}">${escapeHtml(item.verdict)}</td>
         <td>${escapeHtml(item.score)}</td>
-        <td>${escapeHtml(item.subject)}</td>
-        <td>${escapeHtml(item.fromAddress || item.fromDomain || 'unknown')}</td>
+        <td class="diag-subject">${escapeHtml(item.subject)}</td>
+        <td class="diag-sender">${escapeHtml(item.fromAddress || item.fromDomain || 'unknown')}</td>
         <td>${escapeHtml(item.parseStatus)}</td>
         <td><strong>${escapeHtml(evidence)}</strong><br>${escapeHtml(notes)}</td>
       </tr>`;

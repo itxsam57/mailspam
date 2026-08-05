@@ -114,18 +114,29 @@ describe("generic crypto yield promotion intent", () => {
   });
 });
 
-describe("safe-message audit UI", () => {
-  it("loads a separate privacy-reduced Safe list and opens it after completion", () => {
+describe("safe-message audit and review UI", () => {
+  it("keeps Safe compact while exposing trust and unsubscribe through opaque tokens", () => {
     const root = join(process.cwd(), "..");
+    const scanMonitor = readFileSync(join(root, "web/scan-monitor.js"), "utf8");
     const unsubscribeMonitor = readFileSync(join(root, "web/unsubscribe-monitor.js"), "utf8");
+    const reviewActions = readFileSync(join(root, "web/review-actions.js"), "utf8");
     const safeAudit = readFileSync(join(root, "web/safe-audit.js"), "utf8");
 
     expect(unsubscribeMonitor).toContain("/safe-audit.js");
+    expect(unsubscribeMonitor).toContain("/review-actions.js");
     expect(safeAudit).toContain("Safe messages (${sourceRows.length}) — click to review");
     expect(safeAudit).toContain("Safe messages remain outside the warning-card feed");
-    expect(safeAudit).toContain("status?.classList.contains('complete')");
-    expect(safeAudit).toContain("safeAudit.open = true");
-    expect(safeAudit).not.toContain("textPreview");
-    expect(safeAudit).not.toContain("htmlSignals");
+    expect(safeAudit).toContain('data-action="trust-sender"');
+    expect(safeAudit).toContain('data-action="unsubscribe"');
+    expect(reviewActions).toContain("Mark this message Safe");
+    expect(reviewActions).toContain("Only this exact message will be approved");
+    expect(scanMonitor).toContain("data-review-token");
+    expect(scanMonitor).toContain("data-unsubscribe-token");
+
+    for (const browserFile of [scanMonitor, unsubscribeMonitor, reviewActions, safeAudit]) {
+      expect(browserFile).not.toContain("listUnsubscribe:");
+      expect(browserFile).not.toContain("textPreview");
+      expect(browserFile).not.toContain("htmlSignals");
+    }
   });
 });

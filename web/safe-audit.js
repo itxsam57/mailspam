@@ -9,6 +9,7 @@
     style.textContent = `
       .safe-message-audit summary {color:#3fb88a;font-weight:600}
       .safe-message-audit .safe-empty {padding:10px 12px;color:#5b6272;font-size:11px;border-top:1px solid #2a2f3a}
+      .safe-message-audit .safe-actions-cell {min-width:230px}
     `;
     document.head.appendChild(style);
 
@@ -17,10 +18,10 @@
     safeAudit.className = 'scan-diagnostics safe-message-audit';
     safeAudit.innerHTML = `
       <summary>Safe messages (0) — click to review</summary>
-      <div class="scan-diagnostics-note">Safe messages remain outside the warning-card feed. This local audit shows only subject, sender, parse state, and privacy-reduced diagnostic notes.</div>
+      <div class="scan-diagnostics-note">Safe messages remain outside the warning-card feed. This compact local review shows privacy-reduced metadata and permits account-scoped trust or unsubscribe actions without exposing message bodies or raw destinations.</div>
       <div class="safe-empty">No messages have been classified Safe in this scan yet.</div>
       <div class="scan-diagnostics-scroll" hidden><table>
-        <thead><tr><th>Subject</th><th>Sender</th><th>Parse</th><th>Evidence / notes</th></tr></thead>
+        <thead><tr><th>Subject</th><th>Sender</th><th>Parse</th><th>Evidence / notes</th><th>Actions</th></tr></thead>
         <tbody></tbody>
       </table></div>`;
     diagnostics.before(safeAudit);
@@ -31,6 +32,19 @@
     const empty = safeAudit.querySelector('.safe-empty');
     const status = document.getElementById('scanMonitorStatus');
 
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+      })[character]);
+    }
+
+    function unsubscribeLabel(method, done) {
+      if (done && method === 'one_click_post') return 'Unsubscribed ✓';
+      if (method === 'link_only') return 'Open unsubscribe page';
+      if (method === 'mailto') return 'Email unsubscribe request';
+      return 'Unsubscribe';
+    }
+
     function syncSafeRows() {
       const sourceRows = [...diagnosticBody.querySelectorAll('tr')]
         .filter((row) => row.children[0]?.textContent?.trim().toLowerCase() === 'safe');
@@ -40,9 +54,37 @@
         const cells = row.querySelectorAll('td');
         const subject = cells[2]?.innerHTML ?? '(no subject)';
         const sender = cells[3]?.innerHTML ?? 'unknown';
+        const senderText = cells[3]?.textContent?.trim() ?? '';
         const parse = cells[4]?.innerHTML ?? 'unknown';
         const notes = cells[5]?.innerHTML ?? 'No scored evidence.';
-        return `<tr><td>${subject}</td><td>${sender}</td><td>${parse}</td><td>${notes}</td></tr>`;
+        const reviewToken = row.dataset.reviewToken || '';
+        const senderTrusted = row.dataset.senderTrusted === 'true';
+        const unsubscribeAvailable = row.dataset.unsubscribeAvailable === 'true';
+        const unsubscribeMethod = row.dataset.unsubscribeMethod || 'none';
+        const unsubscribeDone = row.dataset.unsubscribeDone === 'true';
+
+        const actions = [];
+        if (reviewToken && senderText && senderText !== 'unknown') {
+          actions.push(senderTrusted
+            ? '<button disabled>Sender trusted ✓</button>'
+            : `<button data-action="trust-sender" data-review-token="${escapeHtml(reviewToken)}" data-sender="${escapeHtml(senderText)}">Trust sender</button>`);
+        }
+        if (unsubscribeAvailable && row.dataset.unsubscribeToken && row.dataset.unsubscribeKey) {
+          actions.push(`<button data-action="unsubscribe"
+            data-unsubscribe-token="${escapeHtml(row.dataset.unsubscribeToken)}"
+            data-unsubscribe-key="${escapeHtml(row.dataset.unsubscribeKey)}"
+            data-unsubscribe-method="${escapeHtml(unsubscribeMethod)}"
+            ${unsubscribeDone && unsubscribeMethod === 'one_click_post' ? 'disabled' : ''}>${unsubscribeLabel(unsubscribeMethod, unsubscribeDone)}</button>`);
+        }
+        if (!actions.length) actions.push('<span class="hint">No user action available</span>');
+
+        return `<tr data-message-row="true">
+          <td class="safe-subject">${subject}</td>
+          <td class="safe-sender">${sender}</td>
+          <td>${parse}</td>
+          <td>${notes}</td>
+          <td class="safe-actions-cell"><div class="safe-row-actions">${actions.join('')}</div><span class="review-action-status" data-action-status role="status"></span></td>
+        </tr>`;
       }).join('');
 
       const hasSafe = sourceRows.length > 0;

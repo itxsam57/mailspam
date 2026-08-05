@@ -47,6 +47,7 @@ function emptySnapshot(): PersonalPolicySnapshot {
     blockedDomains: [],
     trustedSenders: [],
     approvedExceptions: [],
+    unsubscribedActions: [],
   };
 }
 
@@ -74,6 +75,7 @@ export function sanitizePolicySnapshot(input: unknown): PersonalPolicySnapshot {
     blockedDomains: sanitizeList(value.blockedDomains),
     trustedSenders: sanitizeList(value.trustedSenders),
     approvedExceptions: sanitizeList(value.approvedExceptions),
+    unsubscribedActions: sanitizeList(value.unsubscribedActions),
   };
 }
 
@@ -83,6 +85,7 @@ function cloneSnapshot(snapshot: PersonalPolicySnapshot): PersonalPolicySnapshot
     blockedDomains: [...snapshot.blockedDomains],
     trustedSenders: [...snapshot.trustedSenders],
     approvedExceptions: [...snapshot.approvedExceptions],
+    unsubscribedActions: [...snapshot.unsubscribedActions],
   };
 }
 

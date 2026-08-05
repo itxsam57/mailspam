@@ -1,7 +1,7 @@
 (() => {
   const safeAuditScript = document.createElement('script');
   safeAuditScript.src = '/safe-audit.js';
-  safeAuditScript.defer = true;
+  safeAuditScript.async = false;
   document.head.appendChild(safeAuditScript);
 
   const originalRenderCard = window.renderCard;
@@ -9,7 +9,7 @@
 
   const style = document.createElement('style');
   style.textContent = `
-    .unsubscribe-action-status {margin-top:9px;font-size:11px;color:#8b93a3}
+    .unsubscribe-action-status {display:block;margin-top:7px;font-size:11px;color:#8b93a3}
     .unsubscribe-action-status.success {color:#3fb88a}
     .unsubscribe-action-status.error {color:#ff9a9f}
   `;
@@ -57,6 +57,32 @@
     return card.outerHTML;
   };
 
+  const reviewScript = document.createElement('script');
+  reviewScript.src = '/review-actions.js';
+  reviewScript.async = false;
+  document.head.appendChild(reviewScript);
+
+  function actionContainer(button) {
+    return button.closest('.card') || button.closest('[data-message-row="true"]');
+  }
+
+  function actionStatusFor(container) {
+    if (!container) return null;
+    let actionStatus = container.querySelector('.unsubscribe-action-status');
+    if (actionStatus) return actionStatus;
+    const existingStatus = container.querySelector('[data-action-status]');
+    if (existingStatus) {
+      existingStatus.classList.add('unsubscribe-action-status');
+      return existingStatus;
+    }
+    actionStatus = document.createElement('span');
+    actionStatus.className = 'unsubscribe-action-status';
+    actionStatus.setAttribute('role', 'status');
+    if (container.matches('tr')) container.lastElementChild?.appendChild(actionStatus);
+    else container.appendChild(actionStatus);
+    return actionStatus;
+  }
+
   document.addEventListener('click', async (event) => {
     const button = event.target instanceof Element
       ? event.target.closest('[data-action="unsubscribe"]')
@@ -70,9 +96,9 @@
     const token = button.dataset.unsubscribeToken;
     const actionKey = button.dataset.unsubscribeKey;
     const method = button.dataset.unsubscribeMethod;
-    const card = button.closest('.card');
-    const subject = card?.querySelector('.card-subject')?.textContent?.trim() || '(no subject)';
-    const sender = card?.querySelector('.card-from')?.textContent?.trim() || 'unknown sender';
+    const container = actionContainer(button);
+    const subject = container?.querySelector('.card-subject,.safe-subject,.diag-subject')?.textContent?.trim() || '(no subject)';
+    const sender = container?.querySelector('.card-from,.safe-sender,.diag-sender')?.textContent?.trim() || 'unknown sender';
 
     if (!accountId || !token || !actionKey || !method) {
       setGlobalStatus('Unsubscribe failed: the selected account or action token is missing.', 'error');
@@ -96,13 +122,7 @@
     button.disabled = true;
     button.textContent = method === 'one_click_post' ? 'Unsubscribing…' : 'Preparing…';
 
-    let actionStatus = card?.querySelector('.unsubscribe-action-status');
-    if (!actionStatus && card) {
-      actionStatus = document.createElement('div');
-      actionStatus.className = 'unsubscribe-action-status';
-      actionStatus.setAttribute('role', 'status');
-      card.appendChild(actionStatus);
-    }
+    const actionStatus = actionStatusFor(container);
     if (actionStatus) {
       actionStatus.className = 'unsubscribe-action-status';
       actionStatus.textContent = method === 'one_click_post'
@@ -162,10 +182,10 @@
       if (actionStatus) {
         actionStatus.className = 'unsubscribe-action-status success';
         actionStatus.textContent = result.alreadyUnsubscribed
-          ? 'This campaign was already unsubscribed during the current app session.'
-          : `The endpoint confirmed one-click unsubscribe${result.status ? ` with HTTP ${result.status}` : ''}.`;
+          ? 'This campaign was already recorded as unsubscribed for the selected account.'
+          : `The endpoint confirmed one-click unsubscribe${result.status ? ` with HTTP ${result.status}` : ''}, and the encrypted local status was saved.`;
       }
-      setGlobalStatus('One-click unsubscribe was confirmed. Matching duplicate buttons were synchronized.', 'complete');
+      setGlobalStatus('One-click unsubscribe was confirmed and saved. Matching duplicate buttons were synchronized.', 'complete');
     } catch (error) {
       if (pendingWindow && !pendingWindow.closed) pendingWindow.close();
       button.disabled = false;

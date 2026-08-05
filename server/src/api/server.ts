@@ -15,11 +15,11 @@ import {
   executeOneClickUnsubscribe,
   normalizeManualUnsubscribeTarget,
   normalizeOneClickTarget,
-  unsubscribeCapability,
 } from "../workflows/unsubscribe.js";
 import { analyzeLinks } from "../workflows/analyzeLinks.js";
 import { hardenedFetch } from "../util/hardenedFetch.js";
 import type { Provider } from "../canonical/envelope.js";
+import type { ScanActionContext } from "../workflows/scanWorkflows.js";
 import { runDeveloperTestSuite } from "../devtools/testSuiteRunner.js";
 
 export function createServer() {
@@ -74,6 +74,7 @@ export function createServer() {
           blockedDomains: policy.blockedDomains.length,
           trustedSenders: policy.trustedSenders.length,
           approvedExceptions: policy.approvedExceptions.length,
+          unsubscribedActions: policy.unsubscribedActions.length,
         },
       });
     } catch (error) {
@@ -102,6 +103,35 @@ export function createServer() {
     });
   }
 
+  function registerPublicActions(session: NonNullable<ReturnType<typeof sessionStore.get>>, context: ScanActionContext) {
+    const reviewAction = sessionStore.registerReviewAction(session, context);
+    let unsubscribeAction: Record<string, unknown> = { available: false, method: "none" };
+    const capability = context.unsubscribe;
+
+    if (capability.available && capability.method !== "none" && capability.target) {
+      try {
+        const target = capability.method === "one_click_post"
+          ? normalizeOneClickTarget(capability.target)
+          : normalizeManualUnsubscribeTarget(capability.method, capability.target);
+        unsubscribeAction = {
+          available: true,
+          method: capability.method,
+          source: capability.source,
+          ...sessionStore.registerUnsubscribeAction(
+            session,
+            capability.method,
+            target,
+            context.providerNativeId,
+          ),
+        };
+      } catch {
+        unsubscribeAction = { available: false, method: "none" };
+      }
+    }
+
+    return { reviewAction, unsubscribeAction };
+  }
+
   app.get("/api/accounts/:id/scan/:type", async (req: Request, res: Response) => {
     const session = sessionStore.get(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
@@ -109,7 +139,7 @@ export function createServer() {
     if (!["quick", "full", "spam"].includes(type)) return res.status(400).json({ error: "Unknown scan type" });
     if (session.activeScanWorker) return res.status(409).json({ error: "A scan is already active" });
 
-    sessionStore.clearUnsubscribeActions(session);
+    sessionStore.clearScanActions(session);
     sseHeaders(res);
     res.flushHeaders();
     res.write(`event: scan-started\ndata: ${JSON.stringify({ type, provider: session.provider })}\n\n`);
@@ -154,31 +184,26 @@ export function createServer() {
     worker.on("message", (message) => {
       if (message.type === "status") writeEvent("scan-status", message.status);
       else if (message.type === "progress") {
-        const progress = message.progress as { suspiciousCards?: any[] };
+        const progress = message.progress as { suspiciousCards?: any[]; diagnosticSummaries?: any[] };
+        const actionsByNativeId = new Map<string, ReturnType<typeof registerPublicActions>>();
+
+        for (const summary of progress.diagnosticSummaries ?? []) {
+          const context = summary.actionContext as ScanActionContext | undefined;
+          if (!context) continue;
+          const actions = registerPublicActions(session, context);
+          actionsByNativeId.set(context.providerNativeId, actions);
+          summary.reviewAction = actions.reviewAction;
+          summary.unsubscribeAction = actions.unsubscribeAction;
+          delete summary.actionContext;
+        }
+
         for (const result of progress.suspiciousCards ?? []) {
-          const capability = unsubscribeCapability(result.envelope);
-          if (capability.available && capability.method !== "none" && capability.target) {
-            try {
-              const target = capability.method === "one_click_post"
-                ? normalizeOneClickTarget(capability.target)
-                : normalizeManualUnsubscribeTarget(capability.method, capability.target);
-              result.unsubscribeAction = {
-                available: true,
-                method: capability.method,
-                source: capability.source,
-                ...sessionStore.registerUnsubscribeAction(
-                  session,
-                  capability.method,
-                  target,
-                  result.envelope.providerNativeId,
-                ),
-              };
-            } catch {
-              result.unsubscribeAction = { available: false, method: "none" };
-            }
+          const actions = actionsByNativeId.get(result.envelope.providerNativeId);
+          if (actions) {
+            result.reviewAction = actions.reviewAction;
+            result.unsubscribeAction = actions.unsubscribeAction;
           }
 
-          // Destinations remain server-side until the user explicitly clicks.
           result.envelope.listHeaders = {
             listId: result.envelope.listHeaders?.listId ?? null,
             listUnsubscribe: null,
@@ -269,6 +294,50 @@ export function createServer() {
     }
   });
 
+  app.post("/api/accounts/:id/messages/mark-safe", (req: Request, res: Response) => {
+    const session = sessionStore.get(req.params.id!);
+    if (!session) return res.status(404).json({ error: "Unknown account" });
+    let action;
+    try { action = sessionStore.resolveReviewAction(session, (req.body as { token?: unknown }).token); }
+    catch (error) { return res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); }
+
+    try {
+      sessionStore.mutateAndPersistPersonalPolicy(session, (policy) => policy.approveException(action.exceptionKey));
+      res.json({
+        markedSafe: true,
+        persisted: true,
+        scope: "message",
+        accountId: session.id,
+        token: action.token,
+      });
+    } catch (error) {
+      res.status(500).json({ error: `Message approval was not saved: ${error instanceof Error ? error.message : String(error)}` });
+    }
+  });
+
+  app.post("/api/accounts/:id/messages/trust-sender", (req: Request, res: Response) => {
+    const session = sessionStore.get(req.params.id!);
+    if (!session) return res.status(404).json({ error: "Unknown account" });
+    let action;
+    try { action = sessionStore.resolveReviewAction(session, (req.body as { token?: unknown }).token); }
+    catch (error) { return res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); }
+    if (!action.senderAddress) return res.status(400).json({ error: "This message does not contain a usable sender address." });
+
+    try {
+      sessionStore.mutateAndPersistPersonalPolicy(session, (policy) => policy.trustSender(action.senderAddress!));
+      res.json({
+        trusted: true,
+        persisted: true,
+        scope: "sender",
+        value: action.senderAddress,
+        accountId: session.id,
+        token: action.token,
+      });
+    } catch (error) {
+      res.status(500).json({ error: `Trusted sender was not saved: ${error instanceof Error ? error.message : String(error)}` });
+    }
+  });
+
   app.get("/api/accounts/:id/personal-policy", (req: Request, res: Response) => {
     const session = sessionStore.get(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
@@ -312,7 +381,7 @@ export function createServer() {
       });
     }
 
-    if (session.unsubscribedActionKeys.has(action.actionKey)) {
+    if (session.personalPolicy.isUnsubscribedAction(action.actionKey)) {
       return res.json({
         success: true,
         alreadyUnsubscribed: true,
@@ -332,7 +401,10 @@ export function createServer() {
       });
     }
 
-    sessionStore.markUnsubscribed(session, action.actionKey);
+    try { sessionStore.markUnsubscribed(session, action.actionKey); }
+    catch (error) {
+      return res.status(500).json({ error: `Unsubscribe succeeded but local status was not saved: ${error instanceof Error ? error.message : String(error)}` });
+    }
     res.json({
       ...result,
       method: action.method,

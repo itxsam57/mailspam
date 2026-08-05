@@ -27,33 +27,37 @@ afterEach(() => {
 });
 
 describe("encrypted local personal policy persistence", () => {
-  it("restores rules after a new repository instance without storing plaintext values", () => {
+  it("restores all account rules without storing plaintext values", () => {
     const directory = temporaryDirectory();
     const accountKey = policyAccountKey({
       provider: "icloud",
       mode: "live",
       credentials: { user: "Usama@iCloud.com", appPassword: "must-not-be-written" },
     });
+    const messageKey = `message:${"a".repeat(64)}`;
     const first = new EncryptedFilePolicyRepository(directory);
     first.save(accountKey, {
       blockedSenders: ["blocked@example.com"],
       blockedDomains: ["example.net"],
-      trustedSenders: [],
-      approvedExceptions: [],
+      trustedSenders: ["trusted@example.org"],
+      approvedExceptions: [messageKey],
+      unsubscribedActions: ["campaign-hash"],
     });
 
     const encryptedText = readFileSync(join(directory, "personal-policies.enc.json"), "utf8");
-    expect(encryptedText).not.toContain("blocked@example.com");
-    expect(encryptedText).not.toContain("example.net");
-    expect(encryptedText).not.toContain("must-not-be-written");
+    for (const privateValue of [
+      "blocked@example.com", "example.net", "trusted@example.org", messageKey,
+      "campaign-hash", "must-not-be-written",
+    ]) expect(encryptedText).not.toContain(privateValue);
     expect(readFileSync(join(directory, "personal-policy.key"))).toHaveLength(32);
 
     const second = new EncryptedFilePolicyRepository(directory);
     expect(second.load(accountKey)).toEqual({
       blockedSenders: ["blocked@example.com"],
       blockedDomains: ["example.net"],
-      trustedSenders: [],
-      approvedExceptions: [],
+      trustedSenders: ["trusted@example.org"],
+      approvedExceptions: [messageKey],
+      unsubscribedActions: ["campaign-hash"],
     });
   });
 
@@ -79,6 +83,20 @@ describe("encrypted local personal policy persistence", () => {
     expect(first).toMatch(/^[a-f0-9]{64}$/);
   });
 
+  it("loads older policy snapshots with empty new lists", () => {
+    const directory = temporaryDirectory();
+    const repository = new EncryptedFilePolicyRepository(directory);
+    const accountKey = policyAccountKey({ provider: "gmail", mode: "fixture" });
+    repository.save(accountKey, {
+      blockedSenders: ["blocked@example.com"],
+      blockedDomains: [],
+      trustedSenders: [],
+      approvedExceptions: [],
+      unsubscribedActions: [],
+    });
+    expect(repository.load(accountKey).unsubscribedActions).toEqual([]);
+  });
+
   it("fails visibly instead of silently discarding a corrupted encrypted database", () => {
     const directory = temporaryDirectory();
     const repository = new EncryptedFilePolicyRepository(directory);
@@ -88,6 +106,7 @@ describe("encrypted local personal policy persistence", () => {
       blockedDomains: [],
       trustedSenders: [],
       approvedExceptions: [],
+      unsubscribedActions: [],
     });
 
     writeFileSync(join(directory, "personal-policies.enc.json"), "{\"version\":1,\"broken\":true}");
@@ -102,15 +121,17 @@ describe("encrypted local personal policy persistence", () => {
     repository.save(accountKey, {
       blockedSenders: [" A@Example.com ", "a@example.com", ""],
       blockedDomains: ["Example.com", "example.com"],
-      trustedSenders: [],
-      approvedExceptions: [],
+      trustedSenders: [" Trusted@Example.org ", "trusted@example.org"],
+      approvedExceptions: [` MESSAGE:${"B".repeat(64)} `],
+      unsubscribedActions: [" Campaign-Key ", "campaign-key"],
     });
 
     expect(repository.load(accountKey)).toEqual({
       blockedSenders: ["a@example.com"],
       blockedDomains: ["example.com"],
-      trustedSenders: [],
-      approvedExceptions: [],
+      trustedSenders: ["trusted@example.org"],
+      approvedExceptions: [`message:${"b".repeat(64)}`],
+      unsubscribedActions: ["campaign-key"],
     });
   });
 });
