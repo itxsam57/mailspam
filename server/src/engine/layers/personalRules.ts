@@ -84,48 +84,53 @@ export function personalRulesLayer(
   const exactMessageKey = messageExceptionKey(envelope);
   let confirmed = false;
 
-  if (store.isApprovedException(exactMessageKey)) {
+  // An explicit block remains authoritative even if the same sender or message
+  // was previously trusted. The user must remove the block from policy before
+  // a Safe/trust rule can apply again.
+  if (address && store.isBlockedSender(address)) {
+    confirmed = true;
     evidence.push({
       layer: "personal_rules",
-      code: "APPROVED_MESSAGE_EXCEPTION",
-      description: "This exact message was explicitly marked Safe by the user.",
-      scoreContribution: -100,
+      code: "BLOCKED_SENDER",
+      description: "Sender address matches the user's personal block list.",
+      scoreContribution: 10,
       source: "personal_rule",
     });
-  } else if (address && store.isTrustedSender(address)) {
+  }
+  if (domain && store.isBlockedDomain(domain)) {
+    confirmed = true;
     evidence.push({
       layer: "personal_rules",
-      code: "TRUSTED_SENDER",
-      description: "Sender is on the user's account-scoped trusted senders list.",
-      scoreContribution: -10,
+      code: "BLOCKED_DOMAIN",
+      description: "Sender domain matches the user's personal block list.",
+      scoreContribution: 10,
       source: "personal_rule",
     });
-  } else if (address && store.isApprovedException(address)) {
-    evidence.push({
-      layer: "personal_rules",
-      code: "APPROVED_EXCEPTION",
-      description: "Sender was explicitly approved by a legacy personal rule.",
-      scoreContribution: -10,
-      source: "personal_rule",
-    });
-  } else {
-    if (address && store.isBlockedSender(address)) {
-      confirmed = true;
+  }
+
+  if (!confirmed) {
+    if (store.isApprovedException(exactMessageKey)) {
       evidence.push({
         layer: "personal_rules",
-        code: "BLOCKED_SENDER",
-        description: "Sender address matches the user's personal block list.",
-        scoreContribution: 10,
+        code: "APPROVED_MESSAGE_EXCEPTION",
+        description: "This exact message was explicitly marked Safe by the user.",
+        scoreContribution: -100,
         source: "personal_rule",
       });
-    }
-    if (domain && store.isBlockedDomain(domain)) {
-      confirmed = true;
+    } else if (address && store.isTrustedSender(address)) {
       evidence.push({
         layer: "personal_rules",
-        code: "BLOCKED_DOMAIN",
-        description: "Sender domain matches the user's personal block list.",
-        scoreContribution: 10,
+        code: "TRUSTED_SENDER",
+        description: "Sender is on the user's account-scoped trusted senders list.",
+        scoreContribution: -10,
+        source: "personal_rule",
+      });
+    } else if (address && store.isApprovedException(address)) {
+      evidence.push({
+        layer: "personal_rules",
+        code: "APPROVED_EXCEPTION",
+        description: "Sender was explicitly approved by a legacy personal rule.",
+        scoreContribution: -10,
         source: "personal_rule",
       });
     }
