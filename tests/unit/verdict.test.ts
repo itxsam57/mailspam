@@ -29,7 +29,7 @@ describe("computeVerdict — structural safety guarantee", () => {
     expect(result.verdict).toBe("safe");
   });
 
-  it("never returns Safe when genuinely unavailable content blocks a complete decision", () => {
+  it("keeps unavailable content Unknown without an exact user decision", () => {
     const result = computeVerdict({
       parseStatus: "complete",
       layerResults: [{
@@ -44,6 +44,32 @@ describe("computeVerdict — structural safety guarantee", () => {
       boundedContentAllowsSafe: true,
     });
     expect(result.verdict).toBe("unknown");
+  });
+
+  it("allows an explicit exact-message approval to override ordinary uncertainty", () => {
+    const result = computeVerdict({
+      parseStatus: "partial",
+      layerResults: [{
+        layer: "message_intent",
+        applicable: true,
+        evidence: [evidence("HEURISTIC_REVIEW", 3)],
+        incomplete: true,
+        blocksSafeVerdict: true,
+      }],
+      confirmedByRule: false,
+      exactMessageApprovedByUser: true,
+    });
+    expect(result.verdict).toBe("safe");
+  });
+
+  it("never lets exact-message approval override a confirmed rule", () => {
+    const result = computeVerdict({
+      parseStatus: "partial",
+      layerResults: [],
+      confirmedByRule: true,
+      exactMessageApprovedByUser: true,
+    });
+    expect(result.verdict).toBe("confirmed_threat");
   });
 
   it("does not force Unknown when a layer is deliberately deferred by design", () => {
