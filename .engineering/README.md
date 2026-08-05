@@ -16,6 +16,7 @@ The gate runs every applicable command-line check, continues long enough to capt
 ```text
 artifacts/engineering/verification-report.json
 artifacts/engineering/VERIFICATION_REPORT.md
+artifacts/engineering/dependency-audit.json
 artifacts/engineering/MANUAL_TEST_HANDOFF.md
 ```
 
@@ -25,7 +26,7 @@ The artifact directory is generated and ignored locally. GitHub Actions uploads 
 
 - `PROJECT_PROFILE.md` — Section 00 repository audit and exact commands.
 - `TEST_MATRIX.md` — automated versus owner-visible test ownership.
-- `REGRESSION_REGISTER.md` — locked historical failures, known gaps and manual acceptance items.
+- `REGRESSION_REGISTER.md` — pre-existing findings, dependency advisories, locked historical failures, known gaps and manual acceptance items.
 - `MANUAL_TEST_HANDOFF_TEMPLATE.md` — source-controlled visible-browser checklist template.
 
 ## Gate behavior
@@ -36,16 +37,17 @@ The artifact directory is generated and ignored locally. GitHub Actions uploads 
 - Browser automation is limited to source/wiring validation and localhost API/SSE smoke. Subjective visible acceptance remains with the owner.
 - A failed stage is recorded honestly; later independent stages still run when possible so the report is complete.
 - Known product gaps remain visible in the regression register and are never converted into passing checks.
+- Full production-plus-development dependency advisories are inventoried; high/critical production advisories are the blocking security threshold.
 
 ## Dependency audit switch
 
-The full local gate enables the production dependency audit by default. Set this only for an intentionally offline diagnostic run:
+The full local gate enables both dependency inventory and the production dependency audit by default. Set this only for an intentionally offline diagnostic run:
 
 ```bash
 ENGINEERING_AUDIT=0 npm run gate
 ```
 
-GitHub Actions enables the audit on Ubuntu. Windows runs the same functional gate without duplicating the network audit.
+GitHub Actions enables both audit stages on Ubuntu. Windows runs the same functional gate without duplicating the network audit. Development-only or moderate advisories remain visible in `dependency-audit.json`; remediation belongs in a separate reviewed dependency-upgrade change when a safe path is available.
 
 ## Future changes
 
