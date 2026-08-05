@@ -1,0 +1,73 @@
+(() => {
+  function installSafeAudit() {
+    const diagnostics = document.getElementById('scanDiagnosticAudit');
+    const diagnosticBody = diagnostics?.querySelector('tbody');
+    if (!diagnostics || !diagnosticBody) return false;
+    if (document.getElementById('safeMessageAudit')) return true;
+
+    const style = document.createElement('style');
+    style.textContent = `
+      .safe-message-audit summary {color:#3fb88a;font-weight:600}
+      .safe-message-audit .safe-empty {padding:10px 12px;color:#5b6272;font-size:11px;border-top:1px solid #2a2f3a}
+    `;
+    document.head.appendChild(style);
+
+    const safeAudit = document.createElement('details');
+    safeAudit.id = 'safeMessageAudit';
+    safeAudit.className = 'scan-diagnostics safe-message-audit';
+    safeAudit.innerHTML = `
+      <summary>Safe messages (0) — click to review</summary>
+      <div class="scan-diagnostics-note">Safe messages remain outside the warning-card feed. This local audit shows only subject, sender, parse state, and privacy-reduced diagnostic notes.</div>
+      <div class="safe-empty">No messages have been classified Safe in this scan yet.</div>
+      <div class="scan-diagnostics-scroll" hidden><table>
+        <thead><tr><th>Subject</th><th>Sender</th><th>Parse</th><th>Evidence / notes</th></tr></thead>
+        <tbody></tbody>
+      </table></div>`;
+    diagnostics.before(safeAudit);
+
+    const summary = safeAudit.querySelector('summary');
+    const safeBody = safeAudit.querySelector('tbody');
+    const scroll = safeAudit.querySelector('.scan-diagnostics-scroll');
+    const empty = safeAudit.querySelector('.safe-empty');
+    const status = document.getElementById('scanMonitorStatus');
+
+    function syncSafeRows() {
+      const sourceRows = [...diagnosticBody.querySelectorAll('tr')]
+        .filter((row) => row.children[0]?.textContent?.trim().toLowerCase() === 'safe');
+
+      summary.textContent = `Safe messages (${sourceRows.length}) — click to review`;
+      safeBody.innerHTML = sourceRows.map((row) => {
+        const cells = row.querySelectorAll('td');
+        const subject = cells[2]?.innerHTML ?? '(no subject)';
+        const sender = cells[3]?.innerHTML ?? 'unknown';
+        const parse = cells[4]?.innerHTML ?? 'unknown';
+        const notes = cells[5]?.innerHTML ?? 'No scored evidence.';
+        return `<tr><td>${subject}</td><td>${sender}</td><td>${parse}</td><td>${notes}</td></tr>`;
+      }).join('');
+
+      const hasSafe = sourceRows.length > 0;
+      scroll.hidden = !hasSafe;
+      empty.hidden = hasSafe;
+      if (hasSafe && status?.classList.contains('complete')) safeAudit.open = true;
+    }
+
+    new MutationObserver(syncSafeRows).observe(diagnosticBody, { childList: true, subtree: true });
+    if (status) {
+      new MutationObserver(syncSafeRows).observe(status, {
+        childList: true,
+        characterData: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['class'],
+      });
+    }
+    syncSafeRows();
+    return true;
+  }
+
+  if (installSafeAudit()) return;
+  const observer = new MutationObserver(() => {
+    if (installSafeAudit()) observer.disconnect();
+  });
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+})();

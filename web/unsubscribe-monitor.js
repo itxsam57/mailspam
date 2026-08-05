@@ -1,4 +1,9 @@
 (() => {
+  const safeAuditScript = document.createElement('script');
+  safeAuditScript.src = '/safe-audit.js';
+  safeAuditScript.defer = true;
+  document.head.appendChild(safeAuditScript);
+
   const originalRenderCard = window.renderCard;
   if (typeof originalRenderCard !== 'function') return;
 
