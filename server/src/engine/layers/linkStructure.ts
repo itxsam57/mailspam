@@ -1,15 +1,17 @@
 import type { CanonicalEnvelope } from "../../canonical/envelope.js";
-import { hasDeterministicOfficialIdentity } from "./identityImpersonation.js";
+import { organizationalDomain, sameOrganizationalDomain } from "../../util/domainRelation.js";
+import {
+  authenticatedSenderIdentityDomains,
+  sensitiveActionText,
+} from "../identitySignals.js";
 import type { LayerResult } from "../verdict.js";
 
 /**
- * Layer 4 — Link structure (spec Section 5).
+ * Layer 4 — Link structure.
  * Local URL parsing only: shortening services, punycode, raw IP hosts,
- * unusual ports, and text/href brand mismatch. This layer never fetches
- * anything over the network — that's Layer 5 (destination classification),
- * which spec 8.5 requires to be an explicit per-message action only.
+ * unusual ports, literal displayed-URL deception, and sensitive action links
+ * that leave an authenticated sender's organization. No brand list is used.
  */
-
 const SHORTENERS = new Set([
   "bit.ly", "tinyurl.com", "t.co", "goo.gl", "ow.ly", "is.gd", "buff.ly",
   "rebrand.ly", "cutt.ly", "shorturl.at", "rb.gy",
@@ -34,17 +36,24 @@ function addUniqueEvidence(
   evidence.push(item);
 }
 
+function displayedUrl(text: string | null): URL | null {
+  if (!text) return null;
+  const trimmed = text.trim();
+  if (!/^(?:https?:\/\/|www\.)/i.test(trimmed)) return null;
+  try { return new URL(/^www\./i.test(trimmed) ? `https://${trimmed}` : trimmed); }
+  catch { return null; }
+}
+
 export function linkStructureLayer(envelope: CanonicalEnvelope): LayerResult {
   const evidence: LayerResult["evidence"] = [];
   const seen = new Set<string>();
-  const officialSender = hasDeterministicOfficialIdentity(envelope);
-  let brandMismatchRecorded = false;
+  const senderIdentities = authenticatedSenderIdentityDomains(envelope);
+  let actionMismatchRecorded = false;
 
   for (const link of envelope.links) {
     let url: URL;
-    try {
-      url = new URL(link.normalizedUrl);
-    } catch {
+    try { url = new URL(link.normalizedUrl); }
+    catch {
       addUniqueEvidence(evidence, seen, `MALFORMED_URL:${link.rawUrl}`, {
         layer: "link_structure",
         code: "MALFORMED_URL",
@@ -55,36 +64,34 @@ export function linkStructureLayer(envelope: CanonicalEnvelope): LayerResult {
       continue;
     }
 
-    if (SHORTENERS.has(url.hostname)) {
-      addUniqueEvidence(evidence, seen, `URL_SHORTENER:${url.hostname}`, {
+    const host = url.hostname.toLowerCase();
+    if (SHORTENERS.has(host)) {
+      addUniqueEvidence(evidence, seen, `URL_SHORTENER:${host}`, {
         layer: "link_structure",
         code: "URL_SHORTENER",
-        description: `Link uses shortening service "${url.hostname}", which hides the real destination.`,
+        description: `Link uses shortening service "${host}", which hides the real destination.`,
         scoreContribution: 1,
         source: "local",
       });
     }
-
-    if (isRawIp(url.hostname)) {
-      addUniqueEvidence(evidence, seen, `RAW_IP_HOST:${url.hostname}`, {
+    if (isRawIp(host)) {
+      addUniqueEvidence(evidence, seen, `RAW_IP_HOST:${host}`, {
         layer: "link_structure",
         code: "RAW_IP_HOST",
-        description: `Link points directly to a raw IP address (${url.hostname}) instead of a domain.`,
+        description: `Link points directly to a raw IP address (${host}) instead of a domain.`,
         scoreContribution: 3,
         source: "local",
       });
     }
-
-    if (isPunycode(url.hostname)) {
-      addUniqueEvidence(evidence, seen, `PUNYCODE_HOST:${url.hostname}`, {
+    if (isPunycode(host)) {
+      addUniqueEvidence(evidence, seen, `PUNYCODE_HOST:${host}`, {
         layer: "link_structure",
         code: "PUNYCODE_HOST",
-        description: `Link host "${url.hostname}" uses punycode encoding, often used to spoof lookalike domains.`,
+        description: `Link host "${host}" uses punycode encoding, which can conceal a lookalike domain.`,
         scoreContribution: 3,
         source: "local",
       });
     }
-
     if (url.port && !["80", "443", ""].includes(url.port)) {
       addUniqueEvidence(evidence, seen, `UNUSUAL_PORT:${url.port}`, {
         layer: "link_structure",
@@ -95,43 +102,34 @@ export function linkStructureLayer(envelope: CanonicalEnvelope): LayerResult {
       });
     }
 
-    // A newsletter may contain many tracked footer, app-store, and social links.
-    // Repeating the same structural ambiguity must never multiply a message's
-    // risk score. For an authenticated deterministic official sender, a single
-    // brand-link ambiguity is retained as a low-weight diagnostic; stronger
-    // evidence such as raw IPs or displayed-URL deception still scores fully.
-    if (link.claimedBrand && link.brandDomainMismatch && !brandMismatchRecorded) {
-      brandMismatchRecorded = true;
-      evidence.push({
-        layer: "link_structure",
-        code: "LINK_BRAND_MISMATCH",
-        description: officialSender
-          ? `An official sender used a tracked or indirect link whose destination does not directly match the visible "${link.claimedBrand}" label.`
-          : `Link text implies "${link.claimedBrand}" but the destination domain doesn't match.`,
-        scoreContribution: officialSender ? 1 : 4,
-        source: "local",
-      });
+    const displayed = displayedUrl(link.visibleText);
+    if (displayed && !sameOrganizationalDomain(displayed.hostname, host)) {
+      addUniqueEvidence(
+        evidence,
+        seen,
+        `DISPLAYED_VS_ACTUAL_MISMATCH:${organizationalDomain(displayed.hostname)}:${organizationalDomain(host)}`,
+        {
+          layer: "link_structure",
+          code: "DISPLAYED_VS_ACTUAL_MISMATCH",
+          description: `Displayed link domain "${displayed.hostname}" does not match the actual destination "${host}".`,
+          scoreContribution: 4,
+          source: "local",
+        },
+      );
     }
 
-    if (link.visibleText && /^https?:\/\//i.test(link.visibleText)) {
-      try {
-        const displayedUrl = new URL(link.visibleText);
-        if (displayedUrl.hostname !== url.hostname) {
-          addUniqueEvidence(
-            evidence,
-            seen,
-            `DISPLAYED_VS_ACTUAL_MISMATCH:${displayedUrl.hostname}:${url.hostname}`,
-            {
-              layer: "link_structure",
-              code: "DISPLAYED_VS_ACTUAL_MISMATCH",
-              description: `Displayed link text ("${displayedUrl.hostname}") does not match the actual destination ("${url.hostname}").`,
-              scoreContribution: 4,
-              source: "local",
-            },
-          );
-        }
-      } catch {
-        // visible text wasn't a real URL — nothing to compare
+    if (!actionMismatchRecorded && senderIdentities.length && sensitiveActionText(link.visibleText)) {
+      const destinationOrganization = organizationalDomain(host);
+      const aligned = senderIdentities.some((identity) => sameOrganizationalDomain(identity, destinationOrganization));
+      if (!aligned) {
+        actionMismatchRecorded = true;
+        evidence.push({
+          layer: "link_structure",
+          code: "SENSITIVE_ACTION_CROSS_DOMAIN",
+          description: `A sensitive action link leaves the authenticated sender organization and points to "${destinationOrganization}".`,
+          scoreContribution: 2,
+          source: "local",
+        });
       }
     }
   }
