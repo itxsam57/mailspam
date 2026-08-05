@@ -4,6 +4,8 @@ import type { Verdict } from "../engine/verdict.js";
 import type { PersonalPolicyStore } from "../engine/layers/personalRules.js";
 import type { ThreatFeedCache } from "../engine/layers/globalIntelligence.js";
 import { scanMessage, type ScanResult } from "../engine/pipeline.js";
+import { messageExceptionKey } from "./messageReview.js";
+import { unsubscribeCapability, type UnsubscribeCapability } from "./unsubscribe.js";
 
 export interface ScanCounters {
   examined: number;
@@ -33,6 +35,14 @@ function tally(counters: ScanCounters, result: ScanResult) {
   }
 }
 
+export interface ScanActionContext {
+  providerNativeId: string;
+  messageId: string;
+  exceptionKey: string;
+  senderAddress: string | null;
+  unsubscribe: UnsubscribeCapability;
+}
+
 export interface ScanDiagnosticSummary {
   subject: string;
   fromAddress: string | null;
@@ -43,6 +53,11 @@ export interface ScanDiagnosticSummary {
   parseStatus: ParseStatus;
   parseNotes: string[];
   evidenceCodes: string[];
+  /** Server-only until converted into opaque action tokens. */
+  actionContext: ScanActionContext;
+  /** Added by the API server after action-token registration. */
+  reviewAction?: unknown;
+  unsubscribeAction?: unknown;
 }
 
 function diagnosticSummary(result: ScanResult): ScanDiagnosticSummary {
@@ -58,14 +73,21 @@ function diagnosticSummary(result: ScanResult): ScanDiagnosticSummary {
     evidenceCodes: result.scored.evidence
       .filter((item) => item.scoreContribution !== 0)
       .map((item) => item.code),
+    actionContext: {
+      providerNativeId: result.envelope.providerNativeId,
+      messageId: result.envelope.messageId,
+      exceptionKey: messageExceptionKey(result.envelope),
+      senderAddress: result.envelope.from.address,
+      unsubscribe: unsubscribeCapability(result.envelope),
+    },
   };
 }
 
 export interface ScanProgress {
   counters: ScanCounters;
-  /** Only warning+ verdicts are ever included here — never render individual Safe messages as normal cards. */
+  /** Only warning+ verdicts are included here; Safe stays in the compact audit. */
   suspiciousCards: ScanResult[];
-  /** Privacy-reduced local audit data: no message body, raw HTML, links, credentials, or attachment content. */
+  /** Privacy-reduced local audit plus opaque user-action tokens added by the API layer. */
   diagnosticSummaries: ScanDiagnosticSummary[];
   cursor: string | null;
   done: boolean;
