@@ -1,10 +1,11 @@
 import type { CanonicalEnvelope } from "../canonical/envelope.js";
 import { computeVerdict, type ScoredMessage, type Verdict } from "./verdict.js";
-import { transportAuthLayer } from "./layers/transportAuth.js";
 import {
-  hasDeterministicOfficialIdentity,
-  identityImpersonationLayer,
-} from "./layers/identityImpersonation.js";
+  authenticationPassed,
+  hasAuthenticatedOrganizationalIdentity,
+} from "./identitySignals.js";
+import { transportAuthLayer } from "./layers/transportAuth.js";
+import { identityImpersonationLayer } from "./layers/identityImpersonation.js";
 import { messageIntentLayer } from "./layers/messageIntent.js";
 import { linkStructureLayer } from "./layers/linkStructure.js";
 import { destinationLayerNotRun } from "./layers/destinationClassification.js";
@@ -12,6 +13,8 @@ import { attachmentQrLayer } from "./layers/attachmentQr.js";
 import { relationshipContextLayer } from "./layers/relationshipContext.js";
 import { personalRulesLayer, type PersonalPolicyStore } from "./layers/personalRules.js";
 import { globalIntelligenceLayer, type ThreatFeedCache } from "./layers/globalIntelligence.js";
+
+export { authenticationPassed } from "./identitySignals.js";
 
 export type ResponseAction =
   | "none"
@@ -36,11 +39,6 @@ function responsePolicy(verdict: Verdict): ResponseAction {
   }
 }
 
-export function authenticationPassed(envelope: CanonicalEnvelope): boolean {
-  const auth = envelope.authentication;
-  return auth.dmarc === "pass" || auth.dkim === "pass" || auth.spf === "pass";
-}
-
 function isBoundedReadableContent(envelope: CanonicalEnvelope): boolean {
   if (envelope.diagnostics.contentCoverage === "bounded_sufficient") return true;
   if (envelope.parseStatus !== "partial" || envelope.parseNotes.length === 0) return false;
@@ -48,12 +46,10 @@ function isBoundedReadableContent(envelope: CanonicalEnvelope): boolean {
 }
 
 function boundedContentAllowsSafe(envelope: CanonicalEnvelope): boolean {
-  if (!isBoundedReadableContent(envelope)) return false;
-  if (!authenticationPassed(envelope)) return false;
+  if (!isBoundedReadableContent(envelope) || !authenticationPassed(envelope)) return false;
 
   const visibleLength = `${envelope.textPreview ?? ""} ${envelope.htmlSignals?.extractedText ?? ""}`.trim().length;
-  const officialIdentity = hasDeterministicOfficialIdentity(envelope);
-  if (officialIdentity) return visibleLength >= 80;
+  if (hasAuthenticatedOrganizationalIdentity(envelope)) return visibleLength >= 80;
 
   const listIdentity = Boolean(envelope.listHeaders.listId || envelope.listHeaders.listUnsubscribe);
   return listIdentity && visibleLength >= 160;
