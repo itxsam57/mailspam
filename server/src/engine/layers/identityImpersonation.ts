@@ -114,6 +114,18 @@ function claimMatchesLabels(claimWords: string[], labels: string[]): boolean {
   return claimWords.some((claim) => labels.some((label) => label.includes(claim) || claim.includes(label)));
 }
 
+/**
+ * Authentication proves who owns the sending domain, not that the visible
+ * organization claim is true. This extra gate prevents an authenticated
+ * attacker domain from receiving the same trust as an aligned organization.
+ */
+export function organizationClaimAligned(envelope: CanonicalEnvelope): boolean {
+  const claimWords = repeatedOrganizationClaim(envelope);
+  if (!claimWords.length) return true;
+  const labels = organizationLabels(envelope);
+  return labels.length > 0 && claimMatchesLabels(claimWords, labels);
+}
+
 export function identityImpersonationLayer(envelope: CanonicalEnvelope): LayerResult {
   const evidence: LayerResult["evidence"] = [];
   const senderDomain = envelope.from.domain ? normalizeDomainName(envelope.from.domain) : null;
