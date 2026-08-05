@@ -19,6 +19,7 @@ describe("AI Engineering Automation Kit installation", () => {
     expect(matrix).toContain("Homepage, accounts API, fixture connection, quick-scan SSE completion");
     expect(matrix).toContain("Final visible browser test — owner only");
     expect(regressions).toContain("PRE-001");
+    expect(regressions).toContain("DEP-001");
     expect(regressions).toContain("REG-001");
     expect(regressions).toContain("GAP-001");
     expect(regressions).toContain("Do not delete history to make the register appear green");
@@ -37,6 +38,7 @@ describe("AI Engineering Automation Kit installation", () => {
       "test:integration": expect.any(String),
       "check:web": expect.any(String),
       "smoke:server": expect.any(String),
+      "audit:inventory": expect.any(String),
       "audit:prod": expect.any(String),
     });
     expect(serverPackage.scripts.typecheck).toContain("--noEmit");
@@ -48,15 +50,20 @@ describe("AI Engineering Automation Kit installation", () => {
 
   it("generates truthful reports and an owner-visible handoff even when a gate stage fails", () => {
     const gate = read("scripts/engineering/run-gate.mjs");
+    const dependencyAudit = read("scripts/engineering/audit-dependencies.mjs");
     expect(gate).toContain("Continuing to collect independent results");
     expect(gate).toContain("verification-report.json");
     expect(gate).toContain("VERIFICATION_REPORT.md");
     expect(gate).toContain("MANUAL_TEST_HANDOFF.md");
+    expect(gate).toContain("dependency-audit.json");
     expect(gate).toContain('id: "PRE-001"');
     expect(gate).toContain("preExistingFindings");
     expect(gate).toContain("formerGateCoverage");
     expect(gate).toContain("Do not begin browser acceptance");
     expect(gate).toContain("process.exit(1)");
+    expect(dependencyAudit).toContain('npm, ["audit", "--json"]');
+    expect(dependencyAudit).toContain("All-dependency counts");
+    expect(dependencyAudit).toContain("audit:prod");
   });
 
   it("runs the cross-platform gate and uploads handoff evidence on every CI result", () => {
