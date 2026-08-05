@@ -9,7 +9,6 @@ import type {
   Provider,
   ParseStatus,
 } from "../canonical/envelope.js";
-import { OFFICIAL_BRAND_DOMAINS, claimedBrandFromText } from "../engine/layers/identityImpersonation.js";
 
 const TEXT_PREVIEW_MAX_CHARS = 4000;
 
@@ -80,27 +79,24 @@ function extractLinks(mail: ParsedMail): LinkInfo[] {
   const anchorRe = /<a\s+[^>]*href=["']([^"']+)["'][^>]*>(.*?)<\/a>/gis;
   let match: RegExpExecArray | null;
   while ((match = anchorRe.exec(html))) {
-    const originalRawUrl = match[1]!;
-    const rawUrl = urlCandidate(originalRawUrl);
+    const rawUrl = urlCandidate(match[1]!);
     const visibleText = match[2]!.replace(/<[^>]+>/g, "").replace(/&nbsp;/gi, " ").trim() || null;
     let normalizedUrl = rawUrl;
-    let claimedBrand: string | null = null;
-    let brandDomainMismatch: boolean | null = null;
-    try {
-      const url = new URL(rawUrl);
-      normalizedUrl = url.toString();
-      claimedBrand = claimedBrandFromText(visibleText ?? "") ?? claimedBrandFromText(rawUrl);
-      if (claimedBrand) {
-        const officialDomains = OFFICIAL_BRAND_DOMAINS[claimedBrand]!;
-        brandDomainMismatch = !officialDomains.some(
-          (domain) => url.hostname === domain || url.hostname.endsWith(`.${domain}`),
-        );
-      }
-    } catch {
-      // link_structure layer will report truly malformed values.
-    }
-    links.push({ visibleText, rawUrl, normalizedUrl, claimedBrand, brandDomainMismatch });
+    try { normalizedUrl = new URL(rawUrl).toString(); }
+    catch { /* link_structure reports malformed values. */ }
+
+    // Identity inference must not depend on a compiled-in brand list. These
+    // legacy fields remain null for schema compatibility; signed intelligence
+    // may add identity evidence later in the pipeline.
+    links.push({
+      visibleText,
+      rawUrl,
+      normalizedUrl,
+      claimedBrand: null,
+      brandDomainMismatch: null,
+    });
   }
+
   if (!html && mail.text) {
     const bareRe = /(?:https?:\/\/|www\.)[^\s<>"']+/gi;
     let bare: RegExpExecArray | null;
@@ -112,7 +108,7 @@ function extractLinks(mail: ParsedMail): LinkInfo[] {
           visibleText: bare[0],
           rawUrl,
           normalizedUrl: url.toString(),
-          claimedBrand: claimedBrandFromText(rawUrl),
+          claimedBrand: null,
           brandDomainMismatch: null,
         });
       } catch {
@@ -155,11 +151,8 @@ export async function normalizeRawMessage(raw: string | Buffer, opts: NormalizeO
   let parseStatus: ParseStatus = "complete";
   const parseNotes: string[] = [];
 
-  try {
-    mail = await simpleParser(raw);
-  } catch (error) {
-    return malformedEnvelope(opts, `MIME parse threw: ${(error as Error).message}`);
-  }
+  try { mail = await simpleParser(raw); }
+  catch (error) { return malformedEnvelope(opts, `MIME parse threw: ${(error as Error).message}`); }
 
   if (!mail.text && !mail.html) {
     parseStatus = "partial";
@@ -176,19 +169,12 @@ export async function normalizeRawMessage(raw: string | Buffer, opts: NormalizeO
 
   const links = extractLinks(mail);
   const attachments = extractAttachments(mail);
-
   const listHeader = mail.headers.get("list") as
     | { id?: { name?: string }; unsubscribe?: { url?: string }; ["unsubscribe-post"]?: { name?: string } }
     | undefined;
   const listId = listHeader?.id?.name ?? normalizeHeaderText(mail.headers.get("list-id")) ?? null;
-  const listUnsubscribe =
-    listHeader?.unsubscribe?.url ??
-    normalizeHeaderText(mail.headers.get("list-unsubscribe")) ??
-    null;
-  const listUnsubscribePost =
-    listHeader?.["unsubscribe-post"]?.name ??
-    normalizeHeaderText(mail.headers.get("list-unsubscribe-post")) ??
-    null;
+  const listUnsubscribe = listHeader?.unsubscribe?.url ?? normalizeHeaderText(mail.headers.get("list-unsubscribe")) ?? null;
+  const listUnsubscribePost = listHeader?.["unsubscribe-post"]?.name ?? normalizeHeaderText(mail.headers.get("list-unsubscribe-post")) ?? null;
 
   return {
     provider: opts.provider,
@@ -247,11 +233,6 @@ function malformedEnvelope(opts: NormalizeOptions, reason: string): CanonicalEnv
     threadContext: { isFirstContact: true, threadContinuityBroken: false, replyToChangedMidThread: false },
     parseStatus: "malformed",
     parseNotes: [reason],
-    diagnostics: {
-      fetchedAt: new Date().toISOString(),
-      sizeBytes: 0,
-      encoding: "unknown",
-      contentCoverage: "insufficient",
-    },
+    diagnostics: { fetchedAt: new Date().toISOString(), sizeBytes: 0, encoding: "unknown", contentCoverage: "insufficient" },
   };
 }
