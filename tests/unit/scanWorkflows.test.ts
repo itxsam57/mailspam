@@ -29,7 +29,7 @@ describe("quickScan", () => {
     expect(results).toHaveLength(1);
     const final = results[0]!;
     expect(final.counters.examined).toBe(2);
-    expect(final.suspiciousCards).toHaveLength(1); // only the malicious one
+    expect(final.suspiciousCards).toHaveLength(1);
     expect(final.suspiciousCards[0]!.envelope.messageId).toBeDefined();
     expect(final.suspiciousCards.every((c) => c.scored.verdict !== "safe")).toBe(true);
   });
@@ -40,7 +40,7 @@ describe("fullMailboxAudit", () => {
     const shared = loadEml("brand_impersonation/malicious-plain.eml");
     const messages: FixtureMessage[] = [
       { id: "1", rawEml: shared, folder: "inbox", providerFolderName: "INBOX" },
-      { id: "1-dup", rawEml: shared, folder: "archive", providerFolderName: "Archive" }, // same Message-ID, different folder
+      { id: "1-dup", rawEml: shared, folder: "archive", providerFolderName: "Archive" },
       { id: "2", rawEml: loadEml("brand_impersonation/legit-plain.eml"), folder: "sent", providerFolderName: "Sent" },
     ];
     const adapter = new FixtureAdapter("gmail", messages);
@@ -50,7 +50,6 @@ describe("fullMailboxAudit", () => {
     for await (const p of fullMailboxAudit(adapter, deps, signal)) progressEvents.push(p);
 
     const last = progressEvents[progressEvents.length - 1]!;
-    // Sent is excluded by default, and the duplicate Message-ID across inbox/archive counts once.
     expect(last.counters.examined).toBe(1);
   });
 
@@ -67,13 +66,11 @@ describe("fullMailboxAudit", () => {
     const progressEvents = [];
     for await (const p of fullMailboxAudit(adapter, deps, signal, { pageSize: 2 })) progressEvents.push(p);
 
-    // 5 messages at page size 2 => 3 pages => at least 3 progress events, not one final blob.
     expect(progressEvents.length).toBeGreaterThanOrEqual(3);
   });
 });
 
 describe("Stop Scan cancellation", () => {
-  /** A deliberately slow adapter double that respects the abort signal, simulating real network latency. */
   class SlowAdapter implements EmailAdapter {
     readonly provider: Provider = "imap";
     private pageCount = 0;
@@ -90,6 +87,9 @@ describe("Stop Scan cancellation", () => {
       return { envelopes: [], nextCursor: "next", done: false };
     }
     async moveToTrash() {}
+    async reportSpam(messageIds: string[]) {
+      return { requested: messageIds.length, reported: messageIds.length, mode: "fixture_junk_move" as const };
+    }
     async disconnect() {}
     getPageCount() { return this.pageCount; }
   }
@@ -103,8 +103,7 @@ describe("Stop Scan cancellation", () => {
       try {
         for await (const p of fullMailboxAudit(adapter, deps, signal, { pageSize: 10 })) events.push(p);
       } catch {
-        // AbortError from the in-flight fetchPage is expected and acceptable —
-        // the workflow must not swallow it into a false "done" state.
+        // AbortError from the in-flight fetchPage is expected and acceptable.
       }
       return events;
     })();
