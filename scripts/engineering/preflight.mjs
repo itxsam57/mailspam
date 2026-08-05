@@ -55,7 +55,7 @@ requireCondition(serverPackage.type === "module", "Server workspace must remain 
 
 for (const script of [
   "preflight", "typecheck", "build", "test:unit", "test:integration",
-  "check:web", "smoke:server", "audit:prod", "gate", "verify",
+  "check:web", "smoke:server", "audit:prod", "gate", "verify", "dev", "start",
 ]) {
   requireCondition(typeof rootPackage.scripts?.[script] === "string", `Required root npm script is missing: ${script}`);
 }
