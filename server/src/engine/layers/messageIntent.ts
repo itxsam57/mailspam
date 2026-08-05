@@ -98,6 +98,9 @@ const RULES: IntentRule[] = [
   },
 ];
 
+const FIRST_CONTACT_ROMANCE_PATTERN = /(?:meet new people|wanna see (?:my )?photos?|see photos? me|free right now|how can i contact you|what if i said i want you|do you like to meet|\bdates?\b|actual person)/i;
+const HIGH_CONFIDENCE_ROMANCE_PATTERN = /(?:wanna see (?:my )?photos?|see (?:my )?(?:hot |private )?photos?|private photos?|what if i said i want you|i(?:'|’)m waiting for you|waiting for you.{0,40}(?:open|join|view)|(?:open|join|view).{0,40}(?:my )?(?:profile|photos?|groups?)|\b(?:nudes?|naked|hookup|sex|sext|fuck|pussy|tits?)\b)/i;
+
 function pushUnique(evidence: LayerResult["evidence"], item: LayerResult["evidence"][number]) {
   if (!evidence.some((existing) => existing.code === item.code)) evidence.push(item);
 }
@@ -154,15 +157,33 @@ export function messageIntentLayer(envelope: CanonicalEnvelope): LayerResult {
   const firstContact = envelope.threadContext.isFirstContact;
   const fromDomain = envelope.from.domain ?? "";
   const firstContactFreeMail = firstContact && isSharedMailboxDomain(fromDomain);
-  if (
-    firstContact &&
-    /(?:meet new people|wanna see (?:my )?photos?|see photos? me|free right now|how can i contact you|what if i said i want you|do you like to meet|\bdates?\b|actual person)/i.test(subject)
-  ) {
+  if (firstContact && FIRST_CONTACT_ROMANCE_PATTERN.test(subject)) {
     pushUnique(evidence, {
       layer: "message_intent",
       code: "UNSOLICITED_ROMANCE_LURE",
       description: "A first-contact message uses an unsolicited romance or private-photo lure.",
       scoreContribution: 2,
+      source: "local",
+    });
+  }
+
+  const hasModerateRomanceEvidence = evidence.some((item) =>
+    item.code === "UNSOLICITED_ROMANCE_LURE" ||
+    item.code === "PROFILE_LURE_REDIRECT" ||
+    item.code === "ROMANCE_ADULT_INTENT"
+  );
+  const hasHighConfidenceRomanceEvidence =
+    HIGH_CONFIDENCE_ROMANCE_PATTERN.test(haystack) ||
+    evidence.some((item) => item.code === "PROFILE_LURE_REDIRECT" || item.code === "ROMANCE_ADULT_INTENT");
+  if (firstContact && hasModerateRomanceEvidence && hasHighConfidenceRomanceEvidence) {
+    const currentRomanceScore = evidence
+      .filter((item) => ["UNSOLICITED_ROMANCE_LURE", "PROFILE_LURE_REDIRECT", "ROMANCE_ADULT_INTENT"].includes(item.code))
+      .reduce((sum, item) => sum + item.scoreContribution, 0);
+    pushUnique(evidence, {
+      layer: "message_intent",
+      code: "HIGH_CONFIDENCE_ROMANCE_LURE",
+      description: "The first-contact romance lure includes sexual/private-photo language or an external profile redirect.",
+      scoreContribution: Math.max(0, 6 - currentRomanceScore),
       source: "local",
     });
   }
