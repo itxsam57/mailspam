@@ -1,11 +1,9 @@
 /**
  * Verdict model (spec Section 7).
  *
- * Hard rule: genuinely unavailable content must never be presented as proof
- * of safety. A provider may deliberately bound a very large readable part;
- * the pipeline may permit Safe only when that bounded content is sufficient,
- * authentication passed, and a deterministic bulk/official identity signal
- * is present.
+ * Unavailable content is never machine-labelled Safe. The only exception is
+ * an explicit account-scoped user approval for that exact message. Personal
+ * blocks and verified confirmed-threat rules remain higher precedence.
  */
 
 export type Verdict = "safe" | "review" | "high_risk" | "confirmed_threat" | "unknown";
@@ -44,8 +42,16 @@ export function computeVerdict(params: {
   confirmedByRule: boolean;
   /** True only for authenticated, deterministically identified bounded mail. */
   boundedContentAllowsSafe?: boolean;
+  /** Explicit approval of this exact message, never a sender/domain allowlist. */
+  exactMessageApprovedByUser?: boolean;
 }): ScoredMessage {
-  const { parseStatus, layerResults, confirmedByRule, boundedContentAllowsSafe = false } = params;
+  const {
+    parseStatus,
+    layerResults,
+    confirmedByRule,
+    boundedContentAllowsSafe = false,
+    exactMessageApprovedByUser = false,
+  } = params;
 
   const evidence = layerResults.flatMap((layer) => layer.evidence);
   const score = evidence.reduce((sum, item) => sum + item.scoreContribution, 0);
@@ -56,6 +62,9 @@ export function computeVerdict(params: {
 
   if (confirmedByRule) {
     return { score, evidence, verdict: "confirmed_threat", confirmedByRule: true, layerResults };
+  }
+  if (exactMessageApprovedByUser) {
+    return { score, evidence, verdict: "safe", confirmedByRule: false, layerResults };
   }
   if (score >= HIGH_RISK_THRESHOLD) {
     return { score, evidence, verdict: "high_risk", confirmedByRule: false, layerResults };
