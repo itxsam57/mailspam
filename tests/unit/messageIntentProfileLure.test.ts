@@ -36,7 +36,12 @@ function envelope(overrides: Partial<CanonicalEnvelope> = {}): CanonicalEnvelope
     threadContext: { isFirstContact: true, threadContinuityBroken: false, replyToChangedMidThread: false },
     parseStatus: "complete",
     parseNotes: [],
-    diagnostics: { fetchedAt: new Date(0).toISOString(), sizeBytes: 500, encoding: "multipart" },
+    diagnostics: {
+      fetchedAt: new Date(0).toISOString(),
+      sizeBytes: 500,
+      encoding: "multipart",
+      contentCoverage: "complete",
+    },
     ...overrides,
   };
 }
