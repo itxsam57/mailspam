@@ -1,4 +1,4 @@
-name: Verify
+name: Engineering Gate
 
 on:
   push:
@@ -10,20 +10,25 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: engineering-gate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
-    name: Verify (${{ matrix.os }})
+    name: Engineering Gate (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    timeout-minutes: 35
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Use Node.js
+      - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -32,9 +37,16 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Build and test
-        run: npm run verify
+      - name: Run full applicable engineering gate
+        run: npm run gate
+        env:
+          ENGINEERING_AUDIT: ${{ runner.os == 'Linux' && '1' || '0' }}
 
-      - name: Production dependency audit
-        if: runner.os == 'Linux'
-        run: npm audit --omit=dev --audit-level=high
+      - name: Upload verification and browser handoff
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: email-shield-engineering-${{ runner.os }}-${{ github.run_id }}
+          path: artifacts/engineering/
+          if-no-files-found: error
+          retention-days: 14
