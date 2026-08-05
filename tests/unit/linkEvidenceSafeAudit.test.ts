@@ -115,7 +115,7 @@ describe("generic crypto yield promotion intent", () => {
 });
 
 describe("safe-message audit and review UI", () => {
-  it("keeps Safe compact while exposing trust and unsubscribe through opaque tokens", () => {
+  it("keeps Safe compact while exposing trust, unsubscribe, and Report Spam through opaque tokens", () => {
     const root = join(process.cwd(), "..");
     const scanMonitor = readFileSync(join(root, "web/scan-monitor.js"), "utf8");
     const unsubscribeMonitor = readFileSync(join(root, "web/unsubscribe-monitor.js"), "utf8");
@@ -128,15 +128,22 @@ describe("safe-message audit and review UI", () => {
     expect(safeAudit).toContain("Safe messages remain outside the warning-card feed");
     expect(safeAudit).toContain('data-action="trust-sender"');
     expect(safeAudit).toContain('data-action="unsubscribe"');
+    expect(safeAudit).toContain('data-action="report-spam"');
     expect(reviewActions).toContain("Mark this message Safe");
-    expect(reviewActions).toContain("Only this exact message will be approved");
+    expect(reviewActions).toContain("Report exactly this message as Spam");
+    expect(reviewActions).toContain("does not block the sender, delete other mail, or guarantee");
+    expect(reviewActions).toContain("body: JSON.stringify({ token })");
+    expect(reviewActions).toContain("result.requested !== 1");
+    expect(reviewActions).toContain("result.reported !== 1");
     expect(scanMonitor).toContain("data-review-token");
+    expect(scanMonitor).toContain("data-can-report-spam");
     expect(scanMonitor).toContain("data-unsubscribe-token");
 
     for (const browserFile of [scanMonitor, unsubscribeMonitor, reviewActions, safeAudit]) {
       expect(browserFile).not.toContain("listUnsubscribe:");
       expect(browserFile).not.toContain("textPreview");
       expect(browserFile).not.toContain("htmlSignals");
+      expect(browserFile).not.toContain("providerNativeId:");
     }
   });
 });
