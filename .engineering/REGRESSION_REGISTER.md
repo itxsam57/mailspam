@@ -40,6 +40,7 @@ Status values:
 | REG-018 | LOCKED | Browser scripts, dynamic dependencies, DOM IDs and API action endpoints must remain syntactically and structurally connected. | `check:web` |
 | REG-019 | LOCKED | Compiled server must start on localhost and complete fixture connection plus quick-scan SSE. | `smoke:server` |
 | REG-020 | LOCKED | One command must create a complete engineering result and owner browser handoff even when a step fails. | `run-gate.mjs`, CI artifact upload |
+| REG-021 | LOCKED | High-confidence first-contact romance lures containing sexual/private-photo language or an external profile redirect must reach High Risk, while ambiguous social introductions remain Review and established-thread language is not automatically escalated. | `messageIntentProfileLure.test.ts`, full engineering gate |
 
 ## Known gaps — not accepted as complete
 
