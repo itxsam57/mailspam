@@ -2,54 +2,71 @@ import type { CanonicalEnvelope } from "../../canonical/envelope.js";
 import {
   isKnownSenderRelay,
   normalizeDomainName,
+  organizationalDomain,
   sameOrganizationalDomain,
 } from "../../util/domainRelation.js";
+import {
+  authenticatedSenderIdentityDomains,
+  hasAuthenticatedOrganizationalIdentity,
+  hasDeterministicOfficialIdentity,
+  isDirectOfficialSenderDomain,
+  isOfficialBrandSender,
+  isOfficialPrivateRelaySender,
+  messageIdentityCandidateDomains,
+  verifiedRelayOriginDomains,
+} from "../identitySignals.js";
 import type { LayerResult } from "../verdict.js";
 
 /**
- * Layer 2 — Identity and impersonation (spec Section 5).
- * Detects display-name abuse, reply-to mismatch, and brand/domain mismatch
- * using an official-domain registry + normalized domain relationships.
+ * Layer 2 — Identity and impersonation.
+ *
+ * The local engine intentionally contains no company/brand allowlist. It uses
+ * authenticated organizational domains, Reply-To alignment, relay provenance,
+ * explicit domain claims, and organization-like claims repeated in a risky
+ * subject. Optional known-brand mappings belong to the signed intelligence
+ * feed, where they can be updated without shipping new application code.
  */
-export const OFFICIAL_BRAND_DOMAINS: Record<string, string[]> = {
-  paypal: ["paypal.com"],
-  apple: ["apple.com", "icloud.com"],
-  google: ["google.com", "gmail.com"],
-  microsoft: ["microsoft.com", "outlook.com", "live.com"],
-  amazon: ["amazon.com"],
-  x: ["x.com"],
-  tiktok: ["tiktok.com"],
-  instagram: ["instagram.com"],
-  codecademy: ["codecademy.com"],
-  adobe: ["adobe.com"],
-  discord: ["discord.com"],
-  tumblr: ["tumblr.com"],
-  eventbrite: ["eventbrite.com"],
-  supabase: ["supabase.com", "supabase.io"],
-  xai: ["x.ai"],
-  alibaba: ["alibaba.com"],
-  foodpanda: ["foodpanda.com", "foodpanda.pk"],
-  glovo: ["glovoapp.com"],
-  sadapay: ["sadapay.pk"],
-  nayapay: ["nayapay.com"],
-  redotpay: ["redotpay.com"],
-  respondent: ["respondent.io"],
-  streamyard: ["streamyard.com"],
-  supercell: ["supercell.com"],
-  "clash royale": ["supercell.com"],
-  "iq option": ["iqoption.com"],
-  "tractor supply": ["tractorsupply.com"],
-  "bank of america": ["bankofamerica.com"],
-  chase: ["chase.com"],
-  ups: ["ups.com"],
-  fedex: ["fedex.com"],
-  usps: ["usps.com"],
-  docusign: ["docusign.net", "docusign.com"],
-  irs: ["irs.gov"],
+
+/** Deprecated compatibility export. Identity mappings are no longer code data. */
+export const OFFICIAL_BRAND_DOMAINS: Readonly<Record<string, readonly string[]>> = Object.freeze({});
+/** Deprecated compatibility export. Dynamic identity knowledge lives in the signed feed. */
+export function claimedBrandFromText(_text: string): null { return null; }
+export function claimedBrandForEnvelope(_envelope: CanonicalEnvelope): null { return null; }
+
+export {
+  hasAuthenticatedOrganizationalIdentity,
+  hasDeterministicOfficialIdentity,
+  isDirectOfficialSenderDomain,
+  isOfficialBrandSender,
+  isOfficialPrivateRelaySender,
 };
 
-const CONSUMER_MAILBOX_DOMAINS = new Set(["gmail.com", "outlook.com", "live.com", "icloud.com"]);
-const ALL_OFFICIAL_DOMAINS = [...new Set(Object.values(OFFICIAL_BRAND_DOMAINS).flat())];
+const GENERIC_IDENTITY_WORDS = new Set([
+  "account", "alerts", "billing", "care", "customer", "email", "info", "mail",
+  "marketing", "message", "news", "newsletter", "notification", "notifications",
+  "official", "payments", "promo", "rewards", "security", "service", "services",
+  "support", "team", "update", "updates",
+]);
+
+const TRANSACTIONAL_CONTEXT = /\b(?:account|bank|billing|card|delivery|invoice|order|password|payment|purchase|refund|reward|security|subscription|tax|transaction|verify|wallet)\b/i;
+const EXPLICIT_DOMAIN_RE = /(?:^|[^a-z0-9-])((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63})(?=$|[^a-z0-9-])/gi;
+
+function words(value: string): string[] {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter((word) => word.length >= 3 && !GENERIC_IDENTITY_WORDS.has(word));
+}
+
+function explicitDomains(value: string): string[] {
+  const found = new Set<string>();
+  EXPLICIT_DOMAIN_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = EXPLICIT_DOMAIN_RE.exec(value))) found.add(normalizeDomainName(match[1]!));
+  return [...found];
+}
 
 function levenshtein(a: string, b: string): number {
   const dp: number[][] = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
@@ -65,110 +82,102 @@ function levenshtein(a: string, b: string): number {
   return dp[a.length]![b.length]!;
 }
 
-export function claimedBrandFromText(text: string): string | null {
-  const lower = text.trim().toLowerCase();
-  for (const brand of Object.keys(OFFICIAL_BRAND_DOMAINS)) {
-    if (brand.length === 1) {
-      if (lower === brand) return brand;
-      continue;
-    }
-    const escaped = brand.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const re = new RegExp(`(?<![a-z0-9])${escaped}(?![a-z0-9])`, "i");
-    if (re.test(lower)) return brand;
+function organizationLabels(envelope: CanonicalEnvelope): string[] {
+  const domains = new Set<string>();
+  if (envelope.from.domain && !isKnownSenderRelay(envelope.from.domain)) domains.add(envelope.from.domain);
+  for (const domain of messageIdentityCandidateDomains(envelope)) domains.add(domain);
+  for (const domain of authenticatedSenderIdentityDomains(envelope)) domains.add(domain);
+  for (const domain of verifiedRelayOriginDomains(envelope)) domains.add(domain);
+
+  const labels = new Set<string>();
+  for (const domain of domains) {
+    const organization = organizationalDomain(domain);
+    const label = organization.split(".")[0]?.replace(/[^a-z0-9]/g, "");
+    if (label && label.length >= 3) labels.add(label);
   }
-  return null;
+  return [...labels];
 }
 
-export function claimedBrandForEnvelope(envelope: CanonicalEnvelope): string | null {
-  return claimedBrandFromText(envelope.from.displayName ?? "") ?? claimedBrandFromText(envelope.subject);
+function repeatedOrganizationClaim(envelope: CanonicalEnvelope): string[] {
+  const displayWords = words(envelope.from.displayName ?? "");
+  if (!displayWords.length) return [];
+  const subjectWords = new Set(words(envelope.subject));
+  const shared = displayWords.filter((word) => subjectWords.has(word));
+  if (!shared.length) return [];
+
+  const riskyContext = TRANSACTIONAL_CONTEXT.test(`${envelope.subject} ${envelope.textPreview ?? ""}`);
+  if (!riskyContext && shared.length < 2) return [];
+  return shared;
 }
 
-export function isDirectOfficialSenderDomain(envelope: CanonicalEnvelope): boolean {
-  if (!envelope.from.domain) return false;
-  const senderDomain = normalizeDomainName(envelope.from.domain);
-  if (CONSUMER_MAILBOX_DOMAINS.has(senderDomain)) return false;
-  return ALL_OFFICIAL_DOMAINS.some(
-    (domain) => !CONSUMER_MAILBOX_DOMAINS.has(domain)
-      && (senderDomain === domain || senderDomain.endsWith(`.${domain}`)),
-  );
+function claimMatchesLabels(claimWords: string[], labels: string[]): boolean {
+  return claimWords.some((claim) => labels.some((label) => label.includes(claim) || claim.includes(label)));
 }
 
-function relayLocalPartEncodesDomain(address: string, domain: string): boolean {
-  const localPart = address.split("@")[0]?.toLowerCase() ?? "";
-  const encodedDomain = normalizeDomainName(domain).replace(/\./g, "_");
-  if (!localPart || !encodedDomain) return false;
-  return localPart.includes(`_at_${encodedDomain}_`)
-    || localPart.endsWith(`_at_${encodedDomain}`)
-    || localPart.includes(`_${encodedDomain}_`)
-    || localPart.endsWith(`_${encodedDomain}`);
-}
-
-export function isOfficialPrivateRelaySender(envelope: CanonicalEnvelope): boolean {
-  if (!envelope.from.domain || !envelope.from.address || !isKnownSenderRelay(envelope.from.domain)) return false;
-  const claimedBrand = claimedBrandForEnvelope(envelope);
-  if (!claimedBrand) return false;
-  return OFFICIAL_BRAND_DOMAINS[claimedBrand]!.some(
-    (domain) => relayLocalPartEncodesDomain(envelope.from.address!, domain),
-  );
-}
-
-export function hasDeterministicOfficialIdentity(envelope: CanonicalEnvelope): boolean {
-  return isDirectOfficialSenderDomain(envelope) || isOfficialPrivateRelaySender(envelope);
-}
-
-/** Backward-compatible claim-aware helper used by existing tests/callers. */
-export function isOfficialBrandSender(envelope: CanonicalEnvelope): boolean {
-  const claimedBrand = claimedBrandForEnvelope(envelope);
-  if (!claimedBrand || !envelope.from.domain) return false;
-  const senderDomain = normalizeDomainName(envelope.from.domain);
-  return OFFICIAL_BRAND_DOMAINS[claimedBrand]!.some(
-    (domain) => senderDomain === domain || senderDomain.endsWith(`.${domain}`),
-  ) || isOfficialPrivateRelaySender(envelope);
+/**
+ * Authentication proves who owns the sending domain, not that the visible
+ * organization claim is true. This extra gate prevents an authenticated
+ * attacker domain from receiving the same trust as an aligned organization.
+ */
+export function organizationClaimAligned(envelope: CanonicalEnvelope): boolean {
+  const claimWords = repeatedOrganizationClaim(envelope);
+  if (!claimWords.length) return true;
+  const labels = organizationLabels(envelope);
+  return labels.length > 0 && claimMatchesLabels(claimWords, labels);
 }
 
 export function identityImpersonationLayer(envelope: CanonicalEnvelope): LayerResult {
   const evidence: LayerResult["evidence"] = [];
-  const claimedBrand = claimedBrandForEnvelope(envelope);
+  const senderDomain = envelope.from.domain ? normalizeDomainName(envelope.from.domain) : null;
+  const authenticatedIdentities = authenticatedSenderIdentityDomains(envelope);
 
-  if (claimedBrand && envelope.from.domain) {
-    const officialDomains = OFFICIAL_BRAND_DOMAINS[claimedBrand]!;
-    const senderDomain = normalizeDomainName(envelope.from.domain);
-    const isOfficial = officialDomains.some(
-      (domain) => senderDomain === domain || senderDomain.endsWith(`.${domain}`),
-    );
-    const verifiedRelay = isOfficialPrivateRelaySender(envelope);
+  if (envelope.replyTo?.domain && senderDomain) {
+    const replyDomain = normalizeDomainName(envelope.replyTo.domain);
+    const related = sameOrganizationalDomain(senderDomain, replyDomain);
+    const relayOrigins = verifiedRelayOriginDomains(envelope);
+    const relayAligned = relayOrigins.some((domain) => sameOrganizationalDomain(domain, replyDomain));
 
-    if (!isOfficial && !verifiedRelay && !isKnownSenderRelay(senderDomain)) {
-      const closest = Math.min(...officialDomains.map((domain) => levenshtein(senderDomain, domain)));
-      const lookalike = closest > 0 && closest <= 3 && senderDomain.length > 3;
-
+    if (!related && !relayAligned) {
       evidence.push({
         layer: "identity_impersonation",
-        code: lookalike ? "BRAND_LOOKALIKE_DOMAIN" : "BRAND_DOMAIN_MISMATCH",
-        description: lookalike
-          ? `Sender domain "${senderDomain}" closely resembles the official domain for "${claimedBrand}" but does not match it.`
-          : `Message claims to be from "${claimedBrand}" but sender domain "${senderDomain}" is not an official domain for that brand.`,
-        scoreContribution: lookalike ? 5 : 4,
+        code: "REPLY_TO_MISMATCH",
+        description: `Reply-To domain "${replyDomain}" is unrelated to the authenticated sender identity.`,
+        scoreContribution: 2,
         source: "local",
       });
     }
   }
 
-  if (envelope.replyTo?.domain && envelope.from.domain) {
-    const fromDomain = normalizeDomainName(envelope.from.domain);
-    const replyDomain = normalizeDomainName(envelope.replyTo.domain);
-    const related = sameOrganizationalDomain(fromDomain, replyDomain);
-    const senderUsesRelay = isKnownSenderRelay(fromDomain);
-
-    if (!related && !senderUsesRelay) {
+  const claimedDomains = new Set([
+    ...explicitDomains(envelope.from.displayName ?? ""),
+    ...explicitDomains(envelope.subject),
+  ]);
+  for (const claimed of claimedDomains) {
+    const aligned = authenticatedIdentities.some((identity) => sameOrganizationalDomain(identity, claimed));
+    if (!aligned && senderDomain && !isKnownSenderRelay(senderDomain)) {
       evidence.push({
         layer: "identity_impersonation",
-        code: "REPLY_TO_MISMATCH",
-        description: `Reply-To domain "${replyDomain}" is unrelated to the From domain "${fromDomain}".`,
-        scoreContribution: 2,
+        code: "EXPLICIT_DOMAIN_CLAIM_MISMATCH",
+        description: `Message explicitly claims domain "${claimed}" but the sender identity is "${organizationalDomain(senderDomain)}".`,
+        scoreContribution: 4,
         source: "local",
       });
+      break;
     }
+  }
+
+  const claimWords = repeatedOrganizationClaim(envelope);
+  const labels = organizationLabels(envelope);
+  if (claimWords.length && labels.length && !claimMatchesLabels(claimWords, labels)) {
+    const closest = Math.min(...claimWords.flatMap((claim) => labels.map((label) => levenshtein(claim, label))));
+    const lookalike = closest > 0 && closest <= 2 && claimWords.some((word) => word.length >= 5);
+    evidence.push({
+      layer: "identity_impersonation",
+      code: lookalike ? "BRAND_LOOKALIKE_DOMAIN" : "BRAND_DOMAIN_MISMATCH",
+      description: `Organization-like identity claim "${claimWords.join(" ")}" is not supported by the sender or message identity domains.`,
+      scoreContribution: lookalike ? 5 : 4,
+      source: "local",
+    });
   }
 
   return { layer: "identity_impersonation", applicable: true, evidence, incomplete: false };

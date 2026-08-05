@@ -22,14 +22,42 @@ selected mail provider.
 - **Gmail / Outlook**: the adapters support OAuth credentials, but the guided
   browser OAuth onboarding flow is not exposed in the dashboard yet.
 
-The iCloud IMAP path has been exercised against a real Junk folder on Windows,
+The iCloud IMAP path has been exercised against a real mailbox on Windows,
 including bounded MIME text retrieval, scan cancellation, one-message Trash,
 Block sender, Block domain and repeated rescans.
 
+## Detection architecture: not trained to one mailbox
+
+The local engine does not contain a list of the developer's subscriptions or a
+hardcoded decision table for individual brands. It judges every sender using
+provider-neutral structure:
+
+- SPF, DKIM and DMARC results
+- organizational-domain and Reply-To alignment
+- shared personal mailbox versus organizational sender identity
+- relay alias provenance and domains encoded in relay addresses
+- List-ID and List-Unsubscribe identity signals
+- literal displayed URL versus actual destination
+- raw IP, punycode, shortening and unusual-port link structure
+- generic intent combinations such as credential pressure, callback invoices,
+  payment diversion, parcel fees, romance lures, job overpayment and crypto yield
+- local relationship history, personal rules and signed threat intelligence
+
+A company the source code has never seen can still establish an authenticated
+organizational identity. Well-known names that cannot be derived from headers
+may be supplied as **signed identity feed data** containing aliases and allowed
+domains. Adding or correcting an identity entry does not require an application
+code release. If the feed fails verification or freshness checks, it is treated
+as unavailable rather than clean.
+
+Shared consumer domains such as Gmail, Outlook, Yahoo and iCloud authenticate
+the mailbox provider, not the organization claimed in a display name. They are
+therefore never accepted as business identity by themselves.
+
 ## Local policy persistence
 
-Personal rules now survive application restarts and mailbox reconnection.
-Email Shield stores only these rule lists:
+Personal rules survive application restarts and mailbox reconnection. Email
+Shield stores only these rule lists:
 
 - blocked sender addresses
 - blocked sender domains
@@ -66,18 +94,19 @@ replacement for full-disk encryption or operating-system account security.
 - Killable scan Workers and one safe retry for early transient IMAP timeouts
 - Stage-specific IMAP timeout diagnostics
 - Selective bounded `text/plain` / `text/html` retrieval without attachment bodies
+- Organization-neutral sender identity and link analysis
+- Updateable signed identity/threat-feed interfaces
 - Account-scoped persistent Block sender and Block domain rules
 - Reversible provider Trash moves with exact-one-message verification
-- RFC 8058 one-click unsubscribe workflow
-- Privacy-reduced local diagnostic audit
+- RFC 8058, normal web-link and mail-based unsubscribe workflows
+- Separate privacy-reduced Safe and diagnostic audits
 - Developer Testing Suite and synthetic multi-provider scam corpus
 
 ## Known limitations before production Milestone 1 completion
 
 - Gmail and Outlook still need guided OAuth onboarding and real-account validation.
 - The encrypted policy key is local-file protected rather than stored in the OS keychain.
-- Two legitimate-looking iCloud messages remain Unknown because their readable text
-  exceeds the bounded extraction limit and no reliable evidence is available.
+- The production signed identity-feed publisher, rotation and rollback service is not yet deployed.
 - Hardened destination analysis still needs controlled real-URL testing.
 - QR decoding remains behind an injectable interface without a production decoder.
 - API session authentication and CSRF protection are not implemented yet; the server
