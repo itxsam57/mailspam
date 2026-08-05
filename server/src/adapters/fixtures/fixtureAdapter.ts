@@ -82,15 +82,15 @@ export class FixtureAdapter implements EmailAdapter {
     return { envelopes, nextCursor: nextIndex < inFolder.length ? String(nextIndex) : null, done: nextIndex >= inFolder.length };
   }
 
-  private moveFixtureMessages(messageIds: string[], target: NormalizedFolder): number {
-    const targetMessage = this.messages.find((message) => message.folder === target);
-    if (!targetMessage) throw new Error(`Fixture mailbox does not contain a ${target} folder.`);
+  private moveFixtureMessages(messageIds: string[], target: Extract<NormalizedFolder, "trash" | "spam">): number {
+    const targetProviderFolderName = this.messages.find((message) => message.folder === target)?.providerFolderName
+      ?? (target === "trash" ? "Trash" : "Spam");
     const idSet = new Set(messageIds);
     let moved = 0;
     for (const message of this.messages) {
       if (!idSet.has(message.id)) continue;
       message.folder = target;
-      message.providerFolderName = targetMessage.providerFolderName;
+      message.providerFolderName = targetProviderFolderName;
       moved++;
     }
     if (moved !== idSet.size) {
