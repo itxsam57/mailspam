@@ -3,6 +3,7 @@ import {
   hasAuthenticatedOrganizationalIdentity,
   isSharedMailboxDomain,
 } from "../identitySignals.js";
+import { organizationClaimAligned } from "./identityImpersonation.js";
 import type { LayerResult } from "../verdict.js";
 
 interface IntentRule {
@@ -131,11 +132,10 @@ export function messageIntentLayer(envelope: CanonicalEnvelope): LayerResult {
     if (!callbackContext) evidence.splice(callbackIndex, 1);
   }
 
-  // Any previously unseen organization can send a legitimate password or
-  // account-security notice. Authentication + organizational alignment—not a
-  // brand name in source code—suppresses the generic credential phrase alone.
-  // Link and identity layers still score cross-domain actions or deception.
-  if (hasAuthenticatedOrganizationalIdentity(envelope)) {
+  // Authentication proves control of a domain, not the visible claim. Suppress
+  // generic credential language only when both the organizational domain and
+  // any repeated organization-like display/subject claim align.
+  if (hasAuthenticatedOrganizationalIdentity(envelope) && organizationClaimAligned(envelope)) {
     const credentialIndex = evidence.findIndex((item) => item.code === "CREDENTIAL_PHISH_INTENT");
     if (credentialIndex >= 0) evidence.splice(credentialIndex, 1);
   }
