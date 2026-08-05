@@ -1,4 +1,5 @@
 import type { CanonicalEnvelope } from "../../canonical/envelope.js";
+import { sameOrganizationalDomain } from "../../util/domainRelation.js";
 import {
   hasAuthenticatedOrganizationalIdentity,
   isSharedMailboxDomain,
@@ -100,6 +101,7 @@ const RULES: IntentRule[] = [
 
 const FIRST_CONTACT_ROMANCE_PATTERN = /(?:meet new people|wanna see (?:my )?photos?|see photos? me|free right now|how can i contact you|what if i said i want you|do you like to meet|\bdates?\b|actual person)/i;
 const HIGH_CONFIDENCE_ROMANCE_PATTERN = /(?:wanna see (?:my )?photos?|see (?:my )?(?:hot |private )?photos?|private photos?|what if i said i want you|i(?:'|’)m waiting for you|waiting for you.{0,40}(?:open|join|view)|(?:open|join|view).{0,40}(?:my )?(?:profile|photos?|groups?)|\b(?:nudes?|naked|hookup|sex|sext|fuck|pussy|tits?)\b)/i;
+const EXPLICIT_ADULT_SITE_PATTERN = /(?:exclusive\s+adult(?:\s+dating)?\s+community|adult\s+(?:live\s+chat|dating|personal|secret)\s+(?:site|community)|one[- ]night\s+dates?|n\s*u\s*d\s*e\s+(?:my\s+)?photos?|(?:send|check|view)\s+(?:my\s+)?(?:nude|hot|private)\s+(?:pics?|photos?)|join\s+(?:my|our)\s+(?:adult\s+)?(?:group|community))/i;
 
 function pushUnique(evidence: LayerResult["evidence"], item: LayerResult["evidence"][number]) {
   if (!evidence.some((existing) => existing.code === item.code)) evidence.push(item);
@@ -184,6 +186,26 @@ export function messageIntentLayer(envelope: CanonicalEnvelope): LayerResult {
       code: "HIGH_CONFIDENCE_ROMANCE_LURE",
       description: "The first-contact romance lure includes sexual/private-photo language or an external profile redirect.",
       scoreContribution: Math.max(0, 6 - currentRomanceScore),
+      source: "local",
+    });
+  }
+
+  const suspiciousReplyRoute = Boolean(
+    envelope.replyTo?.domain &&
+    envelope.from.domain &&
+    !sameOrganizationalDomain(envelope.replyTo.domain, envelope.from.domain),
+  );
+  if (
+    firstContact &&
+    hasExternalLink &&
+    suspiciousReplyRoute &&
+    EXPLICIT_ADULT_SITE_PATTERN.test(haystack)
+  ) {
+    pushUnique(evidence, {
+      layer: "message_intent",
+      code: "UNSOLICITED_ADULT_SITE_CAMPAIGN",
+      description: "A first-contact adult-site solicitation links externally while routing replies to an unrelated organization.",
+      scoreContribution: 4,
       source: "local",
     });
   }
