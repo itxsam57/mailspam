@@ -12,6 +12,7 @@ function reviewContext(overrides: Partial<ScanActionContext> = {}): ScanActionCo
     messageId: "message-1",
     exceptionKey: `message:${"a".repeat(64)}`,
     senderAddress: "sender@example.com",
+    normalizedFolder: "inbox",
     unsubscribe: { available: false, method: "none", target: null, source: "none" },
     ...overrides,
   };
@@ -114,12 +115,20 @@ describe("opaque message review actions", () => {
     const registered = store.registerReviewAction(first, context);
 
     expect(registered.token).not.toContain(context.exceptionKey);
+    expect(registered.canReportSpam).toBe(true);
     expect(store.resolveReviewAction(first, registered.token)).toMatchObject({
       exceptionKey: context.exceptionKey,
       senderAddress: context.senderAddress,
       providerNativeId: context.providerNativeId,
+      normalizedFolder: "inbox",
     });
     expect(() => store.resolveReviewAction(second, registered.token)).toThrow("unknown or expired");
+  });
+
+  it("does not offer Report Spam for a message already in Spam/Junk", () => {
+    const store = new SessionStore(new InMemoryPolicyRepository());
+    const session = store.create("imap", "mailbox", { provider: "imap", mode: "fixture" });
+    expect(store.registerReviewAction(session, reviewContext({ normalizedFolder: "spam" })).canReportSpam).toBe(false);
   });
 
   it("reports existing exact-message and trusted-sender decisions", () => {
@@ -132,6 +141,7 @@ describe("opaque message review actions", () => {
     expect(store.registerReviewAction(session, context)).toMatchObject({
       alreadyApproved: true,
       senderTrusted: true,
+      canReportSpam: true,
     });
   });
 });
