@@ -1,14 +1,14 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { createAdapter, type AdapterConfig } from "../api/adapterConfig.js";
 import { quickScan, fullMailboxAudit, spamJunkScan } from "../workflows/scanWorkflows.js";
-import { InMemoryPersonalPolicyStore } from "../engine/layers/personalRules.js";
+import { InMemoryPersonalPolicyStore, type PersonalPolicySnapshot } from "../engine/layers/personalRules.js";
 import { runWithSingleRetry } from "./retryPolicy.js";
 
 interface WorkData {
   config: AdapterConfig;
   type: "quick" | "full" | "spam";
   pageSize?: number;
-  personalPolicy?: { blockedSenders?: string[]; blockedDomains?: string[]; trustedSenders?: string[]; approvedExceptions?: string[] };
+  personalPolicy?: Partial<PersonalPolicySnapshot>;
 }
 
 const data = workerData as WorkData;
