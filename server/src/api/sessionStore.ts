@@ -3,6 +3,7 @@ import type { Worker } from "node:worker_threads";
 import { InMemoryPersonalPolicyStore } from "../engine/layers/personalRules.js";
 import type { ThreatFeedCache } from "../engine/layers/globalIntelligence.js";
 import type { UnsubscribeMethod } from "../workflows/unsubscribe.js";
+import type { ScanActionContext } from "../workflows/scanWorkflows.js";
 import type { AdapterConfig } from "./adapterConfig.js";
 import {
   EncryptedFilePolicyRepository,
@@ -19,6 +20,15 @@ export interface RegisteredUnsubscribeAction {
   createdAt: number;
 }
 
+export interface RegisteredReviewAction {
+  token: string;
+  exceptionKey: string;
+  senderAddress: string | null;
+  providerNativeId: string;
+  messageId: string;
+  createdAt: number;
+}
+
 export interface AccountSession {
   id: string;
   provider: string;
@@ -28,17 +38,16 @@ export interface AccountSession {
   personalPolicy: InMemoryPersonalPolicyStore;
   policyAccountKey: string;
   unsubscribeActions: Map<string, RegisteredUnsubscribeAction>;
-  unsubscribedActionKeys: Set<string>;
+  reviewActions: Map<string, RegisteredReviewAction>;
 }
 
 const emptyFeed: ThreatFeedCache = { getVerifiedEntries: () => [] };
-const MAX_UNSUBSCRIBE_ACTIONS = 5_000;
-const UNSUBSCRIBE_ACTION_TTL_MS = 30 * 60 * 1_000;
+const MAX_SCAN_ACTIONS = 5_000;
+const ACTION_TTL_MS = 30 * 60 * 1_000;
 
 export class SessionStore {
   private sessions = new Map<string, AccountSession>();
   private policyStores = new Map<string, InMemoryPersonalPolicyStore>();
-  private unsubscribeHistories = new Map<string, Set<string>>();
   readonly threatFeed = emptyFeed;
 
   constructor(private readonly policyRepository: PersonalPolicyRepository = new EncryptedFilePolicyRepository()) {}
@@ -52,12 +61,6 @@ export class SessionStore {
       this.policyStores.set(accountKey, personalPolicy);
     }
 
-    let unsubscribedActionKeys = this.unsubscribeHistories.get(accountKey);
-    if (!unsubscribedActionKeys) {
-      unsubscribedActionKeys = new Set<string>();
-      this.unsubscribeHistories.set(accountKey, unsubscribedActionKeys);
-    }
-
     const session: AccountSession = {
       id: randomUUID(),
       provider,
@@ -67,7 +70,7 @@ export class SessionStore {
       personalPolicy,
       policyAccountKey: accountKey,
       unsubscribeActions: new Map(),
-      unsubscribedActionKeys,
+      reviewActions: new Map(),
     };
     this.sessions.set(session.id, session);
     return session;
@@ -84,8 +87,50 @@ export class SessionStore {
     catch (error) { session.personalPolicy.replace(previous); throw error; }
   }
 
-  clearUnsubscribeActions(session: AccountSession): void {
+  clearScanActions(session: AccountSession): void {
     session.unsubscribeActions.clear();
+    session.reviewActions.clear();
+  }
+
+  clearUnsubscribeActions(session: AccountSession): void {
+    this.clearScanActions(session);
+  }
+
+  registerReviewAction(session: AccountSession, context: ScanActionContext): {
+    token: string;
+    alreadyApproved: boolean;
+    senderTrusted: boolean;
+  } {
+    if (session.reviewActions.size >= MAX_SCAN_ACTIONS) {
+      throw new Error("Too many message review actions are registered for this scan.");
+    }
+    const token = randomUUID();
+    session.reviewActions.set(token, {
+      token,
+      exceptionKey: context.exceptionKey,
+      senderAddress: context.senderAddress?.toLowerCase() ?? null,
+      providerNativeId: context.providerNativeId,
+      messageId: context.messageId,
+      createdAt: Date.now(),
+    });
+    return {
+      token,
+      alreadyApproved: session.personalPolicy.isApprovedException(context.exceptionKey),
+      senderTrusted: Boolean(context.senderAddress && session.personalPolicy.isTrustedSender(context.senderAddress)),
+    };
+  }
+
+  resolveReviewAction(session: AccountSession, token: unknown): RegisteredReviewAction {
+    if (typeof token !== "string" || !/^[0-9a-f-]{36}$/i.test(token)) {
+      throw new Error("A valid message review action token is required.");
+    }
+    const action = session.reviewActions.get(token);
+    if (!action) throw new Error("The message review action is unknown or expired. Rescan the mailbox.");
+    if (Date.now() - action.createdAt > ACTION_TTL_MS) {
+      session.reviewActions.delete(token);
+      throw new Error("The message review action expired. Rescan the mailbox.");
+    }
+    return action;
   }
 
   registerUnsubscribeAction(
@@ -94,7 +139,7 @@ export class SessionStore {
     target: string,
     providerNativeId: string,
   ): { token: string; actionKey: string; alreadyUnsubscribed: boolean } {
-    if (session.unsubscribeActions.size >= MAX_UNSUBSCRIBE_ACTIONS) {
+    if (session.unsubscribeActions.size >= MAX_SCAN_ACTIONS) {
       throw new Error("Too many unsubscribe actions are registered for this scan.");
     }
     const actionKey = createHash("sha256").update(`${method}\n${target}`).digest("hex");
@@ -110,7 +155,7 @@ export class SessionStore {
     return {
       token,
       actionKey,
-      alreadyUnsubscribed: method === "one_click_post" && session.unsubscribedActionKeys.has(actionKey),
+      alreadyUnsubscribed: session.personalPolicy.isUnsubscribedAction(actionKey),
     };
   }
 
@@ -120,7 +165,7 @@ export class SessionStore {
     }
     const action = session.unsubscribeActions.get(token);
     if (!action) throw new Error("The unsubscribe action is unknown or expired. Rescan the mailbox.");
-    if (Date.now() - action.createdAt > UNSUBSCRIBE_ACTION_TTL_MS) {
+    if (Date.now() - action.createdAt > ACTION_TTL_MS) {
       session.unsubscribeActions.delete(token);
       throw new Error("The unsubscribe action expired. Rescan the mailbox.");
     }
@@ -128,7 +173,7 @@ export class SessionStore {
   }
 
   markUnsubscribed(session: AccountSession, actionKey: string): void {
-    session.unsubscribedActionKeys.add(actionKey);
+    this.mutateAndPersistPersonalPolicy(session, (policy) => policy.rememberUnsubscribed(actionKey));
   }
 
   get(id: string): AccountSession | undefined { return this.sessions.get(id); }
@@ -138,7 +183,7 @@ export class SessionStore {
     const session = this.sessions.get(id);
     if (!session) return;
     await session.activeScanWorker?.terminate();
-    session.unsubscribeActions.clear();
+    this.clearScanActions(session);
     this.sessions.delete(id);
   }
 }
