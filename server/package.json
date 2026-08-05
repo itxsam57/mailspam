@@ -5,8 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "npm run build && node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.build.json",
     "test": "npm run build && vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
     "test:watch": "vitest",
     "test:report": "npm run build && vitest run --reporter=json --outputFile=../test-report.json && vitest run",
     "start": "node dist/index.js"
