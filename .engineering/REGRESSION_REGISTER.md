@@ -2,10 +2,17 @@
 
 Status values:
 
+- **PRE-EXISTING-FIXED** — defect existed before the automation installation, was exposed by the stronger gate and corrected without deleting its history.
 - **LOCKED** — fixed behavior with automated regression coverage; future failure blocks the gate.
 - **LIVE-PASS** — verified against a controlled real mailbox and backed by automation where possible.
 - **KNOWN-GAP** — acknowledged incomplete product capability; not misreported as a passing feature.
 - **MANUAL** — requires final visible owner acceptance after automation passes.
+
+## Pre-existing findings exposed during installation
+
+| ID | Status | Finding | Resolution / protection |
+|---|---|---|---|
+| PRE-001 | PRE-EXISTING-FIXED | `tests/unit/messageIntentProfileLure.test.ts` constructed a `CanonicalEnvelope` without the required `diagnostics.contentCoverage` field. The former `build + Vitest` command compiled production source only and did not typecheck test sources, so the drift remained hidden while runtime tests passed. | Added `contentCoverage: "complete"` to the existing fixture and installed strict source-plus-test typechecking as a blocking Windows/Ubuntu gate. No production runtime failure was observed. |
 
 ## Locked regressions
 
@@ -63,4 +70,4 @@ Status values:
 
 ## Register maintenance rule
 
-Every fixed production defect must receive a new `REG-*` entry and an automated test before closure. Every incomplete capability must remain a `GAP-*` item until implementation, automated verification and owner-visible acceptance are all complete. Do not delete history to make the register appear green.
+Every fixed production defect must receive a new `REG-*` entry and an automated test before closure. Every pre-existing installation finding must remain a `PRE-*` item after correction. Every incomplete capability must remain a `GAP-*` item until implementation, automated verification and owner-visible acceptance are all complete. Do not delete history to make the register appear green.
