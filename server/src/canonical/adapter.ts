@@ -15,6 +15,14 @@ export interface FolderDescriptor {
   includedByDefault: boolean;
 }
 
+export type SpamReportMode = "provider_spam_label" | "junk_folder_move" | "fixture_junk_move";
+
+export interface SpamReportResult {
+  requested: number;
+  reported: number;
+  mode: SpamReportMode;
+}
+
 /**
  * Every cancellation-capable call takes an AbortSignal and MUST respect it:
  * - stop issuing new provider requests once aborted
@@ -44,6 +52,14 @@ export interface EmailAdapter {
 
   /** Move messages to Trash via provider API/IMAP. Must be idempotent. */
   moveToTrash(messageIds: string[], signal: AbortSignal): Promise<void>;
+
+  /**
+   * Report/move messages into the provider Spam or Junk folder. The adapter
+   * must use the provider-native spam label when one exists; generic IMAP
+   * moves to the discovered special-use Junk folder. This is an explicit
+   * user action and must never be called automatically from heuristic scores.
+   */
+  reportSpam(messageIds: string[], signal: AbortSignal): Promise<SpamReportResult>;
 
   /** Release any open sockets/connections. Safe to call multiple times. */
   disconnect(): Promise<void>;

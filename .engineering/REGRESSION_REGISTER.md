@@ -41,6 +41,8 @@ Status values:
 | REG-019 | LOCKED | Compiled server must start on localhost and complete fixture connection plus quick-scan SSE. | `smoke:server` |
 | REG-020 | LOCKED | One command must create a complete engineering result and owner browser handoff even when a step fails. | `run-gate.mjs`, CI artifact upload |
 | REG-021 | LOCKED | High-confidence first-contact romance lures containing sexual/private-photo language or an external profile redirect must reach High Risk, while ambiguous social introductions remain Review and established-thread language is not automatically escalated. | `messageIntentProfileLure.test.ts`, full engineering gate |
+| REG-022 | LOCKED | Report Spam must operate on exactly one opaque account-scoped message token, require provider confirmation, work through Gmail Spam, Outlook Junk, and iCloud/Yahoo/generic IMAP special-use Junk, never auto-block a sender, and never run automatically from a verdict. | `reportSpam.test.ts`, adapter contract/typecheck, Safe-audit UI tests, full engineering gate |
+| REG-023 | LOCKED | A first-contact explicit adult-site solicitation with an external destination and an unrelated Reply-To route must reach High Risk without relying on a known sender or brand; aligned, established or link-free adult-topic mail must not be escalated by this rule alone. | `adultSiteCampaign.test.ts`, full engineering gate |
 
 ## Known gaps — not accepted as complete
 
@@ -53,7 +55,7 @@ Status values:
 | GAP-005 | KNOWN-GAP | Controlled real-destination Analyze Links validation | Hardened workflow exists; complete controlled live-URL validation remains. |
 | GAP-006 | KNOWN-GAP | Production QR decoder | Injectable interface exists; production decoder is absent. |
 | GAP-007 | KNOWN-GAP | Local API authentication and CSRF protection | Server binds to localhost; production web exposure is not approved. |
-| GAP-008 | KNOWN-GAP | Community reporting aggregation | Milestone 2 scope. |
+| GAP-008 | KNOWN-GAP | Privacy-reduced community scam reporting and aggregation | Provider-level Report Spam exists for an exact local message, but Email Shield community intelligence submission, aggregation, abuse controls and signed redistribution remain Milestone 2 scope. |
 | GAP-009 | KNOWN-GAP | Editable policy-management centre and unblock/untrust/revoke UI | Policy storage/actions exist; complete management UI remains. |
 | GAP-010 | KNOWN-GAP | Persisted resumable scan cursors and automatic continuation across restart/rate limits | Current worker retry is bounded to one early transient failure. |
 | GAP-011 | KNOWN-GAP | Full mailbox-derived relationship history | Canonical relationship signals exist but production history depth is incomplete. |
@@ -70,6 +72,7 @@ Status values:
 | MAN-006 | MANUAL | Review/High Risk/Unknown cards show correct confirmations and visible success/error feedback. |
 | MAN-007 | MANUAL | Account switching does not visually leak actions or results between connected accounts. |
 | MAN-008 | MANUAL | Controlled live iCloud scan remains responsive and credentials are not displayed after connection. |
+| MAN-009 | MANUAL | On a fixture Inbox result, Report Spam confirms exactly one message, removes only that item from Inbox after rescan, makes it visible in Spam/Junk, and is absent for messages already scanned from Spam/Junk. |
 
 ## Register maintenance rule
 

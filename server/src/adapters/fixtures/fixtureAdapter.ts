@@ -1,4 +1,9 @@
-import type { EmailAdapter, FetchPage, FolderDescriptor } from "../../canonical/adapter.js";
+import type {
+  EmailAdapter,
+  FetchPage,
+  FolderDescriptor,
+  SpamReportResult,
+} from "../../canonical/adapter.js";
 import type { Provider, NormalizedFolder } from "../../canonical/envelope.js";
 import { normalizeRawMessage } from "../../util/mimeNormalize.js";
 
@@ -25,7 +30,7 @@ export class FixtureAdapter implements EmailAdapter {
 
   constructor(provider: Provider, messages: FixtureMessage[]) {
     this.provider = provider;
-    this.messages = messages;
+    this.messages = messages.map((message) => ({ ...message }));
   }
 
   async connect(signal: AbortSignal): Promise<void> {
@@ -77,9 +82,32 @@ export class FixtureAdapter implements EmailAdapter {
     return { envelopes, nextCursor: nextIndex < inFolder.length ? String(nextIndex) : null, done: nextIndex >= inFolder.length };
   }
 
-  async moveToTrash(_messageIds: string[], signal: AbortSignal): Promise<void> {
+  private moveFixtureMessages(messageIds: string[], target: Extract<NormalizedFolder, "trash" | "spam">): number {
+    const targetProviderFolderName = this.messages.find((message) => message.folder === target)?.providerFolderName
+      ?? (target === "trash" ? "Trash" : "Spam");
+    const idSet = new Set(messageIds);
+    let moved = 0;
+    for (const message of this.messages) {
+      if (!idSet.has(message.id)) continue;
+      message.folder = target;
+      message.providerFolderName = targetProviderFolderName;
+      moved++;
+    }
+    if (moved !== idSet.size) {
+      throw new Error(`Fixture mailbox found ${moved} of ${idSet.size} requested message(s).`);
+    }
+    return moved;
+  }
+
+  async moveToTrash(messageIds: string[], signal: AbortSignal): Promise<void> {
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-    // no-op in fixture mode; real adapters call provider API/IMAP STORE
+    this.moveFixtureMessages(messageIds, "trash");
+  }
+
+  async reportSpam(messageIds: string[], signal: AbortSignal): Promise<SpamReportResult> {
+    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+    const reported = this.moveFixtureMessages(messageIds, "spam");
+    return { requested: messageIds.length, reported, mode: "fixture_junk_move" };
   }
 
   async disconnect(): Promise<void> {

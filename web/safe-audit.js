@@ -9,7 +9,7 @@
     style.textContent = `
       .safe-message-audit summary {color:#3fb88a;font-weight:600}
       .safe-message-audit .safe-empty {padding:10px 12px;color:#5b6272;font-size:11px;border-top:1px solid #2a2f3a}
-      .safe-message-audit .safe-actions-cell {min-width:230px}
+      .safe-message-audit .safe-actions-cell {min-width:260px}
     `;
     document.head.appendChild(style);
 
@@ -18,7 +18,7 @@
     safeAudit.className = 'scan-diagnostics safe-message-audit';
     safeAudit.innerHTML = `
       <summary>Safe messages (0) — click to review</summary>
-      <div class="scan-diagnostics-note">Safe messages remain outside the warning-card feed. This compact local review shows privacy-reduced metadata and permits account-scoped trust or unsubscribe actions without exposing message bodies or raw destinations.</div>
+      <div class="scan-diagnostics-note">Safe messages remain outside the warning-card feed. This compact local review shows privacy-reduced metadata and permits account-scoped trust, unsubscribe, or exact-message provider Spam/Junk actions without exposing message bodies or raw destinations.</div>
       <div class="safe-empty">No messages have been classified Safe in this scan yet.</div>
       <div class="scan-diagnostics-scroll" hidden><table>
         <thead><tr><th>Subject</th><th>Sender</th><th>Parse</th><th>Evidence / notes</th><th>Actions</th></tr></thead>
@@ -59,11 +59,15 @@
         const notes = cells[5]?.innerHTML ?? 'No scored evidence.';
         const reviewToken = row.dataset.reviewToken || '';
         const senderTrusted = row.dataset.senderTrusted === 'true';
+        const canReportSpam = row.dataset.canReportSpam === 'true';
         const unsubscribeAvailable = row.dataset.unsubscribeAvailable === 'true';
         const unsubscribeMethod = row.dataset.unsubscribeMethod || 'none';
         const unsubscribeDone = row.dataset.unsubscribeDone === 'true';
 
         const actions = [];
+        if (reviewToken && canReportSpam) {
+          actions.push(`<button data-action="report-spam" data-review-token="${escapeHtml(reviewToken)}">Report Spam</button>`);
+        }
         if (reviewToken && senderText && senderText !== 'unknown') {
           actions.push(senderTrusted
             ? '<button disabled>Sender trusted ✓</button>'
@@ -78,7 +82,7 @@
         }
         if (!actions.length) actions.push('<span class="hint">No user action available</span>');
 
-        return `<tr data-message-row="true">
+        return `<tr data-message-row="true" data-review-token="${escapeHtml(reviewToken)}">
           <td class="safe-subject">${subject}</td>
           <td class="safe-sender">${sender}</td>
           <td>${parse}</td>

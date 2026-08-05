@@ -1,7 +1,12 @@
 import { ImapFlow } from "imapflow";
 import { createHash } from "node:crypto";
-import type { EmailAdapter, FetchPage, FolderDescriptor } from "../../canonical/adapter.js";
-import type { CanonicalEnvelope, Provider } from "../../canonical/envelope.js";
+import type {
+  EmailAdapter,
+  FetchPage,
+  FolderDescriptor,
+  SpamReportResult,
+} from "../../canonical/adapter.js";
+import type { CanonicalEnvelope, NormalizedFolder, Provider } from "../../canonical/envelope.js";
 import { normalizeRawMessage } from "../../util/mimeNormalize.js";
 import { normalizeImapFolder, providerFolderPath } from "./folderNames.js";
 import {
@@ -282,31 +287,61 @@ export class ImapAdapter implements EmailAdapter {
     }
   }
 
-  async moveToTrash(providerNativeIds: string[], signal: AbortSignal): Promise<void> {
-    const client = this.requireClient();
+  private decodeByFolder(providerNativeIds: string[]): Map<string, number[]> {
     const byFolder = new Map<string, number[]>();
     for (const value of providerNativeIds) {
       const decoded = decodeNativeId(value);
-      if (!decoded) continue;
+      if (!decoded) throw new Error("An IMAP message identifier was invalid or expired.");
       const list = byFolder.get(decoded.folder) ?? [];
       list.push(decoded.uid);
       byFolder.set(decoded.folder, list);
     }
-    const trash = (await this.listFolders(signal)).find((folder) => folder.normalized === "trash");
-    if (!trash) throw new Error("No Trash folder found on this account.");
+    return byFolder;
+  }
+
+  private async moveToSpecialFolder(
+    providerNativeIds: string[],
+    targetType: Extract<NormalizedFolder, "trash" | "spam">,
+    targetLabel: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const client = this.requireClient();
+    const byFolder = this.decodeByFolder(providerNativeIds);
+    const target = (await this.listFolders(signal)).find((folder) => folder.normalized === targetType);
+    if (!target) throw new Error(`No ${targetLabel} folder was found on this account.`);
+
     for (const [folder, uids] of byFolder) {
-      const lock = await withImapDeadline(client.getMailboxLock(folder), signal, `mailbox lock for ${folder}`, LOCK_TIMEOUT_MS);
+      if (folder === target.providerFolderName) continue;
+      const lock = await withImapDeadline(
+        client.getMailboxLock(folder),
+        signal,
+        `mailbox lock for ${folder}`,
+        LOCK_TIMEOUT_MS,
+      );
       try {
         await withImapDeadline(
-          client.messageMove(uids, trash.providerFolderName, { uid: true }) as Promise<any>,
+          client.messageMove(uids, target.providerFolderName, { uid: true }) as Promise<any>,
           signal,
-          `move of ${uids.length} message(s) from ${folder} to Trash`,
+          `move of ${uids.length} message(s) from ${folder} to ${targetLabel}`,
           MOVE_TIMEOUT_MS,
         );
       } finally {
         lock.release();
       }
     }
+  }
+
+  async moveToTrash(providerNativeIds: string[], signal: AbortSignal): Promise<void> {
+    await this.moveToSpecialFolder(providerNativeIds, "trash", "Trash", signal);
+  }
+
+  async reportSpam(providerNativeIds: string[], signal: AbortSignal): Promise<SpamReportResult> {
+    await this.moveToSpecialFolder(providerNativeIds, "spam", "Spam/Junk", signal);
+    return {
+      requested: providerNativeIds.length,
+      reported: providerNativeIds.length,
+      mode: "junk_folder_move",
+    };
   }
 
   async disconnect(): Promise<void> {

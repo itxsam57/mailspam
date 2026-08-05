@@ -1,5 +1,5 @@
 import type { EmailAdapter, FolderDescriptor } from "../canonical/adapter.js";
-import type { ParseStatus } from "../canonical/envelope.js";
+import type { NormalizedFolder, ParseStatus } from "../canonical/envelope.js";
 import type { Verdict } from "../engine/verdict.js";
 import type { PersonalPolicyStore } from "../engine/layers/personalRules.js";
 import type { ThreatFeedCache } from "../engine/layers/globalIntelligence.js";
@@ -40,6 +40,7 @@ export interface ScanActionContext {
   messageId: string;
   exceptionKey: string;
   senderAddress: string | null;
+  normalizedFolder: NormalizedFolder;
   unsubscribe: UnsubscribeCapability;
 }
 
@@ -78,6 +79,7 @@ function diagnosticSummary(result: ScanResult): ScanDiagnosticSummary {
       messageId: result.envelope.messageId,
       exceptionKey: messageExceptionKey(result.envelope),
       senderAddress: result.envelope.from.address,
+      normalizedFolder: result.envelope.folder,
       unsubscribe: unsubscribeCapability(result.envelope),
     },
   };
