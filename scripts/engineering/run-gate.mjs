@@ -1,5 +1,5 @@
 import { spawnSync, execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync, appendFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const root = process.cwd();
@@ -28,6 +28,7 @@ const steps = [
 ];
 
 if (process.env.ENGINEERING_AUDIT !== "0") {
+  steps.push({ id: "audit-inventory", name: "All-dependency advisory inventory", command: npm, args: ["run", "audit:inventory"] });
   steps.push({ id: "audit", name: "Production dependency audit", command: npm, args: ["run", "audit:prod"] });
 }
 
@@ -64,6 +65,13 @@ const branch = git(["branch", "--show-current"], "detached/unknown");
 const commit = git(["rev-parse", "HEAD"]);
 const workingTree = git(["status", "--porcelain"], "");
 
+const dependencyAuditPath = resolve(artifactDir, "dependency-audit.json");
+let dependencyInventory = null;
+if (existsSync(dependencyAuditPath)) {
+  try { dependencyInventory = JSON.parse(readFileSync(dependencyAuditPath, "utf8")); }
+  catch { dependencyInventory = { error: "dependency-audit.json could not be parsed" }; }
+}
+
 const preExistingFindings = [
   {
     id: "PRE-001",
@@ -95,6 +103,12 @@ const report = {
     formerGateCoverage: "production build, Vitest behavior tests and Linux production dependency audit; no strict test-source typecheck",
     preExistingFindings,
   },
+  dependencyInventory,
+  dependencyPolicy: {
+    inventory: "all installed production and development dependencies are recorded when audit is enabled",
+    blocking: "high or critical production dependency advisories fail npm run audit:prod",
+    followUp: "development-only and moderate advisories remain visible for a separate reviewed dependency upgrade",
+  },
   steps: results,
   failedSteps: failures.map((failure) => failure.id),
   knownProductGapsSource: ".engineering/REGRESSION_REGISTER.md",
@@ -112,6 +126,9 @@ const failureText = failures.length
 const preExistingText = preExistingFindings.map((finding) =>
   `- **${finding.id} — ${finding.area}:** ${finding.finding} Status: ${finding.status}. Production runtime impact: ${finding.productionRuntimeImpact}.`,
 ).join("\n");
+const dependencyText = dependencyInventory?.counts
+  ? `All installed dependencies: **${dependencyInventory.counts.total} total advisories** — ${dependencyInventory.counts.critical} critical, ${dependencyInventory.counts.high} high, ${dependencyInventory.counts.moderate} moderate, ${dependencyInventory.counts.low} low. Package-level evidence is in \`dependency-audit.json\`. The separate production audit remains the blocking security decision.`
+  : (report.auditEnabled ? "Dependency inventory was enabled but no parseable summary was produced." : "Dependency inventory was not run on this platform invocation.");
 
 const markdownReport = `# Email Shield Engineering Verification Report
 
@@ -123,7 +140,7 @@ const markdownReport = `# Email Shield Engineering Verification Report
 - **Node.js:** \`${process.versions.node}\`
 - **Started:** ${startedAt.toISOString()}
 - **Finished:** ${finishedAt.toISOString()}
-- **Production dependency audit:** ${report.auditEnabled ? "enabled" : "not run on this platform invocation"}
+- **Dependency audit:** ${report.auditEnabled ? "full inventory plus blocking production audit enabled" : "not run on this platform invocation"}
 
 ## Gate results
 
@@ -140,6 +157,10 @@ ${failureText}
 ${preExistingText}
 
 The audited functional baseline commit \`18d7a7b657762afb79d304f1cfac4cecdae7468b\` passed the former Ubuntu and Windows matrix. That does not mean the repository had no hidden defect: the former command did not typecheck test sources. PRE-001 is retained in this report even after correction so the installation history remains truthful.
+
+## Dependency advisory inventory
+
+${dependencyText}
 
 Known incomplete product capabilities remain listed separately in \`.engineering/REGRESSION_REGISTER.md\`; they are not hidden inside a green command-line result.
 
