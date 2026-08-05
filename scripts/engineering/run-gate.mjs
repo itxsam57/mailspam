@@ -6,7 +6,11 @@ const root = process.cwd();
 const artifactDir = resolve(root, process.env.ENGINEERING_ARTIFACT_DIR || "artifacts/engineering");
 mkdirSync(artifactDir, { recursive: true });
 
-const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+const npmCli = process.env.npm_execpath;
+if (!npmCli) {
+  console.error("FAIL: npm_execpath is unavailable. Run this gate through `npm run gate` or `npm run verify`.");
+  process.exit(1);
+}
 const startedAt = new Date();
 
 function git(args, fallback = "unknown") {
@@ -17,19 +21,23 @@ function git(args, fallback = "unknown") {
   }
 }
 
+function npmStep(id, name, script) {
+  return { id, name, command: process.execPath, args: [npmCli, "run", script] };
+}
+
 const steps = [
-  { id: "preflight", name: "Repository preflight", command: npm, args: ["run", "preflight"] },
-  { id: "typecheck", name: "Strict TypeScript typecheck", command: npm, args: ["run", "typecheck"] },
-  { id: "build", name: "Production build", command: npm, args: ["run", "build"] },
-  { id: "unit", name: "Unit and regression tests", command: npm, args: ["run", "test:unit"] },
-  { id: "integration", name: "Integration, corpus and Worker tests", command: npm, args: ["run", "test:integration"] },
-  { id: "web", name: "Browser source, privacy and wiring checks", command: npm, args: ["run", "check:web"] },
-  { id: "smoke", name: "Compiled server and API smoke", command: npm, args: ["run", "smoke:server"] },
+  npmStep("preflight", "Repository preflight", "preflight"),
+  npmStep("typecheck", "Strict TypeScript typecheck", "typecheck"),
+  npmStep("build", "Production build", "build"),
+  npmStep("unit", "Unit and regression tests", "test:unit"),
+  npmStep("integration", "Integration, corpus and Worker tests", "test:integration"),
+  npmStep("web", "Browser source, privacy and wiring checks", "check:web"),
+  npmStep("smoke", "Compiled server and API smoke", "smoke:server"),
 ];
 
 if (process.env.ENGINEERING_AUDIT !== "0") {
-  steps.push({ id: "audit-inventory", name: "All-dependency advisory inventory", command: npm, args: ["run", "audit:inventory"] });
-  steps.push({ id: "audit", name: "Production dependency audit", command: npm, args: ["run", "audit:prod"] });
+  steps.push(npmStep("audit-inventory", "All-dependency advisory inventory", "audit:inventory"));
+  steps.push(npmStep("audit", "Production dependency audit", "audit:prod"));
 }
 
 const results = [];
