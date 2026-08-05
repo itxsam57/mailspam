@@ -62,8 +62,18 @@ const failures = results.filter((result) => result.status === "failed");
 const overall = failures.length === 0 ? "PASSED" : "FAILED";
 const branch = git(["branch", "--show-current"], "detached/unknown");
 const commit = git(["rev-parse", "HEAD"]);
-const shortCommit = commit.slice(0, 12);
 const workingTree = git(["status", "--porcelain"], "");
+
+const preExistingFindings = [
+  {
+    id: "PRE-001",
+    area: "strict test type safety",
+    status: "fixed during automation installation",
+    file: "tests/unit/messageIntentProfileLure.test.ts",
+    finding: "The existing CanonicalEnvelope test fixture omitted the required diagnostics.contentCoverage field. The former build plus Vitest gate did not typecheck test sources, so it remained hidden while production build and behavior tests passed.",
+    productionRuntimeImpact: "none observed",
+  },
+];
 
 const report = {
   project: "Email Shield",
@@ -81,8 +91,9 @@ const report = {
   workingTreeCleanBeforeArtifacts: workingTree === "",
   baseline: {
     auditedFunctionalCommit: "18d7a7b657762afb79d304f1cfac4cecdae7468b",
-    automatedStatus: "green on Ubuntu and Windows before this installation",
-    preExistingAutomatedFailures: [],
+    formerGateStatus: "green on Ubuntu and Windows before this installation",
+    formerGateCoverage: "production build, Vitest behavior tests and Linux production dependency audit; no strict test-source typecheck",
+    preExistingFindings,
   },
   steps: results,
   failedSteps: failures.map((failure) => failure.id),
@@ -98,6 +109,9 @@ const stepRows = results.map((result) =>
 const failureText = failures.length
   ? failures.map((failure) => `- **${failure.name}** — exit ${failure.exitCode}${failure.error ? `; ${failure.error}` : ""}`).join("\n")
   : "- None.";
+const preExistingText = preExistingFindings.map((finding) =>
+  `- **${finding.id} — ${finding.area}:** ${finding.finding} Status: ${finding.status}. Production runtime impact: ${finding.productionRuntimeImpact}.`,
+).join("\n");
 
 const markdownReport = `# Email Shield Engineering Verification Report
 
@@ -117,13 +131,15 @@ const markdownReport = `# Email Shield Engineering Verification Report
 |---|---|---:|---:|
 ${stepRows}
 
-## Failures
+## Current gate failures
 
 ${failureText}
 
-## Pre-existing failure statement
+## Pre-existing findings discovered by the stronger gate
 
-The audited functional baseline commit \`18d7a7b657762afb79d304f1cfac4cecdae7468b\` passed the repository's prior Ubuntu and Windows verification matrix. Therefore, no pre-existing automated failure was present in that recorded baseline. Any failure in this report must be triaged as an installation regression, a later repository change, or an environment/network failure; it must not be silently relabeled as passing.
+${preExistingText}
+
+The audited functional baseline commit \`18d7a7b657762afb79d304f1cfac4cecdae7468b\` passed the former Ubuntu and Windows matrix. That does not mean the repository had no hidden defect: the former command did not typecheck test sources. PRE-001 is retained in this report even after correction so the installation history remains truthful.
 
 Known incomplete product capabilities remain listed separately in \`.engineering/REGRESSION_REGISTER.md\`; they are not hidden inside a green command-line result.
 
