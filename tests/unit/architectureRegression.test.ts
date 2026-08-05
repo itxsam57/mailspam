@@ -41,7 +41,7 @@ describe("transport architecture regressions", () => {
     expect(monitor).not.toContain(".then(() => { btn.textContent = 'Moved'");
   });
 
-  it("scopes, encrypts, and transactionally persists personal block rules", () => {
+  it("scopes, encrypts, and transactionally persists personal policy", () => {
     const server = read("server/src/api/server.ts");
     const sessions = read("server/src/api/sessionStore.ts");
     const persistence = read("server/src/api/policyPersistence.ts");
@@ -51,41 +51,61 @@ describe("transport architecture regressions", () => {
     expect(sessions).toContain("policyRepository.load(accountKey)");
     expect(sessions).toContain("persistPersonalPolicy(session");
     expect(server).toContain("personalPolicy: session.personalPolicy.snapshot()");
-    expect(server).toContain("sessionStore.persistPersonalPolicy(session)");
-    expect(server).toContain("session.personalPolicy.replace(previous)");
+    expect(server).toContain("mutateAndPersistPersonalPolicy");
     expect(server).toContain("persisted: true");
     expect(persistence).toContain('const ALGORITHM = "aes-256-gcm"');
     expect(persistence).toContain('join(homedir(), ".email-shield")');
     expect(persistence).toContain("personal-policies.enc.json");
+    expect(persistence).toContain("unsubscribedActions");
     expect(persistence).not.toContain("appPassword:");
     expect(monitor).toContain("Block this ${scope} for the selected account?");
     expect(monitor).toContain("This does not move or delete mail.");
     expect(monitor).toContain("result.blocked !== true || result.scope !== scope || result.accountId !== id");
   });
 
-  it("uses opaque tokens for every unsubscribe method", () => {
+  it("uses opaque tokens for unsubscribe from both warning and Safe views", () => {
     const server = read("server/src/api/server.ts");
     const sessions = read("server/src/api/sessionStore.ts");
     const workflow = read("server/src/workflows/unsubscribe.ts");
+    const scan = read("server/src/workflows/scanWorkflows.ts");
     const monitor = read("web/unsubscribe-monitor.js");
+    const safeAudit = read("web/safe-audit.js");
 
+    expect(server).toContain("registerPublicActions");
+    expect(server).toContain("progress.diagnosticSummaries");
     expect(server).toContain("registerUnsubscribeAction");
     expect(server).toContain("resolveUnsubscribeAction");
-    expect(server).toContain("normalizeManualUnsubscribeTarget");
-    expect(server).toContain("manualAction: true");
-    expect(server).toContain("result.envelope.listHeaders =");
+    expect(server).toContain("delete summary.actionContext");
     expect(server).toContain("listUnsubscribe: null");
     expect(server).not.toContain("const { method, target } = req.body");
-    expect(sessions).toContain("UNSUBSCRIBE_ACTION_TTL_MS");
+    expect(sessions).toContain("ACTION_TTL_MS");
     expect(sessions).toContain("unsubscribeActions: new Map()");
+    expect(scan).toContain("unsubscribeCapability(result.envelope)");
     expect(workflow).toContain('const ONE_CLICK_BODY = "List-Unsubscribe=One-Click"');
-    expect(workflow).toContain("normalizedFooterTarget");
     expect(workflow).toContain("resolvePinnedPublicAddress");
     expect(workflow).not.toContain('fetch(url, { method: "POST" })');
     expect(monitor).toContain("body: JSON.stringify({ token })");
-    expect(monitor).toContain("Open unsubscribe page");
-    expect(monitor).toContain("Email unsubscribe request");
     expect(monitor).toContain("Matching duplicate buttons were synchronized");
+    expect(safeAudit).toContain('data-action="unsubscribe"');
+  });
+
+  it("registers Mark Safe and Trust sender for every canonical diagnostic result", () => {
+    const server = read("server/src/api/server.ts");
+    const sessions = read("server/src/api/sessionStore.ts");
+    const scan = read("server/src/workflows/scanWorkflows.ts");
+    const review = read("web/review-actions.js");
+    const safeAudit = read("web/safe-audit.js");
+
+    expect(scan).toContain("actionContext: ScanActionContext");
+    expect(scan).toContain("messageExceptionKey(result.envelope)");
+    expect(server).toContain("registerReviewAction");
+    expect(server).toContain('/messages/mark-safe');
+    expect(server).toContain('/messages/trust-sender');
+    expect(sessions).toContain("reviewActions: new Map()");
+    expect(review).toContain("Only this exact message will be approved");
+    expect(review).toContain("Future messages from this exact sender address");
+    expect(safeAudit).toContain('data-action="trust-sender"');
+    expect(server).not.toContain('if (session.provider === "icloud")');
   });
 
   it("normalizes IMAP paths and special-use tokens before selecting INBOX", () => {
@@ -104,8 +124,9 @@ describe("transport architecture regressions", () => {
     expect(adapter).toContain('"bounded_sufficient"');
     expect(adapter).toContain("MIN_BOUNDED_VISIBLE_CHARS");
     expect(pipeline).toContain("boundedContentAllowsSafe");
-    expect(pipeline).toContain("authenticationPassed");
-    expect(verdict).toContain("boundedContentAllowsSafe");
+    expect(pipeline).toContain("exactMessageApprovedByUser");
+    expect(verdict).toContain("confirmedByRule");
+    expect(verdict).toContain("exactMessageApprovedByUser");
   });
 
   it("uses stage-specific IMAP deadlines and force-closes stalled logout sockets", () => {
