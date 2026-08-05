@@ -108,7 +108,14 @@ try {
   assert(lastProgress.counters.examined > 0, "Quick scan examined no fixture messages.");
   assert(Array.isArray(lastProgress.diagnosticSummaries) && lastProgress.diagnosticSummaries.length > 0, "Quick scan returned no diagnostic summaries.");
   assert(!scanText.includes('"listUnsubscribe":"http'), "Quick-scan stream exposed a raw unsubscribe destination.");
-  assert(!scanText.includes('"textPreview"'), "Quick-scan stream exposed a message text preview to the browser transport.");
+
+  for (const summary of lastProgress.diagnosticSummaries) {
+    for (const forbidden of ["textPreview", "htmlSignals", "links", "attachments", "providerNativeId", "messageId", "actionContext"]) {
+      assert(!(forbidden in summary), `Privacy-reduced diagnostic summary exposed ${forbidden}.`);
+    }
+    assert(typeof summary.subject === "string", "Diagnostic summary is missing its subject label.");
+    assert(typeof summary.verdict === "string", "Diagnostic summary is missing its verdict.");
+  }
 
   const developerReport = await json(await fetch(`${baseUrl}/api/dev/test-suite`, {
     signal: AbortSignal.timeout(60_000),
