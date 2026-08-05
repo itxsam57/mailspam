@@ -73,12 +73,16 @@ export function scanMessage(
     personalResult,
     globalResult,
   ];
+  const exactMessageApprovedByUser = personalResult.evidence.some(
+    (item) => item.code === "APPROVED_MESSAGE_EXCEPTION",
+  );
 
   const scored = computeVerdict({
     parseStatus: envelope.parseStatus,
     layerResults,
     confirmedByRule: confirmedByPersonalBlock || confirmedByGlobalRule,
     boundedContentAllowsSafe: boundedContentAllowsSafe(envelope),
+    exactMessageApprovedByUser,
   });
 
   return { envelope, scored, action: responsePolicy(scored.verdict) };
