@@ -61,9 +61,22 @@ describe("AI Engineering Automation Kit installation", () => {
     expect(gate).toContain("formerGateCoverage");
     expect(gate).toContain("Do not begin browser acceptance");
     expect(gate).toContain("process.exit(1)");
-    expect(dependencyAudit).toContain('npm, ["audit", "--json"]');
     expect(dependencyAudit).toContain("All-dependency counts");
     expect(dependencyAudit).toContain("audit:prod");
+  });
+
+  it("invokes npm through its JavaScript CLI without platform-specific shell wrappers", () => {
+    const gate = read("scripts/engineering/run-gate.mjs");
+    const dependencyAudit = read("scripts/engineering/audit-dependencies.mjs");
+
+    for (const source of [gate, dependencyAudit]) {
+      expect(source).toContain("process.env.npm_execpath");
+      expect(source).toContain("process.execPath");
+      expect(source).toContain("shell: false");
+      expect(source).not.toContain("npm.cmd");
+    }
+    expect(gate).toContain('args: [npmCli, "run", script]');
+    expect(dependencyAudit).toContain('[npmCli, "audit", "--json"]');
   });
 
   it("runs the cross-platform gate and uploads handoff evidence on every CI result", () => {
