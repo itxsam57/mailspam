@@ -53,7 +53,8 @@ describe("AI Engineering Automation Kit installation", () => {
     expect(gate).toContain("VERIFICATION_REPORT.md");
     expect(gate).toContain("MANUAL_TEST_HANDOFF.md");
     expect(gate).toContain('id: "PRE-001"');
-    expect(gate).toContain("The former command did not typecheck test sources");
+    expect(gate).toContain("preExistingFindings");
+    expect(gate).toContain("formerGateCoverage");
     expect(gate).toContain("Do not begin browser acceptance");
     expect(gate).toContain("process.exit(1)");
   });
