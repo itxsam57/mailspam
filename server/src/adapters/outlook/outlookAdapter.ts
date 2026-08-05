@@ -1,6 +1,11 @@
 import { ConfidentialClientApplication } from "@azure/msal-node";
 import { createHash } from "node:crypto";
-import type { EmailAdapter, FetchPage, FolderDescriptor } from "../../canonical/adapter.js";
+import type {
+  EmailAdapter,
+  FetchPage,
+  FolderDescriptor,
+  SpamReportResult,
+} from "../../canonical/adapter.js";
 import type { CanonicalEnvelope, NormalizedFolder } from "../../canonical/envelope.js";
 import { normalizeRawMessage } from "../../util/mimeNormalize.js";
 
@@ -24,15 +29,6 @@ function normalizeWellKnownFolder(name: string): NormalizedFolder {
   return "other";
 }
 
-/**
- * Outlook adapter (spec Section 3): OAuth via MSAL, Microsoft Graph REST.
- * Uses Graph's $batch endpoint to fetch a page of message bodies in one
- * HTTP round trip — the same "batch, not per-message" requirement as
- * Gmail/IMAP (spec regression 12.3).
- *
- * Required scope: Mail.ReadWrite (read is enough for scanning; write is
- * only exercised for the explicit Trash-move action).
- */
 export class OutlookAdapter implements EmailAdapter {
   readonly provider = "outlook" as const;
   private credentials: OutlookOAuthCredentials;
@@ -69,6 +65,7 @@ export class OutlookAdapter implements EmailAdapter {
     this.accessToken = result.accessToken;
 
     const meRes = await this.graphFetch("/me?$select=mail,userPrincipalName");
+    if (!meRes.ok) throw new Error(`Graph profile failed: ${meRes.status}`);
     const me = await meRes.json();
     const identity = me.mail ?? me.userPrincipalName ?? "unknown";
     this.accountProof = createHash("sha256").update(identity).digest("hex");
@@ -77,7 +74,6 @@ export class OutlookAdapter implements EmailAdapter {
   async listFolders(signal: AbortSignal): Promise<FolderDescriptor[]> {
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
     const wellKnown = ["inbox", "junkemail", "sentitems", "drafts", "deleteditems"];
-    // mailFolders/{id} accepts well-known folder names directly — metadata-only, no content download.
     const results = await Promise.all(
       wellKnown.map(async (name) => {
         const res = await this.graphFetch(`/me/mailFolders/${name}?$select=id,displayName`);
@@ -113,8 +109,6 @@ export class OutlookAdapter implements EmailAdapter {
 
     if (ids.length === 0) return { envelopes: [], nextCursor: null, done: true };
 
-    // Graph $batch: up to 20 sub-requests per call. Chunk the page into
-    // batches of 20 rather than issuing one HTTP request per message.
     const envelopes: CanonicalEnvelope[] = [];
     for (let i = 0; i < ids.length; i += 20) {
       if (signal.aborted) throw new DOMException("Aborted", "AbortError");
@@ -126,14 +120,14 @@ export class OutlookAdapter implements EmailAdapter {
           requests: chunk.map((id, idx) => ({
             id: String(idx),
             method: "GET",
-            url: `/me/messages/${id}/$value`, // MIME (.eml) content
+            url: `/me/messages/${id}/$value`,
           })),
         }),
       });
+      if (!batchRes.ok) throw new Error(`Graph batch fetch failed: ${batchRes.status}`);
       const batchData = await batchRes.json();
       for (const resp of batchData.responses ?? []) {
         if (resp.status !== 200) continue;
-        // Graph returns raw MIME as text for the $value endpoint.
         envelopes.push(
           await normalizeRawMessage(resp.body as string, {
             provider: "outlook",
@@ -147,19 +141,15 @@ export class OutlookAdapter implements EmailAdapter {
     }
 
     const nextLink: string | undefined = listData["@odata.nextLink"];
-    // Microsoft continuation URLs are opaque. Store/reuse the complete URL unchanged.
     return { envelopes, nextCursor: nextLink ?? null, done: !nextLink };
   }
 
-  async moveToTrash(messageIds: string[], signal: AbortSignal): Promise<void> {
-    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-    // Graph has no bulk-move endpoint; batch the individual move calls
-    // through $batch (still one HTTP round trip per 20 messages, not one
-    // per message).
+  private async batchMove(messageIds: string[], destinationId: "deleteditems" | "junkemail", signal: AbortSignal): Promise<number> {
+    let moved = 0;
     for (let i = 0; i < messageIds.length; i += 20) {
       if (signal.aborted) throw new DOMException("Aborted", "AbortError");
       const chunk = messageIds.slice(i, i + 20);
-      await this.graphFetch("/$batch", {
+      const response = await this.graphFetch("/$batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -167,12 +157,29 @@ export class OutlookAdapter implements EmailAdapter {
             id: String(idx),
             method: "POST",
             url: `/me/messages/${id}/move`,
-            body: { destinationId: "deleteditems" },
+            body: { destinationId },
             headers: { "Content-Type": "application/json" },
           })),
         }),
       });
+      if (!response.ok) throw new Error(`Graph batch move failed: ${response.status}`);
+      const body = await response.json();
+      const failures = (body.responses ?? []).filter((item: { status: number }) => item.status < 200 || item.status >= 300);
+      if (failures.length) {
+        throw new Error(`Graph rejected ${failures.length} of ${chunk.length} message move request(s).`);
+      }
+      moved += chunk.length;
     }
+    return moved;
+  }
+
+  async moveToTrash(messageIds: string[], signal: AbortSignal): Promise<void> {
+    await this.batchMove(messageIds, "deleteditems", signal);
+  }
+
+  async reportSpam(messageIds: string[], signal: AbortSignal): Promise<SpamReportResult> {
+    const reported = await this.batchMove(messageIds, "junkemail", signal);
+    return { requested: messageIds.length, reported, mode: "junk_folder_move" };
   }
 
   async disconnect(): Promise<void> {
