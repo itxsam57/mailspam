@@ -11,6 +11,7 @@ import {
   normalizeSenderAddress,
   normalizeSenderDomain,
 } from "../workflows/blockAndCleanup.js";
+import { reportMessagesAsSpam } from "../workflows/reportSpam.js";
 import {
   executeOneClickUnsubscribe,
   normalizeManualUnsubscribeTarget,
@@ -355,6 +356,53 @@ export function createServer() {
       const result = await moveMessagesToTrash(adapter, providerNativeIds, ac.signal);
       res.json(result);
     } finally {
+      await adapter.disconnect();
+    }
+  });
+
+  app.post("/api/accounts/:id/messages/report-spam", async (req: Request, res: Response) => {
+    const session = sessionStore.get(req.params.id!);
+    if (!session) return res.status(404).json({ error: "Unknown account" });
+
+    let action;
+    try {
+      action = sessionStore.resolveReviewAction(session, (req.body as { token?: unknown }).token);
+    } catch (error) {
+      return res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+    }
+    if (action.normalizedFolder === "spam") {
+      return res.status(409).json({ error: "This message is already in the provider Spam/Junk folder." });
+    }
+
+    const ac = new AbortController();
+    const timeout = setTimeout(() => ac.abort(), 35_000);
+    const adapter = createAdapter(session.config);
+    try {
+      await adapter.connect(ac.signal);
+      const result = await reportMessagesAsSpam(adapter, [action.providerNativeId], ac.signal);
+      if (result.reported !== 1 || result.failed.length) {
+        return res.status(502).json({
+          ...result,
+          error: result.failed[0]?.reason ?? "The provider did not confirm the Spam/Junk action.",
+          accountId: session.id,
+          token: action.token,
+        });
+      }
+      session.reviewActions.delete(action.token);
+      res.json({
+        ...result,
+        success: true,
+        accountId: session.id,
+        token: action.token,
+      });
+    } catch (error) {
+      res.status(502).json({
+        error: `Report Spam failed: ${error instanceof Error ? error.message : String(error)}`,
+        accountId: session.id,
+        token: action.token,
+      });
+    } finally {
+      clearTimeout(timeout);
       await adapter.disconnect();
     }
   });
