@@ -3,6 +3,7 @@
 Status values:
 
 - **PRE-EXISTING-FIXED** — defect existed before the automation installation, was exposed by the stronger gate and corrected without deleting its history.
+- **DEPENDENCY-ADVISORY** — current transitive dependency risk is inventoried; production high/critical policy remains blocking and upgrades require a separate reviewed change.
 - **LOCKED** — fixed behavior with automated regression coverage; future failure blocks the gate.
 - **LIVE-PASS** — verified against a controlled real mailbox and backed by automation where possible.
 - **KNOWN-GAP** — acknowledged incomplete product capability; not misreported as a passing feature.
@@ -13,6 +14,7 @@ Status values:
 | ID | Status | Finding | Resolution / protection |
 |---|---|---|---|
 | PRE-001 | PRE-EXISTING-FIXED | `tests/unit/messageIntentProfileLure.test.ts` constructed a `CanonicalEnvelope` without the required `diagnostics.contentCoverage` field. The former `build + Vitest` command compiled production source only and did not typecheck test sources, so the drift remained hidden while runtime tests passed. | Added `contentCoverage: "complete"` to the existing fixture and installed strict source-plus-test typechecking as a blocking Windows/Ubuntu gate. No production runtime failure was observed. |
+| DEP-001 | DEPENDENCY-ADVISORY | The August 5, 2026 locked install reported 10 advisories across the entire production-plus-development tree: 1 critical, 1 high and 8 moderate. The production-only audit reported five moderate `uuid`-chain advisories and no high/critical production failure. | The gate now writes `dependency-audit.json` with package-level evidence on audited runs and separately blocks high/critical production advisories. Remediation is a dedicated dependency-upgrade PR because available fixes include breaking upgrades; this automation installation does not silently force them. Counts must be read from the newest generated artifact because advisories change over time. |
 
 ## Locked regressions
 
@@ -70,4 +72,4 @@ Status values:
 
 ## Register maintenance rule
 
-Every fixed production defect must receive a new `REG-*` entry and an automated test before closure. Every pre-existing installation finding must remain a `PRE-*` item after correction. Every incomplete capability must remain a `GAP-*` item until implementation, automated verification and owner-visible acceptance are all complete. Do not delete history to make the register appear green.
+Every fixed production defect must receive a new `REG-*` entry and an automated test before closure. Every pre-existing installation finding must remain a `PRE-*` item after correction. Every dependency advisory baseline must remain a `DEP-*` item until a reviewed upgrade removes it. Every incomplete capability must remain a `GAP-*` item until implementation, automated verification and owner-visible acceptance are all complete. Do not delete history to make the register appear green.
