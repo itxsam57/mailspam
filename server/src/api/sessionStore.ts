@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { Worker } from "node:worker_threads";
+import type { NormalizedFolder } from "../canonical/envelope.js";
 import { InMemoryPersonalPolicyStore } from "../engine/layers/personalRules.js";
 import type { ThreatFeedCache } from "../engine/layers/globalIntelligence.js";
 import type { UnsubscribeMethod } from "../workflows/unsubscribe.js";
@@ -26,6 +27,7 @@ export interface RegisteredReviewAction {
   senderAddress: string | null;
   providerNativeId: string;
   messageId: string;
+  normalizedFolder: NormalizedFolder;
   createdAt: number;
 }
 
@@ -100,6 +102,7 @@ export class SessionStore {
     token: string;
     alreadyApproved: boolean;
     senderTrusted: boolean;
+    canReportSpam: boolean;
   } {
     if (session.reviewActions.size >= MAX_SCAN_ACTIONS) {
       throw new Error("Too many message review actions are registered for this scan.");
@@ -111,12 +114,14 @@ export class SessionStore {
       senderAddress: context.senderAddress?.toLowerCase() ?? null,
       providerNativeId: context.providerNativeId,
       messageId: context.messageId,
+      normalizedFolder: context.normalizedFolder,
       createdAt: Date.now(),
     });
     return {
       token,
       alreadyApproved: session.personalPolicy.isApprovedException(context.exceptionKey),
       senderTrusted: Boolean(context.senderAddress && session.personalPolicy.isTrustedSender(context.senderAddress)),
+      canReportSpam: context.normalizedFolder !== "spam",
     };
   }
 
