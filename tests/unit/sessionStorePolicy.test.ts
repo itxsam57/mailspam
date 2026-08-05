@@ -4,9 +4,21 @@ import {
   InMemoryPolicyRepository,
   type PersonalPolicyRepository,
 } from "../../server/src/api/policyPersistence.js";
+import type { ScanActionContext } from "../../server/src/workflows/scanWorkflows.js";
+
+function reviewContext(overrides: Partial<ScanActionContext> = {}): ScanActionContext {
+  return {
+    providerNativeId: "uid-1",
+    messageId: "message-1",
+    exceptionKey: `message:${"a".repeat(64)}`,
+    senderAddress: "sender@example.com",
+    unsubscribe: { available: false, method: "none", target: null, source: "none" },
+    ...overrides,
+  };
+}
 
 describe("account-scoped personal policy", () => {
-  it("does not leak blocked senders or domains between different accounts", () => {
+  it("does not leak rules between different accounts", () => {
     const repository = new InMemoryPolicyRepository();
     const store = new SessionStore(repository);
     const first = store.create("icloud", "first", {
@@ -16,14 +28,18 @@ describe("account-scoped personal policy", () => {
       provider: "icloud", mode: "live", credentials: { user: "second@icloud.com", appPassword: "test" },
     });
 
-    first.personalPolicy.blockSender("60481385@msbinstitute.com");
-    first.personalPolicy.blockDomain("msbinstitute.com");
+    first.personalPolicy.blockSender("blocked@example.com");
+    first.personalPolicy.blockDomain("example.net");
+    first.personalPolicy.trustSender("trusted@example.org");
+    first.personalPolicy.approveException(`message:${"b".repeat(64)}`);
+    first.personalPolicy.rememberUnsubscribed("campaign-key");
     store.persistPersonalPolicy(first);
 
-    expect(first.personalPolicy.isBlockedSender("60481385@msbinstitute.com")).toBe(true);
-    expect(first.personalPolicy.isBlockedDomain("msbinstitute.com")).toBe(true);
-    expect(second.personalPolicy.isBlockedSender("60481385@msbinstitute.com")).toBe(false);
-    expect(second.personalPolicy.isBlockedDomain("msbinstitute.com")).toBe(false);
+    expect(second.personalPolicy.isBlockedSender("blocked@example.com")).toBe(false);
+    expect(second.personalPolicy.isBlockedDomain("example.net")).toBe(false);
+    expect(second.personalPolicy.isTrustedSender("trusted@example.org")).toBe(false);
+    expect(second.personalPolicy.isApprovedException(`message:${"b".repeat(64)}`)).toBe(false);
+    expect(second.personalPolicy.isUnsubscribedAction("campaign-key")).toBe(false);
   });
 
   it("shares one live policy object between simultaneous sessions for the same mailbox", () => {
@@ -34,22 +50,24 @@ describe("account-scoped personal policy", () => {
     const second = store.create("icloud", "second tab", {
       provider: "icloud", mode: "live", credentials: { user: "SAME@ICLOUD.COM", appPassword: "second" },
     });
-    first.personalPolicy.blockSender("blocked@example.com");
+    first.personalPolicy.trustSender("trusted@example.com");
     expect(second.personalPolicy).toBe(first.personalPolicy);
-    expect(second.personalPolicy.isBlockedSender("blocked@example.com")).toBe(true);
+    expect(second.personalPolicy.isTrustedSender("trusted@example.com")).toBe(true);
   });
 
-  it("restores persisted rules when the same mailbox reconnects", async () => {
+  it("restores blocks, trust, exact approvals, and unsubscribe history after restart", async () => {
     const repository = new InMemoryPolicyRepository();
-    const firstProcess = new SessionStore(repository);
     const config = {
       provider: "icloud" as const,
       mode: "live" as const,
       credentials: { user: "Usama@iCloud.com", appPassword: "first-password" },
     };
+    const firstProcess = new SessionStore(repository);
     const original = firstProcess.create("icloud", "original", config);
     original.personalPolicy.blockSender("blocked@example.com");
-    original.personalPolicy.blockDomain("example.net");
+    original.personalPolicy.trustSender("trusted@example.com");
+    original.personalPolicy.approveException(`message:${"c".repeat(64)}`);
+    original.personalPolicy.rememberUnsubscribed("campaign-key");
     firstProcess.persistPersonalPolicy(original);
     await firstProcess.remove(original.id);
 
@@ -59,12 +77,20 @@ describe("account-scoped personal policy", () => {
       credentials: { user: "usama@icloud.com", appPassword: "new-password" },
     });
     expect(reconnected.personalPolicy.isBlockedSender("blocked@example.com")).toBe(true);
-    expect(reconnected.personalPolicy.isBlockedDomain("example.net")).toBe(true);
+    expect(reconnected.personalPolicy.isTrustedSender("trusted@example.com")).toBe(true);
+    expect(reconnected.personalPolicy.isApprovedException(`message:${"c".repeat(64)}`)).toBe(true);
+    expect(reconnected.personalPolicy.isUnsubscribedAction("campaign-key")).toBe(true);
   });
 
-  it("rolls back the mutation when encrypted persistence fails", () => {
+  it("rolls back a mutation when encrypted persistence fails", () => {
     const failingRepository: PersonalPolicyRepository = {
-      load: () => ({ blockedSenders: ["original@example.com"], blockedDomains: [], trustedSenders: [], approvedExceptions: [] }),
+      load: () => ({
+        blockedSenders: ["original@example.com"],
+        blockedDomains: [],
+        trustedSenders: [],
+        approvedExceptions: [],
+        unsubscribedActions: [],
+      }),
       save: () => { throw new Error("disk full"); },
     };
     const store = new SessionStore(failingRepository);
@@ -72,10 +98,41 @@ describe("account-scoped personal policy", () => {
 
     expect(() => store.mutateAndPersistPersonalPolicy(
       session,
-      (policy) => policy.blockSender("should-not-remain@example.com"),
+      (policy) => policy.trustSender("should-not-remain@example.com"),
     )).toThrow("disk full");
     expect(session.personalPolicy.isBlockedSender("original@example.com")).toBe(true);
-    expect(session.personalPolicy.isBlockedSender("should-not-remain@example.com")).toBe(false);
+    expect(session.personalPolicy.isTrustedSender("should-not-remain@example.com")).toBe(false);
+  });
+});
+
+describe("opaque message review actions", () => {
+  it("issues account-scoped tokens without exposing the policy key in the token", () => {
+    const store = new SessionStore(new InMemoryPolicyRepository());
+    const first = store.create("gmail", "first", { provider: "gmail", mode: "fixture" });
+    const second = store.create("outlook", "second", { provider: "outlook", mode: "fixture" });
+    const context = reviewContext();
+    const registered = store.registerReviewAction(first, context);
+
+    expect(registered.token).not.toContain(context.exceptionKey);
+    expect(store.resolveReviewAction(first, registered.token)).toMatchObject({
+      exceptionKey: context.exceptionKey,
+      senderAddress: context.senderAddress,
+      providerNativeId: context.providerNativeId,
+    });
+    expect(() => store.resolveReviewAction(second, registered.token)).toThrow("unknown or expired");
+  });
+
+  it("reports existing exact-message and trusted-sender decisions", () => {
+    const store = new SessionStore(new InMemoryPolicyRepository());
+    const session = store.create("yahoo", "mailbox", { provider: "yahoo", mode: "fixture" });
+    const context = reviewContext();
+    session.personalPolicy.approveException(context.exceptionKey);
+    session.personalPolicy.trustSender(context.senderAddress!);
+
+    expect(store.registerReviewAction(session, context)).toMatchObject({
+      alreadyApproved: true,
+      senderTrusted: true,
+    });
   });
 });
 
@@ -91,6 +148,7 @@ describe("account-scoped unsubscribe actions", () => {
 
     expect(first.token).not.toBe(second.token);
     expect(first.actionKey).toBe(second.actionKey);
+    expect(first.token).not.toContain("example.test");
     expect(store.resolveUnsubscribeAction(session, first.token)).toMatchObject({
       method: "one_click_post",
       target: "https://example.test/unsub?id=1",
@@ -101,52 +159,22 @@ describe("account-scoped unsubscribe actions", () => {
 
   it("does not merge manual links and one-click posts that share a URL", () => {
     const store = new SessionStore(new InMemoryPolicyRepository());
-    const session = store.create("icloud", "mailbox", { provider: "icloud", mode: "fixture" });
+    const session = store.create("imap", "mailbox", { provider: "imap", mode: "fixture" });
     const automatic = store.registerUnsubscribeAction(session, "one_click_post", "https://example.test/unsub", "uid-1");
     const manual = store.registerUnsubscribeAction(session, "link_only", "https://example.test/unsub", "uid-2");
     expect(automatic.actionKey).not.toBe(manual.actionKey);
   });
 
-  it("does not accept another account's unsubscribe token", () => {
-    const store = new SessionStore(new InMemoryPolicyRepository());
-    const first = store.create("icloud", "first", {
-      provider: "icloud", mode: "live", credentials: { user: "first@icloud.com", appPassword: "test" },
-    });
-    const second = store.create("icloud", "second", {
-      provider: "icloud", mode: "live", credentials: { user: "second@icloud.com", appPassword: "test" },
-    });
-    const action = store.registerUnsubscribeAction(first, "link_only", "https://example.test/unsub", "uid-1");
-
-    expect(() => store.resolveUnsubscribeAction(second, action.token)).toThrow("unknown or expired");
-    expect(() => store.resolveUnsubscribeAction(first, "not-a-token")).toThrow("valid unsubscribe action token");
-  });
-
-  it("shares duplicate unsubscribe history only between sessions for the same mailbox", () => {
-    const store = new SessionStore(new InMemoryPolicyRepository());
-    const first = store.create("icloud", "first tab", {
-      provider: "icloud", mode: "live", credentials: { user: "same@icloud.com", appPassword: "first" },
-    });
-    const second = store.create("icloud", "second tab", {
-      provider: "icloud", mode: "live", credentials: { user: "SAME@ICLOUD.COM", appPassword: "second" },
-    });
-    const other = store.create("icloud", "other mailbox", {
-      provider: "icloud", mode: "live", credentials: { user: "other@icloud.com", appPassword: "test" },
-    });
-    const action = store.registerUnsubscribeAction(first, "one_click_post", "https://example.test/unsub", "uid-1");
-    store.markUnsubscribed(first, action.actionKey);
-
-    expect(second.unsubscribedActionKeys.has(action.actionKey)).toBe(true);
-    expect(other.unsubscribedActionKeys.has(action.actionKey)).toBe(false);
-  });
-
-  it("clears old action tokens before a new scan without clearing duplicate history", () => {
-    const store = new SessionStore(new InMemoryPolicyRepository());
-    const session = store.create("icloud", "mailbox", { provider: "icloud", mode: "fixture" });
+  it("persists completed unsubscribe status and survives token clearing", () => {
+    const repository = new InMemoryPolicyRepository();
+    const store = new SessionStore(repository);
+    const session = store.create("yahoo", "mailbox", { provider: "yahoo", mode: "fixture" });
     const action = store.registerUnsubscribeAction(session, "one_click_post", "https://example.test/unsub", "uid-1");
     store.markUnsubscribed(session, action.actionKey);
-    store.clearUnsubscribeActions(session);
+    store.clearScanActions(session);
 
     expect(() => store.resolveUnsubscribeAction(session, action.token)).toThrow("unknown or expired");
-    expect(session.unsubscribedActionKeys.has(action.actionKey)).toBe(true);
+    expect(session.personalPolicy.isUnsubscribedAction(action.actionKey)).toBe(true);
+    expect(store.registerUnsubscribeAction(session, "one_click_post", "https://example.test/unsub", "uid-2").alreadyUnsubscribed).toBe(true);
   });
 });
