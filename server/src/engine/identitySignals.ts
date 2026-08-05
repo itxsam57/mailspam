@@ -71,11 +71,7 @@ function displayedUrlDomain(link: LinkInfo): string | null {
   catch { return null; }
 }
 
-/**
- * Domains asserted by independent message metadata. These are candidates, not
- * automatically trusted identities. They become useful when authentication,
- * alignment, or a relay alias independently confirms them.
- */
+/** Domains asserted by independent message metadata. */
 export function messageIdentityCandidateDomains(envelope: CanonicalEnvelope): string[] {
   const found = new Set<string>();
   if (envelope.replyTo?.domain) found.add(normalizeDomainName(envelope.replyTo.domain));
@@ -100,35 +96,61 @@ export function relayLocalPartEncodesDomain(address: string, domain: string): bo
     || localPart.endsWith(`_${encoded}`);
 }
 
+/**
+ * Apple relay aliases commonly encode the original destination as underscore-
+ * separated labels after `_at_`, followed by a random token. Generate all
+ * plausible suffix domains before the first random-looking token; the normal
+ * organizational-domain function collapses prefixes such as `notice_` or
+ * `info_`. This is format-based and works for domains never seen by the app.
+ */
+export function relayAliasDomainCandidates(address: string): string[] {
+  const localPart = address.split("@")[0]?.toLowerCase() ?? "";
+  const marker = localPart.lastIndexOf("_at_");
+  if (marker < 0) return [];
+
+  const tail = localPart.slice(marker + 4).split("_").filter(Boolean);
+  const stable: string[] = [];
+  for (const token of tail) {
+    if (!/^[a-z-]{2,63}$/.test(token)) break;
+    stable.push(token);
+  }
+  if (stable.length < 2) return [];
+
+  const candidates = new Set<string>();
+  for (let start = 0; start <= stable.length - 2; start++) {
+    const candidate = stable.slice(start).join(".");
+    const organization = organizationalDomain(candidate);
+    if (organization && organization.includes(".")) candidates.add(organization);
+  }
+  return [...candidates];
+}
+
 export function verifiedRelayOriginDomains(envelope: CanonicalEnvelope): string[] {
   if (!envelope.from.address || !envelope.from.domain || !isKnownSenderRelay(envelope.from.domain)) return [];
   if (!authenticationPassed(envelope)) return [];
 
+  const candidates = new Set([
+    ...messageIdentityCandidateDomains(envelope),
+    ...relayAliasDomainCandidates(envelope.from.address),
+  ]);
   const origins = new Set<string>();
-  for (const candidate of messageIdentityCandidateDomains(envelope)) {
+  for (const candidate of candidates) {
     if (isSharedMailboxDomain(candidate)) continue;
     const organization = organizationalDomain(candidate);
-    if (organization && relayLocalPartEncodesDomain(envelope.from.address, organization)) {
-      origins.add(organization);
-    }
+    if (organization && relayLocalPartEncodesDomain(envelope.from.address, organization)) origins.add(organization);
   }
   return [...origins];
 }
 
-/**
- * Returns organizational domains that the current message proves as its
- * authenticated sender identity. This works for previously unseen companies.
- */
+/** Returns authenticated organizational domains for previously unseen senders. */
 export function authenticatedSenderIdentityDomains(envelope: CanonicalEnvelope): string[] {
   if (!authenticationPassed(envelope) || !envelope.from.domain) return [];
   const fromDomain = normalizeDomainName(envelope.from.domain);
 
   if (isKnownSenderRelay(fromDomain)) return verifiedRelayOriginDomains(envelope);
   if (isSharedMailboxDomain(fromDomain)) return [];
+  if (envelope.replyTo?.domain && !sameOrganizationalDomain(fromDomain, envelope.replyTo.domain)) return [];
 
-  if (envelope.replyTo?.domain && !sameOrganizationalDomain(fromDomain, envelope.replyTo.domain)) {
-    return [];
-  }
   const organization = organizationalDomain(fromDomain);
   return organization ? [organization] : [];
 }
@@ -137,7 +159,7 @@ export function hasAuthenticatedOrganizationalIdentity(envelope: CanonicalEnvelo
   return authenticatedSenderIdentityDomains(envelope).length > 0;
 }
 
-/** Deprecated compatibility alias: identity is structural, not brand-specific. */
+/** Deprecated compatibility aliases: identity is structural, not brand-specific. */
 export const hasDeterministicOfficialIdentity = hasAuthenticatedOrganizationalIdentity;
 export const isDirectOfficialSenderDomain = (envelope: CanonicalEnvelope): boolean => {
   if (!envelope.from.domain || isKnownSenderRelay(envelope.from.domain)) return false;
