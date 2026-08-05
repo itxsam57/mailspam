@@ -7,7 +7,7 @@
     .review-action-status {display:block;margin-top:7px;font-size:11px;color:#8b93a3}
     .review-action-status.success {color:#3fb88a}
     .review-action-status.error {color:#ff9a9f}
-    .card.review-approved {opacity:.82;border-style:dashed}
+    .card.review-approved,.card.spam-reported {opacity:.82;border-style:dashed}
     .safe-row-actions {display:flex;gap:6px;flex-wrap:wrap;min-width:210px}
     .safe-row-actions button {font-size:10px;padding:4px 7px}
   `;
@@ -42,6 +42,14 @@
     if (!card || !actions) return html;
 
     const sender = result?.envelope?.from?.address || '';
+    if (action.canReportSpam) {
+      const reportSpam = document.createElement('button');
+      reportSpam.dataset.action = 'report-spam';
+      reportSpam.dataset.reviewToken = action.token;
+      reportSpam.textContent = 'Report Spam';
+      actions.appendChild(reportSpam);
+    }
+
     if (!action.alreadyApproved) {
       const markSafe = document.createElement('button');
       markSafe.dataset.action = 'mark-safe';
@@ -99,9 +107,17 @@
     return status;
   }
 
+  function disableReviewDecisions(token) {
+    document.querySelectorAll(`[data-review-token="${CSS.escape(token)}"]`).forEach((candidate) => {
+      if (candidate.dataset.action === 'mark-safe' || candidate.dataset.action === 'trust-sender') {
+        candidate.disabled = true;
+      }
+    });
+  }
+
   document.addEventListener('click', async (event) => {
     const button = event.target instanceof Element
-      ? event.target.closest('[data-action="mark-safe"],[data-action="trust-sender"]')
+      ? event.target.closest('[data-action="mark-safe"],[data-action="trust-sender"],[data-action="report-spam"]')
       : null;
     if (!(button instanceof HTMLButtonElement) || button.disabled) return;
 
@@ -116,31 +132,41 @@
     const status = statusFor(container);
 
     if (!accountId || !token) {
-      setGlobalStatus('Review action failed: the selected account or action token is missing.', 'error');
+      setGlobalStatus('Message action failed: the selected account or action token is missing.', 'error');
       return;
     }
 
     const isMarkSafe = actionName === 'mark-safe';
-    const explanation = isMarkSafe
-      ? 'Only this exact message will be approved for this connected account. The sender and domain will not be trusted.'
-      : 'Future messages from this exact sender address in this connected account will receive personal trust. Structural checks and confirmed signed threats still run.';
+    const isReportSpam = actionName === 'report-spam';
+    const promptTitle = isReportSpam
+      ? 'Report exactly this message as Spam'
+      : isMarkSafe
+        ? 'Mark this exact message Safe'
+        : 'Trust this exact sender';
+    const explanation = isReportSpam
+      ? 'Email Shield will ask the connected provider to place exactly this message in Spam/Junk. This does not block the sender, delete other mail, or guarantee that the provider trains a global filter.'
+      : isMarkSafe
+        ? 'Only this exact message will be approved for this connected account. The sender and domain will not be trusted.'
+        : 'Future messages from this exact sender address in this connected account will receive personal trust. Structural checks and confirmed signed threats still run.';
     const confirmed = window.confirm(
-      `${isMarkSafe ? 'Mark this exact message Safe' : 'Trust this exact sender'}?\n\n${subject}\n${sender}\n\n${explanation}`,
+      `${promptTitle}?\n\n${subject}\n${sender}\n\n${explanation}`,
     );
     if (!confirmed) return;
 
     const previousText = button.textContent;
     button.disabled = true;
-    button.textContent = isMarkSafe ? 'Saving…' : 'Trusting…';
+    button.textContent = isReportSpam ? 'Reporting…' : isMarkSafe ? 'Saving…' : 'Trusting…';
     if (status) {
       status.className = 'review-action-status';
-      status.textContent = isMarkSafe
-        ? 'Saving an account-scoped exact-message exception…'
-        : 'Saving an account-scoped trusted sender…';
+      status.textContent = isReportSpam
+        ? 'Requesting an exact provider Spam/Junk move…'
+        : isMarkSafe
+          ? 'Saving an account-scoped exact-message exception…'
+          : 'Saving an account-scoped trusted sender…';
     }
 
     try {
-      const endpoint = isMarkSafe ? 'mark-safe' : 'trust-sender';
+      const endpoint = isReportSpam ? 'report-spam' : isMarkSafe ? 'mark-safe' : 'trust-sender';
       const response = await fetch(`/api/accounts/${encodeURIComponent(accountId)}/messages/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -148,6 +174,32 @@
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || `Server returned HTTP ${response.status}`);
+
+      if (isReportSpam) {
+        if (
+          result.success !== true ||
+          result.accountId !== accountId ||
+          result.token !== token ||
+          result.requested !== 1 ||
+          result.reported !== 1 ||
+          !['provider_spam_label', 'junk_folder_move', 'fixture_junk_move'].includes(result.mode)
+        ) {
+          throw new Error('The provider did not confirm exactly one Spam/Junk action.');
+        }
+        document.querySelectorAll(`[data-action="report-spam"][data-review-token="${CSS.escape(token)}"]`).forEach((candidate) => {
+          candidate.disabled = true;
+          candidate.textContent = 'Reported as Spam ✓';
+        });
+        disableReviewDecisions(token);
+        container?.classList.add('spam-reported');
+        if (status) {
+          status.className = 'review-action-status success';
+          status.textContent = 'The provider confirmed that exactly one message was placed in Spam/Junk. The sender was not blocked automatically.';
+        }
+        setGlobalStatus('Exactly one message was reported to the provider Spam/Junk folder.', 'complete');
+        return;
+      }
+
       if (result.accountId !== accountId || (isMarkSafe ? result.markedSafe !== true : result.trusted !== true)) {
         throw new Error('The server did not confirm the expected review action.');
       }
@@ -181,13 +233,13 @@
       }
     } catch (error) {
       button.disabled = false;
-      button.textContent = previousText || (isMarkSafe ? 'Mark this message Safe' : 'Trust sender');
+      button.textContent = previousText || (isReportSpam ? 'Report Spam' : isMarkSafe ? 'Mark this message Safe' : 'Trust sender');
       const message = error instanceof Error ? error.message : String(error);
       if (status) {
         status.className = 'review-action-status error';
-        status.textContent = `Review action failed: ${message}`;
+        status.textContent = `Message action failed: ${message}`;
       }
-      setGlobalStatus(`Review action failed: ${message}`, 'error');
+      setGlobalStatus(`Message action failed: ${message}`, 'error');
     }
   }, true);
 })();
