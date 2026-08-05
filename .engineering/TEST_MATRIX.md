@@ -19,8 +19,9 @@ This matrix is project-specific. A check is installed only when it protects an e
 | A-11 | Server startup | Start compiled service on an isolated localhost port and wait for readiness | `npm run smoke:server` | Windows + Ubuntu | Blocking |
 | A-12 | API smoke | Homepage, accounts API, fixture connection, quick-scan SSE completion and account removal | `npm run smoke:server` | Windows + Ubuntu | Blocking |
 | A-13 | Detection suite smoke | `/api/dev/test-suite` produces zero fixture false positives, false negatives and parity failures | `npm run smoke:server` | Windows + Ubuntu | Blocking |
-| A-14 | Dependency security | Production dependency audit at high severity | `npm run audit:prod` | Ubuntu CI; local full gate when network available | Blocking when enabled |
-| A-15 | Evidence | JSON and Markdown gate report plus browser handoff artifact | `npm run gate` | Windows + Ubuntu | Always generated, including on failure |
+| A-14 | Dependency inventory | Capture all production and development advisories with package-level evidence | `npm run audit:inventory` | Ubuntu CI; local full gate when network available | Evidence/advisory when enabled |
+| A-15 | Production dependency security | Fail on high or critical production dependency advisories | `npm run audit:prod` | Ubuntu CI; local full gate when network available | Blocking when enabled |
+| A-16 | Evidence | JSON and Markdown gate report, dependency inventory and browser handoff artifact | `npm run gate` | Windows + Ubuntu | Always generated, including on failure |
 
 ## Existing automated coverage retained
 
