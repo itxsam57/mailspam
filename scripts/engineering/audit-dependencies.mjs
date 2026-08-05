@@ -6,8 +6,13 @@ const root = process.cwd();
 const artifactDir = resolve(root, process.env.ENGINEERING_ARTIFACT_DIR || "artifacts/engineering");
 mkdirSync(artifactDir, { recursive: true });
 
-const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-const outcome = spawnSync(npm, ["audit", "--json"], {
+const npmCli = process.env.npm_execpath;
+if (!npmCli) {
+  console.error("FAIL: npm_execpath is unavailable. Run this command through `npm run audit:inventory`.");
+  process.exit(1);
+}
+
+const outcome = spawnSync(process.execPath, [npmCli, "audit", "--json"], {
   cwd: root,
   encoding: "utf8",
   env: process.env,
