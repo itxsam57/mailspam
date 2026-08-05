@@ -1,5 +1,8 @@
 import type { CanonicalEnvelope } from "../../canonical/envelope.js";
-import { isDirectOfficialSenderDomain } from "./identityImpersonation.js";
+import {
+  hasAuthenticatedOrganizationalIdentity,
+  isSharedMailboxDomain,
+} from "../identitySignals.js";
 import type { LayerResult } from "../verdict.js";
 
 interface IntentRule {
@@ -26,7 +29,7 @@ const RULES: IntentRule[] = [
     intentPhrases: [/invoice/i, /subscription (renewed|charged)/i, /your (order|purchase)/i, /refund/i],
     pressurePhrases: [/call (us|now|the number below)/i, /\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}/, /if you did not authorize/i],
     score: 3,
-    description: "Fake invoice/refund/subscription notice paired with a callback phone number.",
+    description: "Invoice/refund/subscription notice is paired with callback pressure.",
   },
   {
     code: "BEC_INTENT",
@@ -71,7 +74,7 @@ const RULES: IntentRule[] = [
   {
     code: "GOV_LEGAL_INTENT",
     category: "government_legal",
-    intentPhrases: [/tax refund/i, /\bIRS\b/i, /court/i, /warrant/i, /immigration/i, /benefits? (suspended|eligibility)/i],
+    intentPhrases: [/tax refund/i, /government agency/i, /court/i, /warrant/i, /immigration/i, /benefits? (suspended|eligibility)/i],
     pressurePhrases: [/legal action/i, /arrest/i, /pay (immediately|now)/i, /failure to (respond|comply)/i],
     score: 4,
     description: "Government/legal-threat pressure pattern.",
@@ -87,24 +90,15 @@ const RULES: IntentRule[] = [
   {
     code: "CLOUD_DOC_INTENT",
     category: "cloud_document",
-    intentPhrases: [/shared a document/i, /docusign/i, /has sent you a file/i, /onedrive/i, /google drive/i, /review and sign/i],
+    intentPhrases: [/shared a document/i, /electronic signature/i, /has sent you a file/i, /cloud drive/i, /review and sign/i],
     pressurePhrases: [/click to (view|sign|open)/i, /expires? (in|on)/i, /requires your (signature|action)/i],
     score: 2,
-    description: "Fake shared-document notification typical of cloud-storage impersonation.",
+    description: "Shared-document notification uses urgency or forced-action language.",
   },
 ];
 
-const FREE_MAIL_DOMAINS = new Set([
-  "gmail.com", "googlemail.com", "yahoo.com", "outlook.com", "hotmail.com", "live.com", "icloud.com",
-]);
-
 function pushUnique(evidence: LayerResult["evidence"], item: LayerResult["evidence"][number]) {
   if (!evidence.some((existing) => existing.code === item.code)) evidence.push(item);
-}
-
-function authenticationPassed(envelope: CanonicalEnvelope): boolean {
-  const auth = envelope.authentication;
-  return auth.dmarc === "pass" || auth.dkim === "pass" || auth.spf === "pass";
 }
 
 export function messageIntentLayer(envelope: CanonicalEnvelope): LayerResult {
@@ -137,7 +131,11 @@ export function messageIntentLayer(envelope: CanonicalEnvelope): LayerResult {
     if (!callbackContext) evidence.splice(callbackIndex, 1);
   }
 
-  if (authenticationPassed(envelope) && isDirectOfficialSenderDomain(envelope)) {
+  // Any previously unseen organization can send a legitimate password or
+  // account-security notice. Authentication + organizational alignment—not a
+  // brand name in source code—suppresses the generic credential phrase alone.
+  // Link and identity layers still score cross-domain actions or deception.
+  if (hasAuthenticatedOrganizationalIdentity(envelope)) {
     const credentialIndex = evidence.findIndex((item) => item.code === "CREDENTIAL_PHISH_INTENT");
     if (credentialIndex >= 0) evidence.splice(credentialIndex, 1);
   }
@@ -146,7 +144,6 @@ export function messageIntentLayer(envelope: CanonicalEnvelope): LayerResult {
   const profileAction = /(?:view|see|open|visit).{0,24}(?:my\s+)?(?:profile|photos?)/i.test(haystack);
   const hasExternalLink = envelope.links.some((link) => /^https?:\/\//i.test(link.normalizedUrl || link.rawUrl));
   const alreadyMatchedRomance = evidence.some((item) => item.code === "ROMANCE_ADULT_INTENT");
-
   if (romanceContext && profileAction && hasExternalLink && !alreadyMatchedRomance) {
     pushUnique(evidence, {
       layer: "message_intent",
@@ -158,7 +155,7 @@ export function messageIntentLayer(envelope: CanonicalEnvelope): LayerResult {
   }
 
   const fromDomain = envelope.from.domain ?? "";
-  const firstContactFreeMail = envelope.threadContext.isFirstContact && FREE_MAIL_DOMAINS.has(fromDomain);
+  const firstContactFreeMail = envelope.threadContext.isFirstContact && isSharedMailboxDomain(fromDomain);
   if (
     firstContactFreeMail &&
     /(?:meet new people|wanna see (?:my )?photos?|see photos? me|free right now|how can i contact you|what if i said i want you|do you like to meet|\bdates?\b|actual person)/i.test(subject)
@@ -166,14 +163,14 @@ export function messageIntentLayer(envelope: CanonicalEnvelope): LayerResult {
     pushUnique(evidence, {
       layer: "message_intent",
       code: "UNSOLICITED_ROMANCE_LURE",
-      description: "A first-contact personal email account uses a romance or private-photo lure.",
+      description: "A first-contact personal mailbox uses a romance or private-photo lure.",
       scoreContribution: 2,
       source: "local",
     });
   }
 
   if (
-    /(?:evaluator|mystery|intel|insta)?\s*shopper|driving your own car/i.test(haystack) &&
+    /(?:evaluator|mystery)\s*shopper|shopping evaluator|driving your own car/i.test(haystack) &&
     /(?:earn|\$[4-9]\d{2}|per assignment|bonus)/i.test(haystack)
   ) {
     pushUnique(evidence, {
@@ -198,14 +195,11 @@ export function messageIntentLayer(envelope: CanonicalEnvelope): LayerResult {
     });
   }
 
-  if (
-    firstContactFreeMail &&
-    /(?:your order|order received|invoice|receipt confirmation|payment confirmation|account reset)/i.test(subject)
-  ) {
+  if (firstContactFreeMail && /(?:your order|order received|invoice|receipt confirmation|payment confirmation|account reset)/i.test(subject)) {
     pushUnique(evidence, {
       layer: "message_intent",
       code: "COMMERCE_NOTICE_FROM_FREE_MAIL",
-      description: "An unrelated personal email address sent an order, invoice, payment, or account notice.",
+      description: "An unrelated personal mailbox sent an order, invoice, payment, or account notice.",
       scoreContribution: 2,
       source: "local",
     });
