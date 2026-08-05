@@ -15,7 +15,8 @@ describe("AI Engineering Automation Kit installation", () => {
     expect(profile).toContain("Express `4.19.x`");
     expect(profile).toContain("npm with lockfile v3");
     expect(profile).toContain("Database/migrations/seeds: not applicable");
-    expect(matrix).toContain("Compiled server and API smoke");
+    expect(matrix).toContain("Start compiled service on an isolated localhost port");
+    expect(matrix).toContain("Homepage, accounts API, fixture connection, quick-scan SSE completion");
     expect(matrix).toContain("Final visible browser test — owner only");
     expect(regressions).toContain("REG-001");
     expect(regressions).toContain("GAP-001");
