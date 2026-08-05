@@ -18,6 +18,7 @@ describe("AI Engineering Automation Kit installation", () => {
     expect(matrix).toContain("Start compiled service on an isolated localhost port");
     expect(matrix).toContain("Homepage, accounts API, fixture connection, quick-scan SSE completion");
     expect(matrix).toContain("Final visible browser test — owner only");
+    expect(regressions).toContain("PRE-001");
     expect(regressions).toContain("REG-001");
     expect(regressions).toContain("GAP-001");
     expect(regressions).toContain("Do not delete history to make the register appear green");
@@ -51,7 +52,8 @@ describe("AI Engineering Automation Kit installation", () => {
     expect(gate).toContain("verification-report.json");
     expect(gate).toContain("VERIFICATION_REPORT.md");
     expect(gate).toContain("MANUAL_TEST_HANDOFF.md");
-    expect(gate).toContain("preExistingAutomatedFailures: []");
+    expect(gate).toContain('id: "PRE-001"');
+    expect(gate).toContain("The former command did not typecheck test sources");
     expect(gate).toContain("Do not begin browser acceptance");
     expect(gate).toContain("process.exit(1)");
   });
