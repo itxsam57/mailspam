@@ -17,6 +17,8 @@ function read(path) {
 
 const html = read("web/index.html");
 const server = read("server/src/api/server.ts");
+const desktopServer = read("server/src/api/localDesktopServer.ts");
+const localSecurityServer = read("server/src/api/localSecurity.ts");
 const browserFiles = readdirSync(webDir).filter((name) => name.endsWith(".js")).sort();
 requireCondition(browserFiles.length > 0, "No browser JavaScript files were found.");
 
@@ -48,9 +50,9 @@ for (const id of [
   requireCondition(new RegExp(`id=["']${id}["']`).test(html), `Required browser element #${id} is missing from web/index.html.`);
 }
 
-const injectedScripts = ["scan-monitor.js", "unsubscribe-monitor.js"];
+const injectedScripts = ["local-security.js", "scan-monitor.js", "unsubscribe-monitor.js"];
 for (const script of injectedScripts) {
-  requireCondition(server.includes(`/${script}`), `Express dashboard injection no longer includes /${script}.`);
+  requireCondition(desktopServer.includes(`/${script}`), `Local desktop dashboard injection no longer includes /${script}.`);
   requireCondition(browserFiles.includes(script), `Injected browser script is missing: web/${script}.`);
 }
 
@@ -98,6 +100,7 @@ for (const path of ["web/scan-monitor.js", "web/safe-audit.js", "web/review-acti
 
 const reviewActions = read("web/review-actions.js");
 const safeAudit = read("web/safe-audit.js");
+const browserSecurity = read("web/local-security.js");
 requireCondition(reviewActions.includes("Report Scam to Email Shield"), "Shared community reporting is missing from review actions.");
 requireCondition(reviewActions.includes("privacy-reduced indicators"), "Community report confirmation no longer explains its privacy boundary.");
 requireCondition(reviewActions.includes("One report cannot globally block a sender"), "Community report confirmation no longer explains aggregation thresholds.");
@@ -105,6 +108,18 @@ requireCondition(reviewActions.includes("JSON.stringify(isReportScam ? { token, 
 requireCondition(reviewActions.includes("result.requested !== 1") && reviewActions.includes("result.reported !== 1"), "Provider Spam/Junk UI no longer requires exact-one confirmation.");
 requireCondition(!reviewActions.includes("providerNativeIds"), "Review actions must not submit provider-native identifiers.");
 requireCondition(!safeAudit.includes("providerNativeIds"), "Safe audit must not submit provider-native identifiers.");
+
+requireCondition(browserSecurity.includes("X-Email-Shield-CSRF"), "Browser API calls no longer carry CSRF proof.");
+requireCondition(browserSecurity.includes("X-Email-Shield-Nonce"), "Browser mutations no longer carry one-time authorization.");
+requireCondition(browserSecurity.includes("/api/security/mutation-token"), "Browser mutations no longer obtain server-issued nonces.");
+requireCondition(browserSecurity.includes("credentials: 'same-origin'"), "Browser API calls no longer bind the HttpOnly local session.");
+requireCondition(!browserSecurity.includes("localStorage"), "Local API security must not store credentials or session material in localStorage.");
+requireCondition(!browserSecurity.includes("sessionStorage"), "Local API security must not store credentials or session material in sessionStorage.");
+requireCondition(localSecurityServer.includes("HttpOnly; SameSite=Strict"), "Local session cookie lost HttpOnly or SameSite protection.");
+requireCondition(localSecurityServer.includes("timingSafeEqual"), "Local CSRF comparison is no longer constant-time.");
+requireCondition(localSecurityServer.includes("usedActionTokens"), "Sensitive opaque actions are no longer invalidated after success.");
+requireCondition(desktopServer.includes("frame-ancestors 'none'"), "Desktop Content Security Policy no longer blocks framing.");
+requireCondition(desktopServer.includes("requireScanSource"), "SSE scan starts are no longer restricted to the local dashboard.");
 
 requireCondition(html.includes("Fixture demo mailbox"), "Fixture mode is no longer exposed for credential-free hard testing.");
 requireCondition(html.includes('value="gmail"') && html.includes('value="icloud"') && html.includes('value="outlook"') && html.includes('value="yahoo"') && html.includes('value="imap"'), "One or more supported provider options are missing from the dashboard.");

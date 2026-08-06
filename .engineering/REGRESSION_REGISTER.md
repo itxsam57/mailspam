@@ -6,6 +6,7 @@ Status values:
 - **DEPENDENCY-ADVISORY** — current transitive dependency risk is inventoried; production high/critical policy remains blocking and upgrades require a separate reviewed change.
 - **LOCKED** — fixed behavior with automated regression coverage; future failure blocks the gate.
 - **LIVE-PASS** — verified against a controlled real mailbox and backed by automation where possible.
+- **RESOLVED** — a previously registered gap is implemented and remains in the historical register.
 - **KNOWN-GAP** — acknowledged incomplete product or deployment capability; not misreported as passing.
 - **MANUAL** — requires final visible owner acceptance after automation passes.
 
@@ -51,6 +52,15 @@ Status values:
 | REG-029 | LOCKED | Failed remote reports enter an encrypted bounded outbox and retry later without losing immediate local protection. | network/outbox tests |
 | REG-030 | LOCKED | Central ingestion/feed/public-key endpoints are disabled by default and require explicit server mode. | community HTTP/architecture tests |
 | REG-031 | LOCKED | Scan workers receive only verified feed entries and enforce warning/confirmed campaign, sender, Reply-To domain, destination domain and attachment-hash matches. | Worker/global-intelligence tests |
+| REG-032 | LOCKED | Desktop mailbox and developer APIs require a process-local HttpOnly session; protected reads require CSRF proof; mutations require exact same-origin proof and an expiring single-use server nonce. | `localApiSecurity.test.ts`, compiled desktop smoke, browser gate |
+| REG-033 | LOCKED | Desktop server binds only to loopback, rejects forwarded and DNS-rebinding Host requests, rate-limits sensitive routes, and invalidates successful opaque actions against replay. | local API tests, raw-HTTP smoke, browser gate |
+| REG-034 | LOCKED | Local errors and SSE output redact credentials, OAuth codes, bearer values and JWT-like tokens; browser storage never holds the local session secret; CSP and anti-framing headers remain enabled. | local redaction tests, `check:web`, compiled smoke |
+
+## Resolved registered gaps
+
+| ID | Status | Former gap | Resolution |
+|---|---|---|---|
+| GAP-007 | RESOLVED | Desktop local API authentication and CSRF protection | Implemented process-local HttpOnly sessions, CSRF-protected reads, same-origin one-time mutation authorization, Host/forwarded-header rejection, sensitive-action replay prevention, request limits, route limits, redaction and restrictive browser headers. The dashboard must still remain local-only; this does not replace future OS credential-vault or signed-executable binding work. |
 
 ## Known gaps — not accepted as complete
 
@@ -58,11 +68,10 @@ Status values:
 |---|---|---|---|
 | GAP-001 | KNOWN-GAP | Guided Gmail OAuth onboarding | Adapter exists; normal browser onboarding is not exposed/live-validated. |
 | GAP-002 | KNOWN-GAP | Guided Outlook OAuth onboarding | Adapter exists; normal browser onboarding is not exposed/live-validated. |
-| GAP-003 | KNOWN-GAP | OS-keychain-backed local encryption keys | AES-GCM file/key protection exists; OS keychain integration is absent. |
+| GAP-003 | KNOWN-GAP | OS-keychain-backed local encryption keys and provider-token custody | AES-GCM file/key protection exists; OS keychain/credential-vault integration is absent. |
 | GAP-004 | KNOWN-GAP | Public production community deployment and operations | Self-hostable ingestion, aggregation, signing, verification and client protocol exist. DNS/TLS, gateway abuse controls, monitoring, backups and an executed key-rotation ceremony require the deployment environment. |
 | GAP-005 | KNOWN-GAP | Controlled real-destination Analyze Links validation | Hardened workflow exists; complete controlled live validation remains. |
 | GAP-006 | KNOWN-GAP | Production QR decoder | Injectable interface exists; production decoder is absent. |
-| GAP-007 | KNOWN-GAP | Desktop local API authentication and CSRF protection | Server remains localhost-only; do not expose the dashboard publicly. Community endpoints need a dedicated production perimeter. |
 | GAP-008 | KNOWN-GAP | Operational reporter reputation and gateway-level volumetric abuse defence | Application dedupe, evidence thresholds, size limits and reporter-proof rate limits exist; IP/device reputation and DDoS controls belong at the production gateway. |
 | GAP-009 | KNOWN-GAP | Editable policy-management centre and revoke/unblock UI | Policy storage/actions exist; full management UI remains. |
 | GAP-010 | KNOWN-GAP | Persisted resumable scan cursors across restart/rate limits | Current Worker retry is bounded to one early transient failure. |
@@ -82,7 +91,9 @@ Status values:
 | MAN-008 | MANUAL | Move to Spam/Junk affects exactly one fixture message and remains visibly separate from shared reporting. |
 | MAN-009 | MANUAL | Account switching does not cross-link results/actions. |
 | MAN-010 | MANUAL | Controlled live iCloud scan remains responsive and credentials are not displayed. |
+| MAN-011 | MANUAL | Normal dashboard actions continue without visible CSRF/session errors; refreshing creates a new valid local session; a stale tab after process restart shows a clear reload requirement rather than silently performing an action. |
+| MAN-012 | MANUAL | Rapid repeated clicks do not execute one successful message action twice; used action controls require a rescan. |
 
 ## Register maintenance rule
 
-Every fixed defect receives a `REG-*` entry and automated protection. Pre-existing findings and dependency baselines remain recorded. Deployment limitations remain `GAP-*` until the actual environment proves them. Do not delete history to make the register appear green.
+Every fixed defect receives a `REG-*` entry and automated protection. Pre-existing findings and dependency baselines remain recorded. Resolved gaps remain in the historical register. Deployment limitations remain `GAP-*` until the actual environment proves them. Do not delete history to make the register appear green.
