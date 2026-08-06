@@ -112,6 +112,21 @@ function organizationLabels(envelope: CanonicalEnvelope): string[] {
   return [...labels];
 }
 
+function resemblesPersonNotification(displayName: string, sharedWords: string[]): boolean {
+  // Many social/contact systems format the sender as “Person Name on Service”
+  // or “Person Name via Service”. Treat the leading 2–4 word identity as a
+  // person when it is repeated in the subject and contains no organization
+  // type cue. This is grammar-based and does not depend on any provider name.
+  const match = displayName.trim().match(
+    /^([\p{L}\p{M}'’.-]+(?:\s+[\p{L}\p{M}'’.-]+){1,3})\s+(?:on|via)\s+.+$/iu,
+  );
+  if (!match) return false;
+  const leadingWords = words(match[1]!);
+  if (leadingWords.length < 2 || leadingWords.length > 4) return false;
+  if (ORGANIZATION_CONTEXT.test(match[1]!)) return false;
+  return leadingWords.every((word) => sharedWords.includes(word));
+}
+
 function repeatedOrganizationClaim(envelope: CanonicalEnvelope): string[] {
   const displayName = envelope.from.displayName ?? "";
   const displayWords = words(displayName);
@@ -119,6 +134,7 @@ function repeatedOrganizationClaim(envelope: CanonicalEnvelope): string[] {
   const subjectWords = new Set(words(envelope.subject));
   const shared = displayWords.filter((word) => subjectWords.has(word));
   if (!shared.length) return [];
+  if (resemblesPersonNotification(displayName, shared)) return [];
 
   // Repeated personal names are common in social/contact notifications. A
   // local generic brand rule must therefore also see transactional/security
