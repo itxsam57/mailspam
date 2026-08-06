@@ -34,6 +34,7 @@ export interface CommunityReportSubmission extends CommunityReportContext {
 }
 
 export type CommunityCampaignStatus = "candidate" | "warning" | "confirmed";
+export type CommunityReportDelivery = "embedded_local" | "remote_shared" | "queued_remote";
 
 export interface CommunityReportReceipt {
   accepted: boolean;
@@ -43,6 +44,8 @@ export interface CommunityReportReceipt {
   independentReporters: number;
   status: CommunityCampaignStatus;
   feedUpdated: boolean;
+  /** Added by the client-facing submission layer; central aggregate receipts omit it. */
+  delivery?: CommunityReportDelivery;
 }
 
 export interface CommunityFeedPayload {
