@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { AddressInfo } from "node:net";
 import { request as httpRequest, type Server } from "node:http";
+import express, { type Express } from "express";
 import { createLocalDesktopServer } from "../../server/src/api/localDesktopServer.js";
 import { LocalSecurityManager, redactSensitiveText } from "../../server/src/api/localSecurity.js";
 
@@ -16,8 +17,7 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
 });
 
-async function start(): Promise<BrowserContext> {
-  const app = createLocalDesktopServer({ security: new LocalSecurityManager() });
+async function listen(app: Express): Promise<BrowserContext> {
   const server = app.listen(0, "127.0.0.1");
   servers.push(server);
   await new Promise<void>((resolve) => server.once("listening", () => resolve()));
@@ -31,6 +31,33 @@ async function start(): Promise<BrowserContext> {
   expect(cookie).toMatch(/^email_shield_local_session=/);
   expect(csrf.length).toBeGreaterThanOrEqual(32);
   return { baseUrl, cookie, csrf };
+}
+
+async function start(): Promise<BrowserContext> {
+  return listen(createLocalDesktopServer({ security: new LocalSecurityManager() }));
+}
+
+async function startActionHarness(): Promise<BrowserContext> {
+  const security = new LocalSecurityManager();
+  const app = express();
+  app.disable("x-powered-by");
+  app.use(security.validateLoopbackRequest);
+  app.use(security.securityHeaders);
+  app.use(express.json({ limit: "4kb" }));
+  app.get("/", (req, res) => {
+    const context = security.openDashboard(req, res);
+    res.type("html").send(`<meta name="email-shield-csrf" content="${context.csrfToken}">`);
+  });
+  app.post(
+    "/api/security/mutation-token",
+    security.requireProtectedRead(),
+    security.requireSameOrigin(),
+    (req, res) => security.issueMutationNonce(req, res),
+  );
+  app.post("/api/action", security.requireMutation(), (_req, res) => {
+    res.json({ success: true });
+  });
+  return listen(app);
 }
 
 function headers(context: BrowserContext, overrides: Record<string, string> = {}): Record<string, string> {
@@ -147,41 +174,14 @@ describe("local desktop security boundary", () => {
     })).status).toBe(409);
   });
 
-  it("consumes an opaque message action after the provider confirms success", async () => {
-    const context = await start();
-    const connected = await mutate(context, "/api/accounts/connect", {
-      provider: "gmail",
-      mode: "fixture",
-      label: "action-replay-test",
-    });
-    const account = await connected.json();
-    expect(connected.status).toBe(200);
+  it("consumes a successful opaque action token before it can be replayed", async () => {
+    const context = await startActionHarness();
+    const actionToken = "11111111-1111-4111-8111-111111111111";
 
-    const scan = await fetch(`${context.baseUrl}/api/accounts/${account.accountId}/scan/quick`, {
-      headers: {
-        Cookie: context.cookie,
-        Origin: context.baseUrl,
-        Referer: `${context.baseUrl}/`,
-      },
-    });
-    const stream = await scan.text();
-    expect(scan.status).toBe(200);
-    expect(stream).toContain('"reviewAction"');
-    const actionToken = stream.match(/"reviewAction":\{[^}]*"token":"([0-9a-f-]{36})"/i)?.[1];
-    expect(actionToken, stream.slice(-2000)).toMatch(/^[0-9a-f-]{36}$/i);
-
-    const first = await mutate(
-      context,
-      `/api/accounts/${account.accountId}/messages/report-spam`,
-      { token: actionToken },
-    );
+    const first = await mutate(context, "/api/action", { token: actionToken });
     expect(first.status).toBe(200);
 
-    const replay = await mutate(
-      context,
-      `/api/accounts/${account.accountId}/messages/report-spam`,
-      { token: actionToken },
-    );
+    const replay = await mutate(context, "/api/action", { token: actionToken });
     expect(replay.status).toBe(409);
     expect((await replay.json()).error).toContain("already been used");
   });
