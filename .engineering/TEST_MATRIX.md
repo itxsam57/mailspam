@@ -10,15 +10,15 @@ This matrix is project-specific. A check is installed only when it protects an e
 | A-02 | Repository hygiene | Merge-marker, tracked-secret and targeted secret-pattern scan | `npm run preflight` | Windows + Ubuntu | Blocking |
 | A-03 | Type safety | Strict TypeScript over production source and tests, no emit | `npm run typecheck` | Windows + Ubuntu | Blocking |
 | A-04 | Production compilation | Compile `server/src` to `server/dist` | `npm run build` | Windows + Ubuntu | Blocking |
-| A-05 | Unit/API behavior | Detection, MIME, provider normalization, policy, community privacy, aggregation, signatures, APIs and architecture | `npm run test:unit` | Windows + Ubuntu | Blocking |
+| A-05 | Unit/API behavior | Detection, MIME, provider normalization, policy, community privacy, aggregation, signatures, local API security, APIs and architecture | `npm run test:unit` | Windows + Ubuntu | Blocking |
 | A-06 | Integration behavior | Entire scam corpus through all five provider fixtures | `npm run test:integration` | Windows + Ubuntu | Blocking |
 | A-07 | Worker runtime | Compiled Worker startup, verified-feed input, progress and termination | `npm run test:integration` | Windows + Ubuntu | Blocking |
 | A-08 | Browser source | Parse inline JavaScript and syntax-check every `web/*.js` file | `npm run check:web` | Windows + Ubuntu | Blocking |
-| A-09 | Browser wiring | Required DOM, dynamic scripts, Report Scam/Spam/Junk and API endpoint contracts | `npm run check:web` | Windows + Ubuntu | Blocking |
-| A-10 | Browser privacy | No body, raw HTML, campaign payload, reporter proof or provider identifier in community UI | `npm run check:web` | Windows + Ubuntu | Blocking |
-| A-11 | Server startup | Start compiled service on an isolated localhost port | `npm run smoke:server` | Windows + Ubuntu | Blocking |
-| A-12 | API smoke | Homepage, accounts API, fixture connection, quick-scan SSE completion, community status and account removal | `npm run smoke:server` | Windows + Ubuntu | Blocking |
-| A-13 | Corpus smoke | `/api/dev/test-suite` returns zero corpus/parity failures | `npm run smoke:server` | Windows + Ubuntu | Blocking |
+| A-09 | Browser wiring | Required DOM, local security wrapper, dynamic scripts, Report Scam/Spam/Junk and API endpoint contracts | `npm run check:web` | Windows + Ubuntu | Blocking |
+| A-10 | Browser privacy | No body, raw HTML, campaign payload, reporter proof, provider identifier or readable local-session secret in community/action UI | `npm run check:web` | Windows + Ubuntu | Blocking |
+| A-11 | Server startup | Start compiled service on an isolated loopback port | `npm run smoke:server` | Windows + Ubuntu | Blocking |
+| A-12 | API smoke | Authenticated dashboard session, fixture connection, quick-scan SSE completion, community status and account removal | `npm run smoke:server` | Windows + Ubuntu | Blocking |
+| A-13 | Corpus smoke | `/api/dev/test-suite` returns zero corpus/parity failures through the authenticated desktop API | `npm run smoke:server` | Windows + Ubuntu | Blocking |
 | A-14 | Dependency inventory | Capture production/development advisory evidence | `npm run audit:inventory` | Ubuntu CI; local when enabled | Evidence/advisory |
 | A-15 | Production dependencies | Fail on high or critical production advisories | `npm run audit:prod` | Ubuntu CI; local when enabled | Blocking |
 | A-16 | Evidence | JSON/Markdown report, dependency evidence and browser handoff | `npm run gate` | Windows + Ubuntu | Always generated |
@@ -30,6 +30,11 @@ This matrix is project-specific. A check is installed only when it protects an e
 | A-22 | Community HTTP | Server mode disabled by default; ingestion/public key/signed feed contracts when enabled | `npm run test:unit` | Windows + Ubuntu | Blocking |
 | A-23 | Local and offline protection | Immediate local campaign memory and encrypted retry outbox | `npm run test:unit` | Windows + Ubuntu | Blocking |
 | A-24 | Provider parity | Gmail, iCloud, Outlook, Yahoo and Generic IMAP produce the same privacy-reduced report contract | `npm run test:unit` | Windows + Ubuntu | Blocking |
+| A-25 | Local session boundary | HttpOnly process-local session, CSRF-protected reads, session expiry and absence of session material from HTML/browser storage | `npm run test:unit`, `npm run check:web`, `npm run smoke:server` | Windows + Ubuntu | Blocking |
+| A-26 | Mutation replay defence | Exact same-origin proof, expiring one-time nonces and successful opaque-action replay rejection | `npm run test:unit`, `npm run smoke:server` | Windows + Ubuntu | Blocking |
+| A-27 | Local network isolation | Loopback-only binding, Host allowlist, forwarded-header rejection and DNS-rebinding raw HTTP probe | `npm run test:unit`, `npm run smoke:server` | Windows + Ubuntu | Blocking |
+| A-28 | Browser isolation | Per-response CSP nonce, anti-framing, same-origin opener/resource policy, no-referrer and restricted browser capabilities | `npm run test:unit`, `npm run check:web`, `npm run smoke:server` | Windows + Ubuntu | Blocking |
+| A-29 | Local error privacy | Exact credentials, OAuth codes, bearer values and JWT-like values are redacted from API errors and SSE output | `npm run test:unit`, `npm run check:web` | Windows + Ubuntu | Blocking |
 
 ## Final visible browser test — owner only
 
@@ -43,9 +48,11 @@ After a green gate, the generated handoff contains only subjective/visible check
 6. optional sender block remaining separate;
 7. Move to Spam/Junk remaining separate and exact-message only;
 8. Stop/restart responsiveness and account isolation;
-9. controlled live iCloud presentation when credentials are available.
+9. visible local-session behavior after refresh and process restart;
+10. duplicate successful action controls requiring a rescan;
+11. controlled live iCloud presentation when credentials are available.
 
-The warning/confirmed aggregation, cryptographic feed verification and cross-provider report contract are automated. Public DNS/TLS/gateway/monitoring are deployment acceptance, not browser acceptance.
+The local session, CSRF, nonce, Host, redaction, warning/confirmed aggregation, cryptographic feed verification and cross-provider report contract are automated. Public DNS/TLS/gateway/monitoring are deployment acceptance, not browser acceptance.
 
 ## Not applicable
 
@@ -59,7 +66,8 @@ The warning/confirmed aggregation, cryptographic feed verification and cross-pro
 | Visual snapshots | Owner performs final visible acceptance. |
 | Real provider destructive CI | CI must never receive mailbox credentials or modify live mail. |
 | Gateway/DDoS testing | Requires the actual production reverse proxy/API gateway. |
+| OS credential-store testing | Belongs to the next credential-vault work package; provider refresh-token custody is not implemented in this milestone. |
 
 ## Change-impact rule
 
-Every future provider, report indicator, threshold, key format, storage layer, external endpoint or user-visible action must update this matrix and add applicable automated protection.
+Every future provider, OAuth flow, credential store, report indicator, threshold, key format, storage layer, external endpoint or user-visible action must update this matrix and add applicable automated protection.
