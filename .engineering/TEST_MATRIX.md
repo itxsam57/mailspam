@@ -16,8 +16,8 @@ This matrix is project-specific. A check is installed only when it protects an e
 | A-08 | Browser source | Parse inline JavaScript and syntax-check every `web/*.js` file | `npm run check:web` | Windows + Ubuntu | Blocking |
 | A-09 | Browser wiring | Required DOM, dynamic scripts, Report Scam/Spam/Junk and API endpoint contracts | `npm run check:web` | Windows + Ubuntu | Blocking |
 | A-10 | Browser privacy | No body, raw HTML, campaign payload, reporter proof or provider identifier in community UI | `npm run check:web` | Windows + Ubuntu | Blocking |
-| A-11 | Server startup | Start compiled service on isolated localhost port | `npm run smoke:server` | Windows + Ubuntu | Blocking |
-| A-12 | API smoke | Homepage, community status, accounts, fixture connection, quick-scan SSE and removal | `npm run smoke:server` | Windows + Ubuntu | Blocking |
+| A-11 | Server startup | Start compiled service on an isolated localhost port | `npm run smoke:server` | Windows + Ubuntu | Blocking |
+| A-12 | API smoke | Homepage, accounts API, fixture connection, quick-scan SSE completion, community status and account removal | `npm run smoke:server` | Windows + Ubuntu | Blocking |
 | A-13 | Corpus smoke | `/api/dev/test-suite` returns zero corpus/parity failures | `npm run smoke:server` | Windows + Ubuntu | Blocking |
 | A-14 | Dependency inventory | Capture production/development advisory evidence | `npm run audit:inventory` | Ubuntu CI; local when enabled | Evidence/advisory |
 | A-15 | Production dependencies | Fail on high or critical production advisories | `npm run audit:prod` | Ubuntu CI; local when enabled | Blocking |
