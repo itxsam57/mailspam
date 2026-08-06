@@ -62,6 +62,8 @@ try {
       HOST: host,
       PORT: String(port),
       EMAIL_SHIELD_DATA_DIR: dataDir,
+      EMAIL_SHIELD_COMMUNITY_SERVER: "0",
+      EMAIL_SHIELD_COMMUNITY_URL: "",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -78,6 +80,17 @@ try {
   assert(homeHtml.includes("Email Shield"), "Homepage is missing the Email Shield application marker.");
   assert(homeHtml.includes('/scan-monitor.js') && homeHtml.includes('/unsubscribe-monitor.js'), "Dashboard response is missing injected browser action scripts.");
 
+  const communityStatus = await json(
+    await fetch(`${baseUrl}/api/community/v1/status`, { signal: AbortSignal.timeout(5_000) }),
+    "Community client status",
+  );
+  assert(communityStatus.clientEnabled === true, "Community shield client is not enabled.");
+  assert(communityStatus.aggregationServerEnabled === false, "Normal desktop smoke unexpectedly enabled central report ingestion.");
+  assert(communityStatus.verifiedFeedAvailable === true, "Embedded signed community feed was not available.");
+  assert(Number.isInteger(communityStatus.verifiedFeedEntries), "Community status did not report a feed-entry count.");
+  assert((await fetch(`${baseUrl}/api/community/v1/feed`, { signal: AbortSignal.timeout(5_000) })).status === 404, "Normal client unexpectedly served the central signed feed endpoint.");
+  assert((await fetch(`${baseUrl}/api/community/v1/public-key`, { signal: AbortSignal.timeout(5_000) })).status === 404, "Normal client unexpectedly served central public-key metadata.");
+
   const initialAccounts = await json(await fetch(`${baseUrl}/api/accounts`), "Initial accounts request");
   assert(Array.isArray(initialAccounts) && initialAccounts.length === 0, "Smoke server did not start with an isolated empty session store.");
 
@@ -88,6 +101,7 @@ try {
     signal: AbortSignal.timeout(15_000),
   }), "Fixture account connection");
   assert(typeof connected.accountId === "string" && connected.provider === "gmail" && connected.mode === "fixture", "Fixture connection returned an unexpected contract.");
+  assert(connected.community && Number.isInteger(connected.community.verifiedFeedEntries), "Fixture connection omitted community protection status.");
 
   const scanResponse = await fetch(`${baseUrl}/api/accounts/${encodeURIComponent(connected.accountId)}/scan/quick`, {
     signal: AbortSignal.timeout(60_000),
@@ -95,6 +109,7 @@ try {
   const scanText = await scanResponse.text();
   assert(scanResponse.ok, `Quick-scan stream returned HTTP ${scanResponse.status}.`);
   assert(scanText.includes("event: scan-started"), "Quick-scan stream did not announce scan-started.");
+  assert(scanText.includes("Refreshing verified community protection feed"), "Quick-scan stream did not announce community feed refresh.");
   assert(scanText.includes("event: scan-complete"), `Quick-scan stream did not complete.\n${scanText.slice(-1200)}`);
 
   const progressPayloads = scanText.split(/\r?\n/)
@@ -108,13 +123,16 @@ try {
   assert(lastProgress.counters.examined > 0, "Quick scan examined no fixture messages.");
   assert(Array.isArray(lastProgress.diagnosticSummaries) && lastProgress.diagnosticSummaries.length > 0, "Quick scan returned no diagnostic summaries.");
   assert(!scanText.includes('"listUnsubscribe":"http'), "Quick-scan stream exposed a raw unsubscribe destination.");
+  assert(!scanText.includes('"campaignFingerprint"'), "Quick-scan stream exposed a private community campaign fingerprint.");
+  assert(!scanText.includes('"reporterProof"'), "Quick-scan stream exposed a reporter proof.");
 
   for (const summary of lastProgress.diagnosticSummaries) {
-    for (const forbidden of ["textPreview", "htmlSignals", "links", "attachments", "providerNativeId", "messageId", "actionContext"]) {
+    for (const forbidden of ["textPreview", "htmlSignals", "links", "attachments", "providerNativeId", "messageId", "actionContext", "communityReport"]) {
       assert(!(forbidden in summary), `Privacy-reduced diagnostic summary exposed ${forbidden}.`);
     }
     assert(typeof summary.subject === "string", "Diagnostic summary is missing its subject label.");
     assert(typeof summary.verdict === "string", "Diagnostic summary is missing its verdict.");
+    assert(summary.reviewAction && typeof summary.reviewAction.token === "string", "Diagnostic summary is missing an opaque review token.");
   }
 
   const developerReport = await json(await fetch(`${baseUrl}/api/dev/test-suite`, {
@@ -136,6 +154,7 @@ try {
 
   console.log(`Compiled server/API smoke passed at ${baseUrl}.`);
   console.log(`Fixture messages examined: ${lastProgress.counters.examined}.`);
+  console.log(`Verified community feed entries: ${communityStatus.verifiedFeedEntries}.`);
   console.log(`Developer corpus scans: ${developerReport.totalScans}.`);
 } catch (error) {
   console.error(`FAIL: ${error.message}`);
