@@ -92,6 +92,7 @@ export class CommunityNetwork implements ThreatFeedCache {
   private readonly feedCachePath: string;
   private verifiedEntries: SignedFeedEntry[] | null = [];
   private cachedDocument: SignedCommunityFeed | null = null;
+  private refreshError: string | null = null;
 
   constructor(options: {
     dataDirectory?: string;
@@ -129,6 +130,14 @@ export class CommunityNetwork implements ThreatFeedCache {
     return this.reporterIdentity.proofForAccount(accountKey);
   }
 
+  mode(): "embedded_local" | "remote_shared" {
+    return this.remoteUrl ? "remote_shared" : "embedded_local";
+  }
+
+  lastRefreshError(): string | null {
+    return this.refreshError;
+  }
+
   async submit(context: CommunityReportContext, accountKey: string): Promise<CommunityReportReceipt> {
     const report: CommunityReportSubmission = {
       schemaVersion: 1,
@@ -140,7 +149,7 @@ export class CommunityNetwork implements ThreatFeedCache {
     if (!this.remoteUrl) {
       const receipt = this.aggregateStore.accept(report);
       this.rebuildEmbeddedFeed();
-      return receipt;
+      return { ...receipt, delivery: "embedded_local" };
     }
 
     try {
@@ -151,7 +160,7 @@ export class CommunityNetwork implements ThreatFeedCache {
       if (!isReceipt(data)) throw new Error("Community service returned an invalid report receipt.");
       this.outbox.remove(report.reporterProof, report.campaignFingerprint);
       await this.refreshFeed();
-      return data;
+      return { ...data, delivery: "remote_shared" };
     } catch {
       this.outbox.enqueue(report);
       return {
@@ -162,6 +171,7 @@ export class CommunityNetwork implements ThreatFeedCache {
         independentReporters: 1,
         status: "candidate",
         feedUpdated: false,
+        delivery: "queued_remote",
       };
     }
   }
@@ -194,12 +204,18 @@ export class CommunityNetwork implements ThreatFeedCache {
   }
 
   async refreshFeed(): Promise<void> {
+    this.refreshError = null;
     if (!this.remoteUrl) {
       this.rebuildEmbeddedFeed();
       return;
     }
 
-    await this.flushOutbox();
+    try {
+      await this.flushOutbox();
+    } catch (error) {
+      this.refreshError = `Pending report retry failed: ${error instanceof Error ? error.message : String(error)}`;
+    }
+
     try {
       const document = await fetchJson(`${this.remoteUrl}/api/community/v1/feed`) as SignedCommunityFeed;
       const payload = verifyCommunityFeed(document, this.trustedPublicKeys);
@@ -207,11 +223,13 @@ export class CommunityNetwork implements ThreatFeedCache {
       this.cachedDocument = document;
       this.verifiedEntries = payload.entries;
       writeFileSync(this.feedCachePath, JSON.stringify(document), { mode: 0o600 });
-    } catch {
+    } catch (error) {
       const cached = this.cachedDocument
         ? verifyCommunityFeed(this.cachedDocument, this.trustedPublicKeys)
         : null;
       this.verifiedEntries = cached?.entries ?? null;
+      const feedError = `Community feed refresh failed: ${error instanceof Error ? error.message : String(error)}`;
+      this.refreshError = this.refreshError ? `${this.refreshError} ${feedError}` : feedError;
     }
   }
 
