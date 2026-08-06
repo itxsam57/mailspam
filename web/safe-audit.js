@@ -9,7 +9,7 @@
     style.textContent = `
       .safe-message-audit summary {color:#3fb88a;font-weight:600}
       .safe-message-audit .safe-empty {padding:10px 12px;color:#5b6272;font-size:11px;border-top:1px solid #2a2f3a}
-      .safe-message-audit .safe-actions-cell {min-width:260px}
+      .safe-message-audit .safe-actions-cell {min-width:300px}
     `;
     document.head.appendChild(style);
 
@@ -18,7 +18,7 @@
     safeAudit.className = 'scan-diagnostics safe-message-audit';
     safeAudit.innerHTML = `
       <summary>Safe messages (0) — click to review</summary>
-      <div class="scan-diagnostics-note">Safe messages remain outside the warning-card feed. This compact local review shows privacy-reduced metadata and permits account-scoped trust, unsubscribe, or exact-message provider Spam/Junk actions without exposing message bodies or raw destinations.</div>
+      <div class="scan-diagnostics-note">Safe messages remain outside the warning-card feed. You can correct a false Safe result by reporting the campaign to Email Shield's privacy-reduced community shield, move only this message to provider Spam/Junk, trust a sender, or unsubscribe when supported.</div>
       <div class="safe-empty">No messages have been classified Safe in this scan yet.</div>
       <div class="scan-diagnostics-scroll" hidden><table>
         <thead><tr><th>Subject</th><th>Sender</th><th>Parse</th><th>Evidence / notes</th><th>Actions</th></tr></thead>
@@ -59,14 +59,17 @@
         const notes = cells[5]?.innerHTML ?? 'No scored evidence.';
         const reviewToken = row.dataset.reviewToken || '';
         const senderTrusted = row.dataset.senderTrusted === 'true';
-        const canReportSpam = row.dataset.canReportSpam === 'true';
+        const canMoveToSpam = row.dataset.canReportSpam === 'true';
         const unsubscribeAvailable = row.dataset.unsubscribeAvailable === 'true';
         const unsubscribeMethod = row.dataset.unsubscribeMethod || 'none';
         const unsubscribeDone = row.dataset.unsubscribeDone === 'true';
 
         const actions = [];
-        if (reviewToken && canReportSpam) {
-          actions.push(`<button data-action="report-spam" data-review-token="${escapeHtml(reviewToken)}">Report Spam</button>`);
+        if (reviewToken) {
+          actions.push(`<button data-action="report-scam" data-review-token="${escapeHtml(reviewToken)}" data-sender="${escapeHtml(senderText)}">Report Scam to Email Shield</button>`);
+        }
+        if (reviewToken && canMoveToSpam) {
+          actions.push(`<button data-action="move-spam" data-review-token="${escapeHtml(reviewToken)}">Move to Spam/Junk</button>`);
         }
         if (reviewToken && senderText && senderText !== 'unknown') {
           actions.push(senderTrusted
