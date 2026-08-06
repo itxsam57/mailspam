@@ -28,6 +28,14 @@ function keyId(publicPem: string): string {
   return createHash("sha256").update(der).digest("hex").slice(0, 24);
 }
 
+function validateKeyPair(privatePem: string, publicPem: string): void {
+  const challenge = Buffer.from("email-shield-community-signing-key-validation-v1", "utf8");
+  const signature = sign(null, challenge, createPrivateKey(privatePem));
+  if (!verify(null, challenge, createPublicKey(publicPem), signature)) {
+    throw new Error("Configured community signing private and public keys do not match.");
+  }
+}
+
 export class CommunityFeedSigner {
   private readonly privatePem: string;
   readonly publicPem: string;
@@ -38,12 +46,20 @@ export class CommunityFeedSigner {
     const privatePath = join(dataDirectory, "community-feed-private.pem");
     const publicPath = join(dataDirectory, "community-feed-public.pem");
 
+    if (Boolean(configuredPrivatePem) !== Boolean(configuredPublicPem)) {
+      throw new Error("Community signing requires both the private and public key, or neither.");
+    }
+
     if (configuredPrivatePem && configuredPublicPem) {
+      validateKeyPair(configuredPrivatePem, configuredPublicPem);
       this.privatePem = configuredPrivatePem;
       this.publicPem = configuredPublicPem;
     } else if (existsSync(privatePath) && existsSync(publicPath)) {
       this.privatePem = readFileSync(privatePath, "utf8");
       this.publicPem = readFileSync(publicPath, "utf8");
+      validateKeyPair(this.privatePem, this.publicPem);
+    } else if (existsSync(privatePath) || existsSync(publicPath)) {
+      throw new Error("Community signing key storage is incomplete; preserve the existing key file for diagnosis.");
     } else {
       const pair = generateKeyPairSync("ed25519");
       this.privatePem = pair.privateKey.export({ type: "pkcs8", format: "pem" }).toString();
