@@ -46,8 +46,8 @@
     reportScam.dataset.action = 'report-scam';
     reportScam.dataset.reviewToken = action.token;
     reportScam.dataset.sender = sender;
-    reportScam.textContent = action.communityReported ? 'Scam campaign reported ✓' : 'Report Scam to Email Shield';
-    reportScam.disabled = Boolean(action.communityReported);
+    reportScam.textContent = action.scamAlreadyReported ? 'Scam campaign reported ✓' : 'Report Scam to Email Shield';
+    reportScam.disabled = Boolean(action.scamAlreadyReported);
     actions.appendChild(reportScam);
 
     if (action.canMoveToSpam) {
