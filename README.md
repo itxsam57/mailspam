@@ -2,7 +2,7 @@
 
 Email Shield is a local-first, deterministic email scam-detection layer. Mailbox scans and message content remain on the user's machine. When the user explicitly selects **Report Scam to Email Shield**, the client may send a privacy-reduced indicator report to a configured community service; it never uploads the message body, subject, mailbox address, contacts, credentials, provider message ID, raw private URL path/query values, attachment names, or attachment content.
 
-## Run it
+## Run the desktop client
 
 ```bash
 npm install
@@ -53,9 +53,10 @@ These are deliberately separate actions.
 ### Report Scam to Email Shield
 
 - Immediately stores the campaign fingerprint in the selected mailbox's encrypted local policy.
-- Matching future campaign messages become local Confirmed Threat, even if the scam rotates addresses while preserving the campaign structure.
+- Matching future campaign messages become local Confirmed Threat, even if the scam rotates delivery senders while preserving downstream campaign infrastructure and message structure.
 - Optionally blocks the exact sender only after a separate explicit choice.
-- Submits or queues a privacy-reduced community report.
+- Submits or queues a privacy-reduced community report when a central service is configured.
+- Clearly labels embedded local-only testing when no shared service is configured.
 - Does not move or delete the message.
 
 ### Move to Spam/Junk
@@ -91,10 +92,10 @@ Generic no-reply/reporting addresses used by shared delivery platforms are not p
 
 ## Community aggregation rules
 
-- One pseudonymous reporter counts once per campaign.
+- One pseudonymous reporter proof counts once per campaign.
 - One or two reports remain private candidates and are not published.
-- Three independent reports plus the warning evidence threshold create a signed warning.
-- Five independent reports, at least three strong reports and the confirmed evidence threshold create a confirmed campaign.
+- Three independent reporter proofs plus the warning weight create a signed warning.
+- Five reporter proofs, at least three strong reports and the confirmed weight create a confirmed campaign.
 - Every confirmed indicator must itself be supported by all five required reporters.
 - Three human reports can create a warning even when the old detector called the messages Safe.
 - Evidence-free human reports cannot create Confirmed Threat status by themselves.
@@ -114,16 +115,32 @@ The central service publishes canonical Ed25519-signed documents containing warn
 
 Feeds include key ID, generation time and expiry. Clients use only documents that pass public-key trust, signature and freshness checks. A valid cached feed may be used only until it expires.
 
-## Running a self-hosted community service
+## Run the dedicated community service
 
-The same repository can run the aggregation node:
+Build once, then run the community-only entry point:
+
+```bash
+npm run build
+EMAIL_SHIELD_COMMUNITY_SERVER=1 \
+EMAIL_SHIELD_DATA_DIR=/secure/persistent/email-shield \
+HOST=127.0.0.1 \
+PORT=4174 \
+npm run start:community
+```
+
+On Windows PowerShell, set the same environment variables before running `npm run start:community`.
+
+The dedicated service exposes only:
 
 ```text
-EMAIL_SHIELD_COMMUNITY_SERVER=1
-EMAIL_SHIELD_DATA_DIR=/secure/persistent/email-shield
-HOST=127.0.0.1
-PORT=4173
+GET  /health
+POST /api/community/v1/report
+GET  /api/community/v1/feed
+GET  /api/community/v1/public-key
+GET  /api/community/v1/status
 ```
+
+It does not expose the desktop dashboard, mailbox connection routes, scan workers, provider credentials or mailbox actions.
 
 Clients connect with:
 
@@ -166,21 +183,24 @@ The local key files protect against accidental plaintext disclosure. They do not
 - Bounded readable MIME retrieval without attachment-body downloads
 - Organization-neutral detection and signed intelligence consumption
 - Persistent account-scoped blocks, trust, exact-message approvals and campaign memory
+- Sender-rotation-resistant campaign fingerprints
 - Exact-message Trash and provider Spam/Junk actions
 - RFC 8058, web-link and mailto unsubscribe workflows
 - Privacy-reduced Safe and diagnostic audits
 - Privacy-reduced Report Scam client
-- Independent reporter deduplication and evidence thresholds
+- Independent reporter-proof deduplication and evidence thresholds
 - Encrypted community aggregate store and offline outbox
-- Ed25519 feed signing, verification and expiry
-- Self-hostable community ingestion/feed/public-key APIs
+- Ed25519 feed signing, verification, diagnostics and expiry
+- Dedicated community-only ingestion/feed/public-key service
+- Cross-instance shared-warning tests
 - Developer test suite, five-provider fixture parity and automated Windows/Ubuntu engineering gate
 
 ## Known limitations before public production operation
 
 - Guided Gmail and Outlook OAuth onboarding is not exposed.
 - Local encryption keys are file protected rather than OS-keychain backed.
-- A public community deployment still needs DNS/TLS, an API gateway, volumetric abuse controls, monitoring, backups and an executed signing-key rotation process.
+- Pseudonymous proofs prevent direct mailbox disclosure but do not by themselves stop reinstall/device-level Sybil abuse; production gateway enrollment, reputation and volumetric controls are still required.
+- A public community deployment still needs DNS/TLS, an API gateway, abuse controls, monitoring, backups and an executed signing-key rotation process.
 - Hardened destination analysis needs controlled real-URL validation.
 - Production QR decoding remains behind an injectable interface.
 - The desktop dashboard API has no session authentication/CSRF layer and must remain localhost-only.
