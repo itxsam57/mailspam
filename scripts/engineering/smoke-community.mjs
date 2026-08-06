@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const root = process.cwd();
 const host = "127.0.0.1";
@@ -132,7 +133,8 @@ try {
   assert(duplicate.duplicate === true && duplicate.independentReporters === 3, "Duplicate reporter was counted more than once.");
 
   const feedDocument = await json(await fetch(`${baseUrl}/api/community/v1/feed`), "Signed community feed");
-  const { inspectCommunityFeed } = await import(resolve(root, "server/dist/community/signing.js"));
+  const signingModuleUrl = pathToFileURL(resolve(root, "server/dist/community/signing.js")).href;
+  const { inspectCommunityFeed } = await import(signingModuleUrl);
   const verification = inspectCommunityFeed(feedDocument, [publicInfo.publicKey]);
   assert(verification.reason === null && verification.payload, `Compiled signed feed did not verify: ${verification.reason}`);
   assert(verification.payload.entries.some((entry) =>
