@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 import type { CanonicalEnvelope } from "../canonical/envelope.js";
+import { isSharedMailboxDomain } from "../engine/identitySignals.js";
 import type { ScoredMessage } from "../engine/verdict.js";
 import { organizationalDomain, sameOrganizationalDomain } from "../util/domainRelation.js";
 import type { CommunityIndicator, CommunityReportContext } from "./types.js";
 
-const GENERIC_DELIVERY_LOCAL_PART = /^(?:do-?not-?reply|no-?reply|noreply|mailer|mail|notification|notifications|reports?|support|updates?)\b/i;
+const GENERIC_DELIVERY_TOKEN = /(?:^|[-_.+])(?:do[-_.]?not[-_.]?reply|no[-_.]?reply|noreply|mailer|mail|notification|notifications|report|reports|support|update|updates)(?:$|[-_.+])/i;
 const SUBJECT_STOP_WORDS = new Set([
   "about", "after", "again", "from", "have", "hello", "here", "into", "just", "message",
   "notification", "please", "re", "report", "sent", "that", "this", "update", "with", "your",
@@ -44,8 +45,8 @@ function subjectSkeleton(subject: string): string {
 }
 
 function genericDeliverySender(envelope: CanonicalEnvelope): boolean {
-  const localPart = envelope.from.address?.split("@")[0] ?? "";
-  return GENERIC_DELIVERY_LOCAL_PART.test(localPart);
+  const localPart = envelope.from.address?.split("@")[0]?.trim().toLowerCase() ?? "";
+  return GENERIC_DELIVERY_TOKEN.test(localPart);
 }
 
 export function campaignFingerprint(envelope: CanonicalEnvelope): string {
@@ -75,10 +76,12 @@ function uniqueIndicators(values: CommunityIndicator[]): CommunityIndicator[] {
   const seen = new Set<string>();
   const output: CommunityIndicator[] = [];
   for (const item of values) {
-    const key = `${item.type}\0${item.value.toLowerCase()}`;
+    const normalizedValue = item.value.toLowerCase();
+    if (!normalizedValue) continue;
+    const key = `${item.type}\0${normalizedValue}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    output.push({ type: item.type, value: item.value.toLowerCase() });
+    output.push({ type: item.type, value: normalizedValue });
   }
   return output;
 }
@@ -92,24 +95,36 @@ export function buildCommunityReportContext(
   const senderAddress = envelope.from.address?.trim().toLowerCase() ?? null;
   const senderDomain = normalizeDomain(envelope.from.domain);
   const replyDomain = normalizeDomain(envelope.replyTo?.domain);
+  const evidence = scored.evidence.filter((item) => item.source !== "personal_rule" && item.source !== "signed_feed");
+  const evidenceCodes = new Set(evidence.map((item) => item.code));
 
-  // Generic no-reply/reporting senders are often shared delivery platforms.
-  // Do not globally condemn that address; publish the campaign and downstream
-  // reply/destination indicators instead.
+  // Generic no-reply/reporting addresses frequently belong to shared delivery
+  // platforms. Product-prefixed forms such as "looker-studio-noreply" remain
+  // generic and must never become globally malicious exact-sender indicators.
   if (senderAddress && !genericDeliverySender(envelope)) {
     indicators.push({ type: "sender", value: senderAddress });
   }
 
+  // A shared consumer mailbox provider authenticates the mailbox service, not
+  // a malicious organization. Keep the campaign fingerprint, but do not turn
+  // gmail.com, outlook.com, yahoo.com, etc. into globally blocked domains.
   if (
     replyDomain &&
+    !isSharedMailboxDomain(replyDomain) &&
     (!senderDomain || !sameOrganizationalDomain(replyDomain, senderDomain))
   ) {
     indicators.push({ type: "reply_to_domain", value: organizationalDomain(replyDomain) });
   }
 
-  for (const domain of externalLinkDomains(envelope)) {
-    if (!senderDomain || !sameOrganizationalDomain(domain, senderDomain)) {
-      indicators.push({ type: "url_domain", value: organizationalDomain(domain) });
+  // URL shorteners are broad shared infrastructure. The campaign fingerprint
+  // can still aggregate independent reports, but the shortener's whole domain
+  // must not be published as malicious merely because one campaign used it.
+  const sharedShortenerDetected = evidenceCodes.has("URL_SHORTENER");
+  if (!sharedShortenerDetected) {
+    for (const domain of externalLinkDomains(envelope)) {
+      if (!senderDomain || !sameOrganizationalDomain(domain, senderDomain)) {
+        indicators.push({ type: "url_domain", value: organizationalDomain(domain) });
+      }
     }
   }
 
@@ -119,11 +134,10 @@ export function buildCommunityReportContext(
     indicators.push({ type: "attachment_hash", value: hash });
   }
 
-  const evidence = scored.evidence.filter((item) => item.source !== "personal_rule" && item.source !== "signed_feed");
   return {
     campaignFingerprint: fingerprint,
     indicators: uniqueIndicators(indicators),
-    evidenceCodes: [...new Set(evidence.map((item) => item.code))].sort(),
+    evidenceCodes: [...evidenceCodes].sort(),
     evidenceScore: Math.max(0, evidence.reduce((sum, item) => sum + Math.max(0, item.scoreContribution), 0)),
     verdict: scored.verdict,
   };
