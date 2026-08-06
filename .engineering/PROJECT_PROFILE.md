@@ -19,6 +19,8 @@ Generated from the mandatory repository audit in the AI Engineering Automation K
 | Application workspace | `server/` |
 | Supported CI runtime | Node.js 22 |
 
+Database/migrations/seeds: not applicable. The current service uses encrypted local files and has no relational database, ORM or migration system.
+
 ## Application roots and entry points
 
 - Repository/workspace root: `package.json`
