@@ -35,6 +35,7 @@ This matrix is project-specific. A check is installed only when it protects an e
 | A-27 | Local network isolation | Loopback-only binding, Host allowlist, forwarded-header rejection and DNS-rebinding raw HTTP probe | `npm run test:unit`, `npm run smoke:server` | Windows + Ubuntu | Blocking |
 | A-28 | Browser isolation | Per-response CSP nonce, anti-framing, same-origin opener/resource policy, no-referrer and restricted browser capabilities | `npm run test:unit`, `npm run check:web`, `npm run smoke:server` | Windows + Ubuntu | Blocking |
 | A-29 | Local error privacy | Exact credentials, OAuth codes, bearer values and JWT-like values are redacted from API errors and SSE output | `npm run test:unit`, `npm run check:web` | Windows + Ubuntu | Blocking |
+| A-30 | Bounded scan progress | Live IMAP Quick Scan preserves its ten-message limit while yielding smaller cumulative pages; remote community refresh cannot block worker startup; first-result and between-page stalls end visibly instead of leaving an endless EventSource | `scanProgressRuntime.test.ts`, `npm run smoke:server` | Windows + Ubuntu | Blocking |
 
 ## Final visible browser test — owner only
 
@@ -50,9 +51,10 @@ After a green gate, the generated handoff contains only subjective/visible check
 8. Stop/restart responsiveness and account isolation;
 9. visible local-session behavior after refresh and process restart;
 10. duplicate successful action controls requiring a rescan;
-11. controlled live iCloud presentation when credentials are available.
+11. controlled live iCloud presentation when credentials are available;
+12. live provider scans show bounded-batch status at least every 15 seconds, produce partial results as batches complete, or stop with a specific timeout error rather than remaining indefinitely on Scanning.
 
-The local session, CSRF, nonce, Host, redaction, warning/confirmed aggregation, cryptographic feed verification and cross-provider report contract are automated. Public DNS/TLS/gateway/monitoring are deployment acceptance, not browser acceptance.
+The local session, CSRF, nonce, Host, redaction, bounded scan deadlines, warning/confirmed aggregation, cryptographic feed verification and cross-provider report contract are automated. Public DNS/TLS/gateway/monitoring are deployment acceptance, not browser acceptance.
 
 ## Not applicable
 
