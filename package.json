@@ -14,6 +14,7 @@
     "test:report": "npm run test:report -w server",
     "check:web": "node scripts/engineering/check-web-assets.mjs",
     "smoke:server": "node scripts/engineering/smoke-server.mjs",
+    "smoke:community": "node scripts/engineering/smoke-community.mjs",
     "audit:inventory": "node scripts/engineering/audit-dependencies.mjs",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
     "gate": "node scripts/engineering/run-gate.mjs",
