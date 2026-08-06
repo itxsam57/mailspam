@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createServer } from "../../server/src/api/server.js";
+import { createCommunityServiceServer } from "../../server/src/community/server.js";
 import { CommunityNetwork } from "../../server/src/community/network.js";
 import type { CommunityReportContext } from "../../server/src/community/types.js";
 
@@ -23,7 +23,7 @@ function directory(label: string): string {
 }
 
 async function start(network: CommunityNetwork): Promise<string> {
-  const server = createServer({ community: network }).listen(0, "127.0.0.1");
+  const server = createCommunityServiceServer(network).listen(0, "127.0.0.1");
   servers.push(server);
   await new Promise<void>((resolve, reject) => {
     server.once("listening", resolve);
@@ -55,6 +55,10 @@ describe("cross-instance community shield", () => {
     });
     const baseUrl = await start(central);
     const publicInfo = central.publicInfo();
+
+    expect((await fetch(`${baseUrl}/health`)).status).toBe(200);
+    expect((await fetch(`${baseUrl}/api/accounts`)).status).toBe(404);
+    expect((await fetch(baseUrl)).status).toBe(404);
 
     for (let index = 1; index <= 3; index++) {
       const client = new CommunityNetwork({
