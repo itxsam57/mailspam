@@ -165,6 +165,7 @@ export function messageIntentLayer(envelope: CanonicalEnvelope): LayerResult {
   }
 
   const firstContact = envelope.threadContext.isFirstContact;
+  const senderPreviouslySeenInScan = envelope.threadContext.senderPreviouslySeenInScan === true;
   const fromDomain = envelope.from.domain ?? "";
   const firstContactFreeMail = firstContact && isSharedMailboxDomain(fromDomain);
   if (firstContact && FIRST_CONTACT_ROMANCE_PATTERN.test(subject)) {
@@ -256,6 +257,7 @@ export function messageIntentLayer(envelope: CanonicalEnvelope): LayerResult {
 
   if (
     firstContact &&
+    !senderPreviouslySeenInScan &&
     !hasAuthenticatedBulkMailContext(envelope) &&
     /(?:flash reward|claim yours|claim your free|(?:free|complimentary).{0,35}(?:medicare )?(?:kit|tool set|gift|reward))/i.test(subject)
   ) {

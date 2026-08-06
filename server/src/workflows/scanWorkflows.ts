@@ -1,5 +1,5 @@
 import type { EmailAdapter, FolderDescriptor } from "../canonical/adapter.js";
-import type { ContentCoverage, NormalizedFolder, ParseStatus } from "../canonical/envelope.js";
+import type { CanonicalEnvelope, ContentCoverage, NormalizedFolder, ParseStatus } from "../canonical/envelope.js";
 import type { Verdict } from "../engine/verdict.js";
 import type { PersonalPolicyStore } from "../engine/layers/personalRules.js";
 import type { ThreatFeedCache } from "../engine/layers/globalIntelligence.js";
@@ -120,6 +120,20 @@ function isSuspicious(result: ScanResult): boolean {
   return result.scored.verdict !== "safe";
 }
 
+/**
+ * Adds only scan-local recurrence evidence. This does not trust the sender and
+ * does not change the canonical first-contact flag used by high-confidence
+ * scam patterns. It only lets narrowly scoped rules distinguish a recurring
+ * subscription sender from a genuinely unseen sender.
+ */
+function annotateSenderRecurrence(envelope: CanonicalEnvelope, seenSenderAddresses: Set<string>): void {
+  const senderAddress = envelope.from.address?.trim().toLowerCase() ?? "";
+  envelope.threadContext.senderPreviouslySeenInScan = Boolean(
+    senderAddress && seenSenderAddresses.has(senderAddress),
+  );
+  if (senderAddress) seenSenderAddresses.add(senderAddress);
+}
+
 const DEFAULT_PAGE_SIZE = 50;
 
 export async function* quickScan(
@@ -138,6 +152,7 @@ export async function* quickScan(
     }
 
     const counters = emptyCounters();
+    const seenSenderAddresses = new Set<string>();
     const boundedPageSize = Math.max(1, Math.floor(pageSize));
     const boundedLimit = Math.max(1, Math.floor(maxMessages));
     let cursor: string | null = null;
@@ -154,6 +169,7 @@ export async function* quickScan(
 
       for (const envelope of page.envelopes) {
         if (signal.aborted) return;
+        annotateSenderRecurrence(envelope, seenSenderAddresses);
         const result = scanMessage(envelope, deps);
         tally(counters, result);
         diagnosticSummaries.push(diagnosticSummary(result));
@@ -190,6 +206,7 @@ export async function* fullMailboxAudit(
   const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
   await adapter.connect(signal);
   const seenMessageIds = new Set<string>();
+  const seenSenderAddresses = new Set<string>();
   const counters = emptyCounters();
 
   try {
@@ -215,6 +232,7 @@ export async function* fullMailboxAudit(
           if (signal.aborted) return;
           if (seenMessageIds.has(envelope.messageId)) continue;
           seenMessageIds.add(envelope.messageId);
+          annotateSenderRecurrence(envelope, seenSenderAddresses);
           const result = scanMessage(envelope, deps);
           tally(counters, result);
           diagnosticSummaries.push(diagnosticSummary(result));
@@ -253,6 +271,7 @@ export async function* spamJunkScan(
     }
 
     const counters = emptyCounters();
+    const seenSenderAddresses = new Set<string>();
     let cursor: string | null = null;
     let done = false;
 
@@ -264,6 +283,7 @@ export async function* spamJunkScan(
 
       for (const envelope of page.envelopes) {
         if (signal.aborted) return;
+        annotateSenderRecurrence(envelope, seenSenderAddresses);
         const result = scanMessage(envelope, deps);
         tally(counters, result);
         diagnosticSummaries.push(diagnosticSummary(result));

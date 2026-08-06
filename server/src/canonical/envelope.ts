@@ -61,6 +61,12 @@ export interface ThreadContext {
   isFirstContact: boolean;
   threadContinuityBroken: boolean;
   replyToChangedMidThread: boolean;
+  /**
+   * Ephemeral, account-local scan evidence. True only after the same normalized
+   * sender address has already appeared earlier in the current scan. It is
+   * never persisted, uploaded, or used as a sender allowlist.
+   */
+  senderPreviouslySeenInScan?: boolean;
 }
 
 export interface CanonicalEnvelope {
