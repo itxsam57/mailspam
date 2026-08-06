@@ -60,6 +60,11 @@ export function createLocalDesktopServer(options: {
         '<script src="/scan-monitor.js"></script><script src="/unsubscribe-monitor.js"></script></body>',
       );
 
+    // EventSource cannot attach the protected-read CSRF header. Its scan GET is
+    // authenticated by the HttpOnly local session and a same-origin Referer.
+    // Keep cross-origin referrers suppressed while allowing that browser-native
+    // same-origin proof to reach requireScanSource().
+    res.setHeader("Referrer-Policy", "same-origin");
     res.setHeader(
       "Content-Security-Policy",
       [
