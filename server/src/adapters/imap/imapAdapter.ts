@@ -10,9 +10,12 @@ import type { CanonicalEnvelope, NormalizedFolder, Provider } from "../../canoni
 import { normalizeRawMessage } from "../../util/mimeNormalize.js";
 import { normalizeImapFolder, providerFolderPath } from "./folderNames.js";
 import {
-  buildSyntheticRawMessage,
-  decodeTextBuffer,
+  boundedTextPartWasTruncated,
+  buildSyntheticReadableMessage,
+  decodeFetchedTextPart,
   inspectBodyStructure,
+  type ReadablePartSelection,
+  type ReadableTextPart,
 } from "./mimeParts.js";
 
 export interface ImapCredentials {
@@ -23,15 +26,15 @@ export interface ImapCredentials {
   appPassword: string;
 }
 
-const MAX_TEXT_PART_BYTES = 24 * 1024;
-const MIN_USEFUL_PLAIN_TEXT_CHARS = 80;
+const MAX_ENCODED_TEXT_PART_BYTES = 48 * 1024;
+const MAX_DECODED_TEXT_CHARS = 24 * 1024;
 const MIN_BOUNDED_VISIBLE_CHARS = 500;
 const CONNECT_TIMEOUT_MS = 25_000;
 const FOLDER_TIMEOUT_MS = 20_000;
 const LOCK_TIMEOUT_MS = 20_000;
 const SEARCH_TIMEOUT_MS = 20_000;
 const METADATA_TIMEOUT_MS = 30_000;
-const TEXT_PART_TIMEOUT_MS = 20_000;
+const TEXT_PART_TIMEOUT_MS = 15_000;
 const MOVE_TIMEOUT_MS = 30_000;
 const SOCKET_IDLE_TIMEOUT_MS = 45_000;
 
@@ -73,43 +76,113 @@ function decodeCursor(cursor: string | null): ImapCursor { if (!cursor) return {
 function encodeNativeId(folder: string, uid: number): string { return Buffer.from(JSON.stringify({ folder, uid })).toString("base64url"); }
 function decodeNativeId(value: string): { folder: string; uid: number } | null { try { const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")); return typeof parsed.folder === "string" && Number.isInteger(parsed.uid) ? parsed : null; } catch { return null; } }
 
-async function collectStream(stream: AsyncIterable<Buffer | Uint8Array | string>, signal: AbortSignal): Promise<Buffer> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of stream) {
-    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-  return Buffer.concat(chunks);
+interface ImapTextFetchClient {
+  fetchOne: (range: string | number, query: Record<string, unknown>, options?: Record<string, unknown>) => Promise<any>;
 }
 
-async function downloadTextPart(
-  client: ImapFlow,
+export interface BoundedReadableBodies {
+  plain: string | null;
+  html: string | null;
+  truncated: boolean;
+  notes: string[];
+}
+
+function uniqueReadableParts(selection: ReadablePartSelection): ReadableTextPart[] {
+  const byPart = new Map<string, ReadableTextPart>();
+  for (const part of [selection.plain, selection.html]) {
+    if (part && !byPart.has(part.part.toLowerCase())) byPart.set(part.part.toLowerCase(), part);
+  }
+  return [...byPart.values()];
+}
+
+function bodyPartBuffer(parts: unknown, key: string): Buffer | null {
+  if (!(parts instanceof Map)) return null;
+  const value = parts.get(key) ?? parts.get(key.toLowerCase()) ?? parts.get(key.toUpperCase());
+  if (Buffer.isBuffer(value)) return value;
+  if (value instanceof Uint8Array) return Buffer.from(value);
+  return null;
+}
+
+/**
+ * Fetches all selected readable alternatives for one message in one bounded
+ * IMAP command. This avoids serial plain-then-HTML downloads and ensures HTML
+ * link destinations are available even when the plain alternative is long.
+ */
+export async function fetchBoundedReadableBodies(
+  client: ImapTextFetchClient,
   uid: number,
-  part: string,
+  selection: ReadablePartSelection,
   signal: AbortSignal,
-): Promise<{ text: string; contentType: "text/plain" | "text/html"; truncated: boolean }> {
-  const stage = `text-part download for UID ${uid}`;
-  const download = await withImapDeadline(
-    client.download(uid, part, { uid: true, maxBytes: MAX_TEXT_PART_BYTES }) as Promise<any>,
+): Promise<BoundedReadableBodies> {
+  const requestedParts = uniqueReadableParts(selection);
+  if (!requestedParts.length) {
+    return {
+      plain: null,
+      html: null,
+      truncated: false,
+      notes: ["No readable text/plain or text/html MIME part was available."],
+    };
+  }
+
+  const response = await withImapDeadline(
+    client.fetchOne(
+      uid,
+      {
+        bodyParts: requestedParts.map((part) => ({
+          key: part.part,
+          start: 0,
+          maxLength: MAX_ENCODED_TEXT_PART_BYTES,
+        })),
+      },
+      { uid: true, binary: false },
+    ),
     signal,
-    stage,
+    `bounded readable MIME fetch for UID ${uid}`,
     TEXT_PART_TIMEOUT_MS,
   );
-  const buffer = await withImapDeadline(
-    collectStream(download.content, signal),
-    signal,
-    `${stage} stream`,
-    TEXT_PART_TIMEOUT_MS,
-  );
-  const contentType = String(download.meta?.contentType ?? "text/plain").toLowerCase() === "text/html"
-    ? "text/html"
-    : "text/plain";
-  const expectedSize = Number(download.meta?.expectedSize ?? buffer.length);
-  return {
-    text: decodeTextBuffer(buffer, download.meta?.charset),
-    contentType,
-    truncated: Number.isFinite(expectedSize) && expectedSize > buffer.length,
+
+  const result: BoundedReadableBodies = {
+    plain: null,
+    html: null,
+    truncated: false,
+    notes: [],
   };
+
+  if (!response || !(response.bodyParts instanceof Map)) {
+    result.notes.push("The provider did not return the requested readable MIME parts.");
+    return result;
+  }
+
+  for (const part of requestedParts) {
+    const rawPart = bodyPartBuffer(response.bodyParts, part.part);
+    if (!rawPart) {
+      result.notes.push(`The provider did not return the selected ${part.contentType} part.`);
+      continue;
+    }
+
+    try {
+      const decoded = await decodeFetchedTextPart(rawPart, part, MAX_DECODED_TEXT_CHARS);
+      const truncated = boundedTextPartWasTruncated({
+        declaredPartBytes: part.sizeBytes,
+        fetchedRawBytes: rawPart.length,
+        decodedChars: decoded.decodedLength,
+        rawByteLimit: MAX_ENCODED_TEXT_PART_BYTES,
+        decodedCharLimit: MAX_DECODED_TEXT_CHARS,
+      }) || decoded.truncated;
+      result.truncated ||= truncated;
+
+      if (part.contentType === "text/plain") result.plain = decoded.text;
+      else result.html = decoded.text;
+    } catch (error) {
+      result.notes.push(`The selected ${part.contentType} part could not be decoded: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  if (!result.plain?.trim() && !result.html?.trim() && !result.notes.length) {
+    result.notes.push("The provider returned readable MIME parts, but they contained no decoded text.");
+  }
+
+  return result;
 }
 
 function fallbackHeaders(uid: number): Buffer {
@@ -220,38 +293,19 @@ export class ImapAdapter implements EmailAdapter {
         const headers = message?.headers ?? fallbackHeaders(uid);
         const selection = inspectBodyStructure(message?.bodyStructure);
 
-        let body = "";
-        let contentType: "text/plain" | "text/html" = "text/plain";
-        let truncated = false;
-        const parseNotes: string[] = [];
-
+        let bodies: BoundedReadableBodies = { plain: null, html: null, truncated: false, notes: [] };
         try {
-          if (selection.plainPart) {
-            const plain = await downloadTextPart(client, uid, selection.plainPart, signal);
-            body = plain.text;
-            contentType = "text/plain";
-            truncated = plain.truncated;
-
-            if (body.trim().length < MIN_USEFUL_PLAIN_TEXT_CHARS && selection.htmlPart) {
-              const html = await downloadTextPart(client, uid, selection.htmlPart, signal);
-              body = html.text;
-              contentType = "text/html";
-              truncated = html.truncated;
-            }
-          } else if (selection.htmlPart) {
-            const html = await downloadTextPart(client, uid, selection.htmlPart, signal);
-            body = html.text;
-            contentType = "text/html";
-            truncated = html.truncated;
-          } else {
-            parseNotes.push("No readable text/plain or text/html MIME part was available.");
-          }
+          bodies = await fetchBoundedReadableBodies(client as unknown as ImapTextFetchClient, uid, selection, signal);
         } catch (error) {
           if (signal.aborted || error instanceof ImapCommandTimeoutError) throw error;
-          parseNotes.push(`Readable MIME part could not be downloaded: ${(error as Error).message}`);
+          bodies.notes.push(`Readable MIME content could not be downloaded: ${error instanceof Error ? error.message : String(error)}`);
         }
 
-        const syntheticRaw = buildSyntheticRawMessage({ headers, body, contentType });
+        const syntheticRaw = buildSyntheticReadableMessage({
+          headers,
+          plainBody: bodies.plain,
+          htmlBody: bodies.html,
+        });
         const envelope = await normalizeRawMessage(syntheticRaw, {
           provider: this.provider,
           accountProof: this.accountProof,
@@ -262,19 +316,31 @@ export class ImapAdapter implements EmailAdapter {
         envelope.attachments = selection.attachments;
         envelope.diagnostics.sizeBytes = Number(message?.size ?? syntheticRaw.length);
 
+        const hasReadableBody = Boolean(bodies.plain?.trim() || bodies.html?.trim());
         const readableText = `${envelope.textPreview ?? ""} ${envelope.htmlSignals?.extractedText ?? ""}`.trim();
-        if (!body.trim() || parseNotes.length) {
+        if (!hasReadableBody) {
           envelope.parseStatus = "partial";
           envelope.diagnostics.contentCoverage = "insufficient";
-          envelope.parseNotes.push(...parseNotes);
-        } else if (truncated) {
+          envelope.parseNotes.push(...(bodies.notes.length
+            ? bodies.notes
+            : ["No decoded readable message text was returned by the provider."]));
+        } else if (bodies.truncated) {
           envelope.parseStatus = "partial";
           envelope.diagnostics.contentCoverage = readableText.length >= MIN_BOUNDED_VISIBLE_CHARS
             ? "bounded_sufficient"
             : "insufficient";
-          envelope.parseNotes.push(`Readable text was bounded to ${MAX_TEXT_PART_BYTES} bytes.`);
+          envelope.parseNotes.push(`Readable MIME content was bounded to ${MAX_DECODED_TEXT_CHARS} decoded characters per alternative.`);
+          envelope.parseNotes.push(...bodies.notes);
+        } else if (bodies.notes.length) {
+          envelope.parseStatus = "partial";
+          envelope.diagnostics.contentCoverage = readableText.length >= MIN_BOUNDED_VISIBLE_CHARS
+            ? "bounded_sufficient"
+            : "insufficient";
+          envelope.parseNotes.push(...bodies.notes);
         } else {
+          envelope.parseStatus = "complete";
           envelope.diagnostics.contentCoverage = "complete";
+          envelope.parseNotes = envelope.parseNotes.filter((note) => note !== "No text or HTML body could be extracted.");
         }
         envelopes.push(envelope);
       }
