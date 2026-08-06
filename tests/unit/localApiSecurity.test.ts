@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { AddressInfo } from "node:net";
-import type { Server } from "node:http";
+import { request as httpRequest, type Server } from "node:http";
 import { createLocalDesktopServer } from "../../server/src/api/localDesktopServer.js";
 import { LocalSecurityManager, redactSensitiveText } from "../../server/src/api/localSecurity.js";
 
@@ -41,6 +41,24 @@ function headers(context: BrowserContext, overrides: Record<string, string> = {}
     "X-Email-Shield-CSRF": context.csrf,
     ...overrides,
   };
+}
+
+async function rawStatus(baseUrl: string, requestHeaders: Record<string, string>): Promise<number> {
+  const url = new URL(baseUrl);
+  return new Promise<number>((resolve, reject) => {
+    const request = httpRequest({
+      hostname: url.hostname,
+      port: Number(url.port),
+      path: "/",
+      method: "GET",
+      headers: requestHeaders,
+    }, (response) => {
+      response.resume();
+      response.on("end", () => resolve(response.statusCode ?? 0));
+    });
+    request.on("error", reject);
+    request.end();
+  });
 }
 
 async function nonce(context: BrowserContext): Promise<string> {
@@ -100,7 +118,7 @@ describe("local desktop security boundary", () => {
 
   it("rejects DNS rebinding, forwarded requests, and another local origin", async () => {
     const context = await start();
-    expect((await fetch(context.baseUrl, { headers: { Host: "attacker.example" } })).status).toBe(421);
+    expect(await rawStatus(context.baseUrl, { Host: "attacker.example" })).toBe(421);
     expect((await fetch(context.baseUrl, { headers: { "X-Forwarded-Host": "attacker.example" } })).status).toBe(421);
     expect((await fetch(`${context.baseUrl}/api/security/mutation-token`, {
       method: "POST",
@@ -148,11 +166,13 @@ describe("local desktop security boundary", () => {
     });
     const stream = await scan.text();
     expect(scan.status).toBe(200);
-    const progress = stream.split(/\r?\n/)
+    const payloads = stream.split(/\r?\n/)
       .filter((line) => line.startsWith("data: "))
-      .map((line) => { try { return JSON.parse(line.slice(6)); } catch { return null; } })
-      .find((value) => value?.diagnosticSummaries?.length);
-    const actionToken = progress?.diagnosticSummaries?.[0]?.reviewAction?.token;
+      .map((line) => { try { return JSON.parse(line.slice(6)); } catch { return null; } });
+    const actionToken = payloads
+      .flatMap((value) => value?.diagnosticSummaries ?? [])
+      .find((summary) => typeof summary?.reviewAction?.token === "string")
+      ?.reviewAction?.token;
     expect(actionToken).toMatch(/^[0-9a-f-]{36}$/i);
 
     const first = await mutate(
