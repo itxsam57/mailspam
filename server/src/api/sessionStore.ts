@@ -102,9 +102,9 @@ export class SessionStore {
     alreadyApproved: boolean;
     senderTrusted: boolean;
     canMoveToSpam: boolean;
-    /** Compatibility alias consumed by the existing Safe audit row renderer. */
+    /** Compatibility alias consumed by the Safe audit row renderer. */
     canReportSpam: boolean;
-    communityReported: boolean;
+    scamAlreadyReported: boolean;
   } {
     if (session.reviewActions.size >= MAX_SCAN_ACTIONS) {
       throw new Error("Too many message review actions are registered for this scan.");
@@ -127,7 +127,7 @@ export class SessionStore {
       senderTrusted: Boolean(context.senderAddress && session.personalPolicy.isTrustedSender(context.senderAddress)),
       canMoveToSpam,
       canReportSpam: canMoveToSpam,
-      communityReported: session.personalPolicy.isReportedCampaign(context.communityReport.campaignFingerprint),
+      scamAlreadyReported: session.personalPolicy.isReportedCampaign(context.communityReport.campaignFingerprint),
     };
   }
 
