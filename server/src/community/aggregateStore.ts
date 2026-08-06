@@ -28,8 +28,12 @@ const AAD = Buffer.from("email-shield-community-reports-v1", "utf8");
 const MAX_REPORTS_PER_REPORTER_PER_DAY = 50;
 const MAX_CAMPAIGNS = 100_000;
 const MAX_INDICATORS_PER_REPORT = 32;
+const MAX_REPORT_AGE_MS = 30 * 24 * 60 * 60_000;
+const MAX_FUTURE_SKEW_MS = 5 * 60_000;
+const HUMAN_REPORT_BASE_WEIGHT = 5;
 
 interface ReporterRecord {
+  /** Server acceptance time, never a client-controlled rate-limit timestamp. */
   reportedAt: string;
   evidenceScore: number;
   verdict: CommunityReportSubmission["verdict"];
@@ -91,7 +95,7 @@ function verdictBonus(verdict: CommunityReportSubmission["verdict"]): number {
 }
 
 function reporterWeight(record: ReporterRecord): number {
-  return clampScore(record.evidenceScore) + verdictBonus(record.verdict);
+  return HUMAN_REPORT_BASE_WEIGHT + clampScore(record.evidenceScore) + verdictBonus(record.verdict);
 }
 
 function isStrong(record: ReporterRecord): boolean {
@@ -133,7 +137,12 @@ function validateSubmission(input: CommunityReportSubmission): CommunityReportSu
   if (input.schemaVersion !== 1) throw new Error("Unsupported community report schema.");
   if (!/^[a-f0-9]{64}$/.test(input.reporterProof)) throw new Error("Reporter proof is invalid.");
   if (!/^[a-f0-9]{64}$/.test(input.campaignFingerprint)) throw new Error("Campaign fingerprint is invalid.");
-  if (!Number.isFinite(Date.parse(input.reportedAt))) throw new Error("Report timestamp is invalid.");
+  const reportedAt = Date.parse(input.reportedAt);
+  const now = Date.now();
+  if (!Number.isFinite(reportedAt)) throw new Error("Report timestamp is invalid.");
+  if (reportedAt > now + MAX_FUTURE_SKEW_MS || reportedAt < now - MAX_REPORT_AGE_MS) {
+    throw new Error("Report timestamp is outside the accepted submission window.");
+  }
   if (!Array.isArray(input.indicators) || input.indicators.length === 0 || input.indicators.length > MAX_INDICATORS_PER_REPORT) {
     throw new Error("Community report indicators are invalid.");
   }
@@ -158,7 +167,7 @@ function validateSubmission(input: CommunityReportSubmission): CommunityReportSu
     schemaVersion: 1,
     reporterProof: input.reporterProof,
     campaignFingerprint: input.campaignFingerprint,
-    reportedAt: new Date(input.reportedAt).toISOString(),
+    reportedAt: new Date(reportedAt).toISOString(),
     verdict: input.verdict,
     evidenceScore: clampScore(input.evidenceScore),
     evidenceCodes: [...new Set((input.evidenceCodes ?? [])
@@ -183,7 +192,8 @@ export class EncryptedCommunityAggregateStore {
   accept(input: CommunityReportSubmission): CommunityReportReceipt {
     const report = validateSubmission(input);
     const database = this.readDatabase();
-    const nowMs = Date.parse(report.reportedAt);
+    const acceptedAt = new Date().toISOString();
+    const nowMs = Date.parse(acceptedAt);
     const dayAgo = nowMs - 24 * 60 * 60_000;
     let reportsToday = 0;
     for (const campaign of Object.values(database.campaigns)) {
@@ -201,8 +211,8 @@ export class EncryptedCommunityAggregateStore {
     }
 
     const campaign: CampaignRecord = existing ?? {
-      firstSeen: report.reportedAt,
-      lastSeen: report.reportedAt,
+      firstSeen: acceptedAt,
+      lastSeen: acceptedAt,
       reporters: {},
       indicatorReporters: {},
       evidenceCodes: {},
@@ -210,14 +220,14 @@ export class EncryptedCommunityAggregateStore {
     const previousStatus = statusFor(campaign, this.thresholds);
     const previous = campaign.reporters[report.reporterProof];
     campaign.reporters[report.reporterProof] = {
-      reportedAt: report.reportedAt,
+      reportedAt: acceptedAt,
       evidenceScore: Math.max(previous?.evidenceScore ?? 0, report.evidenceScore),
-      verdict: reporterWeight({ reportedAt: report.reportedAt, evidenceScore: report.evidenceScore, verdict: report.verdict }) >=
-        reporterWeight(previous ?? { reportedAt: report.reportedAt, evidenceScore: 0, verdict: "safe" })
+      verdict: reporterWeight({ reportedAt: acceptedAt, evidenceScore: report.evidenceScore, verdict: report.verdict }) >=
+        reporterWeight(previous ?? { reportedAt: acceptedAt, evidenceScore: 0, verdict: "safe" })
         ? report.verdict
         : previous!.verdict,
     };
-    campaign.lastSeen = report.reportedAt;
+    campaign.lastSeen = acceptedAt;
 
     for (const indicator of report.indicators) {
       const key = indicatorKey(indicator);
