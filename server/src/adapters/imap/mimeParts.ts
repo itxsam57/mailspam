@@ -246,7 +246,7 @@ export async function decodeFetchedTextPart(
     ...(transferEncoding ? [`Content-Transfer-Encoding: ${transferEncoding}`] : []),
     "MIME-Version: 1.0",
     "",
-  ].join("\r\n");
+  ].join("\r\n") + "\r\n";
   const parsed = await simpleParser(Buffer.concat([Buffer.from(headers, "utf8"), rawPart]));
   const decoded = part.contentType === "text/html"
     ? (typeof parsed.html === "string" ? parsed.html : parsed.text ?? "")
