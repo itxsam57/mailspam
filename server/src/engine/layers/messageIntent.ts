@@ -107,6 +107,14 @@ function pushUnique(evidence: LayerResult["evidence"], item: LayerResult["eviden
   if (!evidence.some((existing) => existing.code === item.code)) evidence.push(item);
 }
 
+function hasAuthenticatedBulkMailContext(envelope: CanonicalEnvelope): boolean {
+  return hasAuthenticatedOrganizationalIdentity(envelope) && Boolean(
+    envelope.listHeaders.listId ||
+    envelope.listHeaders.listUnsubscribe ||
+    envelope.listHeaders.listUnsubscribePost,
+  );
+}
+
 export function messageIntentLayer(envelope: CanonicalEnvelope): LayerResult {
   const linkText = envelope.links.map((link) => `${link.visibleText ?? ""}\n${link.rawUrl}`).join("\n");
   const haystack = `${envelope.subject}\n${envelope.textPreview ?? ""}\n${envelope.htmlSignals?.extractedText ?? ""}\n${linkText}`;
@@ -248,6 +256,7 @@ export function messageIntentLayer(envelope: CanonicalEnvelope): LayerResult {
 
   if (
     firstContact &&
+    !hasAuthenticatedBulkMailContext(envelope) &&
     /(?:flash reward|claim yours|claim your free|(?:free|complimentary).{0,35}(?:medicare )?(?:kit|tool set|gift|reward))/i.test(subject)
   ) {
     pushUnique(evidence, {

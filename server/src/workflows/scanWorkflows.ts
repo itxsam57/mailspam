@@ -1,5 +1,5 @@
 import type { EmailAdapter, FolderDescriptor } from "../canonical/adapter.js";
-import type { NormalizedFolder, ParseStatus } from "../canonical/envelope.js";
+import type { ContentCoverage, NormalizedFolder, ParseStatus } from "../canonical/envelope.js";
 import type { Verdict } from "../engine/verdict.js";
 import type { PersonalPolicyStore } from "../engine/layers/personalRules.js";
 import type { ThreatFeedCache } from "../engine/layers/globalIntelligence.js";
@@ -47,6 +47,8 @@ export interface ScanActionContext {
   communityReport: CommunityReportContext;
 }
 
+export type DiagnosticParseStatus = ParseStatus | "bounded sufficient";
+
 export interface ScanDiagnosticSummary {
   subject: string;
   fromAddress: string | null;
@@ -54,7 +56,10 @@ export interface ScanDiagnosticSummary {
   folder: string;
   verdict: Verdict;
   score: number;
-  parseStatus: ParseStatus;
+  /** Human-facing parser/coverage state used by the local diagnostic table. */
+  parseStatus: DiagnosticParseStatus;
+  /** Machine-readable coverage remains separate from MIME parser integrity. */
+  contentCoverage: ContentCoverage;
   parseNotes: string[];
   evidenceCodes: string[];
   /** Server-only until converted into opaque action tokens. */
@@ -65,6 +70,12 @@ export interface ScanDiagnosticSummary {
 }
 
 function diagnosticSummary(result: ScanResult): ScanDiagnosticSummary {
+  const contentCoverage = result.envelope.diagnostics.contentCoverage;
+  const boundedSufficient = contentCoverage === "bounded_sufficient";
+  const parseNotes = result.envelope.parseNotes.filter((note) =>
+    !boundedSufficient || !/^Readable MIME content was bounded to \d+ decoded characters per alternative\.$/.test(note),
+  );
+
   return {
     subject: result.envelope.subject || "(no subject)",
     fromAddress: result.envelope.from.address,
@@ -72,8 +83,9 @@ function diagnosticSummary(result: ScanResult): ScanDiagnosticSummary {
     folder: result.envelope.providerFolderName,
     verdict: result.scored.verdict,
     score: result.scored.score,
-    parseStatus: result.envelope.parseStatus,
-    parseNotes: [...result.envelope.parseNotes],
+    parseStatus: boundedSufficient ? "bounded sufficient" : result.envelope.parseStatus,
+    contentCoverage,
+    parseNotes,
     evidenceCodes: result.scored.evidence
       .filter((item) => item.scoreContribution !== 0)
       .map((item) => item.code),

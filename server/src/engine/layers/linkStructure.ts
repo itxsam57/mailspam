@@ -1,4 +1,4 @@
-import type { CanonicalEnvelope } from "../../canonical/envelope.js";
+import type { CanonicalEnvelope, LinkInfo } from "../../canonical/envelope.js";
 import { organizationalDomain, sameOrganizationalDomain } from "../../util/domainRelation.js";
 import {
   authenticatedSenderIdentityDomains,
@@ -16,6 +16,9 @@ const SHORTENERS = new Set([
   "bit.ly", "tinyurl.com", "t.co", "goo.gl", "ow.ly", "is.gd", "buff.ly",
   "rebrand.ly", "cutt.ly", "shorturl.at", "rb.gy",
 ]);
+
+const NON_NAVIGATING_SCHEMES = new Set(["cid:", "mailto:", "sms:", "tel:"]);
+const UNSAFE_SCHEMES = new Set(["data:", "file:", "javascript:", "vbscript:"]);
 
 function isRawIp(host: string): boolean {
   return /^\d{1,3}(\.\d{1,3}){3}$/.test(host) || (/^[0-9a-f:]+$/i.test(host) && host.includes(":"));
@@ -44,6 +47,43 @@ function displayedUrl(text: string | null): URL | null {
   catch { return null; }
 }
 
+function normalizedLinkValue(link: LinkInfo): string {
+  return (link.normalizedUrl || link.rawUrl).trim();
+}
+
+function explicitScheme(value: string): string | null {
+  return value.match(/^([a-z][a-z0-9+.-]*:)/i)?.[1]?.toLowerCase() ?? null;
+}
+
+function isNonNavigatingReference(link: LinkInfo): boolean {
+  const values = [link.rawUrl.trim(), normalizedLinkValue(link)];
+  return values.some((value) => !value || value.startsWith("#"))
+    || values.some((value) => {
+      const scheme = explicitScheme(value);
+      return scheme !== null && NON_NAVIGATING_SCHEMES.has(scheme);
+    });
+}
+
+function isAuthenticatedBulkRedirect(
+  envelope: CanonicalEnvelope,
+  senderIdentities: string[],
+  link: LinkInfo,
+  displayed: URL,
+  actual: URL,
+): boolean {
+  const hasBulkMailMetadata = Boolean(
+    envelope.listHeaders.listId ||
+    envelope.listHeaders.listUnsubscribe ||
+    envelope.listHeaders.listUnsubscribePost,
+  );
+  if (!hasBulkMailMetadata || senderIdentities.length === 0) return false;
+  if (!senderIdentities.some((identity) => sameOrganizationalDomain(identity, displayed.hostname))) return false;
+  if (sensitiveActionText(link.visibleText)) return false;
+  if (actual.protocol !== "https:") return false;
+  if (isRawIp(actual.hostname) || isPunycode(actual.hostname)) return false;
+  return !actual.port || actual.port === "443";
+}
+
 export function linkStructureLayer(envelope: CanonicalEnvelope): LayerResult {
   const evidence: LayerResult["evidence"] = [];
   const seen = new Set<string>();
@@ -51,8 +91,23 @@ export function linkStructureLayer(envelope: CanonicalEnvelope): LayerResult {
   let actionMismatchRecorded = false;
 
   for (const link of envelope.links) {
+    if (isNonNavigatingReference(link)) continue;
+
+    const value = normalizedLinkValue(link);
+    const scheme = explicitScheme(value);
+    if (scheme && UNSAFE_SCHEMES.has(scheme)) {
+      addUniqueEvidence(evidence, seen, `UNSAFE_LINK_SCHEME:${scheme}`, {
+        layer: "link_structure",
+        code: "UNSAFE_LINK_SCHEME",
+        description: `Link uses unsafe scheme "${scheme.slice(0, -1)}" instead of a normal web destination.`,
+        scoreContribution: 4,
+        source: "local",
+      });
+      continue;
+    }
+
     let url: URL;
-    try { url = new URL(link.normalizedUrl); }
+    try { url = new URL(value); }
     catch {
       addUniqueEvidence(evidence, seen, `MALFORMED_URL:${link.rawUrl}`, {
         layer: "link_structure",
@@ -64,10 +119,25 @@ export function linkStructureLayer(envelope: CanonicalEnvelope): LayerResult {
       continue;
     }
 
-    const host = url.hostname.toLowerCase();
-    if (SHORTENERS.has(host)) {
-      addUniqueEvidence(evidence, seen, `URL_SHORTENER:${host}`, {
+    // Mail, phone, content-id and fragment references were filtered above.
+    // Other non-web schemes remain visible as low-weight evidence rather than
+     // being mislabeled as malformed URLs or silently ignored.
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      addUniqueEvidence(evidence, seen, `NON_WEB_LINK_SCHEME:${url.protocol}`, {
         layer: "link_structure",
+        code: "NON_WEB_LINK_SCHEME",
+        description: `Link uses non-web scheme "${url.protocol.slice(0, -1)}".`,
+        scoreContribution: 1,
+        source: "local",
+      });
+      continue;
+    }
+
+    const host = url.hostname.toLowerCase();
+    const linkIsSensitive = sensitiveActionText(link.visibleText);
+    if (SHORTENERS.has(host) && (senderIdentities.length === 0 || linkIsSensitive)) {
+      addUniqueEvidence(evidence, seen, `URL_SHORTENER:${host}`, {
+        layer: "link_structture",
         code: "URL_SHORTENER",
         description: `Link uses shortening service "${host}", which hides the real destination.`,
         scoreContribution: 1,
@@ -103,7 +173,10 @@ export function linkStructureLayer(envelope: CanonicalEnvelope): LayerResult {
     }
 
     const displayed = displayedUrl(link.visibleText);
-    if (displayed && !sameOrganizationalDomain(displayed.hostname, host)) {
+    const authenticatedBulkRedirect = displayed
+      ? isAuthenticatedBulkRedirect(envelope, senderIdentities, link, displayed, url)
+      : false;
+    if (displayed && !sameOrganizationalDomain(displayed.hostname, host) && !authenticatedBulkRedirect) {
       addUniqueEvidence(
         evidence,
         seen,
@@ -118,7 +191,7 @@ export function linkStructureLayer(envelope: CanonicalEnvelope): LayerResult {
       );
     }
 
-    if (!actionMismatchRecorded && senderIdentities.length && sensitiveActionText(link.visibleText)) {
+    if (!actionMismatchRecorded && senderIdentities.length && linkIsSensitive) {
       const destinationOrganization = organizationalDomain(host);
       const aligned = senderIdentities.some((identity) => sameOrganizationalDomain(identity, destinationOrganization));
       if (!aligned) {
