@@ -31,12 +31,18 @@ const requiredFiles = [
   "server/tsconfig.build.json",
   "server/vitest.config.ts",
   "server/src/index.ts",
+  "server/src/communityIndex.ts",
   "server/src/api/server.ts",
+  "server/src/community/server.ts",
+  "server/src/community/network.ts",
+  "server/src/community/signing.ts",
   "web/index.html",
   ".github/workflows/verify.yml",
   ".engineering/PROJECT_PROFILE.md",
   ".engineering/TEST_MATRIX.md",
   ".engineering/REGRESSION_REGISTER.md",
+  ".engineering/COMMUNITY_DEPLOYMENT.md",
+  "scripts/engineering/smoke-community.mjs",
 ];
 for (const path of requiredFiles) requireCondition(existsSync(resolve(root, path)), `Required repository file is missing: ${path}`);
 
@@ -55,22 +61,27 @@ requireCondition(serverPackage.type === "module", "Server workspace must remain 
 
 for (const script of [
   "preflight", "typecheck", "build", "test:unit", "test:integration",
-  "check:web", "smoke:server", "audit:inventory", "audit:prod", "gate", "verify", "dev", "start",
+  "check:web", "smoke:server", "smoke:community", "audit:inventory", "audit:prod",
+  "gate", "verify", "dev", "dev:community", "start", "start:community",
 ]) {
   requireCondition(typeof rootPackage.scripts?.[script] === "string", `Required root npm script is missing: ${script}`);
+}
+for (const script of ["dev", "dev:community", "start", "start:community", "typecheck", "build"]) {
+  requireCondition(typeof serverPackage.scripts?.[script] === "string", `Required server npm script is missing: ${script}`);
 }
 
 const tracked = git(["ls-files"]).split(/\r?\n/).filter(Boolean);
 const forbiddenTracked = tracked.filter((path) =>
   /(^|\/)\.env($|\.)/.test(path) && !path.endsWith(".env.example") ||
   /(^|\/)(personal-policy\.key|personal-policies\.enc\.json)$/.test(path) ||
+  /(^|\/)(community-(?:storage|reporter)\.key|community-(?:reports|outbox)\.enc\.json|community-feed-(?:private|public)\.pem|community-feed-cache\.json)$/.test(path) ||
   /(^|\/)(node_modules|dist|coverage|artifacts\/engineering)(\/|$)/.test(path)
 );
 requireCondition(forbiddenTracked.length === 0, `Generated, encrypted or secret files are tracked: ${forbiddenTracked.join(", ")}`);
 
-const textExtensions = /\.(?:ts|js|mjs|cjs|json|yml|yaml|md|html|css)$/i;
+const textExtensions = /\.(?:ts|js|mjs|cjs|json|yml|yaml|md|html|css|pem)$/i;
 const secretPatterns = [
-  { name: "private key", pattern: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/ },
+  { name: "private key", pattern: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/ },
   { name: "GitHub token", pattern: /\b(?:ghp|github_pat)_[A-Za-z0-9_]{20,}\b/ },
   { name: "OpenAI-style secret", pattern: /\bsk-[A-Za-z0-9_-]{20,}\b/ },
   { name: "Google API key", pattern: /\bAIza[0-9A-Za-z_-]{30,}\b/ },

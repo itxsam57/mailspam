@@ -1,50 +1,67 @@
 # Email Shield — Manual Browser Test Handoff
 
-This file is a source-controlled template. `npm run gate` creates the current report at `artifacts/engineering/MANUAL_TEST_HANDOFF.md`.
+This source-controlled template is used by `npm run gate` to create `artifacts/engineering/MANUAL_TEST_HANDOFF.md`.
 
 ## Handoff rule
 
-The owner performs only the visible checks listed in the generated report. Command-line build, typecheck, unit, integration, corpus, worker, browser-source, API smoke and dependency checks belong to the automated engineering gate.
+The owner performs only the visible checks listed below after the generated report says **READY**. Build, typecheck, unit/API, integration, corpus, Worker, cryptographic, browser-source, smoke and dependency checks belong to automation.
 
-Do not begin visible browser acceptance when the report status is **BLOCKED**.
+For each visible check record PASS/FAIL, browser/viewport and the exact visible failure. Never include credentials, mailbox contents or private provider identifiers.
 
-## Required evidence for each visible check
+## Visible checks
 
-- Result: `PASS` or `FAIL`
-- Browser and viewport/device
-- Exact visible error or unexpected behavior on failure
-- Screenshot only when it helps explain a visible defect
-- No mailbox password, app password, OAuth token, message body or private provider identifier
+1. **Initial render** — open `http://127.0.0.1:4173`; confirm one stable render without blank/frozen state, overlap or permanent loading.
+2. **Responsive layout** — inspect desktop and narrow/mobile width; all text, counters, tables, cards and actions remain readable and reachable.
+3. **Five-provider fixtures** — connect Gmail, iCloud, Outlook, Yahoo and Generic IMAP in Fixture mode; each completes Quick Scan visibly.
+4. **Scan presentation** — run Quick, Full Mailbox and Spam/Junk fixture scans; progress/counters/Safe audit/cards do not duplicate or remain stale.
+5. **Stop behavior** — stop a Full scan during progress and start another scan without refresh.
+6. **Action separation** — verify cards and Safe rows clearly distinguish:
+   - `Report Scam to Email Shield`
+   - `Move to Spam/Junk`
+   - `Mark this message Safe`
+   - `Trust sender`
+   - unsubscribe when available.
+7. **Report Scam privacy text** — on a controlled fixture message, press Report Scam and verify the dialog says:
+   - matching campaigns are protected locally;
+   - only privacy-reduced indicators are shared;
+   - body, subject, mailbox address, contacts, credentials, provider ID and raw private URLs are not uploaded;
+   - one report cannot globally block a sender.
+8. **Optional sender block** — continue the controlled Report Scam flow. Verify a second, separate choice asks whether to block the exact sender and warns against blocking shared delivery platforms. Choose Cancel unless deliberately testing with a direct fixture sender.
+9. **Local shield result** — accept Report Scam, do not move the message. Confirm visible success says the campaign is protected locally and shows candidate/queued/warning/confirmed community state truthfully.
+10. **Immediate memory** — rescan the same fixture mailbox. Confirm the matching campaign becomes Confirmed Threat with `LOCALLY_REPORTED_SCAM_CAMPAIGN`; the message remains in its folder because shared reporting alone does not move/delete it.
+11. **Provider movement remains separate** — on another controlled fixture message, choose Move to Spam/Junk. Confirm exactly one selected message disappears from Inbox and appears in Spam/Junk after rescan; no shared-report success is claimed.
+12. **Safe correction** — from Safe messages, report one controlled false-Safe fixture campaign. Rescan and verify immediate local campaign protection without exposing body/provider identifiers.
+13. **Adult campaign presentation** — explicit first-contact adult-site solicitation with external redirect/unrelated Reply-To is High Risk; ordinary ambiguous social introductions are not all promoted automatically.
+14. **Account isolation** — connect two fixture accounts, switch between them and confirm results/actions do not cross-link. A locally reported campaign applies only to the reporting account until signed community thresholds publish it.
+15. **Rapid interaction** — safely click scan/account/action controls rapidly; duplicate work is prevented/reported and the UI does not freeze.
+16. **Controlled live iCloud** — reconnect when an app-specific password is available and run the listed non-destructive scan. Credentials remain hidden. Perform Report Scam only on a message intentionally selected; it must not move mail unless Move to Spam/Junk is separately chosen.
+17. **Final state** — refresh once; no permanent blank page, uncaught visible error or broken layout.
 
-## Standard visible checks
+## Automated—not owner browser work
 
-1. **Initial render** — open `http://127.0.0.1:4173`; confirm the dashboard renders once without blank/frozen state, overlapping panels or permanent loading indicator.
-2. **Responsive layout** — inspect normal desktop width and a narrow/mobile width; confirm text, buttons, counters, tables and cards remain readable and reachable.
-3. **Fixture provider parity** — connect Gmail, iCloud, Outlook, Yahoo and Generic IMAP in Fixture mode; each must visibly appear as the selected account and complete a Quick Scan.
-4. **Scan presentation** — run Quick, Full Mailbox and Spam/Junk fixture scans; confirm progress, counters, Safe audit and warning cards update without duplicate or stale content.
-5. **Stop behavior** — start a Full scan, press Stop during progress, confirm controls return and another scan can start without refresh.
-6. **Safe audit** — open Safe messages; verify subject/sender/parse/evidence presentation, and that Trust sender, unsubscribe or Report Spam is shown only when available.
-7. **Review actions** — on fixture results, inspect Mark this message Safe, Trust sender, Report Spam, Block sender, Block domain, Move to Trash and unsubscribe confirmation text; cancel any action you do not intend to execute.
-8. **Exact-message Report Spam** — in a fixture Inbox/Quick result, choose one identifiable message and press Report Spam. Confirm the dialog states that only this message moves and the sender is not blocked. Accept it and verify success appears only after provider confirmation.
-9. **Report Spam result** — rerun the same fixture Quick Scan and confirm only the selected message disappeared from Inbox. Run Spam/Junk Scan and confirm that same subject appears there. Confirm unrelated messages remain. Report Spam must not appear on cards already scanned from Spam/Junk.
-10. **Safe Report Spam** — from the Safe audit, report one controlled fixture Safe message as Spam and repeat the exact-one Inbox/Spam verification. This confirms the user can correct a Safe classification without exposing provider identifiers.
-11. **Action feedback** — execute only controlled fixture actions; verify success appears only after confirmation and errors remain visible/retryable.
-12. **Adult campaign presentation** — confirm a fixture or controlled test item matching explicit adult-site solicitation plus external redirect/reply mismatch is shown High Risk with understandable evidence; ordinary non-explicit social introductions must not all be promoted to High Risk.
-13. **Account isolation** — connect two fixture accounts, switch between them and confirm selected-account state/results/actions do not visually cross-link.
-14. **Rapid interaction** — click scan/account/action controls rapidly but safely; confirm duplicate requests are prevented or reported and the UI does not freeze.
-15. **Controlled live iCloud** — when an iCloud app-specific password is available, reconnect and run the explicitly listed non-destructive live scan; verify credentials are not displayed after connection and visible progress/errors are truthful. Do not perform a live Report Spam action unless you intentionally want that exact real message moved into iCloud Junk.
-16. **Final browser state** — refresh once after the controlled tests; confirm no permanent blank page, uncaught visible error or broken layout.
+Automation proves:
 
-## Excluded from current acceptance
+- privacy-reduced payload contents;
+- all-five-provider report-context parity;
+- one-reporter deduplication;
+- 3-reporter warning and 5-reporter confirmed thresholds;
+- per-indicator support thresholds;
+- encrypted report/outbox/policy storage;
+- Ed25519 signing, trust, tamper and expiry rejection;
+- central API disabled by default and correct when explicitly enabled;
+- failed network report queuing and retry path;
+- signed feed enforcement in scan workers.
 
-- Guided Gmail OAuth
-- Guided Outlook OAuth
-- Production internet deployment
-- OS-keychain encryption
-- Production QR decoding
-- Privacy-reduced Email Shield community scam reporting/aggregation
-- Any destructive bulk mailbox operation not explicitly listed in the generated report
+## Excluded deployment acceptance
 
-Provider-level Report Spam for one exact message is included. It is separate from future Email Shield community reporting and does not claim provider-wide model training.
+These are registered deployment/product gaps, not browser failures:
 
-These exclusions are registered product gaps, not browser-test failures.
+- public DNS/TLS and hosting of the community service;
+- reverse-proxy/API-gateway rate limiting, DDoS and reporter-reputation controls;
+- operational monitoring, backup/restore and executed production key rotation;
+- guided Gmail/Outlook OAuth;
+- OS-keychain integration;
+- production QR decoding;
+- destructive bulk mailbox operations.
+
+The repository implements the self-hostable community client/server protocol. A public operating network requires the separate deployment controls in `.engineering/COMMUNITY_DEPLOYMENT.md`.

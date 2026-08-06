@@ -29,10 +29,11 @@ const steps = [
   npmStep("preflight", "Repository preflight", "preflight"),
   npmStep("typecheck", "Strict TypeScript typecheck", "typecheck"),
   npmStep("build", "Production build", "build"),
-  npmStep("unit", "Unit and regression tests", "test:unit"),
+  npmStep("unit", "Unit, API and regression tests", "test:unit"),
   npmStep("integration", "Integration, corpus and Worker tests", "test:integration"),
   npmStep("web", "Browser source, privacy and wiring checks", "check:web"),
-  npmStep("smoke", "Compiled server and API smoke", "smoke:server"),
+  npmStep("desktop-smoke", "Compiled desktop server and API smoke", "smoke:server"),
+  npmStep("community-smoke", "Compiled dedicated community service smoke", "smoke:community"),
 ];
 
 if (process.env.ENGINEERING_AUDIT !== "0") {
@@ -43,9 +44,9 @@ if (process.env.ENGINEERING_AUDIT !== "0") {
 const results = [];
 for (const step of steps) {
   const stepStarted = Date.now();
-  console.log(`\n============================================================`);
+  console.log("\n============================================================");
   console.log(`ENGINEERING GATE: ${step.name}`);
-  console.log(`============================================================`);
+  console.log("============================================================");
   const outcome = spawnSync(step.command, step.args, {
     cwd: root,
     env: process.env,
@@ -63,7 +64,9 @@ for (const step of steps) {
     signal: outcome.signal ?? null,
     error: outcome.error?.message ?? null,
   });
-  if (exitCode !== 0) console.error(`Gate stage failed: ${step.name} (exit ${exitCode}). Continuing to collect independent results.`);
+  if (exitCode !== 0) {
+    console.error(`Gate stage failed: ${step.name} (exit ${exitCode}). Continuing to collect independent results.`);
+  }
 }
 
 const finishedAt = new Date();
@@ -86,7 +89,7 @@ const preExistingFindings = [
     area: "strict test type safety",
     status: "fixed during automation installation",
     file: "tests/unit/messageIntentProfileLure.test.ts",
-    finding: "The existing CanonicalEnvelope test fixture omitted the required diagnostics.contentCoverage field. The former build plus Vitest gate did not typecheck test sources, so it remained hidden while production build and behavior tests passed.",
+    finding: "An existing CanonicalEnvelope test fixture omitted diagnostics.contentCoverage. The former build plus Vitest command did not typecheck test sources.",
     productionRuntimeImpact: "none observed",
   },
 ];
@@ -107,7 +110,7 @@ const report = {
   workingTreeCleanBeforeArtifacts: workingTree === "",
   baseline: {
     auditedFunctionalCommit: "18d7a7b657762afb79d304f1cfac4cecdae7468b",
-    formerGateStatus: "green on Ubuntu and Windows before this installation",
+    formerGateStatus: "green on Ubuntu and Windows before the automation installation",
     formerGateCoverage: "production build, Vitest behavior tests and Linux production dependency audit; no strict test-source typecheck",
     preExistingFindings,
   },
@@ -164,13 +167,13 @@ ${failureText}
 
 ${preExistingText}
 
-The audited functional baseline commit \`18d7a7b657762afb79d304f1cfac4cecdae7468b\` passed the former Ubuntu and Windows matrix. That does not mean the repository had no hidden defect: the former command did not typecheck test sources. PRE-001 is retained in this report even after correction so the installation history remains truthful.
+The audited baseline commit \`18d7a7b657762afb79d304f1cfac4cecdae7468b\` passed the former Ubuntu and Windows matrix. PRE-001 remains recorded even after correction so the installation history is truthful.
 
 ## Dependency advisory inventory
 
 ${dependencyText}
 
-Known incomplete product capabilities remain listed separately in \`.engineering/REGRESSION_REGISTER.md\`; they are not hidden inside a green command-line result.
+Known incomplete product and deployment capabilities remain listed in \`.engineering/REGRESSION_REGISTER.md\`; they are not hidden inside a green result.
 
 ## Browser handoff
 
@@ -181,8 +184,11 @@ ${overall === "PASSED"
 writeFileSync(resolve(artifactDir, "VERIFICATION_REPORT.md"), markdownReport);
 
 const handoffStatus = overall === "PASSED" ? "READY FOR OWNER VISIBLE TESTING" : "BLOCKED BY AUTOMATED GATE";
-const check = "- [ ]";
-const manualHandoff = `# Email Shield — Manual Browser Test Handoff
+const handoffTemplatePath = resolve(root, ".engineering/MANUAL_TEST_HANDOFF_TEMPLATE.md");
+const handoffTemplate = existsSync(handoffTemplatePath)
+  ? readFileSync(handoffTemplatePath, "utf8")
+  : "# Manual handoff template missing\n\nThe source-controlled handoff template could not be found.";
+const manualHandoff = `# Generated Email Shield Browser Handoff
 
 ## Status
 
@@ -195,59 +201,12 @@ const manualHandoff = `# Email Shield — Manual Browser Test Handoff
 - Generated: ${finishedAt.toISOString()}
 
 ${overall === "PASSED"
-  ? "All applicable command-line checks passed for this platform invocation. Complete only the visible checks below; do not repeat build, typecheck, unit, integration, corpus, Worker, source-wiring, API-smoke or dependency commands manually."
+  ? "All applicable automated checks passed for this platform invocation. Complete only the visible checks below."
   : `Do not begin browser acceptance. Failed automated stages: ${failures.map((item) => item.name).join(", ")}.`}
 
-## Start the verified build
+---
 
-\`\`\`bash
-npm run dev
-\`\`\`
-
-Open \`http://127.0.0.1:4173\` and record PASS/FAIL beside each item.
-
-## Visible checks
-
-${check} **Initial render** — dashboard appears without a blank page, permanent spinner, flicker loop, frozen controls or overlapping primary panels.
-
-${check} **Responsive layout** — inspect normal desktop width and a narrow/mobile width; controls, counters, tables and cards remain readable and reachable.
-
-${check} **Five fixture providers** — connect Gmail, iCloud, Outlook, Yahoo and Generic IMAP in Fixture mode one at a time; each visibly becomes selected and completes Quick Scan.
-
-${check} **Scan presentation** — run Quick, Full Mailbox and Spam/Junk fixture scans; visible progress, counters, Safe audit and warning cards update without duplicates or stale results.
-
-${check} **Stop and restart** — stop a Full fixture scan while active; controls return and a new scan starts without refreshing the page.
-
-${check} **Safe audit** — Safe rows show only subject, sender, parse/evidence and available Trust/Unsubscribe actions; no body or raw destination is displayed.
-
-${check} **Review actions** — inspect confirmation wording for Mark this message Safe, Trust sender, Block sender, Block domain, Move to Trash and unsubscribe. Cancel actions not intentionally under test.
-
-${check} **Controlled fixture actions** — execute safe fixture-only actions and confirm success appears only after server confirmation; failures remain visible and retryable.
-
-${check} **Account isolation** — connect two fixture accounts, switch between them and verify selected-account results/actions do not visibly cross-link.
-
-${check} **Rapid interaction** — click account and scan controls rapidly but safely; duplicate requests are prevented or truthfully reported and the UI stays responsive.
-
-${check} **Controlled live iCloud presentation** — when an app-specific password is available, reconnect iCloud and run the agreed non-destructive scan. Credentials must not remain visible after connection; progress/errors must be truthful. Do not perform an unlisted destructive bulk action.
-
-${check} **Final refresh** — refresh once after testing; the page still renders without a permanent blank/frozen state or broken layout.
-
-## Failure capture
-
-For any FAIL, record:
-
-- exact checklist item;
-- browser and viewport/device;
-- exact visible error or incorrect behavior;
-- whether refresh changed the result;
-- screenshot only when useful;
-- terminal lines only when an error appeared.
-
-Never include a mailbox password, app password, OAuth token, complete message body or private provider message identifier.
-
-## Explicitly excluded product gaps
-
-Guided Gmail/Outlook OAuth, OS-keychain storage, production signed-feed publishing, production QR decoding, community reporting, complete policy-management UI and persisted resumable scans are not accepted by this handoff. They remain open in the regression register.
+${handoffTemplate}
 `;
 writeFileSync(resolve(artifactDir, "MANUAL_TEST_HANDOFF.md"), manualHandoff);
 

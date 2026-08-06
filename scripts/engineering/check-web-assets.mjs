@@ -70,6 +70,7 @@ const endpointContracts = [
   ["web/scan-monitor.js", "/messages/trash", 'app.post("/api/accounts/:id/messages/trash"'],
   ["web/review-actions.js", "mark-safe", 'app.post("/api/accounts/:id/messages/mark-safe"'],
   ["web/review-actions.js", "trust-sender", 'app.post("/api/accounts/:id/messages/trust-sender"'],
+  ["web/review-actions.js", "report-scam", 'app.post("/api/accounts/:id/messages/report-scam"'],
   ["web/review-actions.js", "report-spam", 'app.post("/api/accounts/:id/messages/report-spam"'],
   ["web/unsubscribe-monitor.js", "/messages/unsubscribe", 'app.post("/api/accounts/:id/messages/unsubscribe"'],
 ];
@@ -78,17 +79,32 @@ for (const [browserPath, browserNeedle, serverNeedle] of endpointContracts) {
   requireCondition(server.includes(serverNeedle), `Server endpoint contract is missing: ${serverNeedle}.`);
 }
 
+for (const serverNeedle of [
+  'app.get("/api/community/v1/status"',
+  'app.post("/api/community/v1/report"',
+  'app.get("/api/community/v1/feed"',
+  'app.get("/api/community/v1/public-key"',
+]) requireCondition(server.includes(serverNeedle), `Community service endpoint contract is missing: ${serverNeedle}.`);
+
 for (const path of ["web/scan-monitor.js", "web/safe-audit.js", "web/review-actions.js", "web/unsubscribe-monitor.js"]) {
   const content = read(path);
-  for (const forbidden of ["textPreview", "htmlSignals", "listUnsubscribe:", "listUnsubscribePost:"]) {
+  for (const forbidden of [
+    "textPreview", "htmlSignals", "listUnsubscribe:", "listUnsubscribePost:",
+    "campaignFingerprint", "reporterProof", "action.communityReport",
+  ]) {
     requireCondition(!content.includes(forbidden), `${path} exposes or depends on privacy-sensitive field ${forbidden}.`);
   }
 }
 
 const reviewActions = read("web/review-actions.js");
-requireCondition(reviewActions.includes("body: JSON.stringify({ token })"), "Report Spam/review actions no longer use an opaque action token.");
-requireCondition(reviewActions.includes("result.requested !== 1") && reviewActions.includes("result.reported !== 1"), "Report Spam UI no longer requires exact-one provider confirmation.");
-requireCondition(!reviewActions.includes("providerNativeIds"), "Report Spam browser action must not submit provider-native identifiers.");
+const safeAudit = read("web/safe-audit.js");
+requireCondition(reviewActions.includes("Report Scam to Email Shield"), "Shared community reporting is missing from review actions.");
+requireCondition(reviewActions.includes("privacy-reduced indicators"), "Community report confirmation no longer explains its privacy boundary.");
+requireCondition(reviewActions.includes("One report cannot globally block a sender"), "Community report confirmation no longer explains aggregation thresholds.");
+requireCondition(reviewActions.includes("JSON.stringify(isReportScam ? { token, blockSender } : { token })"), "Review actions no longer submit only opaque tokens and an explicit sender-block choice.");
+requireCondition(reviewActions.includes("result.requested !== 1") && reviewActions.includes("result.reported !== 1"), "Provider Spam/Junk UI no longer requires exact-one confirmation.");
+requireCondition(!reviewActions.includes("providerNativeIds"), "Review actions must not submit provider-native identifiers.");
+requireCondition(!safeAudit.includes("providerNativeIds"), "Safe audit must not submit provider-native identifiers.");
 
 requireCondition(html.includes("Fixture demo mailbox"), "Fixture mode is no longer exposed for credential-free hard testing.");
 requireCondition(html.includes('value="gmail"') && html.includes('value="icloud"') && html.includes('value="outlook"') && html.includes('value="yahoo"') && html.includes('value="imap"'), "One or more supported provider options are missing from the dashboard.");

@@ -115,7 +115,7 @@ describe("generic crypto yield promotion intent", () => {
 });
 
 describe("safe-message audit and review UI", () => {
-  it("keeps Safe compact while exposing trust, unsubscribe, and Report Spam through opaque tokens", () => {
+  it("keeps Safe compact while exposing shared Report Scam and separate provider actions through opaque tokens", () => {
     const root = join(process.cwd(), "..");
     const scanMonitor = readFileSync(join(root, "web/scan-monitor.js"), "utf8");
     const unsubscribeMonitor = readFileSync(join(root, "web/unsubscribe-monitor.js"), "utf8");
@@ -125,14 +125,15 @@ describe("safe-message audit and review UI", () => {
     expect(unsubscribeMonitor).toContain("/safe-audit.js");
     expect(unsubscribeMonitor).toContain("/review-actions.js");
     expect(safeAudit).toContain("Safe messages (${sourceRows.length}) — click to review");
-    expect(safeAudit).toContain("Safe messages remain outside the warning-card feed");
+    expect(safeAudit).toContain("privacy-reduced community shield");
+    expect(safeAudit).toContain('data-action="report-scam"');
+    expect(safeAudit).toContain('data-action="move-spam"');
     expect(safeAudit).toContain('data-action="trust-sender"');
     expect(safeAudit).toContain('data-action="unsubscribe"');
-    expect(safeAudit).toContain('data-action="report-spam"');
-    expect(reviewActions).toContain("Mark this message Safe");
-    expect(reviewActions).toContain("Report exactly this message as Spam");
-    expect(reviewActions).toContain("does not block the sender, delete other mail, or guarantee");
-    expect(reviewActions).toContain("body: JSON.stringify({ token })");
+    expect(reviewActions).toContain("Report Scam to Email Shield");
+    expect(reviewActions).toContain("Move to Spam/Junk");
+    expect(reviewActions).toContain("One report cannot globally block a sender");
+    expect(reviewActions).toContain("JSON.stringify(isReportScam ? { token, blockSender } : { token })");
     expect(reviewActions).toContain("result.requested !== 1");
     expect(reviewActions).toContain("result.reported !== 1");
     expect(scanMonitor).toContain("data-review-token");
@@ -143,7 +144,11 @@ describe("safe-message audit and review UI", () => {
       expect(browserFile).not.toContain("listUnsubscribe:");
       expect(browserFile).not.toContain("textPreview");
       expect(browserFile).not.toContain("htmlSignals");
-      expect(browserFile).not.toContain("providerNativeId:");
+      expect(browserFile).not.toContain("campaignFingerprint");
+      expect(browserFile).not.toContain("reporterProof");
+      expect(browserFile).not.toContain("action.communityReport");
     }
+    expect(reviewActions).not.toContain("providerNativeIds");
+    expect(safeAudit).not.toContain("providerNativeIds");
   });
 });

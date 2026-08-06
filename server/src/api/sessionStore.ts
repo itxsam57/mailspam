@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { Worker } from "node:worker_threads";
 import type { NormalizedFolder } from "../canonical/envelope.js";
+import type { CommunityReportContext } from "../community/types.js";
 import { InMemoryPersonalPolicyStore } from "../engine/layers/personalRules.js";
-import type { ThreatFeedCache } from "../engine/layers/globalIntelligence.js";
 import type { UnsubscribeMethod } from "../workflows/unsubscribe.js";
 import type { ScanActionContext } from "../workflows/scanWorkflows.js";
 import type { AdapterConfig } from "./adapterConfig.js";
@@ -28,6 +28,7 @@ export interface RegisteredReviewAction {
   providerNativeId: string;
   messageId: string;
   normalizedFolder: NormalizedFolder;
+  communityReport: CommunityReportContext;
   createdAt: number;
 }
 
@@ -43,14 +44,12 @@ export interface AccountSession {
   reviewActions: Map<string, RegisteredReviewAction>;
 }
 
-const emptyFeed: ThreatFeedCache = { getVerifiedEntries: () => [] };
 const MAX_SCAN_ACTIONS = 5_000;
 const ACTION_TTL_MS = 30 * 60 * 1_000;
 
 export class SessionStore {
   private sessions = new Map<string, AccountSession>();
   private policyStores = new Map<string, InMemoryPersonalPolicyStore>();
-  readonly threatFeed = emptyFeed;
 
   constructor(private readonly policyRepository: PersonalPolicyRepository = new EncryptedFilePolicyRepository()) {}
 
@@ -102,7 +101,10 @@ export class SessionStore {
     token: string;
     alreadyApproved: boolean;
     senderTrusted: boolean;
+    canMoveToSpam: boolean;
     canReportSpam: boolean;
+    scamAlreadyReported: boolean;
+    communityReported: boolean;
   } {
     if (session.reviewActions.size >= MAX_SCAN_ACTIONS) {
       throw new Error("Too many message review actions are registered for this scan.");
@@ -115,13 +117,19 @@ export class SessionStore {
       providerNativeId: context.providerNativeId,
       messageId: context.messageId,
       normalizedFolder: context.normalizedFolder,
+      communityReport: structuredClone(context.communityReport),
       createdAt: Date.now(),
     });
+    const canMoveToSpam = context.normalizedFolder !== "spam";
+    const alreadyReported = session.personalPolicy.isReportedCampaign(context.communityReport.campaignFingerprint);
     return {
       token,
       alreadyApproved: session.personalPolicy.isApprovedException(context.exceptionKey),
       senderTrusted: Boolean(context.senderAddress && session.personalPolicy.isTrustedSender(context.senderAddress)),
-      canReportSpam: context.normalizedFolder !== "spam",
+      canMoveToSpam,
+      canReportSpam: canMoveToSpam,
+      scamAlreadyReported: alreadyReported,
+      communityReported: alreadyReported,
     };
   }
 

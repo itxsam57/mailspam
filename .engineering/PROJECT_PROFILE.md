@@ -8,9 +8,8 @@ Generated from the mandatory repository audit in the AI Engineering Automation K
 |---|---|
 | Project name | Email Shield |
 | Repository | `itxsam57/mailspam` |
-| Audited base branch | `main` |
-| Audited functional base commit | `18d7a7b657762afb79d304f1cfac4cecdae7468b` |
-| Application type | Local-first email scam-detection service with a browser dashboard |
+| Canonical branch | `main` |
+| Application type | Local-first email scam-detection client plus an optional self-hosted community intelligence service |
 | Backend framework | Express `4.19.x` |
 | Frontend | Vanilla HTML, CSS and browser JavaScript served by Express |
 | Language | TypeScript for server/engine/tests; JavaScript and HTML for browser UI |
@@ -20,6 +19,8 @@ Generated from the mandatory repository audit in the AI Engineering Automation K
 | Application workspace | `server/` |
 | Supported CI runtime | Node.js 22 |
 
+Database/migrations/seeds: not applicable. The current service uses encrypted local files and has no relational database, ORM or migration system.
+
 ## Application roots and entry points
 
 - Repository/workspace root: `package.json`
@@ -28,6 +29,8 @@ Generated from the mandatory repository audit in the AI Engineering Automation K
 - Express application factory: `server/src/api/server.ts`
 - Browser entry document: `web/index.html`
 - Browser action layers: `web/scan-monitor.js`, `web/unsubscribe-monitor.js`, `web/review-actions.js`, `web/safe-audit.js`
+- Community reporting client/server: `server/src/community/`
+- Signed-feed consumer: `server/src/engine/layers/globalIntelligence.ts`
 - Compiled runtime output: `server/dist/` (generated and ignored)
 
 ## Repository layout
@@ -37,15 +40,16 @@ Generated from the mandatory repository audit in the AI Engineering Automation K
 | Provider adapters | `server/src/adapters/` |
 | Canonical email contracts | `server/src/canonical/` |
 | API/session/persistence | `server/src/api/` |
+| Community reporting, aggregation and signing | `server/src/community/` |
 | Detection engine | `server/src/engine/` |
 | Workflows | `server/src/workflows/` |
 | Worker runtime | `server/src/workers/` |
 | Utilities | `server/src/util/` |
 | Browser assets | `web/` |
-| Unit tests | `tests/unit/` |
+| Unit and API-contract tests | `tests/unit/` |
 | Integration tests | `tests/integration/` |
 | Synthetic email fixtures | `fixtures/scam-corpus/` |
-| Project documentation | `README.md`, `README_REBUILD_STATUS.md`, `docs/` |
+| Project documentation | `README.md`, `README_REBUILD_STATUS.md`, `docs/`, `.engineering/` |
 | CI | `.github/workflows/verify.yml` |
 | Engineering automation | `.engineering/`, `scripts/engineering/` |
 
@@ -54,66 +58,79 @@ Generated from the mandatory repository audit in the AI Engineering Automation K
 | Purpose | Command | Notes |
 |---|---|---|
 | Locked install | `npm ci` | Required in CI and clean verification environments. |
-| Developer install | `npm install` | Permitted for local setup; must not leave lockfile drift. |
 | Development start | `npm run dev` | Builds first, then starts on `127.0.0.1:4173` by default. |
 | Production start | `npm start` | Requires a successful build first. |
 | Typecheck | `npm run typecheck` | Strict TypeScript check over source and tests, no emit. |
 | Build | `npm run build` | Compiles production server code to `server/dist/`. |
-| Unit tests | `npm run test:unit` | Vitest unit suites only. |
+| Unit tests | `npm run test:unit` | Detection, privacy, API, signing, aggregation and architecture suites. |
 | Integration tests | `npm run test:integration` | Corpus and compiled Worker runtime suites. |
-| All tests | `npm test` | Existing full Vitest command; builds first. |
-| Browser/static checks | `npm run check:web` | Validates HTML/JS wiring and syntax without adding a browser framework. |
-| Server/API smoke | `npm run smoke:server` | Starts the compiled server on an isolated port and exercises fixture/API/SSE paths. |
-| Full dependency inventory | `npm run audit:inventory` | Writes package-level production and development advisory evidence without rewriting dependencies. |
+| Browser/static checks | `npm run check:web` | Validates HTML/JS wiring, privacy boundaries and syntax. |
+| Server/API smoke | `npm run smoke:server` | Starts the compiled server and exercises fixture/API/SSE paths. |
+| Full dependency inventory | `npm run audit:inventory` | Writes package-level advisory evidence without rewriting dependencies. |
 | Production dependency audit | `npm run audit:prod` | Fails on high or critical production vulnerabilities. |
 | Full engineering gate | `npm run gate` | Runs every applicable automated gate and writes reports. |
-| Existing compatibility command | `npm run verify` | Alias of the full engineering gate after installation. |
+| Existing compatibility command | `npm run verify` | Alias of the full engineering gate. |
 
-## Test runner and configuration
+## Community deployment modes
 
-- Runner: Vitest `2.1.x`
-- Configuration: `server/vitest.config.ts`
-- Test root: repository root
-- Included tests: `tests/**/*.test.ts`
-- Test timeout: 20 seconds
-- Production compiler: `server/tsconfig.build.json`
-- Strict source/test compiler: `server/tsconfig.json`
+### Desktop/client mode — default
+
+No community ingestion or public feed is served. The client may use embedded fixture/single-node intelligence or a configured remote service. Local API remains bound to localhost.
+
+### Central community service — explicit
+
+Set `EMAIL_SHIELD_COMMUNITY_SERVER=1`. This enables privacy-reduced report ingestion and signed feed/public-key endpoints. A production deployment additionally requires HTTPS, a reverse proxy/API gateway, authentication/rate limiting at the edge, monitoring, backups and protected signing-key operations. See `.engineering/COMMUNITY_DEPLOYMENT.md`.
 
 ## Environment variables
 
 | Variable | Secret | Use |
 |---|---|---|
-| `PORT` | No | Local HTTP port; defaults to `4173`. |
+| `PORT` | No | HTTP port; defaults to `4173`. |
 | `HOST` | No | Bind address; defaults to `127.0.0.1`. |
-| `EMAIL_SHIELD_DATA_DIR` | No | Optional local encrypted-policy storage location. |
-| `ENGINEERING_AUDIT` | No | Automation-only switch; `1` enables full advisory inventory and the blocking production dependency audit. |
+| `EMAIL_SHIELD_DATA_DIR` | No | Encrypted policy/community storage location. |
+| `EMAIL_SHIELD_COMMUNITY_URL` | No | HTTPS base URL for the central community service; localhost HTTP is permitted only for development. |
+| `EMAIL_SHIELD_COMMUNITY_SERVER` | No | `1` explicitly enables central ingestion/feed serving. Disabled by default. |
+| `EMAIL_SHIELD_COMMUNITY_PUBLIC_KEYS` | No | JSON array or PEM public key(s) trusted by clients for Ed25519 feed verification. |
+| `EMAIL_SHIELD_COMMUNITY_PRIVATE_KEY` | **Yes** | Optional central Ed25519 private signing key supplied through secret management. |
+| `EMAIL_SHIELD_COMMUNITY_PUBLIC_KEY` | No | Public half paired with the configured private signing key. |
+| `ENGINEERING_AUDIT` | No | `1` enables dependency inventory and blocking production audit. |
 | `ENGINEERING_ARTIFACT_DIR` | No | Optional automation report output directory. |
 
-Mailbox OAuth credentials, app passwords and provider tokens are runtime secrets. They must not be committed, logged, embedded in test artifacts, or included in handoff reports.
+Mailbox OAuth credentials, app passwords, community private signing keys and provider tokens are runtime secrets. They must not be committed, logged, embedded in test artifacts or included in handoff reports.
 
-## Generated, ignored and persistent data
+## Privacy and persistence boundary
 
-- Ignored generated directories/files: `node_modules/`, `dist/`, `coverage/`, `.vitest/`, logs, `test-report.json`, `.env*` except `.env.example`, IDE files and OS metadata.
-- Automation output: `artifacts/engineering/` (generated and ignored), including verification, dependency-inventory and browser-handoff evidence.
-- Encrypted local policy database: outside the repository under `~/.email-shield/` unless overridden.
-- Database/migrations/seeds: not applicable; this repository has no relational/application database or migration system.
-- Fixtures: deterministic `.eml` corpus under `fixtures/scam-corpus/` plus its manifest and corpus builder.
+Community reports may contain only pseudonymous reporter proof, campaign fingerprint, eligible exact sender, unrelated Reply-To/destination organizational domains, attachment hashes, evidence codes, score and verdict. They must not contain mailbox address/proof, subject, message body, contacts, credentials, provider message IDs, raw URL paths/query values, attachment names or attachment content.
 
-## CI baseline before automation installation
+Persistent data under `~/.email-shield/` unless overridden:
 
-The pre-installation workflow used Node.js 22 on Ubuntu and Windows, ran `npm ci`, `npm run verify`, and a Linux production dependency audit. Its recorded matrix was green, but that older command did not typecheck test sources. The stronger gate exposed PRE-001: one existing test fixture omitted the required `diagnostics.contentCoverage` field. It was corrected without changing production runtime behavior and remains recorded in the regression register.
+- encrypted personal policy database;
+- encrypted locally reported campaign memory;
+- encrypted community outbox;
+- encrypted central aggregate database when server mode is enabled;
+- local HMAC reporter-identity key;
+- Ed25519 signing key pair for embedded/server mode;
+- public signed-feed cache, useful only while signature and freshness checks pass.
 
-The August 5, 2026 locked install also reported advisories across the full production-plus-development dependency tree. Package-level evidence is generated by `audit:inventory`; high/critical production advisories remain blocking through `audit:prod`. Breaking dependency upgrades are deliberately outside this automation-only installation.
+## Test runner and generated output
+
+- Runner: Vitest `2.1.x`
+- Configuration: `server/vitest.config.ts`
+- Included tests: `tests/**/*.test.ts`
+- Test timeout: 20 seconds
+- Automation output: `artifacts/engineering/` (generated and ignored)
+- Compiled output: `server/dist/` (generated and ignored)
 
 ## Deliberately not installed
 
-These checks are not applicable to the current repository and must not be added without an architecture change:
+These checks remain inapplicable without an architecture change:
 
-- React, Next.js, Vite or component-framework checks
-- Database migration, schema, seed or ORM checks
+- React/Next/Vite component checks
+- relational database migrations or ORM checks
 - Docker/Kubernetes checks
-- Mobile-native build checks
-- Playwright/Cypress visual acceptance as a replacement for the owner’s final visible browser test
-- Cloud deployment checks; the current application is a localhost hard-test build
+- mobile-native build checks
+- browser snapshots as a replacement for owner-visible acceptance
+- live destructive mailbox actions in CI
+- public cloud health checks before a real deployment target exists
 
-ESLint and coverage-provider packages were not added because the repository has no existing configuration or lockfile entries for them. Strict TypeScript, Vitest regressions, Node syntax validation and architecture tests provide the applicable no-new-dependency gate. Adding a new lint/coverage stack requires a separate reviewed dependency change.
+A repository-green community service is self-hostable code, not proof of a publicly operated production network. DNS/TLS, edge controls, monitoring, backups and signing-key rotation are deployment responsibilities and remain recorded honestly.

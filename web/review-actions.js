@@ -7,8 +7,8 @@
     .review-action-status {display:block;margin-top:7px;font-size:11px;color:#8b93a3}
     .review-action-status.success {color:#3fb88a}
     .review-action-status.error {color:#ff9a9f}
-    .card.review-approved,.card.spam-reported {opacity:.82;border-style:dashed}
-    .safe-row-actions {display:flex;gap:6px;flex-wrap:wrap;min-width:210px}
+    .card.review-approved,.card.spam-moved,.card.community-reported {opacity:.82;border-style:dashed}
+    .safe-row-actions {display:flex;gap:6px;flex-wrap:wrap;min-width:240px}
     .safe-row-actions button {font-size:10px;padding:4px 7px}
   `;
   document.head.appendChild(style);
@@ -42,12 +42,20 @@
     if (!card || !actions) return html;
 
     const sender = result?.envelope?.from?.address || '';
-    if (action.canReportSpam) {
-      const reportSpam = document.createElement('button');
-      reportSpam.dataset.action = 'report-spam';
-      reportSpam.dataset.reviewToken = action.token;
-      reportSpam.textContent = 'Report Spam';
-      actions.appendChild(reportSpam);
+    const reportScam = document.createElement('button');
+    reportScam.dataset.action = 'report-scam';
+    reportScam.dataset.reviewToken = action.token;
+    reportScam.dataset.sender = sender;
+    reportScam.textContent = action.scamAlreadyReported ? 'Scam campaign reported ✓' : 'Report Scam to Email Shield';
+    reportScam.disabled = Boolean(action.scamAlreadyReported);
+    actions.appendChild(reportScam);
+
+    if (action.canMoveToSpam) {
+      const moveSpam = document.createElement('button');
+      moveSpam.dataset.action = 'move-spam';
+      moveSpam.dataset.reviewToken = action.token;
+      moveSpam.textContent = 'Move to Spam/Junk';
+      actions.appendChild(moveSpam);
     }
 
     if (!action.alreadyApproved) {
@@ -107,17 +115,28 @@
     return status;
   }
 
-  function disableReviewDecisions(token) {
+  function disableConflictingDecisions(token) {
     document.querySelectorAll(`[data-review-token="${CSS.escape(token)}"]`).forEach((candidate) => {
-      if (candidate.dataset.action === 'mark-safe' || candidate.dataset.action === 'trust-sender') {
-        candidate.disabled = true;
-      }
+      if (candidate.dataset.action === 'mark-safe' || candidate.dataset.action === 'trust-sender') candidate.disabled = true;
     });
+  }
+
+  function communityDeliveryMessage(result) {
+    if (result.delivery === 'remote_shared') {
+      return `Shared network status: ${result.status}; ${result.independentReporters} independent reporter(s).`;
+    }
+    if (result.delivery === 'queued_remote') {
+      return 'The encrypted privacy-reduced report is queued and will retry when the configured shared service is reachable.';
+    }
+    if (result.delivery === 'embedded_local') {
+      return `Local test-network status: ${result.status}; ${result.independentReporters} local reporter proof(s). Other installations are not protected until a central community service is configured.`;
+    }
+    return 'The server did not identify whether this report reached a shared or local-only community service.';
   }
 
   document.addEventListener('click', async (event) => {
     const button = event.target instanceof Element
-      ? event.target.closest('[data-action="mark-safe"],[data-action="trust-sender"],[data-action="report-spam"]')
+      ? event.target.closest('[data-action="mark-safe"],[data-action="trust-sender"],[data-action="move-spam"],[data-action="report-scam"]')
       : null;
     if (!(button instanceof HTMLButtonElement) || button.disabled) return;
 
@@ -137,66 +156,99 @@
     }
 
     const isMarkSafe = actionName === 'mark-safe';
-    const isReportSpam = actionName === 'report-spam';
-    const promptTitle = isReportSpam
-      ? 'Report exactly this message as Spam'
-      : isMarkSafe
-        ? 'Mark this exact message Safe'
-        : 'Trust this exact sender';
-    const explanation = isReportSpam
-      ? 'Email Shield will ask the connected provider to place exactly this message in Spam/Junk. This does not block the sender, delete other mail, or guarantee that the provider trains a global filter.'
-      : isMarkSafe
-        ? 'Only this exact message will be approved for this connected account. The sender and domain will not be trusted.'
-        : 'Future messages from this exact sender address in this connected account will receive personal trust. Structural checks and confirmed signed threats still run.';
-    const confirmed = window.confirm(
-      `${promptTitle}?\n\n${subject}\n${sender}\n\n${explanation}`,
-    );
+    const isMoveSpam = actionName === 'move-spam';
+    const isReportScam = actionName === 'report-scam';
+    let blockSender = false;
+    let promptTitle;
+    let explanation;
+
+    if (isReportScam) {
+      promptTitle = 'Report this scam campaign to Email Shield';
+      explanation = 'Email Shield will protect matching campaign messages in this mailbox immediately. If a shared community service is configured, only privacy-reduced indicators are submitted to it; otherwise the report remains in the local test network. It will not upload the message body, subject, mailbox address, contacts, credentials, provider ID, or raw private URLs. One report cannot globally block a sender; independent reports and evidence thresholds are required.';
+    } else if (isMoveSpam) {
+      promptTitle = 'Move exactly this message to provider Spam/Junk';
+      explanation = 'This affects only the selected mailbox message. It does not create Email Shield community protection and does not automatically block the sender.';
+    } else if (isMarkSafe) {
+      promptTitle = 'Mark this exact message Safe';
+      explanation = 'Only this exact message will be approved for this connected account. The sender and domain will not be trusted.';
+    } else {
+      promptTitle = 'Trust this exact sender';
+      explanation = 'Future messages from this exact sender address in this connected account will receive personal trust. Structural checks and confirmed signed threats still run.';
+    }
+
+    const confirmed = window.confirm(`${promptTitle}?\n\n${subject}\n${sender}\n\n${explanation}`);
     if (!confirmed) return;
+    if (isReportScam && button.dataset.sender) {
+      blockSender = window.confirm('Also block this exact sender address for your mailbox?\n\nChoose Cancel when the sender is a shared delivery platform such as a reporting or newsletter service. The campaign itself will still be protected locally.');
+    }
 
     const previousText = button.textContent;
     button.disabled = true;
-    button.textContent = isReportSpam ? 'Reporting…' : isMarkSafe ? 'Saving…' : 'Trusting…';
+    button.textContent = isReportScam ? 'Saving protection…' : isMoveSpam ? 'Moving…' : isMarkSafe ? 'Saving…' : 'Trusting…';
     if (status) {
       status.className = 'review-action-status';
-      status.textContent = isReportSpam
-        ? 'Requesting an exact provider Spam/Junk move…'
-        : isMarkSafe
-          ? 'Saving an account-scoped exact-message exception…'
-          : 'Saving an account-scoped trusted sender…';
+      status.textContent = isReportScam
+        ? 'Saving local campaign protection and submitting or queuing privacy-reduced evidence when a shared service is configured…'
+        : isMoveSpam
+          ? 'Requesting an exact provider Spam/Junk move…'
+          : isMarkSafe
+            ? 'Saving an account-scoped exact-message exception…'
+            : 'Saving an account-scoped trusted sender…';
     }
 
     try {
-      const endpoint = isReportSpam ? 'report-spam' : isMarkSafe ? 'mark-safe' : 'trust-sender';
+      const endpoint = isReportScam ? 'report-scam' : isMoveSpam ? 'report-spam' : isMarkSafe ? 'mark-safe' : 'trust-sender';
       const response = await fetch(`/api/accounts/${encodeURIComponent(accountId)}/messages/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token }),
+        body: JSON.stringify(isReportScam ? { token, blockSender } : { token }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || `Server returned HTTP ${response.status}`);
 
-      if (isReportSpam) {
-        if (
-          result.success !== true ||
-          result.accountId !== accountId ||
-          result.token !== token ||
-          result.requested !== 1 ||
-          result.reported !== 1 ||
-          !['provider_spam_label', 'junk_folder_move', 'fixture_junk_move'].includes(result.mode)
-        ) {
-          throw new Error('The provider did not confirm exactly one Spam/Junk action.');
+      if (isReportScam) {
+        if (result.success !== true || result.localProtected !== true || result.accepted !== true || result.accountId !== accountId || result.token !== token) {
+          throw new Error('The server did not confirm local protection and community report acceptance.');
         }
-        document.querySelectorAll(`[data-action="report-spam"][data-review-token="${CSS.escape(token)}"]`).forEach((candidate) => {
+        if (!['embedded_local', 'remote_shared', 'queued_remote'].includes(result.delivery)) {
+          throw new Error('The server did not return a trustworthy community delivery scope.');
+        }
+        document.querySelectorAll(`[data-action="report-scam"][data-review-token="${CSS.escape(token)}"]`).forEach((candidate) => {
           candidate.disabled = true;
-          candidate.textContent = 'Reported as Spam ✓';
+          candidate.textContent = 'Scam campaign reported ✓';
         });
-        disableReviewDecisions(token);
-        container?.classList.add('spam-reported');
+        disableConflictingDecisions(token);
+        container?.classList.add('community-reported');
+        const communityState = communityDeliveryMessage(result);
         if (status) {
           status.className = 'review-action-status success';
-          status.textContent = 'The provider confirmed that exactly one message was placed in Spam/Junk. The sender was not blocked automatically.';
+          status.textContent = `Matching campaign messages are now protected locally. ${communityState}${result.senderBlocked ? ' The exact sender was also blocked for this mailbox.' : ''}`;
         }
-        setGlobalStatus('Exactly one message was reported to the provider Spam/Junk folder.', 'complete');
+        const globalMessage = result.delivery === 'remote_shared'
+          ? 'Scam campaign protected locally and accepted by the configured shared community service.'
+          : result.delivery === 'queued_remote'
+            ? 'Scam campaign protected locally; the shared report is encrypted and queued for retry.'
+            : 'Scam campaign protected locally. This installation is using the local test network, not a cross-user service.';
+        setGlobalStatus(globalMessage, 'complete');
+        return;
+      }
+
+      if (isMoveSpam) {
+        if (
+          result.success !== true || result.accountId !== accountId || result.token !== token ||
+          result.requested !== 1 || result.reported !== 1 ||
+          !['provider_spam_label', 'junk_folder_move', 'fixture_junk_move'].includes(result.mode)
+        ) throw new Error('The provider did not confirm exactly one Spam/Junk move.');
+        document.querySelectorAll(`[data-action="move-spam"][data-review-token="${CSS.escape(token)}"]`).forEach((candidate) => {
+          candidate.disabled = true;
+          candidate.textContent = 'Moved to Spam/Junk ✓';
+        });
+        container?.classList.add('spam-moved');
+        if (status) {
+          status.className = 'review-action-status success';
+          status.textContent = 'The provider confirmed that exactly one message was placed in Spam/Junk. This did not submit community intelligence.';
+        }
+        setGlobalStatus('Exactly one message was moved to provider Spam/Junk.', 'complete');
         return;
       }
 
@@ -233,7 +285,7 @@
       }
     } catch (error) {
       button.disabled = false;
-      button.textContent = previousText || (isReportSpam ? 'Report Spam' : isMarkSafe ? 'Mark this message Safe' : 'Trust sender');
+      button.textContent = previousText || (isReportScam ? 'Report Scam to Email Shield' : isMoveSpam ? 'Move to Spam/Junk' : isMarkSafe ? 'Mark this message Safe' : 'Trust sender');
       const message = error instanceof Error ? error.message : String(error);
       if (status) {
         status.className = 'review-action-status error';

@@ -5,13 +5,26 @@ import {
   relayLocalPartEncodesDomain,
 } from "../identitySignals.js";
 import { isKnownSenderRelay, organizationalDomain, sameOrganizationalDomain } from "../../util/domainRelation.js";
+import { campaignFingerprint, externalLinkDomains } from "../../community/fingerprint.js";
 import type { LayerResult } from "../verdict.js";
 
+export type ThreatIndicatorType =
+  | "sender"
+  | "domain"
+  | "url"
+  | "reply_to_domain"
+  | "url_domain"
+  | "attachment_hash"
+  | "campaign";
+
 export interface SignedThreatIndicatorEntry {
-  type: "sender" | "domain" | "url" | "attachment_hash";
+  type: ThreatIndicatorType;
   value: string;
   confirmedThreat: boolean;
   ruleId: string;
+  independentReports?: number;
+  firstSeen?: string;
+  lastSeen?: string;
 }
 
 /**
@@ -83,9 +96,12 @@ export function globalIntelligenceLayer(
 
   const address = envelope.from.address?.toLowerCase() ?? "";
   const domain = envelope.from.domain?.toLowerCase() ?? "";
+  const replyDomain = envelope.replyTo?.domain?.toLowerCase() ?? "";
   const linkUrls = envelope.links.map((link) => link.normalizedUrl.toLowerCase());
+  const linkDomains = externalLinkDomains(envelope).map(organizationalDomain);
   const attachmentHashes = envelope.attachments.map((attachment) => attachment.sha256).filter((hash): hash is string => Boolean(hash));
   const identityText = `${envelope.from.displayName ?? ""}\n${envelope.subject}`;
+  const messageCampaignFingerprint = campaignFingerprint(envelope);
 
   for (const entry of entries) {
     if (entry.type === "identity") {
@@ -103,18 +119,22 @@ export function globalIntelligenceLayer(
       continue;
     }
 
+    const expected = entry.value.toLowerCase();
     let hit = false;
-    if (entry.type === "sender" && entry.value.toLowerCase() === address) hit = true;
-    if (entry.type === "domain" && entry.value.toLowerCase() === domain) hit = true;
-    if (entry.type === "url" && linkUrls.includes(entry.value.toLowerCase())) hit = true;
-    if (entry.type === "attachment_hash" && attachmentHashes.includes(entry.value.toLowerCase())) hit = true;
+    if (entry.type === "sender" && expected === address) hit = true;
+    if (entry.type === "domain" && expected === domain) hit = true;
+    if (entry.type === "url" && linkUrls.includes(expected)) hit = true;
+    if (entry.type === "reply_to_domain" && replyDomain && sameOrganizationalDomain(replyDomain, expected)) hit = true;
+    if (entry.type === "url_domain" && linkDomains.some((item) => sameOrganizationalDomain(item, expected))) hit = true;
+    if (entry.type === "attachment_hash" && attachmentHashes.includes(expected)) hit = true;
+    if (entry.type === "campaign" && expected === messageCampaignFingerprint) hit = true;
 
     if (hit) {
       if (entry.confirmedThreat) confirmed = true;
       evidence.push({
         layer: "global_intelligence",
         code: entry.confirmedThreat ? "GLOBAL_CONFIRMED_MATCH" : "GLOBAL_WARNING_MATCH",
-        description: `Matched signed intelligence rule ${entry.ruleId} (${entry.type}).`,
+        description: `Matched signed community intelligence rule ${entry.ruleId} (${entry.type})${entry.independentReports ? ` from ${entry.independentReports} independent reports` : ""}.`,
         scoreContribution: entry.confirmedThreat ? 10 : 3,
         source: "signed_feed",
       });

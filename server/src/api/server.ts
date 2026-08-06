@@ -22,10 +22,13 @@ import { hardenedFetch } from "../util/hardenedFetch.js";
 import type { Provider } from "../canonical/envelope.js";
 import type { ScanActionContext } from "../workflows/scanWorkflows.js";
 import { runDeveloperTestSuite } from "../devtools/testSuiteRunner.js";
+import { communityNetwork, type CommunityNetwork } from "../community/network.js";
+import type { CommunityReportSubmission } from "../community/types.js";
 
-export function createServer() {
+export function createServer(options: { community?: CommunityNetwork } = {}) {
   const app = express();
-  app.use(express.json());
+  const community = options.community ?? communityNetwork;
+  app.use(express.json({ limit: "64kb" }));
 
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const webDir = join(__dirname, "../../../web");
@@ -35,6 +38,47 @@ export function createServer() {
   );
   app.get("/", (_req, res) => res.type("html").send(dashboardHtml));
   app.use(express.static(webDir));
+
+  app.get("/api/community/v1/status", (_req: Request, res: Response) => {
+    const entries = community.getVerifiedEntries();
+    res.json({
+      clientEnabled: true,
+      remoteConfigured: Boolean(community.remoteUrl),
+      aggregationServerEnabled: community.serverEnabled,
+      verifiedFeedAvailable: entries !== null,
+      verifiedFeedEntries: entries?.length ?? 0,
+      pendingReports: community.pendingReports(),
+    });
+  });
+
+  app.post("/api/community/v1/report", (req: Request, res: Response) => {
+    try {
+      const receipt = community.acceptExternalReport(req.body as CommunityReportSubmission);
+      res.setHeader("Cache-Control", "no-store");
+      res.json(receipt);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const status = message.includes("disabled") ? 404 : message.includes("rate limit") ? 429 : 400;
+      res.status(status).json({ error: message });
+    }
+  });
+
+  app.get("/api/community/v1/feed", (_req: Request, res: Response) => {
+    try {
+      const feed = community.signedFeed();
+      res.setHeader("Cache-Control", "public, max-age=300");
+      res.json(feed);
+    } catch (error) {
+      res.status(404).json({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.get("/api/community/v1/public-key", (_req: Request, res: Response) => {
+    const info = community.publicInfo();
+    if (!info.enabled) return res.status(404).json({ error: "Community aggregation service is disabled on this instance." });
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.json(info);
+  });
 
   app.post("/api/accounts/connect", async (req: Request, res: Response) => {
     const { provider, mode, credentials = {}, label } = req.body as {
@@ -76,6 +120,12 @@ export function createServer() {
           trustedSenders: policy.trustedSenders.length,
           approvedExceptions: policy.approvedExceptions.length,
           unsubscribedActions: policy.unsubscribedActions.length,
+          reportedCampaigns: policy.reportedCampaigns.length,
+        },
+        community: {
+          remoteConfigured: Boolean(community.remoteUrl),
+          pendingReports: community.pendingReports(),
+          verifiedFeedEntries: community.getVerifiedEntries()?.length ?? 0,
         },
       });
     } catch (error) {
@@ -144,6 +194,8 @@ export function createServer() {
     sseHeaders(res);
     res.flushHeaders();
     res.write(`event: scan-started\ndata: ${JSON.stringify({ type, provider: session.provider })}\n\n`);
+    res.write(`event: scan-status\ndata: ${JSON.stringify({ phase: "community_feed", message: "Refreshing verified community protection feed…" })}\n\n`);
+    await community.refreshFeed();
 
     const workerUrl = new URL("../workers/scanWorker.js", import.meta.url);
     const liveImap = session.config.mode === "live" && ["icloud", "yahoo", "imap"].includes(session.provider);
@@ -157,6 +209,7 @@ export function createServer() {
           type,
           pageSize,
           personalPolicy: session.personalPolicy.snapshot(),
+          threatFeedEntries: community.getVerifiedEntries(),
         },
       });
     } catch (error) {
@@ -339,6 +392,45 @@ export function createServer() {
     }
   });
 
+  app.post("/api/accounts/:id/messages/report-scam", async (req: Request, res: Response) => {
+    const session = sessionStore.get(req.params.id!);
+    if (!session) return res.status(404).json({ error: "Unknown account" });
+    let action;
+    try { action = sessionStore.resolveReviewAction(session, (req.body as { token?: unknown }).token); }
+    catch (error) { return res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); }
+
+    const blockSender = (req.body as { blockSender?: unknown }).blockSender === true;
+    try {
+      sessionStore.mutateAndPersistPersonalPolicy(session, (policy) => {
+        policy.reportCampaign(action.communityReport.campaignFingerprint);
+        if (blockSender && action.senderAddress) policy.blockSender(action.senderAddress);
+      });
+    } catch (error) {
+      return res.status(500).json({ error: `Local scam protection was not saved: ${error instanceof Error ? error.message : String(error)}` });
+    }
+
+    try {
+      const receipt = await community.submit(action.communityReport, session.policyAccountKey);
+      res.json({
+        success: true,
+        localProtected: true,
+        senderBlocked: Boolean(blockSender && action.senderAddress),
+        accountId: session.id,
+        token: action.token,
+        pendingReports: community.pendingReports(),
+        ...receipt,
+      });
+    } catch (error) {
+      res.status(502).json({
+        error: `The campaign is protected locally, but the community report could not be queued: ${error instanceof Error ? error.message : String(error)}`,
+        localProtected: true,
+        senderBlocked: Boolean(blockSender && action.senderAddress),
+        accountId: session.id,
+        token: action.token,
+      });
+    }
+  });
+
   app.get("/api/accounts/:id/personal-policy", (req: Request, res: Response) => {
     const session = sessionStore.get(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
@@ -388,7 +480,6 @@ export function createServer() {
           token: action.token,
         });
       }
-      session.reviewActions.delete(action.token);
       res.json({
         ...result,
         success: true,
@@ -397,7 +488,7 @@ export function createServer() {
       });
     } catch (error) {
       res.status(502).json({
-        error: `Report Spam failed: ${error instanceof Error ? error.message : String(error)}`,
+        error: `Move to Spam/Junk failed: ${error instanceof Error ? error.message : String(error)}`,
         accountId: session.id,
         token: action.token,
       });

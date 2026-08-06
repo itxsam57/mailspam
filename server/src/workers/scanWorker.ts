@@ -2,6 +2,7 @@ import { parentPort, workerData } from "node:worker_threads";
 import { createAdapter, type AdapterConfig } from "../api/adapterConfig.js";
 import { quickScan, fullMailboxAudit, spamJunkScan } from "../workflows/scanWorkflows.js";
 import { InMemoryPersonalPolicyStore, type PersonalPolicySnapshot } from "../engine/layers/personalRules.js";
+import type { SignedFeedEntry } from "../engine/layers/globalIntelligence.js";
 import { runWithSingleRetry } from "./retryPolicy.js";
 
 interface WorkData {
@@ -9,6 +10,7 @@ interface WorkData {
   type: "quick" | "full" | "spam";
   pageSize?: number;
   personalPolicy?: Partial<PersonalPolicySnapshot>;
+  threatFeedEntries?: SignedFeedEntry[] | null;
 }
 
 const data = workerData as WorkData;
@@ -18,9 +20,10 @@ parentPort?.on("message", (message) => { if (message?.type === "cancel") control
 function buildDependencies() {
   const personalPolicy = new InMemoryPersonalPolicyStore();
   personalPolicy.restore(data.personalPolicy ?? {});
+  const entries = data.threatFeedEntries === undefined ? [] : data.threatFeedEntries;
   return {
     personalPolicy,
-    threatFeed: { getVerifiedEntries: () => [] },
+    threatFeed: { getVerifiedEntries: () => entries },
   };
 }
 

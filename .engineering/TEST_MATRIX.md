@@ -7,72 +7,59 @@ This matrix is project-specific. A check is installed only when it protects an e
 | ID | Area | Check | Command | Platform | Gate behavior |
 |---|---|---|---|---|---|
 | A-01 | Environment | Node.js 22, required files, npm workspace and lockfile-v3 validation | `npm run preflight` | Windows + Ubuntu | Blocking |
-| A-02 | Repository hygiene | Merge-conflict marker, tracked secret-file and targeted secret-pattern scan | `npm run preflight` | Windows + Ubuntu | Blocking |
+| A-02 | Repository hygiene | Merge-marker, tracked-secret and targeted secret-pattern scan | `npm run preflight` | Windows + Ubuntu | Blocking |
 | A-03 | Type safety | Strict TypeScript over production source and tests, no emit | `npm run typecheck` | Windows + Ubuntu | Blocking |
 | A-04 | Production compilation | Compile `server/src` to `server/dist` | `npm run build` | Windows + Ubuntu | Blocking |
-| A-05 | Unit behavior | Detection layers, verdict hierarchy, provider normalization, MIME, policies, unsubscribe, Report Spam, privacy and architecture regressions | `npm run test:unit` | Windows + Ubuntu | Blocking |
+| A-05 | Unit/API behavior | Detection, MIME, provider normalization, policy, community privacy, aggregation, signatures, APIs and architecture | `npm run test:unit` | Windows + Ubuntu | Blocking |
 | A-06 | Integration behavior | Entire scam corpus through all five provider fixtures | `npm run test:integration` | Windows + Ubuntu | Blocking |
-| A-07 | Worker runtime | Compiled Worker startup, progress and termination behavior | `npm run test:integration` | Windows + Ubuntu | Blocking |
-| A-08 | Browser source | Parse inline JavaScript and run Node syntax checks on every `web/*.js` file | `npm run check:web` | Windows + Ubuntu | Blocking |
-| A-09 | Browser wiring | Required DOM IDs, dynamic script dependencies and browser-to-server endpoint contract | `npm run check:web` | Windows + Ubuntu | Blocking |
-| A-10 | Browser privacy boundary | No message body/raw HTML/raw unsubscribe target/provider-native identifier in browser action scripts | `npm run check:web` | Windows + Ubuntu | Blocking |
-| A-11 | Server startup | Start compiled service on an isolated localhost port and wait for readiness | `npm run smoke:server` | Windows + Ubuntu | Blocking |
-| A-12 | API smoke | Homepage, accounts API, fixture connection, quick-scan SSE completion and account removal | `npm run smoke:server` | Windows + Ubuntu | Blocking |
-| A-13 | Detection suite smoke | `/api/dev/test-suite` produces zero fixture false positives, false negatives and parity failures | `npm run smoke:server` | Windows + Ubuntu | Blocking |
-| A-14 | Dependency inventory | Capture all production and development advisories with package-level evidence | `npm run audit:inventory` | Ubuntu CI; local full gate when network available | Evidence/advisory when enabled |
-| A-15 | Production dependency security | Fail on high or critical production dependency advisories | `npm run audit:prod` | Ubuntu CI; local full gate when network available | Blocking when enabled |
-| A-16 | Evidence | JSON and Markdown gate report, dependency inventory and browser handoff artifact | `npm run gate` | Windows + Ubuntu | Always generated, including on failure |
-| A-17 | Provider Spam action | Gmail Spam label, Outlook Junk move, iCloud/Yahoo/generic IMAP special-use Junk move, fixture exact-message simulation and partial-failure rejection | `npm run test:unit` | Windows + Ubuntu | Blocking |
-| A-18 | Adult campaign intent | Explicit first-contact adult-site solicitation plus unrelated Reply-To and external link reaches High Risk; aligned/established/link-free controls do not | `npm run test:unit` | Windows + Ubuntu | Blocking |
-
-## Existing automated coverage retained
-
-The gate does not replace or weaken the existing regressions. It preserves coverage for:
-
-- canonical envelope normalization across Gmail, iCloud, Outlook, Yahoo and generic IMAP fixtures;
-- SPF/DKIM/DMARC and identity/reply-to alignment;
-- malicious/legitimate corpus parity across five providers;
-- bounded MIME part selection without attachment-body downloads;
-- partial/unknown/review/high-risk/confirmed verdict precedence;
-- worker isolation, Windows compiled Worker path, stop and retry behavior;
-- account-scoped block/trust/approval rules and encrypted persistence;
-- exact-one-message reversible Trash operations;
-- exact-message provider Spam/Junk actions using opaque account-scoped tokens;
-- one-click, link-only and mailto unsubscribe security;
-- SSRF/private-network protection for explicit link actions;
-- privacy-reduced diagnostics and Safe audit;
-- provider-neutral Mark Safe, Trust sender, Report Spam and unsubscribe actions;
-- generic high-confidence romance and explicit adult-site campaign escalation without mailbox-specific brands.
+| A-07 | Worker runtime | Compiled Worker startup, verified-feed input, progress and termination | `npm run test:integration` | Windows + Ubuntu | Blocking |
+| A-08 | Browser source | Parse inline JavaScript and syntax-check every `web/*.js` file | `npm run check:web` | Windows + Ubuntu | Blocking |
+| A-09 | Browser wiring | Required DOM, dynamic scripts, Report Scam/Spam/Junk and API endpoint contracts | `npm run check:web` | Windows + Ubuntu | Blocking |
+| A-10 | Browser privacy | No body, raw HTML, campaign payload, reporter proof or provider identifier in community UI | `npm run check:web` | Windows + Ubuntu | Blocking |
+| A-11 | Server startup | Start compiled service on an isolated localhost port | `npm run smoke:server` | Windows + Ubuntu | Blocking |
+| A-12 | API smoke | Homepage, accounts API, fixture connection, quick-scan SSE completion, community status and account removal | `npm run smoke:server` | Windows + Ubuntu | Blocking |
+| A-13 | Corpus smoke | `/api/dev/test-suite` returns zero corpus/parity failures | `npm run smoke:server` | Windows + Ubuntu | Blocking |
+| A-14 | Dependency inventory | Capture production/development advisory evidence | `npm run audit:inventory` | Ubuntu CI; local when enabled | Evidence/advisory |
+| A-15 | Production dependencies | Fail on high or critical production advisories | `npm run audit:prod` | Ubuntu CI; local when enabled | Blocking |
+| A-16 | Evidence | JSON/Markdown report, dependency evidence and browser handoff | `npm run gate` | Windows + Ubuntu | Always generated |
+| A-17 | Provider Spam/Junk | Exact-one Gmail Spam, Outlook Junk, iCloud/Yahoo/IMAP special-use Junk behavior | `npm run test:unit` | Windows + Ubuntu | Blocking |
+| A-18 | Adult campaign intent | Explicit adult-site campaign reaches High Risk without brand-specific rules | `npm run test:unit` | Windows + Ubuntu | Blocking |
+| A-19 | Report privacy | Community context excludes subject/body/mailbox/provider/raw URL/attachment-name data | `npm run test:unit` | Windows + Ubuntu | Blocking |
+| A-20 | Independent aggregation | Duplicate reporter, warning/confirmed thresholds, indicator support and rate limits | `npm run test:unit` | Windows + Ubuntu | Blocking |
+| A-21 | Signed feed | Ed25519 signing, key-pair validation, tamper/trust/freshness/expiry rejection | `npm run test:unit` | Windows + Ubuntu | Blocking |
+| A-22 | Community HTTP | Server mode disabled by default; ingestion/public key/signed feed contracts when enabled | `npm run test:unit` | Windows + Ubuntu | Blocking |
+| A-23 | Local and offline protection | Immediate local campaign memory and encrypted retry outbox | `npm run test:unit` | Windows + Ubuntu | Blocking |
+| A-24 | Provider parity | Gmail, iCloud, Outlook, Yahoo and Generic IMAP produce the same privacy-reduced report contract | `npm run test:unit` | Windows + Ubuntu | Blocking |
 
 ## Final visible browser test — owner only
 
-The automated gate stops before subjective visual acceptance. After a green gate, the generated `artifacts/engineering/MANUAL_TEST_HANDOFF.md` lists only the remaining visible checks:
+After a green gate, the generated handoff contains only subjective/visible checks:
 
 1. page rendering and responsive layout;
-2. visible connection and scan controls;
-3. fixture-provider switching and scan presentation;
-4. Safe audit presentation and actions;
-5. warning-card action confirmations and visible feedback;
-6. exact-one fixture Report Spam movement from Inbox into Spam/Junk;
-7. Stop/restart responsiveness;
-8. controlled live iCloud presentation and action confirmation when credentials are available;
-9. visible errors, loading states, rapid-click resistance and absence of blank/frozen UI.
+2. all five fixture-provider scans;
+3. Safe and warning-card action presentation;
+4. Report Scam privacy and independent-reporting confirmation text;
+5. immediate local campaign protection after a rescan;
+6. optional sender block remaining separate;
+7. Move to Spam/Junk remaining separate and exact-message only;
+8. Stop/restart responsiveness and account isolation;
+9. controlled live iCloud presentation when credentials are available.
 
-Gmail and Outlook live OAuth are not included as pass criteria because guided browser onboarding is an acknowledged unimplemented product gap.
+The warning/confirmed aggregation, cryptographic feed verification and cross-provider report contract are automated. Public DNS/TLS/gateway/monitoring are deployment acceptance, not browser acceptance.
 
 ## Not applicable
 
 | Area | Reason |
 |---|---|
-| Database migrations/RLS/seed idempotency | No application database or migration layer exists. |
-| Component-framework tests | Browser UI is vanilla HTML/JavaScript. |
+| Relational DB migrations/RLS/seeds | Encrypted local JSON stores are used; no relational database exists. |
+| Component-framework tests | UI is vanilla HTML/JavaScript. |
 | Mobile-native build | No Android/iOS native project exists. |
-| Docker/Kubernetes | No container deployment is part of the current localhost milestone. |
-| Cloud deployment health | No production deployment target is configured. |
-| Visual snapshot automation | Owner performs final visible browser acceptance; automation must not substitute subjective acceptance. |
-| Real provider destructive tests in CI | CI must never receive mailbox credentials or modify a live mailbox. |
-| Community scam-report aggregation | Provider-level Report Spam is implemented; privacy-reduced community reporting remains a registered Milestone 2 gap. |
+| Docker/Kubernetes | No container definition is currently canonical. |
+| Production cloud health | No public deployment target is connected to CI. |
+| Visual snapshots | Owner performs final visible acceptance. |
+| Real provider destructive CI | CI must never receive mailbox credentials or modify live mail. |
+| Gateway/DDoS testing | Requires the actual production reverse proxy/API gateway. |
 
 ## Change-impact rule
 
-Every future change must update this matrix when it introduces a new runtime, data store, provider path, destructive action, external integration or user-visible workflow. New automated checks should be added only when the project actually gains the corresponding architecture.
+Every future provider, report indicator, threshold, key format, storage layer, external endpoint or user-visible action must update this matrix and add applicable automated protection.
