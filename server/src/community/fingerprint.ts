@@ -49,20 +49,22 @@ function genericDeliverySender(envelope: CanonicalEnvelope): boolean {
 }
 
 export function campaignFingerprint(envelope: CanonicalEnvelope): string {
-  const senderAddress = envelope.from.address?.trim().toLowerCase() ?? "";
   const senderDomain = normalizeDomain(envelope.from.domain) ?? "";
-  const deliveryIdentity = genericDeliverySender(envelope) ? senderDomain : senderAddress;
   const replyDomain = normalizeDomain(envelope.replyTo?.domain) ?? "";
-  const linkDomains = externalLinkDomains(envelope);
+  const linkDomains = externalLinkDomains(envelope).map(organizationalDomain).filter(Boolean).sort();
   const attachmentHashes = envelope.attachments
     .map((attachment) => attachment.sha256?.toLowerCase())
     .filter((value): value is string => Boolean(value))
     .sort();
+  const hasDownstreamIdentity = Boolean(replyDomain || linkDomains.length || attachmentHashes.length);
 
   return sha256(JSON.stringify({
-    version: 1,
-    deliveryIdentity,
-    replyDomain,
+    version: 2,
+    // Stable downstream infrastructure identifies a campaign more reliably
+    // than its disposable delivery sender. Use the sender organization only
+    // when no Reply-To, destination or attachment signal exists.
+    fallbackSenderDomain: hasDownstreamIdentity ? "" : organizationalDomain(senderDomain),
+    replyDomain: replyDomain ? organizationalDomain(replyDomain) : "",
     linkDomains,
     attachmentHashes,
     subjectSkeleton: subjectSkeleton(envelope.subject),
