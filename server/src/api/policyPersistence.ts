@@ -48,6 +48,7 @@ function emptySnapshot(): PersonalPolicySnapshot {
     trustedSenders: [],
     approvedExceptions: [],
     unsubscribedActions: [],
+    reportedCampaigns: [],
   };
 }
 
@@ -76,6 +77,7 @@ export function sanitizePolicySnapshot(input: unknown): PersonalPolicySnapshot {
     trustedSenders: sanitizeList(value.trustedSenders),
     approvedExceptions: sanitizeList(value.approvedExceptions),
     unsubscribedActions: sanitizeList(value.unsubscribedActions),
+    reportedCampaigns: sanitizeList(value.reportedCampaigns).filter((item) => /^[a-f0-9]{64}$/.test(item)),
   };
 }
 
@@ -86,6 +88,7 @@ function cloneSnapshot(snapshot: PersonalPolicySnapshot): PersonalPolicySnapshot
     trustedSenders: [...snapshot.trustedSenders],
     approvedExceptions: [...snapshot.approvedExceptions],
     unsubscribedActions: [...snapshot.unsubscribedActions],
+    reportedCampaigns: [...snapshot.reportedCampaigns],
   };
 }
 
