@@ -108,7 +108,7 @@ describe("provider-independent classification regressions", () => {
 
 describe("all adapter options share the same scan action contract", () => {
   for (const provider of ["gmail", "icloud", "outlook", "yahoo", "imap"] as Provider[]) {
-    it(`${provider} fixture emits review and unsubscribe context through the canonical workflow`, async () => {
+    it(`${provider} fixture emits review, unsubscribe, and community-report context through the canonical workflow`, async () => {
       const adapter = createAdapter({ provider, mode: "fixture" });
       const policy = new InMemoryPersonalPolicyStore();
       const pages = [];
@@ -121,6 +121,12 @@ describe("all adapter options share the same scan action contract", () => {
         expect(summary.actionContext.exceptionKey).toMatch(/^message:[a-f0-9]{64}$/);
         expect(summary.actionContext.providerNativeId).toBeTruthy();
         expect(summary.actionContext.unsubscribe).toHaveProperty("available");
+        expect(summary.actionContext.communityReport.campaignFingerprint).toMatch(/^[a-f0-9]{64}$/);
+        expect(summary.actionContext.communityReport.indicators)
+          .toContainEqual({ type: "campaign", value: summary.actionContext.communityReport.campaignFingerprint });
+        const serialized = JSON.stringify(summary.actionContext.communityReport);
+        expect(serialized).not.toContain(summary.subject);
+        expect(serialized).not.toContain(summary.actionContext.providerNativeId);
       }
     });
   }
