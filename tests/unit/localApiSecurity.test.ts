@@ -166,14 +166,9 @@ describe("local desktop security boundary", () => {
     });
     const stream = await scan.text();
     expect(scan.status).toBe(200);
-    const payloads = stream.split(/\r?\n/)
-      .filter((line) => line.startsWith("data: "))
-      .map((line) => { try { return JSON.parse(line.slice(6)); } catch { return null; } });
-    const actionToken = payloads
-      .flatMap((value) => value?.diagnosticSummaries ?? [])
-      .find((summary) => typeof summary?.reviewAction?.token === "string")
-      ?.reviewAction?.token;
-    expect(actionToken).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(stream).toContain('"reviewAction"');
+    const actionToken = stream.match(/"reviewAction":\{[^}]*"token":"([0-9a-f-]{36})"/i)?.[1];
+    expect(actionToken, stream.slice(-2000)).toMatch(/^[0-9a-f-]{36}$/i);
 
     const first = await mutate(
       context,
