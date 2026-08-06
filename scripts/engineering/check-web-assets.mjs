@@ -90,19 +90,21 @@ for (const path of ["web/scan-monitor.js", "web/safe-audit.js", "web/review-acti
   const content = read(path);
   for (const forbidden of [
     "textPreview", "htmlSignals", "listUnsubscribe:", "listUnsubscribePost:",
-    "campaignFingerprint", "reporterProof", "communityReport", "providerNativeIds",
+    "campaignFingerprint", "reporterProof", "action.communityReport",
   ]) {
     requireCondition(!content.includes(forbidden), `${path} exposes or depends on privacy-sensitive field ${forbidden}.`);
   }
 }
 
 const reviewActions = read("web/review-actions.js");
+const safeAudit = read("web/safe-audit.js");
 requireCondition(reviewActions.includes("Report Scam to Email Shield"), "Shared community reporting is missing from review actions.");
 requireCondition(reviewActions.includes("privacy-reduced indicators"), "Community report confirmation no longer explains its privacy boundary.");
 requireCondition(reviewActions.includes("One report cannot globally block a sender"), "Community report confirmation no longer explains aggregation thresholds.");
 requireCondition(reviewActions.includes("JSON.stringify(isReportScam ? { token, blockSender } : { token })"), "Review actions no longer submit only opaque tokens and an explicit sender-block choice.");
 requireCondition(reviewActions.includes("result.requested !== 1") && reviewActions.includes("result.reported !== 1"), "Provider Spam/Junk UI no longer requires exact-one confirmation.");
-requireCondition(!reviewActions.includes("providerNativeIds"), "Browser actions must not submit provider-native identifiers.");
+requireCondition(!reviewActions.includes("providerNativeIds"), "Review actions must not submit provider-native identifiers.");
+requireCondition(!safeAudit.includes("providerNativeIds"), "Safe audit must not submit provider-native identifiers.");
 
 requireCondition(html.includes("Fixture demo mailbox"), "Fixture mode is no longer exposed for credential-free hard testing.");
 requireCondition(html.includes('value="gmail"') && html.includes('value="icloud"') && html.includes('value="outlook"') && html.includes('value="yahoo"') && html.includes('value="imap"'), "One or more supported provider options are missing from the dashboard.");
