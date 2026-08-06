@@ -27,7 +27,7 @@ function configuredPublicKeys(): string[] {
   return raw.includes("BEGIN PUBLIC KEY") ? [raw.replace(/\\n/g, "\n")] : [];
 }
 
-function normalizeRemoteUrl(value: string | undefined): string | null {
+function normalizeRemoteUrl(value: string | undefined | null): string | null {
   const trimmed = value?.trim();
   if (!trimmed) return null;
   const parsed = new URL(trimmed);
@@ -101,9 +101,9 @@ export class CommunityNetwork implements ThreatFeedCache {
   } = {}) {
     this.dataDirectory = options.dataDirectory ?? DEFAULT_DATA_DIRECTORY;
     this.serverEnabled = options.serverEnabled ?? process.env.EMAIL_SHIELD_COMMUNITY_SERVER === "1";
-    this.remoteUrl = options.remoteUrl === undefined
-      ? normalizeRemoteUrl(process.env.EMAIL_SHIELD_COMMUNITY_URL)
-      : options.remoteUrl;
+    this.remoteUrl = normalizeRemoteUrl(
+      options.remoteUrl === undefined ? process.env.EMAIL_SHIELD_COMMUNITY_URL : options.remoteUrl,
+    );
     this.aggregateStore = new EncryptedCommunityAggregateStore(this.dataDirectory);
     this.reporterIdentity = new CommunityReporterIdentity(this.dataDirectory);
     this.outbox = new EncryptedCommunityOutbox(this.dataDirectory);
@@ -175,7 +175,7 @@ export class CommunityNetwork implements ThreatFeedCache {
   }
 
   signedFeed(): SignedCommunityFeed {
-    if (!this.serverEnabled && this.remoteUrl) throw new Error("This client instance is not a community feed server.");
+    if (!this.serverEnabled) throw new Error("Community aggregation service is disabled on this instance.");
     return this.signer.sign(this.aggregateStore.buildFeedPayload());
   }
 
