@@ -132,10 +132,10 @@ export function createScanStreamHandler(options: { community: CommunityNetwork }
 
     const threatFeedEntries = snapshotVerifiedFeedAndRefresh(community);
     writeEvent("scan-status", {
-      phase: "starting",
+      phase: "community_feed",
       message: community.remoteUrl
-        ? "Starting the mailbox scan with the current verified protection feed; network refresh is running separately."
-        : "Starting the mailbox scan with the current verified protection feed…",
+        ? "Refreshing verified community protection feed separately while the mailbox scan starts with the current verified snapshot."
+        : "Refreshing verified community protection feed from the current local verified snapshot while the mailbox scan starts.",
     });
 
     const workerUrl = new URL("../workers/scanWorker.js", import.meta.url);
