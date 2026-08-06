@@ -94,8 +94,10 @@ function readablePart(node: ImapBodyNode, isRoot: boolean): ReadableTextPart | n
 }
 
 export function inspectBodyStructure(root: ImapBodyNode | null | undefined): ReadablePartSelection {
-  let plain: ReadableTextPart | null = null;
-  let html: ReadableTextPart | null = null;
+  const selected: { plain: ReadableTextPart | null; html: ReadableTextPart | null } = {
+    plain: null,
+    html: null,
+  };
   const attachments: AttachmentInfo[] = [];
 
   const visit = (node: ImapBodyNode, insideAttachment: boolean, isRoot: boolean) => {
@@ -103,8 +105,8 @@ export function inspectBodyStructure(root: ImapBodyNode | null | undefined): Rea
     const branchIsAttachment = insideAttachment || disposition === "attachment";
     const candidate = !branchIsAttachment ? readablePart(node, isRoot) : null;
 
-    if (candidate?.contentType === "text/plain" && !plain) plain = candidate;
-    if (candidate?.contentType === "text/html" && !html) html = candidate;
+    if (candidate?.contentType === "text/plain" && !selected.plain) selected.plain = candidate;
+    if (candidate?.contentType === "text/html" && !selected.html) selected.html = candidate;
 
     const attachment = attachmentInfo(node);
     if (attachment) attachments.push(attachment);
@@ -114,10 +116,10 @@ export function inspectBodyStructure(root: ImapBodyNode | null | undefined): Rea
 
   if (root) visit(root, false, true);
   return {
-    plainPart: plain?.part ?? null,
-    htmlPart: html?.part ?? null,
-    plain,
-    html,
+    plainPart: selected.plain?.part ?? null,
+    htmlPart: selected.html?.part ?? null,
+    plain: selected.plain,
+    html: selected.html,
     attachments,
   };
 }
