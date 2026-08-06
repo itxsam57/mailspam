@@ -250,7 +250,7 @@ export class EncryptedCommunityAggregateStore {
       const status = statusFor(campaign, this.thresholds);
       if (status === "candidate") continue;
       const minimumSupport = status === "confirmed"
-        ? this.thresholds.confirmedStrongReporters
+        ? this.thresholds.confirmedReporters
         : this.thresholds.warningReporters;
       for (const [key, reporterProofs] of Object.entries(campaign.indicatorReporters)) {
         if (new Set(reporterProofs).size < minimumSupport) continue;
