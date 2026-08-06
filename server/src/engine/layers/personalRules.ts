@@ -1,4 +1,5 @@
 import type { CanonicalEnvelope } from "../../canonical/envelope.js";
+import { campaignFingerprint } from "../../community/fingerprint.js";
 import { messageExceptionKey } from "../../workflows/messageReview.js";
 import type { LayerResult } from "../verdict.js";
 
@@ -8,6 +9,7 @@ export interface PersonalPolicySnapshot {
   trustedSenders: string[];
   approvedExceptions: string[];
   unsubscribedActions: string[];
+  reportedCampaigns: string[];
 }
 
 export interface PersonalPolicyStore {
@@ -16,6 +18,7 @@ export interface PersonalPolicyStore {
   isTrustedSender(address: string): boolean;
   isApprovedException(value: string): boolean;
   isUnsubscribedAction(actionKey: string): boolean;
+  isReportedCampaign(fingerprint: string): boolean;
 }
 
 export class InMemoryPersonalPolicyStore implements PersonalPolicyStore {
@@ -24,17 +27,20 @@ export class InMemoryPersonalPolicyStore implements PersonalPolicyStore {
   private trustedSenders = new Set<string>();
   private approvedExceptions = new Set<string>();
   private unsubscribedActions = new Set<string>();
+  private reportedCampaigns = new Set<string>();
 
   blockSender(address: string) { this.blockedSenders.add(address.toLowerCase()); }
   blockDomain(domain: string) { this.blockedDomains.add(domain.toLowerCase()); }
   trustSender(address: string) { this.trustedSenders.add(address.toLowerCase()); }
   approveException(value: string) { this.approvedExceptions.add(value.toLowerCase()); }
   rememberUnsubscribed(actionKey: string) { this.unsubscribedActions.add(actionKey.toLowerCase()); }
+  reportCampaign(fingerprint: string) { this.reportedCampaigns.add(fingerprint.toLowerCase()); }
   unblockSender(address: string) { this.blockedSenders.delete(address.toLowerCase()); }
   unblockDomain(domain: string) { this.blockedDomains.delete(domain.toLowerCase()); }
   untrustSender(address: string) { this.trustedSenders.delete(address.toLowerCase()); }
   revokeException(value: string) { this.approvedExceptions.delete(value.toLowerCase()); }
   forgetUnsubscribed(actionKey: string) { this.unsubscribedActions.delete(actionKey.toLowerCase()); }
+  forgetReportedCampaign(fingerprint: string) { this.reportedCampaigns.delete(fingerprint.toLowerCase()); }
 
   clear() {
     this.blockedSenders.clear();
@@ -42,6 +48,7 @@ export class InMemoryPersonalPolicyStore implements PersonalPolicyStore {
     this.trustedSenders.clear();
     this.approvedExceptions.clear();
     this.unsubscribedActions.clear();
+    this.reportedCampaigns.clear();
   }
 
   snapshot(): PersonalPolicySnapshot {
@@ -51,6 +58,7 @@ export class InMemoryPersonalPolicyStore implements PersonalPolicyStore {
       trustedSenders: [...this.trustedSenders],
       approvedExceptions: [...this.approvedExceptions],
       unsubscribedActions: [...this.unsubscribedActions],
+      reportedCampaigns: [...this.reportedCampaigns],
     };
   }
 
@@ -60,6 +68,7 @@ export class InMemoryPersonalPolicyStore implements PersonalPolicyStore {
     for (const value of snapshot.trustedSenders ?? []) this.trustSender(value);
     for (const value of snapshot.approvedExceptions ?? []) this.approveException(value);
     for (const value of snapshot.unsubscribedActions ?? []) this.rememberUnsubscribed(value);
+    for (const value of snapshot.reportedCampaigns ?? []) this.reportCampaign(value);
   }
 
   replace(snapshot: Partial<PersonalPolicySnapshot>) {
@@ -72,6 +81,7 @@ export class InMemoryPersonalPolicyStore implements PersonalPolicyStore {
   isTrustedSender(address: string) { return this.trustedSenders.has(address.toLowerCase()); }
   isApprovedException(value: string) { return this.approvedExceptions.has(value.toLowerCase()); }
   isUnsubscribedAction(actionKey: string) { return this.unsubscribedActions.has(actionKey.toLowerCase()); }
+  isReportedCampaign(fingerprint: string) { return this.reportedCampaigns.has(fingerprint.toLowerCase()); }
 }
 
 export function personalRulesLayer(
@@ -82,11 +92,9 @@ export function personalRulesLayer(
   const address = envelope.from.address ?? "";
   const domain = envelope.from.domain ?? "";
   const exactMessageKey = messageExceptionKey(envelope);
+  const fingerprint = campaignFingerprint(envelope);
   let confirmed = false;
 
-  // An explicit block remains authoritative even if the same sender or message
-  // was previously trusted. The user must remove the block from policy before
-  // a Safe/trust rule can apply again.
   if (address && store.isBlockedSender(address)) {
     confirmed = true;
     evidence.push({
@@ -103,6 +111,16 @@ export function personalRulesLayer(
       layer: "personal_rules",
       code: "BLOCKED_DOMAIN",
       description: "Sender domain matches the user's personal block list.",
+      scoreContribution: 10,
+      source: "personal_rule",
+    });
+  }
+  if (store.isReportedCampaign(fingerprint)) {
+    confirmed = true;
+    evidence.push({
+      layer: "personal_rules",
+      code: "LOCALLY_REPORTED_SCAM_CAMPAIGN",
+      description: "This message matches a scam campaign previously reported by the user.",
       scoreContribution: 10,
       source: "personal_rule",
     });
