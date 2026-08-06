@@ -14,6 +14,16 @@ function reviewContext(overrides: Partial<ScanActionContext> = {}): ScanActionCo
     senderAddress: "sender@example.com",
     normalizedFolder: "inbox",
     unsubscribe: { available: false, method: "none", target: null, source: "none" },
+    communityReport: {
+      campaignFingerprint: "d".repeat(64),
+      indicators: [
+        { type: "campaign", value: "d".repeat(64) },
+        { type: "sender", value: "sender@example.com" },
+      ],
+      evidenceCodes: ["TEST_EVIDENCE"],
+      evidenceScore: 6,
+      verdict: "high_risk",
+    },
     ...overrides,
   };
 }
@@ -34,6 +44,7 @@ describe("account-scoped personal policy", () => {
     first.personalPolicy.trustSender("trusted@example.org");
     first.personalPolicy.approveException(`message:${"b".repeat(64)}`);
     first.personalPolicy.rememberUnsubscribed("campaign-key");
+    first.personalPolicy.reportCampaign("e".repeat(64));
     store.persistPersonalPolicy(first);
 
     expect(second.personalPolicy.isBlockedSender("blocked@example.com")).toBe(false);
@@ -41,6 +52,7 @@ describe("account-scoped personal policy", () => {
     expect(second.personalPolicy.isTrustedSender("trusted@example.org")).toBe(false);
     expect(second.personalPolicy.isApprovedException(`message:${"b".repeat(64)}`)).toBe(false);
     expect(second.personalPolicy.isUnsubscribedAction("campaign-key")).toBe(false);
+    expect(second.personalPolicy.isReportedCampaign("e".repeat(64))).toBe(false);
   });
 
   it("shares one live policy object between simultaneous sessions for the same mailbox", () => {
@@ -56,7 +68,7 @@ describe("account-scoped personal policy", () => {
     expect(second.personalPolicy.isTrustedSender("trusted@example.com")).toBe(true);
   });
 
-  it("restores blocks, trust, exact approvals, and unsubscribe history after restart", async () => {
+  it("restores blocks, trust, exact approvals, unsubscribe history, and reported campaigns after restart", async () => {
     const repository = new InMemoryPolicyRepository();
     const config = {
       provider: "icloud" as const,
@@ -69,6 +81,7 @@ describe("account-scoped personal policy", () => {
     original.personalPolicy.trustSender("trusted@example.com");
     original.personalPolicy.approveException(`message:${"c".repeat(64)}`);
     original.personalPolicy.rememberUnsubscribed("campaign-key");
+    original.personalPolicy.reportCampaign("e".repeat(64));
     firstProcess.persistPersonalPolicy(original);
     await firstProcess.remove(original.id);
 
@@ -81,6 +94,7 @@ describe("account-scoped personal policy", () => {
     expect(reconnected.personalPolicy.isTrustedSender("trusted@example.com")).toBe(true);
     expect(reconnected.personalPolicy.isApprovedException(`message:${"c".repeat(64)}`)).toBe(true);
     expect(reconnected.personalPolicy.isUnsubscribedAction("campaign-key")).toBe(true);
+    expect(reconnected.personalPolicy.isReportedCampaign("e".repeat(64))).toBe(true);
   });
 
   it("rolls back a mutation when encrypted persistence fails", () => {
@@ -91,6 +105,7 @@ describe("account-scoped personal policy", () => {
         trustedSenders: [],
         approvedExceptions: [],
         unsubscribedActions: [],
+        reportedCampaigns: [],
       }),
       save: () => { throw new Error("disk full"); },
     };
@@ -107,7 +122,7 @@ describe("account-scoped personal policy", () => {
 });
 
 describe("opaque message review actions", () => {
-  it("issues account-scoped tokens without exposing the policy key in the token", () => {
+  it("issues account-scoped tokens without exposing community indicators in the token", () => {
     const store = new SessionStore(new InMemoryPolicyRepository());
     const first = store.create("gmail", "first", { provider: "gmail", mode: "fixture" });
     const second = store.create("outlook", "second", { provider: "outlook", mode: "fixture" });
@@ -115,33 +130,39 @@ describe("opaque message review actions", () => {
     const registered = store.registerReviewAction(first, context);
 
     expect(registered.token).not.toContain(context.exceptionKey);
+    expect(registered.token).not.toContain(context.communityReport.campaignFingerprint);
+    expect(registered.canMoveToSpam).toBe(true);
     expect(registered.canReportSpam).toBe(true);
+    expect(registered.communityReported).toBe(false);
     expect(store.resolveReviewAction(first, registered.token)).toMatchObject({
       exceptionKey: context.exceptionKey,
       senderAddress: context.senderAddress,
       providerNativeId: context.providerNativeId,
       normalizedFolder: "inbox",
+      communityReport: context.communityReport,
     });
     expect(() => store.resolveReviewAction(second, registered.token)).toThrow("unknown or expired");
   });
 
-  it("does not offer Report Spam for a message already in Spam/Junk", () => {
+  it("does not offer provider Spam/Junk movement for a message already there", () => {
     const store = new SessionStore(new InMemoryPolicyRepository());
     const session = store.create("imap", "mailbox", { provider: "imap", mode: "fixture" });
-    expect(store.registerReviewAction(session, reviewContext({ normalizedFolder: "spam" })).canReportSpam).toBe(false);
+    expect(store.registerReviewAction(session, reviewContext({ normalizedFolder: "spam" })).canMoveToSpam).toBe(false);
   });
 
-  it("reports existing exact-message and trusted-sender decisions", () => {
+  it("reports existing Safe, trust, and community decisions", () => {
     const store = new SessionStore(new InMemoryPolicyRepository());
     const session = store.create("yahoo", "mailbox", { provider: "yahoo", mode: "fixture" });
     const context = reviewContext();
     session.personalPolicy.approveException(context.exceptionKey);
     session.personalPolicy.trustSender(context.senderAddress!);
+    session.personalPolicy.reportCampaign(context.communityReport.campaignFingerprint);
 
     expect(store.registerReviewAction(session, context)).toMatchObject({
       alreadyApproved: true,
       senderTrusted: true,
-      canReportSpam: true,
+      canMoveToSpam: true,
+      communityReported: true,
     });
   });
 });
