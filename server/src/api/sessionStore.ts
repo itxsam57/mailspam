@@ -102,9 +102,9 @@ export class SessionStore {
     alreadyApproved: boolean;
     senderTrusted: boolean;
     canMoveToSpam: boolean;
-    /** Compatibility alias consumed by the Safe audit row renderer. */
     canReportSpam: boolean;
     scamAlreadyReported: boolean;
+    communityReported: boolean;
   } {
     if (session.reviewActions.size >= MAX_SCAN_ACTIONS) {
       throw new Error("Too many message review actions are registered for this scan.");
@@ -121,13 +121,15 @@ export class SessionStore {
       createdAt: Date.now(),
     });
     const canMoveToSpam = context.normalizedFolder !== "spam";
+    const alreadyReported = session.personalPolicy.isReportedCampaign(context.communityReport.campaignFingerprint);
     return {
       token,
       alreadyApproved: session.personalPolicy.isApprovedException(context.exceptionKey),
       senderTrusted: Boolean(context.senderAddress && session.personalPolicy.isTrustedSender(context.senderAddress)),
       canMoveToSpam,
       canReportSpam: canMoveToSpam,
-      scamAlreadyReported: session.personalPolicy.isReportedCampaign(context.communityReport.campaignFingerprint),
+      scamAlreadyReported: alreadyReported,
+      communityReported: alreadyReported,
     };
   }
 
