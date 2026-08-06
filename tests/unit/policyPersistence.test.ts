@@ -35,6 +35,7 @@ describe("encrypted local personal policy persistence", () => {
       credentials: { user: "Usama@iCloud.com", appPassword: "must-not-be-written" },
     });
     const messageKey = `message:${"a".repeat(64)}`;
+    const campaignFingerprint = "b".repeat(64);
     const first = new EncryptedFilePolicyRepository(directory);
     first.save(accountKey, {
       blockedSenders: ["blocked@example.com"],
@@ -42,12 +43,13 @@ describe("encrypted local personal policy persistence", () => {
       trustedSenders: ["trusted@example.org"],
       approvedExceptions: [messageKey],
       unsubscribedActions: ["campaign-hash"],
+      reportedCampaigns: [campaignFingerprint],
     });
 
     const encryptedText = readFileSync(join(directory, "personal-policies.enc.json"), "utf8");
     for (const privateValue of [
       "blocked@example.com", "example.net", "trusted@example.org", messageKey,
-      "campaign-hash", "must-not-be-written",
+      "campaign-hash", campaignFingerprint, "must-not-be-written",
     ]) expect(encryptedText).not.toContain(privateValue);
     expect(readFileSync(join(directory, "personal-policy.key"))).toHaveLength(32);
 
@@ -58,6 +60,7 @@ describe("encrypted local personal policy persistence", () => {
       trustedSenders: ["trusted@example.org"],
       approvedExceptions: [messageKey],
       unsubscribedActions: ["campaign-hash"],
+      reportedCampaigns: [campaignFingerprint],
     });
   });
 
@@ -93,8 +96,10 @@ describe("encrypted local personal policy persistence", () => {
       trustedSenders: [],
       approvedExceptions: [],
       unsubscribedActions: [],
+      reportedCampaigns: [],
     });
     expect(repository.load(accountKey).unsubscribedActions).toEqual([]);
+    expect(repository.load(accountKey).reportedCampaigns).toEqual([]);
   });
 
   it("fails visibly instead of silently discarding a corrupted encrypted database", () => {
@@ -107,6 +112,7 @@ describe("encrypted local personal policy persistence", () => {
       trustedSenders: [],
       approvedExceptions: [],
       unsubscribedActions: [],
+      reportedCampaigns: [],
     });
 
     writeFileSync(join(directory, "personal-policies.enc.json"), "{\"version\":1,\"broken\":true}");
@@ -124,6 +130,7 @@ describe("encrypted local personal policy persistence", () => {
       trustedSenders: [" Trusted@Example.org ", "trusted@example.org"],
       approvedExceptions: [` MESSAGE:${"B".repeat(64)} `],
       unsubscribedActions: [" Campaign-Key ", "campaign-key"],
+      reportedCampaigns: [` ${"C".repeat(64)} `, "not-a-fingerprint"],
     });
 
     expect(repository.load(accountKey)).toEqual({
@@ -132,6 +139,7 @@ describe("encrypted local personal policy persistence", () => {
       trustedSenders: ["trusted@example.org"],
       approvedExceptions: [`message:${"b".repeat(64)}`],
       unsubscribedActions: ["campaign-key"],
+      reportedCampaigns: ["c".repeat(64)],
     });
   });
 });
