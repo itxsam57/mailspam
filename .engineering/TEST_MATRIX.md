@@ -36,6 +36,7 @@ This matrix is project-specific. A check is installed only when it protects an e
 | A-28 | Browser isolation | Per-response CSP nonce, anti-framing, same-origin opener/resource policy, no-referrer and restricted browser capabilities | `npm run test:unit`, `npm run check:web`, `npm run smoke:server` | Windows + Ubuntu | Blocking |
 | A-29 | Local error privacy | Exact credentials, OAuth codes, bearer values and JWT-like values are redacted from API errors and SSE output | `npm run test:unit`, `npm run check:web` | Windows + Ubuntu | Blocking |
 | A-30 | Bounded scan progress | Live IMAP Quick Scan preserves its ten-message limit while yielding smaller cumulative pages; remote community refresh cannot block worker startup; first-result and between-page stalls end visibly instead of leaving an endless EventSource | `scanProgressRuntime.test.ts`, `npm run smoke:server` | Windows + Ubuntu | Blocking |
+| A-31 | Live IMAP text integrity | Truncation uses selected MIME-part limits rather than complete-message size; root single-part bodies use `TEXT`; bounded plain and HTML alternatives decode in one provider request; HTML destinations reach the canonical envelope; attachment bodies and full raw source remain unfetched | `imapMimeParts.test.ts`, architecture regression tests | Windows + Ubuntu | Blocking |
 
 ## Final visible browser test — owner only
 
@@ -52,9 +53,10 @@ After a green gate, the generated handoff contains only subjective/visible check
 9. visible local-session behavior after refresh and process restart;
 10. duplicate successful action controls requiring a rescan;
 11. controlled live iCloud presentation when credentials are available;
-12. live provider scans show bounded-batch status at least every 15 seconds, produce partial results as batches complete, or stop with a specific timeout error rather than remaining indefinitely on Scanning.
+12. live provider scans show bounded-batch status at least every 15 seconds, produce partial results as batches complete, or stop with a specific timeout error rather than remaining indefinitely on Scanning;
+13. ordinary short live iCloud messages no longer uniformly show the former `Readable text was bounded to 24576 bytes` note, and HTML-only/multipart messages show available content and link evidence.
 
-The local session, CSRF, nonce, Host, redaction, bounded scan deadlines, warning/confirmed aggregation, cryptographic feed verification and cross-provider report contract are automated. Public DNS/TLS/gateway/monitoring are deployment acceptance, not browser acceptance.
+The local session, CSRF, nonce, Host, redaction, bounded scan deadlines, selected-part MIME decoding, warning/confirmed aggregation, cryptographic feed verification and cross-provider report contract are automated. Public DNS/TLS/gateway/monitoring are deployment acceptance, not browser acceptance.
 
 ## Not applicable
 

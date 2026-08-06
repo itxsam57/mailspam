@@ -149,20 +149,29 @@ describe("transport architecture regressions", () => {
     expect(worker).toContain("Reconnecting and retrying the read-only scan once");
   });
 
-  it("fetches bounded readable IMAP parts instead of raw messages or attachment bodies", () => {
+  it("fetches bounded readable IMAP alternatives instead of raw messages or attachment bodies", () => {
     const imap = read("server/src/adapters/imap/imapAdapter.ts");
+    const mime = read("server/src/adapters/imap/mimeParts.ts");
     expect(imap).not.toContain("source: true");
     expect(imap).not.toContain("MAX_MESSAGE_PREFIX_BYTES");
     expect(imap).toContain("bodyStructure: true");
     expect(imap).toContain("headers: true");
-    expect(imap).toContain("client.download(uid, part");
-    expect(imap).toContain("maxBytes: MAX_TEXT_PART_BYTES");
+    expect(imap).toContain("bodyParts: requestedParts.map");
+    expect(imap).toContain("maxLength: MAX_ENCODED_TEXT_PART_BYTES");
+    expect(imap).toContain("{ uid: true, binary: false }");
+    expect(imap).toContain("buildSyntheticReadableMessage");
+    expect(imap).toContain("boundedTextPartWasTruncated");
+    expect(imap).not.toContain("expectedSize");
     expect(imap).not.toContain("downloadMany");
+    expect(mime).toContain('isRoot && !node.childNodes?.length ? "TEXT"');
+    expect(mime).toContain("plainBody");
+    expect(mime).toContain("htmlBody");
   });
 
-  it("completes metadata fetches before issuing text-part downloads", () => {
+  it("completes metadata fetches before issuing bounded text-part fetches", () => {
     const imap = read("server/src/adapters/imap/imapAdapter.ts");
     expect(imap).toContain("client.fetchAll(selected");
+    expect(imap).toContain("fetchBoundedReadableBodies");
     expect(imap).not.toContain("for await (const message of client.fetch");
   });
 

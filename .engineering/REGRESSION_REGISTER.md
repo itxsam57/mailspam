@@ -56,6 +56,7 @@ Status values:
 | REG-033 | LOCKED | Desktop server binds only to loopback, rejects forwarded and DNS-rebinding Host requests, rate-limits sensitive routes, and invalidates successful opaque actions against replay. | local API tests, raw-HTTP smoke, browser gate |
 | REG-034 | LOCKED | Local errors and SSE output redact credentials, OAuth codes, bearer values and JWT-like tokens; browser storage never holds the local session secret; CSP and anti-framing headers remain enabled. | local redaction tests, `check:web`, compiled smoke |
 | REG-035 | LOCKED | A live mailbox scan must not wait for remote community retries or withhold all progress behind a large sequential IMAP page. Live IMAP scans use small bounded pages, Quick Scan keeps its ten-message limit across incremental yields, the SSE sends periodic waiting status, and first-result or between-page stalls terminate visibly instead of remaining active indefinitely. | `scanProgressRuntime.test.ts`, Worker integration, compiled desktop smoke, Windows/Ubuntu gate |
+| REG-036 | LOCKED | Live iCloud/Yahoo/IMAP scans must classify readable-body completeness from the selected MIME parts, never the total RFC822 message size. Bounded plain and HTML alternatives are fetched together, decoded by their transfer encoding and charset, HTML destinations reach the canonical envelope, root single-part bodies use `TEXT`, and attachment bodies remain unfetched. | `imapMimeParts.test.ts`, architecture regression tests, Windows/Ubuntu gate |
 
 ## Resolved registered gaps
 
@@ -95,6 +96,7 @@ Status values:
 | MAN-011 | MANUAL | Normal dashboard actions continue without visible CSRF/session errors; refreshing creates a new valid local session; a stale tab after process restart shows a clear reload requirement rather than silently performing an action. |
 | MAN-012 | MANUAL | Rapid repeated clicks do not execute one successful message action twice; used action controls require a rescan. |
 | MAN-013 | MANUAL | A controlled live iCloud Quick Scan shows a waiting update at least every 15 seconds, begins displaying results as bounded batches complete, and never remains indefinitely on Scanning; a genuinely stalled provider returns a specific timeout error and releases the scan controls. |
+| MAN-014 | MANUAL | A controlled live iCloud scan extracts readable text from ordinary short messages without uniformly marking them partial or showing the former `Readable text was bounded to 24576 bytes` note; HTML-only or multipart messages expose applicable content/link evidence while genuinely oversized parts remain visibly bounded. |
 
 ## Register maintenance rule
 
