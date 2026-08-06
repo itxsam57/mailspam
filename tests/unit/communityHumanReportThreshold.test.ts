@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -16,11 +17,15 @@ function store(): EncryptedCommunityAggregateStore {
   return new EncryptedCommunityAggregateStore(directory);
 }
 
+function reporterProof(label: string): string {
+  return createHash("sha256").update(`human-report-test:${label}`).digest("hex");
+}
+
 function safeReport(reporter: string): CommunityReportSubmission {
   const campaignFingerprint = "c".repeat(64);
   return {
     schemaVersion: 1,
-    reporterProof: reporter.repeat(64),
+    reporterProof: reporterProof(reporter),
     campaignFingerprint,
     reportedAt: new Date().toISOString(),
     verdict: "safe",
