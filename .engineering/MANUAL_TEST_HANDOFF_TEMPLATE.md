@@ -4,7 +4,7 @@ This source-controlled template is used by `npm run gate` to create `artifacts/e
 
 ## Handoff rule
 
-Perform only these visible checks after the generated report says **READY**. Build, typecheck, unit/API, integration, corpus, Worker, cryptographic, browser-source, smoke and dependency checks belong to automation.
+The owner performs only the visible checks listed below after the generated report says **READY**. Build, typecheck, unit/API, integration, corpus, Worker, cryptographic, browser-source, smoke and dependency checks belong to automation.
 
 For each visible check record PASS/FAIL, browser/viewport and the exact visible failure. Never include credentials, mailbox contents or private provider identifiers.
 
