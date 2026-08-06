@@ -3,6 +3,8 @@ import type { NormalizedFolder, ParseStatus } from "../canonical/envelope.js";
 import type { Verdict } from "../engine/verdict.js";
 import type { PersonalPolicyStore } from "../engine/layers/personalRules.js";
 import type { ThreatFeedCache } from "../engine/layers/globalIntelligence.js";
+import type { CommunityReportContext } from "../community/types.js";
+import { buildCommunityReportContext } from "../community/fingerprint.js";
 import { scanMessage, type ScanResult } from "../engine/pipeline.js";
 import { messageExceptionKey } from "./messageReview.js";
 import { unsubscribeCapability, type UnsubscribeCapability } from "./unsubscribe.js";
@@ -42,6 +44,7 @@ export interface ScanActionContext {
   senderAddress: string | null;
   normalizedFolder: NormalizedFolder;
   unsubscribe: UnsubscribeCapability;
+  communityReport: CommunityReportContext;
 }
 
 export interface ScanDiagnosticSummary {
@@ -81,6 +84,7 @@ function diagnosticSummary(result: ScanResult): ScanDiagnosticSummary {
       senderAddress: result.envelope.from.address,
       normalizedFolder: result.envelope.folder,
       unsubscribe: unsubscribeCapability(result.envelope),
+      communityReport: buildCommunityReportContext(result.envelope, result.scored),
     },
   };
 }
