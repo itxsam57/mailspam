@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
+import { request as httpRequest } from "node:http";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -24,6 +25,24 @@ async function freePort() {
       const port = typeof address === "object" && address ? address.port : null;
       server.close((error) => error ? reject(error) : resolvePort(port));
     });
+  });
+}
+
+async function rawStatus(baseUrl, requestHeaders) {
+  const url = new URL(baseUrl);
+  return new Promise((resolveStatus, reject) => {
+    const request = httpRequest({
+      hostname: url.hostname,
+      port: Number(url.port),
+      path: "/",
+      method: "GET",
+      headers: requestHeaders,
+    }, (response) => {
+      response.resume();
+      response.on("end", () => resolveStatus(response.statusCode ?? 0));
+    });
+    request.on("error", reject);
+    request.end();
   });
 }
 
@@ -214,11 +233,8 @@ try {
   });
   assert(crossOriginNonce.status === 403, `Cross-origin mutation authorization returned HTTP ${crossOriginNonce.status}.`);
 
-  const rebinding = await fetch(baseUrl, {
-    headers: { Host: "attacker.example" },
-    signal: AbortSignal.timeout(5_000),
-  });
-  assert(rebinding.status === 421, `DNS-rebinding Host request returned HTTP ${rebinding.status}.`);
+  const rebindingStatus = await rawStatus(baseUrl, { Host: "attacker.example" });
+  assert(rebindingStatus === 421, `DNS-rebinding Host request returned HTTP ${rebindingStatus}.`);
 
   const notFound = await fetch(`${baseUrl}/engineering-controlled-404`, { signal: AbortSignal.timeout(5_000) });
   assert(notFound.status === 404, `Unknown route returned HTTP ${notFound.status} instead of 404.`);
