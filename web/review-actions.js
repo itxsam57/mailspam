@@ -121,6 +121,19 @@
     });
   }
 
+  function communityDeliveryMessage(result) {
+    if (result.delivery === 'remote_shared') {
+      return `Shared network status: ${result.status}; ${result.independentReporters} independent reporter(s).`;
+    }
+    if (result.delivery === 'queued_remote') {
+      return 'The encrypted privacy-reduced report is queued and will retry when the configured shared service is reachable.';
+    }
+    if (result.delivery === 'embedded_local') {
+      return `Local test-network status: ${result.status}; ${result.independentReporters} local reporter proof(s). Other installations are not protected until a central community service is configured.`;
+    }
+    return 'The server did not identify whether this report reached a shared or local-only community service.';
+  }
+
   document.addEventListener('click', async (event) => {
     const button = event.target instanceof Element
       ? event.target.closest('[data-action="mark-safe"],[data-action="trust-sender"],[data-action="move-spam"],[data-action="report-scam"]')
@@ -151,7 +164,7 @@
 
     if (isReportScam) {
       promptTitle = 'Report this scam campaign to Email Shield';
-      explanation = 'Email Shield will protect matching campaign messages in this mailbox immediately and submit only privacy-reduced indicators to the shared community network. It will not upload the message body, subject, mailbox address, contacts, credentials, provider ID, or raw private URLs. One report cannot globally block a sender; independent reports and evidence thresholds are required.';
+      explanation = 'Email Shield will protect matching campaign messages in this mailbox immediately. If a shared community service is configured, only privacy-reduced indicators are submitted to it; otherwise the report remains in the local test network. It will not upload the message body, subject, mailbox address, contacts, credentials, provider ID, or raw private URLs. One report cannot globally block a sender; independent reports and evidence thresholds are required.';
     } else if (isMoveSpam) {
       promptTitle = 'Move exactly this message to provider Spam/Junk';
       explanation = 'This affects only the selected mailbox message. It does not create Email Shield community protection and does not automatically block the sender.';
@@ -171,11 +184,11 @@
 
     const previousText = button.textContent;
     button.disabled = true;
-    button.textContent = isReportScam ? 'Sharing protection…' : isMoveSpam ? 'Moving…' : isMarkSafe ? 'Saving…' : 'Trusting…';
+    button.textContent = isReportScam ? 'Saving protection…' : isMoveSpam ? 'Moving…' : isMarkSafe ? 'Saving…' : 'Trusting…';
     if (status) {
       status.className = 'review-action-status';
       status.textContent = isReportScam
-        ? 'Saving local campaign protection and submitting privacy-reduced community evidence…'
+        ? 'Saving local campaign protection and submitting or queuing privacy-reduced evidence when a shared service is configured…'
         : isMoveSpam
           ? 'Requesting an exact provider Spam/Junk move…'
           : isMarkSafe
@@ -197,20 +210,26 @@
         if (result.success !== true || result.localProtected !== true || result.accepted !== true || result.accountId !== accountId || result.token !== token) {
           throw new Error('The server did not confirm local protection and community report acceptance.');
         }
+        if (!['embedded_local', 'remote_shared', 'queued_remote'].includes(result.delivery)) {
+          throw new Error('The server did not return a trustworthy community delivery scope.');
+        }
         document.querySelectorAll(`[data-action="report-scam"][data-review-token="${CSS.escape(token)}"]`).forEach((candidate) => {
           candidate.disabled = true;
           candidate.textContent = 'Scam campaign reported ✓';
         });
         disableConflictingDecisions(token);
         container?.classList.add('community-reported');
-        const communityState = result.queued
-          ? 'The encrypted report is queued and will retry when the community service is reachable.'
-          : `Community status: ${result.status}; ${result.independentReporters} independent reporter(s).`;
+        const communityState = communityDeliveryMessage(result);
         if (status) {
           status.className = 'review-action-status success';
           status.textContent = `Matching campaign messages are now protected locally. ${communityState}${result.senderBlocked ? ' The exact sender was also blocked for this mailbox.' : ''}`;
         }
-        setGlobalStatus('Scam campaign protected locally and accepted for shared community intelligence.', 'complete');
+        const globalMessage = result.delivery === 'remote_shared'
+          ? 'Scam campaign protected locally and accepted by the configured shared community service.'
+          : result.delivery === 'queued_remote'
+            ? 'Scam campaign protected locally; the shared report is encrypted and queued for retry.'
+            : 'Scam campaign protected locally. This installation is using the local test network, not a cross-user service.';
+        setGlobalStatus(globalMessage, 'complete');
         return;
       }
 
