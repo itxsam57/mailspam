@@ -9,6 +9,7 @@ interface WorkData {
   config: AdapterConfig;
   type: "quick" | "full" | "spam";
   pageSize?: number;
+  maxMessages?: number;
   personalPolicy?: Partial<PersonalPolicySnapshot>;
   threatFeedEntries?: SignedFeedEntry[] | null;
 }
@@ -30,11 +31,12 @@ function buildDependencies() {
 async function runScanAttempt(onProgress: () => void): Promise<boolean> {
   const adapter = createAdapter(data.config);
   const deps = buildDependencies();
+  const pageSize = data.pageSize ?? 20;
   const generator = data.type === "quick"
-    ? quickScan(adapter, deps, controller.signal, data.pageSize ?? 20)
+    ? quickScan(adapter, deps, controller.signal, pageSize, data.maxMessages ?? pageSize)
     : data.type === "spam"
-      ? spamJunkScan(adapter, deps, controller.signal, data.pageSize ?? 20)
-      : fullMailboxAudit(adapter, deps, controller.signal, { pageSize: data.pageSize ?? 20 });
+      ? spamJunkScan(adapter, deps, controller.signal, pageSize)
+      : fullMailboxAudit(adapter, deps, controller.signal, { pageSize });
 
   let emittedProgress = false;
   for await (const progress of generator) {
@@ -54,6 +56,13 @@ async function main() {
     type: "status",
     status: { phase: "connecting", message: "Connecting to the mail provider and discovering folders…" },
   });
+  parentPort?.postMessage({
+    type: "status",
+    status: {
+      phase: "bounded_batches",
+      message: `Reading provider messages in bounded batches of ${data.pageSize ?? 20}…`,
+    },
+  });
 
   let firstAttemptHadProgress = false;
   const emittedProgress = await runWithSingleRetry(
@@ -72,6 +81,8 @@ async function main() {
       });
     },
   );
+
+  if (controller.signal.aborted) throw new DOMException("Scan stopped by the user.", "AbortError");
 
   parentPort?.postMessage({
     type: "status",

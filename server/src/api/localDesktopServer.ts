@@ -5,7 +5,8 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createServer } from "./server.js";
 import { localSecurity, type LocalSecurityManager } from "./localSecurity.js";
-import type { CommunityNetwork } from "../community/network.js";
+import { createScanStreamHandler } from "./scanStream.js";
+import { communityNetwork, type CommunityNetwork } from "../community/network.js";
 
 function escapeAttribute(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({
@@ -32,7 +33,8 @@ export function createLocalDesktopServer(options: {
 } = {}) {
   const app = express();
   const security = options.security ?? localSecurity;
-  const inner = createServer({ community: options.community });
+  const community = options.community ?? communityNetwork;
+  const inner = createServer({ community });
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const webDir = join(__dirname, "../../../web");
   const dashboardTemplate = readFileSync(join(webDir, "index.html"), "utf8");
@@ -99,6 +101,8 @@ export function createLocalDesktopServer(options: {
     if (!security.enforceRouteLimit(req, res, "account-connect", 12)) return;
     next();
   });
+
+  app.get("/api/accounts/:id/scan/:type", createScanStreamHandler({ community }));
 
   app.use("/api/dev", security.requireProtectedRead());
   app.use("/api/dev", (req: Request, res: Response, next) => {

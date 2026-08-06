@@ -115,6 +115,7 @@ export async function* quickScan(
   deps: ScanDeps,
   signal: AbortSignal,
   pageSize = DEFAULT_PAGE_SIZE,
+  maxMessages = pageSize,
 ): AsyncGenerator<ScanProgress> {
   await adapter.connect(signal);
   try {
@@ -125,19 +126,44 @@ export async function* quickScan(
     }
 
     const counters = emptyCounters();
-    const page = await adapter.fetchPage(inbox, null, pageSize, signal);
-    const suspiciousCards: ScanResult[] = [];
-    const diagnosticSummaries: ScanDiagnosticSummary[] = [];
+    const boundedPageSize = Math.max(1, Math.floor(pageSize));
+    const boundedLimit = Math.max(1, Math.floor(maxMessages));
+    let cursor: string | null = null;
+    let done = false;
 
-    for (const envelope of page.envelopes) {
+    while (!done && counters.examined < boundedLimit) {
       if (signal.aborted) return;
-      const result = scanMessage(envelope, deps);
-      tally(counters, result);
-      diagnosticSummaries.push(diagnosticSummary(result));
-      if (isSuspicious(result)) suspiciousCards.push(result);
-    }
+      const remaining = boundedLimit - counters.examined;
+      const requestSize = Math.min(boundedPageSize, remaining);
+      const previousCursor = cursor;
+      const page = await adapter.fetchPage(inbox, cursor, requestSize, signal);
+      const suspiciousCards: ScanResult[] = [];
+      const diagnosticSummaries: ScanDiagnosticSummary[] = [];
 
-    yield { counters, suspiciousCards, diagnosticSummaries, cursor: page.nextCursor, done: true };
+      for (const envelope of page.envelopes) {
+        if (signal.aborted) return;
+        const result = scanMessage(envelope, deps);
+        tally(counters, result);
+        diagnosticSummaries.push(diagnosticSummary(result));
+        if (isSuspicious(result)) suspiciousCards.push(result);
+      }
+
+      const reachedLimit = counters.examined >= boundedLimit;
+      done = page.done || reachedLimit || !page.nextCursor;
+      cursor = done ? null : page.nextCursor;
+
+      yield {
+        counters: { ...counters },
+        suspiciousCards,
+        diagnosticSummaries,
+        cursor,
+        done,
+      };
+
+      if (!done && page.envelopes.length === 0 && page.nextCursor === previousCursor) {
+        throw new Error("The provider returned an empty page without advancing the mailbox cursor.");
+      }
+    }
   } finally {
     await adapter.disconnect();
   }
