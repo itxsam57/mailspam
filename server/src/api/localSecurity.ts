@@ -1,5 +1,5 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import type { NextFunction, Request, RequestHandler, Response } from "express";
+import type { Request, RequestHandler, Response } from "express";
 
 const COOKIE_NAME = "email_shield_local_session";
 const SESSION_IDLE_TTL_MS = 60 * 60 * 1_000;
@@ -71,7 +71,7 @@ export function redactSensitiveText(value: unknown, exactSecrets: readonly strin
   }
   return text
     .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]+=*/gi, "Bearer [REDACTED]")
-    .replace(/\b(?:access[_-]?token|refresh[_-]?token|client[_-]?secret|app[_-]?password|password|authorization|oauth[_-]?code)\b\s*[:=]\s*["']?[^\s,"'&}]+/gi, (match) => `${match.split(/[:=]/, 1)[0]}=[REDACTED]`)
+    .replace(/\b(?:access[_-]?token|refresh[_-]?token|client[_-]?secret|app[_-]?password|password|authorization|oauth[_-]?code|code)\b\s*[:=]\s*["']?[^\s,"'&}]+/gi, (match) => `${match.split(/[:=]/, 1)[0]}=[REDACTED]`)
     .replace(/([?&](?:code|access_token|refresh_token|client_secret)=)[^&#\s]+/gi, "$1[REDACTED]")
     .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, "[REDACTED_JWT]");
 }
