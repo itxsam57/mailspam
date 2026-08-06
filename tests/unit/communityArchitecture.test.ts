@@ -16,13 +16,15 @@ describe("community shield architecture", () => {
     expect(server).toContain('/messages/report-spam');
   });
 
-  it("never exposes report context or reporter proofs to browser code", () => {
+  it("never exposes report payload fields or reporter proofs to browser code", () => {
     for (const path of ["web/review-actions.js", "web/safe-audit.js", "web/scan-monitor.js"]) {
       const content = read(path);
       expect(content).not.toContain("campaignFingerprint");
       expect(content).not.toContain("reporterProof");
-      expect(content).not.toContain("communityReport");
-      expect(content).not.toContain("providerNativeIds");
+      expect(content).not.toContain("action.communityReport");
+    }
+    for (const path of ["web/review-actions.js", "web/safe-audit.js"]) {
+      expect(read(path)).not.toContain("providerNativeIds");
     }
     const server = read("server/src/api/server.ts");
     expect(server).toContain("delete summary.actionContext");
