@@ -37,6 +37,7 @@ This matrix is project-specific. A check is installed only when it protects an e
 | A-29 | Local error privacy | Exact credentials, OAuth codes, bearer values and JWT-like values are redacted from API errors and SSE output | `npm run test:unit`, `npm run check:web` | Windows + Ubuntu | Blocking |
 | A-30 | Bounded scan progress | Live IMAP Quick Scan preserves its ten-message limit while yielding smaller cumulative pages; remote community refresh cannot block worker startup; first-result and between-page stalls end visibly instead of leaving an endless EventSource | `scanProgressRuntime.test.ts`, `npm run smoke:server` | Windows + Ubuntu | Blocking |
 | A-31 | Live IMAP text integrity | Truncation uses selected MIME-part limits rather than complete-message size; root single-part bodies use `TEXT`; bounded plain and HTML alternatives decode in one provider request; HTML destinations reach the canonical envelope; attachment bodies and full raw source remain unfetched | `imapMimeParts.test.ts`, architecture regression tests | Windows + Ubuntu | Blocking |
+| A-32 | Credential vault boundary | Opaque target derivation, size validation, fail-closed unsupported platforms, write/read/delete contract, secret-safe error handling, and a real ephemeral Windows Credential Manager round trip on Windows CI | `credentialVault.test.ts` | Windows + Ubuntu contract; Windows native round trip | Blocking |
 
 ## Final visible browser test — owner only
 
@@ -56,7 +57,7 @@ After a green gate, the generated handoff contains only subjective/visible check
 12. live provider scans show bounded-batch status at least every 15 seconds, produce partial results as batches complete, or stop with a specific timeout error rather than remaining indefinitely on Scanning;
 13. ordinary short live iCloud messages no longer uniformly show the former `Readable text was bounded to 24576 bytes` note, and HTML-only/multipart messages show available content and link evidence.
 
-The local session, CSRF, nonce, Host, redaction, bounded scan deadlines, selected-part MIME decoding, warning/confirmed aggregation, cryptographic feed verification and cross-provider report contract are automated. Public DNS/TLS/gateway/monitoring are deployment acceptance, not browser acceptance.
+The local session, CSRF, nonce, Host, redaction, bounded scan deadlines, selected-part MIME decoding, warning/confirmed aggregation, cryptographic feed verification, cross-provider report contract and credential-vault contract are automated. Public DNS/TLS/gateway/monitoring are deployment acceptance, not browser acceptance.
 
 ## Not applicable
 
@@ -70,7 +71,7 @@ The local session, CSRF, nonce, Host, redaction, bounded scan deadlines, selecte
 | Visual snapshots | Owner performs final visible acceptance. |
 | Real provider destructive CI | CI must never receive mailbox credentials or modify live mail. |
 | Gateway/DDoS testing | Requires the actual production reverse proxy/API gateway. |
-| OS credential-store testing | Belongs to the next credential-vault work package; provider refresh-token custody is not implemented in this milestone. |
+| macOS/Linux native credential-store testing | Keychain and Secret Service backends are not implemented yet; unsupported platforms fail closed rather than using a plaintext substitute. |
 
 ## Change-impact rule
 
