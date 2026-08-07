@@ -276,7 +276,10 @@ export class WindowsCredentialManagerVault implements CredentialVault {
       if (!response.ok) throw new Error("Credential write was not confirmed.");
     } catch (error) {
       if (error instanceof CredentialVaultError) throw error;
-      throw new CredentialVaultError("VAULT_OPERATION_FAILED", "Windows Credential Manager write failed.", { cause: error });
+      // Never retain an arbitrary lower-layer cause here. A bridge failure may
+      // contain the very secret being written; keeping it as Error.cause would
+      // make later logging or diagnostics capable of exposing that value.
+      throw new CredentialVaultError("VAULT_OPERATION_FAILED", "Windows Credential Manager write failed.");
     }
   }
 
@@ -292,7 +295,7 @@ export class WindowsCredentialManagerVault implements CredentialVault {
       return response.secret;
     } catch (error) {
       if (error instanceof CredentialVaultError) throw error;
-      throw new CredentialVaultError("VAULT_OPERATION_FAILED", "Windows Credential Manager read failed.", { cause: error });
+      throw new CredentialVaultError("VAULT_OPERATION_FAILED", "Windows Credential Manager read failed.");
     }
   }
 
@@ -303,7 +306,7 @@ export class WindowsCredentialManagerVault implements CredentialVault {
       if (!response.ok) throw new Error("Credential deletion was not confirmed.");
     } catch (error) {
       if (error instanceof CredentialVaultError) throw error;
-      throw new CredentialVaultError("VAULT_OPERATION_FAILED", "Windows Credential Manager deletion failed.", { cause: error });
+      throw new CredentialVaultError("VAULT_OPERATION_FAILED", "Windows Credential Manager deletion failed.");
     }
   }
 }
