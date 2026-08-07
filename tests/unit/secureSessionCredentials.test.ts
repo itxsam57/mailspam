@@ -1,15 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { SessionStore } from "../../server/src/api/sessionStore.js";
+import { SessionStore, type AccountSession } from "../../server/src/api/sessionStore.js";
 import { InMemoryPolicyRepository, policyAccountKey } from "../../server/src/api/policyPersistence.js";
 import type {
   CredentialReference,
   CredentialVault,
   CredentialVaultCapabilities,
 } from "../../server/src/security/credentialVault.js";
-import {
-  appPasswordCredentialReference,
-  type SecureAdapterConfig,
-} from "../../server/src/security/secureAdapterConfig.js";
+import { appPasswordCredentialReference } from "../../server/src/security/secureAdapterConfig.js";
 
 class TestCredentialVault implements CredentialVault {
   readonly values = new Map<string, string>();
@@ -18,6 +15,10 @@ class TestCredentialVault implements CredentialVault {
   readonly deletes: CredentialReference[] = [];
   failWrite = false;
   failDelete = false;
+  private nextWritePause: {
+    started: () => void;
+    wait: Promise<void>;
+  } | null = null;
 
   constructor(private readonly available = true) {}
 
@@ -32,8 +33,23 @@ class TestCredentialVault implements CredentialVault {
     };
   }
 
+  pauseNextWrite(): { started: Promise<void>; release: () => void } {
+    let started!: () => void;
+    let release!: () => void;
+    const startedPromise = new Promise<void>((resolve) => { started = resolve; });
+    const wait = new Promise<void>((resolve) => { release = resolve; });
+    this.nextWritePause = { started, wait };
+    return { started: startedPromise, release };
+  }
+
   async write(reference: CredentialReference, secret: string): Promise<void> {
     this.writes.push({ ...reference });
+    const pause = this.nextWritePause;
+    if (pause) {
+      this.nextWritePause = null;
+      pause.started();
+      await pause.wait;
+    }
     if (this.failWrite) throw new Error("native write failed");
     this.values.set(`${reference.kind}:${reference.id}`, secret);
   }
@@ -58,6 +74,13 @@ function icloudConfig(user: string, appPassword: string) {
   };
 }
 
+function icloudAppPasswordHandle(session: AccountSession) {
+  if (session.config.mode !== "live" || session.config.provider !== "icloud") {
+    throw new Error("Expected an iCloud live session");
+  }
+  return session.config.credentials.appPassword;
+}
+
 describe("secure account-session credentials", () => {
   it("derives one deterministic opaque app-password reference per stable mailbox identity", () => {
     const first = appPasswordCredentialReference(icloudConfig("Person@icloud.com", "first-secret"));
@@ -80,8 +103,7 @@ describe("secure account-session credentials", () => {
     expect(vault.writes).toHaveLength(1);
     expect(JSON.stringify(session.config)).not.toContain(rawSecret);
     expect(session.vaultReferences).toHaveLength(1);
-    expect((session.config as Extract<SecureAdapterConfig, { provider: "icloud" }>).credentials.appPassword)
-      .toMatchObject({ storage: "vault" });
+    expect(icloudAppPasswordHandle(session)).toMatchObject({ storage: "vault" });
 
     const materialized = await store.materializeConfig(session);
     expect(materialized).toEqual(icloudConfig("person@icloud.com", rawSecret));
@@ -124,6 +146,26 @@ describe("secure account-session credentials", () => {
     expect(vault.values.size).toBe(0);
   });
 
+  it("serializes same-account reconnect and removal so a new session cannot lose its shared credential", async () => {
+    const vault = new TestCredentialVault();
+    const store = new SessionStore(new InMemoryPolicyRepository(), vault);
+    const first = await store.createSecured("icloud", "first", icloudConfig("race@icloud.com", "old-password"));
+    const pause = vault.pauseNextWrite();
+
+    const creating = store.createSecured("icloud", "second", icloudConfig("RACE@ICLOUD.COM", "new-password"));
+    await pause.started;
+    const removing = store.remove(first.id);
+    pause.release();
+
+    const second = await creating;
+    await removing;
+    expect(vault.deletes).toHaveLength(0);
+    expect(store.get(second.id)).toBe(second);
+    expect(await store.materializeConfig(second)).toMatchObject({
+      credentials: { appPassword: "new-password" },
+    });
+  });
+
   it("keeps the account present when last-reference native deletion fails", async () => {
     const vault = new TestCredentialVault();
     const store = new SessionStore(new InMemoryPolicyRepository(), vault);
@@ -156,8 +198,7 @@ describe("secure account-session credentials", () => {
 
     expect(vault.writes).toHaveLength(0);
     expect(session.vaultReferences).toHaveLength(0);
-    expect((session.config as Extract<SecureAdapterConfig, { provider: "icloud" }>).credentials.appPassword)
-      .toMatchObject({ storage: "memory", value: secret });
+    expect(icloudAppPasswordHandle(session)).toMatchObject({ storage: "memory", value: secret });
     expect(await store.materializeConfig(session)).toEqual(icloudConfig("person@icloud.com", secret));
 
     await store.remove(session.id);
