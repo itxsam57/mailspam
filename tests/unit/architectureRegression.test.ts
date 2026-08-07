@@ -23,13 +23,19 @@ describe("transport architecture regressions", () => {
     expect(packageJson).toContain('"dev": "npm run build && node dist/index.js"');
   });
 
-  it("surfaces scan startup and failures in the dashboard", () => {
+  it("validates the protected browser session before opening a scan stream", () => {
     const server = read("server/src/api/server.ts");
     const monitor = read("web/scan-monitor.js");
+    const sessionValidation = monitor.indexOf("await validateProtectedScanSession(requestedAccountId)");
+    const eventSourceStart = monitor.indexOf("new EventSource");
+
     expect(server).toContain("scan-started");
     expect(server).toContain("scan-error");
     expect(monitor).toContain("scanMonitorStatus");
     expect(monitor).toContain("Could not open the scan stream");
+    expect(monitor).toContain("The protected local session expired after the Email Shield process restarted");
+    expect(sessionValidation).toBeGreaterThan(-1);
+    expect(eventSourceStart).toBeGreaterThan(sessionValidation);
   });
 
   it("never claims a Trash move without confirmation and a successful provider result", () => {
