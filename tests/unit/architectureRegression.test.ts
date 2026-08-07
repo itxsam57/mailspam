@@ -23,13 +23,19 @@ describe("transport architecture regressions", () => {
     expect(packageJson).toContain('"dev": "npm run build && node dist/index.js"');
   });
 
-  it("surfaces scan startup and failures in the dashboard", () => {
+  it("validates the protected browser session before opening a scan stream", () => {
     const server = read("server/src/api/server.ts");
     const monitor = read("web/scan-monitor.js");
+    const sessionValidation = monitor.indexOf("await validateProtectedScanSession(requestedAccountId)");
+    const eventSourceStart = monitor.indexOf("new EventSource");
+
     expect(server).toContain("scan-started");
     expect(server).toContain("scan-error");
     expect(monitor).toContain("scanMonitorStatus");
     expect(monitor).toContain("Could not open the scan stream");
+    expect(monitor).toContain("The protected local session expired after the Email Shield process restarted");
+    expect(sessionValidation).toBeGreaterThan(-1);
+    expect(eventSourceStart).toBeGreaterThan(sessionValidation);
   });
 
   it("never claims a Trash move without confirmation and a successful provider result", () => {
@@ -41,8 +47,9 @@ describe("transport architecture regressions", () => {
     expect(monitor).not.toContain(".then(() => { btn.textContent = 'Moved'");
   });
 
-  it("scopes, encrypts, and transactionally persists personal policy", () => {
+  it("scopes, encrypts, transactionally persists, and reverses personal blocks", () => {
     const server = read("server/src/api/server.ts");
+    const desktopServer = read("server/src/api/localDesktopServer.ts");
     const sessions = read("server/src/api/sessionStore.ts");
     const persistence = read("server/src/api/policyPersistence.ts");
     const monitor = read("web/scan-monitor.js");
@@ -58,9 +65,14 @@ describe("transport architecture regressions", () => {
     expect(persistence).toContain("personal-policies.enc.json");
     expect(persistence).toContain("unsubscribedActions");
     expect(persistence).not.toContain("appPassword:");
-    expect(monitor).toContain("Block this ${scope} for the selected account?");
+    expect(monitor).toContain("'Remove the block for' : 'Block'");
     expect(monitor).toContain("This does not move or delete mail.");
-    expect(monitor).toContain("result.blocked !== true || result.scope !== scope || result.accountId !== id");
+    expect(monitor).toContain("result.blocked !== !isUnblock || result.scope !== scope || result.accountId !== id");
+    expect(monitor).toContain("unblock-${scope}");
+    expect(desktopServer).toContain('/messages/unblock-sender');
+    expect(desktopServer).toContain('/messages/unblock-domain');
+    expect(desktopServer).toContain("policy.unblockSender(address)");
+    expect(desktopServer).toContain("policy.unblockDomain(domain)");
   });
 
   it("uses opaque tokens for unsubscribe from both warning and Safe views", () => {

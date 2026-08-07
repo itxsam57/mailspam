@@ -57,6 +57,10 @@ Status values:
 | REG-034 | LOCKED | Local errors and SSE output redact credentials, OAuth codes, bearer values and JWT-like tokens; browser storage never holds the local session secret; CSP and anti-framing headers remain enabled. | local redaction tests, `check:web`, compiled smoke |
 | REG-035 | LOCKED | A live mailbox scan must not wait for remote community retries or withhold all progress behind a large sequential IMAP page. Live IMAP scans use small bounded pages, Quick Scan keeps its ten-message limit across incremental yields, the SSE sends periodic waiting status, and first-result or between-page stalls terminate visibly instead of remaining active indefinitely. | `scanProgressRuntime.test.ts`, Worker integration, compiled desktop smoke, Windows/Ubuntu gate |
 | REG-036 | LOCKED | Live iCloud/Yahoo/IMAP scans must classify readable-body completeness from the selected MIME parts, never the total RFC822 message size. Bounded plain and HTML alternatives are fetched together, decoded by their transfer encoding and charset, HTML destinations reach the canonical envelope, root single-part bodies use `TEXT`, and attachment bodies remain unfetched. | `imapMimeParts.test.ts`, architecture regression tests, Windows/Ubuntu gate |
+| REG-037 | LOCKED | Every provider fixture must expose Inbox, Spam/Junk and Trash even when a special-use folder is empty; malicious fixture placement must not accidentally put every message in Inbox. | `fixtureMailboxState.test.ts`, all-five-provider fixture gate |
+| REG-038 | LOCKED | An exact fixture Trash or Spam/Junk move must remain moved when a later action or scan recreates the provider adapter in the same account session. | `fixtureMailboxState.test.ts`, provider action tests |
+| REG-039 | LOCKED | A stale browser tab after a desktop-process restart must validate its protected session before opening EventSource and fail immediately with a reload/reconnect message rather than remain on `Starting scan`. | browser source/architecture checks; manual stale-tab retest |
+| REG-040 | LOCKED | Personal sender/domain blocks must be visibly reversible through protected account-scoped mutations, and rescanned cards must disclose existing block and locally reported-campaign state instead of silently greying controls or re-offering conflicting Safe/Trust decisions. | `policyUndoApi.test.ts`, architecture/browser checks |
 
 ## Resolved registered gaps
 
@@ -75,8 +79,8 @@ Status values:
 | GAP-005 | KNOWN-GAP | Controlled real-destination Analyze Links validation | Hardened workflow exists; complete controlled live validation remains. |
 | GAP-006 | KNOWN-GAP | Production QR decoder | Injectable interface exists; production decoder is absent. |
 | GAP-008 | KNOWN-GAP | Operational reporter reputation and gateway-level volumetric abuse defence | Application dedupe, evidence thresholds, size limits and reporter-proof rate limits exist; IP/device reputation and DDoS controls belong at the production gateway. |
-| GAP-009 | KNOWN-GAP | Editable policy-management centre and revoke/unblock UI | Policy storage/actions exist; full management UI remains. |
-| GAP-010 | KNOWN-GAP | Persisted resumable scan cursors across restart/rate limits | Current Worker retry is bounded to one early transient failure. |
+| GAP-009 | KNOWN-GAP | Complete editable policy-management centre | Direct message cards can now reverse sender/domain blocks, while full searchable management, bulk revoke/reset, export/import and all other policy-list controls remain a Milestone 2 product feature. |
+| GAP-010 | KNOWN-GAP | Persisted resumable scan cursors and scan-history presentation across restart/rate limits | Current Worker retry is bounded to one early transient failure. Current result cards are session-page output and reset after browser refresh; encrypted personal rules remain persistent. |
 | GAP-011 | KNOWN-GAP | Full mailbox-derived relationship history | Canonical signals exist; production history depth is incomplete. |
 
 ## Manual visible acceptance register
@@ -90,13 +94,14 @@ Status values:
 | MAN-005 | MANUAL | Safe audit clearly separates Report Scam, Move to Spam/Junk, Trust sender and unsubscribe. |
 | MAN-006 | MANUAL | Report Scam confirmation explains privacy boundary, independent thresholds and optional sender block. |
 | MAN-007 | MANUAL | After Report Scam, rescan shows matching campaign locally Confirmed Threat and no mailbox message is moved unless separately requested. |
-| MAN-008 | MANUAL | Move to Spam/Junk affects exactly one fixture message and remains visibly separate from shared reporting. |
+| MAN-008 | MANUAL | Move to Spam/Junk affects exactly one fixture message, remains moved on rescan and remains visibly separate from shared reporting. |
 | MAN-009 | MANUAL | Account switching does not cross-link results/actions. |
 | MAN-010 | MANUAL | Controlled live iCloud scan remains responsive and credentials are not displayed. |
-| MAN-011 | MANUAL | Normal dashboard actions continue without visible CSRF/session errors; refreshing creates a new valid local session; a stale tab after process restart shows a clear reload requirement rather than silently performing an action. |
+| MAN-011 | MANUAL | Normal dashboard actions continue without visible CSRF/session errors; refreshing creates a new valid local session; a stale tab after process restart shows a clear reload requirement rather than silently performing an action or hanging on scan startup. |
 | MAN-012 | MANUAL | Rapid repeated clicks do not execute one successful message action twice; used action controls require a rescan. |
 | MAN-013 | MANUAL | A controlled live iCloud Quick Scan shows a waiting update at least every 15 seconds, begins displaying results as bounded batches complete, and never remains indefinitely on Scanning; a genuinely stalled provider returns a specific timeout error and releases the scan controls. |
 | MAN-014 | MANUAL | A controlled live iCloud scan extracts readable text from ordinary short messages without uniformly marking them partial or showing the former `Readable text was bounded to 24576 bytes` note; HTML-only or multipart messages expose applicable content/link evidence while genuinely oversized parts remain visibly bounded. |
+| MAN-015 | MANUAL | A persisted sender/domain block is visible on rescan, can be removed from the card, and the personal block evidence disappears after another rescan; locally reported campaigns display a clear protected state and do not re-offer conflicting Safe/Trust decisions. |
 
 ## Register maintenance rule
 

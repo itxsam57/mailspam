@@ -43,7 +43,7 @@
   status.className = 'scan-monitor-status';
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
-  status.textContent = 'Ready to scan.';
+  status.textContent = 'Ready to scan. Scan result cards reset after a page refresh; encrypted account rules remain saved.';
   counters.before(status);
 
   const diagnostics = document.createElement('details');
@@ -62,6 +62,12 @@
   let accountId = null;
   let receivedServerEvent = false;
   let diagnosticRows = [];
+  let sessionExpired = false;
+
+  window.addEventListener('email-shield-session-expired', () => {
+    sessionExpired = true;
+    finish();
+  });
 
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, (character) => ({
@@ -82,6 +88,21 @@
     stopButton.disabled = true;
     source?.close();
     source = null;
+  }
+
+  async function validateProtectedScanSession(id) {
+    const response = await fetch('/api/accounts', {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(body?.error || 'The protected local session expired. Reload Email Shield.');
+    }
+    if (!Array.isArray(body) || !body.some((account) => account?.accountId === id)) {
+      throw new Error('The selected account no longer exists in this Email Shield process. Reload and reconnect it.');
+    }
   }
 
   function renderDiagnostics() {
@@ -127,24 +148,46 @@
     }
   }
 
-  function start(type) {
-    accountId = selectedAccountId();
-    if (!accountId) {
+  async function start(type) {
+    const requestedAccountId = selectedAccountId();
+    accountId = requestedAccountId;
+    if (!requestedAccountId) {
       setStatus('Select a connected account first.', 'error');
       return;
     }
 
     source?.close();
+    receivedServerEvent = false;
+    sessionExpired = false;
+    stopButton.disabled = true;
+    setStatus(`Authorizing ${type} scan…`, 'running');
+
+    try {
+      await validateProtectedScanSession(requestedAccountId);
+    } catch (error) {
+      finish();
+      const message = sessionExpired
+        ? 'The protected local session expired after the Email Shield process restarted. Reload the dashboard before scanning.'
+        : error instanceof Error ? error.message : String(error);
+      setStatus(message, 'error');
+      return;
+    }
+
+    if (selectedAccountId() !== requestedAccountId) {
+      finish();
+      setStatus('The selected account changed before the scan started. Start the scan again.', 'error');
+      return;
+    }
+
     counters.innerHTML = '';
     cards.innerHTML = '';
     diagnosticRows = [];
     diagnostics.open = false;
     renderDiagnostics();
     stopButton.disabled = false;
-    receivedServerEvent = false;
     setStatus(`Starting ${type} scan…`, 'running');
 
-    const es = new EventSource(`/api/accounts/${encodeURIComponent(accountId)}/scan/${type}`);
+    const es = new EventSource(`/api/accounts/${encodeURIComponent(requestedAccountId)}/scan/${type}`);
     source = es;
 
     es.addEventListener('scan-started', () => {
@@ -178,9 +221,11 @@
     es.onerror = () => {
       if (es.readyState === EventSource.CLOSED) return;
       setStatus(
-        receivedServerEvent
-          ? 'The scan connection was interrupted. Check the terminal for details.'
-          : 'Could not open the scan stream. Check the terminal for the server error.',
+        sessionExpired
+          ? 'The protected local session expired. Reload Email Shield before scanning.'
+          : receivedServerEvent
+            ? 'The scan connection was interrupted. Check the terminal for details.'
+            : 'Could not open the scan stream. Reload if the Email Shield process was restarted.',
         'error',
       );
       finish();
@@ -189,7 +234,7 @@
 
   async function handlePolicyAction(event) {
     const button = event.target instanceof Element
-      ? event.target.closest('[data-action="block-sender"],[data-action="block-domain"]')
+      ? event.target.closest('[data-action="block-sender"],[data-action="block-domain"],[data-action="unblock-sender"],[data-action="unblock-domain"]')
       : null;
     if (!(button instanceof HTMLButtonElement) || button.disabled) return;
 
@@ -197,28 +242,32 @@
     event.stopImmediatePropagation();
 
     const id = selectedAccountId();
-    const isSender = button.dataset.action === 'block-sender';
+    const action = button.dataset.action || '';
+    const isUnblock = action.startsWith('unblock-');
+    const isSender = action.endsWith('sender');
     const scope = isSender ? 'sender' : 'domain';
     const value = isSender ? button.dataset.address : button.dataset.domain;
     const card = button.closest('.card');
     const subject = card?.querySelector('.card-subject')?.textContent?.trim() || '(no subject)';
 
     if (!id || !value) {
-      setStatus(`Block ${scope} failed: the selected account or value is missing.`, 'error');
+      setStatus(`${isUnblock ? 'Unblock' : 'Block'} ${scope} failed: the selected account or value is missing.`, 'error');
       return;
     }
 
-    const consequence = isSender
-      ? 'Future messages from this exact address in the selected account will be Confirmed Threat.'
-      : 'Future messages from every address on this domain in the selected account will be Confirmed Threat.';
+    const consequence = isUnblock
+      ? `Future messages will no longer be classified as Confirmed Threat solely because this ${scope} is personally blocked.`
+      : isSender
+        ? 'Future messages from this exact address in the selected account will be Confirmed Threat.'
+        : 'Future messages from every address on this domain in the selected account will be Confirmed Threat.';
     const confirmed = window.confirm(
-      `Block this ${scope} for the selected account?\n\n${value}\nMessage: ${subject}\n\n${consequence}\nThis does not move or delete mail.`,
+      `${isUnblock ? 'Remove the block for' : 'Block'} this ${scope} in the selected account?\n\n${value}\nMessage: ${subject}\n\n${consequence}\nThis does not move or delete mail.`,
     );
     if (!confirmed) return;
 
     const previousText = button.textContent;
     button.disabled = true;
-    button.textContent = 'Blocking…';
+    button.textContent = isUnblock ? 'Removing block…' : 'Blocking…';
     let actionStatus = card?.querySelector('.policy-action-status');
     if (!actionStatus && card) {
       actionStatus = document.createElement('div');
@@ -228,11 +277,11 @@
     }
     if (actionStatus) {
       actionStatus.className = 'policy-action-status';
-      actionStatus.textContent = `Saving an account-scoped ${scope} block…`;
+      actionStatus.textContent = `${isUnblock ? 'Removing' : 'Saving'} an account-scoped ${scope} block…`;
     }
 
     try {
-      const endpoint = isSender ? 'block-sender' : 'block-domain';
+      const endpoint = `${isUnblock ? 'unblock' : 'block'}-${scope}`;
       const payload = isSender ? { address: value } : { domain: value };
       const response = await fetch(`/api/accounts/${encodeURIComponent(id)}/messages/${endpoint}`, {
         method: 'POST',
@@ -241,33 +290,38 @@
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || `Server returned HTTP ${response.status}`);
-      if (result.blocked !== true || result.scope !== scope || result.accountId !== id) {
-        throw new Error('The server did not confirm the expected account-scoped block.');
+      if (result.blocked !== !isUnblock || result.scope !== scope || result.accountId !== id) {
+        throw new Error(`The server did not confirm the expected account-scoped ${isUnblock ? 'unblock' : 'block'}.`);
       }
 
       const normalizedValue = String(result.value || value).toLowerCase();
-      cards.querySelectorAll(`[data-action="${isSender ? 'block-sender' : 'block-domain'}"]`).forEach((candidate) => {
+      cards.querySelectorAll(`[data-action="block-${scope}"],[data-action="unblock-${scope}"]`).forEach((candidate) => {
         const candidateValue = String(isSender ? candidate.dataset.address : candidate.dataset.domain).toLowerCase();
-        if (candidateValue === normalizedValue) {
-          candidate.disabled = true;
-          candidate.textContent = isSender ? 'Sender blocked ✓' : 'Domain blocked ✓';
+        if (candidateValue !== normalizedValue) return;
+        candidate.disabled = false;
+        if (isUnblock) {
+          candidate.dataset.action = `block-${scope}`;
+          candidate.textContent = isSender ? 'Block sender' : 'Block domain';
+        } else {
+          candidate.dataset.action = `unblock-${scope}`;
+          candidate.textContent = isSender ? 'Unblock sender (blocked ✓)' : 'Unblock domain (blocked ✓)';
         }
       });
 
       if (actionStatus) {
         actionStatus.className = 'policy-action-status success';
-        actionStatus.textContent = `${isSender ? 'Sender' : 'Domain'} block saved for this connected account. Rescan to verify Confirmed Threat verdicts.`;
+        actionStatus.textContent = `${isSender ? 'Sender' : 'Domain'} block ${isUnblock ? 'removed' : 'saved'} for this connected account. Rescan to verify the authoritative verdict.`;
       }
-      setStatus(`${isSender ? 'Sender' : 'Domain'} blocked for the selected account. Rescan to verify.`, 'complete');
+      setStatus(`${isSender ? 'Sender' : 'Domain'} block ${isUnblock ? 'removed' : 'saved'} for the selected account. Rescan to verify.`, 'complete');
     } catch (error) {
       button.disabled = false;
-      button.textContent = previousText || (isSender ? 'Block sender' : 'Block domain');
+      button.textContent = previousText || `${isUnblock ? 'Unblock' : 'Block'} ${scope}`;
       const message = error instanceof Error ? error.message : String(error);
       if (actionStatus) {
         actionStatus.className = 'policy-action-status error';
-        actionStatus.textContent = `Block failed: ${message}`;
+        actionStatus.textContent = `${isUnblock ? 'Unblock' : 'Block'} failed: ${message}`;
       }
-      setStatus(`Block ${scope} failed: ${message}`, 'error');
+      setStatus(`${isUnblock ? 'Unblock' : 'Block'} ${scope} failed: ${message}`, 'error');
     }
   }
 
@@ -356,7 +410,7 @@
     document.getElementById(id)?.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopImmediatePropagation();
-      start(type);
+      void start(type);
     }, true);
   }
 

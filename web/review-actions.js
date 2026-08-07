@@ -42,12 +42,27 @@
     if (!card || !actions) return html;
 
     const sender = result?.envelope?.from?.address || '';
+    const campaignProtected = action.scamAlreadyReported === true;
+    const senderBlock = actions.querySelector('[data-action="block-sender"]');
+    const domainBlock = actions.querySelector('[data-action="block-domain"]');
+
+    if (senderBlock instanceof HTMLButtonElement && action.senderBlocked === true) {
+      senderBlock.dataset.action = 'unblock-sender';
+      senderBlock.textContent = 'Unblock sender (blocked ✓)';
+      senderBlock.disabled = false;
+    }
+    if (domainBlock instanceof HTMLButtonElement && action.domainBlocked === true) {
+      domainBlock.dataset.action = 'unblock-domain';
+      domainBlock.textContent = 'Unblock domain (blocked ✓)';
+      domainBlock.disabled = false;
+    }
+
     const reportScam = document.createElement('button');
     reportScam.dataset.action = 'report-scam';
     reportScam.dataset.reviewToken = action.token;
     reportScam.dataset.sender = sender;
-    reportScam.textContent = action.scamAlreadyReported ? 'Scam campaign reported ✓' : 'Report Scam to Email Shield';
-    reportScam.disabled = Boolean(action.scamAlreadyReported);
+    reportScam.textContent = campaignProtected ? 'Campaign protected locally ✓' : 'Report Scam to Email Shield';
+    reportScam.disabled = campaignProtected;
     actions.appendChild(reportScam);
 
     if (action.canMoveToSpam) {
@@ -58,31 +73,39 @@
       actions.appendChild(moveSpam);
     }
 
-    if (!action.alreadyApproved) {
-      const markSafe = document.createElement('button');
-      markSafe.dataset.action = 'mark-safe';
-      markSafe.dataset.reviewToken = action.token;
-      markSafe.textContent = 'Mark this message Safe';
-      actions.appendChild(markSafe);
+    if (campaignProtected) {
+      const protectedState = document.createElement('button');
+      protectedState.disabled = true;
+      protectedState.textContent = 'Local scam rule active — Safe/Trust disabled';
+      actions.appendChild(protectedState);
+      card.classList.add('community-reported');
     } else {
-      const approved = document.createElement('button');
-      approved.disabled = true;
-      approved.textContent = 'Message marked Safe ✓';
-      actions.appendChild(approved);
-    }
+      if (!action.alreadyApproved) {
+        const markSafe = document.createElement('button');
+        markSafe.dataset.action = 'mark-safe';
+        markSafe.dataset.reviewToken = action.token;
+        markSafe.textContent = 'Mark this message Safe';
+        actions.appendChild(markSafe);
+      } else {
+        const approved = document.createElement('button');
+        approved.disabled = true;
+        approved.textContent = 'Message marked Safe ✓';
+        actions.appendChild(approved);
+      }
 
-    if (sender && !action.senderTrusted) {
-      const trust = document.createElement('button');
-      trust.dataset.action = 'trust-sender';
-      trust.dataset.reviewToken = action.token;
-      trust.dataset.sender = sender;
-      trust.textContent = 'Trust sender';
-      actions.appendChild(trust);
-    } else if (sender) {
-      const trusted = document.createElement('button');
-      trusted.disabled = true;
-      trusted.textContent = 'Sender trusted ✓';
-      actions.appendChild(trusted);
+      if (sender && !action.senderTrusted) {
+        const trust = document.createElement('button');
+        trust.dataset.action = 'trust-sender';
+        trust.dataset.reviewToken = action.token;
+        trust.dataset.sender = sender;
+        trust.textContent = 'Trust sender';
+        actions.appendChild(trust);
+      } else if (sender) {
+        const trusted = document.createElement('button');
+        trusted.disabled = true;
+        trusted.textContent = 'Sender trusted ✓';
+        actions.appendChild(trusted);
+      }
     }
 
     card.dataset.reviewToken = escapeAttribute(action.token);
@@ -215,7 +238,7 @@
         }
         document.querySelectorAll(`[data-action="report-scam"][data-review-token="${CSS.escape(token)}"]`).forEach((candidate) => {
           candidate.disabled = true;
-          candidate.textContent = 'Scam campaign reported ✓';
+          candidate.textContent = 'Campaign protected locally ✓';
         });
         disableConflictingDecisions(token);
         container?.classList.add('community-reported');

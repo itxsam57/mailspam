@@ -47,6 +47,14 @@ export interface AccountSession {
 const MAX_SCAN_ACTIONS = 5_000;
 const ACTION_TTL_MS = 30 * 60 * 1_000;
 
+function senderDomain(address: string | null): string | null {
+  if (!address) return null;
+  const separator = address.lastIndexOf("@");
+  return separator > 0 && separator < address.length - 1
+    ? address.slice(separator + 1).toLowerCase()
+    : null;
+}
+
 export class SessionStore {
   private sessions = new Map<string, AccountSession>();
   private policyStores = new Map<string, InMemoryPersonalPolicyStore>();
@@ -101,6 +109,8 @@ export class SessionStore {
     token: string;
     alreadyApproved: boolean;
     senderTrusted: boolean;
+    senderBlocked: boolean;
+    domainBlocked: boolean;
     canMoveToSpam: boolean;
     canReportSpam: boolean;
     scamAlreadyReported: boolean;
@@ -122,10 +132,14 @@ export class SessionStore {
     });
     const canMoveToSpam = context.normalizedFolder !== "spam";
     const alreadyReported = session.personalPolicy.isReportedCampaign(context.communityReport.campaignFingerprint);
+    const normalizedSender = context.senderAddress?.toLowerCase() ?? null;
+    const normalizedDomain = senderDomain(normalizedSender);
     return {
       token,
       alreadyApproved: session.personalPolicy.isApprovedException(context.exceptionKey),
-      senderTrusted: Boolean(context.senderAddress && session.personalPolicy.isTrustedSender(context.senderAddress)),
+      senderTrusted: Boolean(normalizedSender && session.personalPolicy.isTrustedSender(normalizedSender)),
+      senderBlocked: Boolean(normalizedSender && session.personalPolicy.isBlockedSender(normalizedSender)),
+      domainBlocked: Boolean(normalizedDomain && session.personalPolicy.isBlockedDomain(normalizedDomain)),
       canMoveToSpam,
       canReportSpam: canMoveToSpam,
       scamAlreadyReported: alreadyReported,
