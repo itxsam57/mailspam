@@ -202,8 +202,8 @@ export class PowerShellWindowsCredentialBridge implements WindowsCredentialBridg
         },
       );
 
-      let stdout = Buffer.alloc(0);
-      let stderr = Buffer.alloc(0);
+      const stdoutChunks: Buffer[] = [];
+      let stdoutBytes = 0;
       let settled = false;
       let timer: NodeJS.Timeout;
       const finish = (error?: Error, response?: WindowsCredentialBridgeResponse) => {
@@ -214,27 +214,31 @@ export class PowerShellWindowsCredentialBridge implements WindowsCredentialBridg
         else resolve(response!);
       };
 
-      const appendBounded = (current: Buffer, chunk: Buffer): Buffer => {
-        if (current.length >= MAX_OUTPUT_BYTES) return current;
-        return Buffer.concat([current, chunk.subarray(0, MAX_OUTPUT_BYTES - current.length)]);
-      };
-
-      child.stdout.on("data", (chunk: Buffer) => { stdout = appendBounded(stdout, chunk); });
-      child.stderr.on("data", (chunk: Buffer) => { stderr = appendBounded(stderr, chunk); });
+      child.stdout.on("data", (chunk: Buffer) => {
+        if (settled) return;
+        stdoutBytes += chunk.length;
+        if (stdoutBytes > MAX_OUTPUT_BYTES) {
+          child.kill();
+          finish(new CredentialVaultError("VAULT_OPERATION_FAILED", "Windows Credential Manager returned an oversized response."));
+          return;
+        }
+        stdoutChunks.push(Buffer.from(chunk));
+      });
+      // Drain stderr to avoid child-process backpressure, but never retain or
+      // surface it. A lower layer can contain sensitive operating-system or
+      // credential context even when Email Shield did not put a secret there.
+      child.stderr.resume();
       child.once("error", () => {
         finish(new CredentialVaultError("VAULT_OPERATION_FAILED", "Windows Credential Manager could not be started."));
       });
       child.once("close", (code) => {
+        if (settled) return;
         let parsed: WindowsCredentialBridgeResponse | null = null;
         try {
-          parsed = JSON.parse(stdout.toString("utf8").trim()) as WindowsCredentialBridgeResponse;
+          parsed = JSON.parse(Buffer.concat(stdoutChunks).toString("utf8").trim()) as WindowsCredentialBridgeResponse;
         } catch {}
 
         if (code !== 0 || !parsed?.ok) {
-          // Deliberately do not surface PowerShell stderr or request data. Both
-          // may contain operating-system details and a write request contains a
-          // credential secret on stdin.
-          void stderr;
           finish(new CredentialVaultError("VAULT_OPERATION_FAILED", "Windows Credential Manager operation failed."));
           return;
         }
@@ -289,9 +293,10 @@ export class WindowsCredentialManagerVault implements CredentialVault {
       const response = await this.bridge.invoke({ operation: "read", target: credentialTargetName(reference) });
       if (!response.ok) throw new Error("Credential read was not confirmed.");
       if (!response.found) return null;
-      if (typeof response.secret !== "string") {
+      if (typeof response.secret !== "string" || response.secret.length === 0) {
         throw new Error("Credential Manager returned an invalid credential payload.");
       }
+      validateCredentialSecret(response.secret);
       return response.secret;
     } catch (error) {
       if (error instanceof CredentialVaultError) throw error;
