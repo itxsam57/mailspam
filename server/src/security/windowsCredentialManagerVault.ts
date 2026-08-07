@@ -10,20 +10,20 @@ import {
   validateCredentialSecret,
 } from "./credentialVault.js";
 
-interface BridgeRequest {
+export interface WindowsCredentialBridgeRequest {
   operation: "write" | "read" | "delete";
   target: string;
   secret?: string;
 }
 
-interface BridgeResponse {
+export interface WindowsCredentialBridgeResponse {
   ok: boolean;
   found?: boolean;
   secret?: string;
 }
 
 export interface WindowsCredentialBridge {
-  invoke(request: BridgeRequest): Promise<BridgeResponse>;
+  invoke(request: WindowsCredentialBridgeRequest): Promise<WindowsCredentialBridgeResponse>;
 }
 
 const POWERSHELL_BRIDGE = String.raw`
@@ -186,13 +186,13 @@ function trustedPowerShellPath(): string {
 }
 
 export class PowerShellWindowsCredentialBridge implements WindowsCredentialBridge {
-  async invoke(request: BridgeRequest): Promise<BridgeResponse> {
+  async invoke(request: WindowsCredentialBridgeRequest): Promise<WindowsCredentialBridgeResponse> {
     if (process.platform !== "win32") {
       throw new CredentialVaultError("VAULT_UNAVAILABLE", "Windows Credential Manager is unavailable on this platform.");
     }
 
     const encodedCommand = Buffer.from(POWERSHELL_BRIDGE, "utf16le").toString("base64");
-    return new Promise<BridgeResponse>((resolve, reject) => {
+    return new Promise<WindowsCredentialBridgeResponse>((resolve, reject) => {
       const child = spawn(
         trustedPowerShellPath(),
         ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encodedCommand],
@@ -205,7 +205,8 @@ export class PowerShellWindowsCredentialBridge implements WindowsCredentialBridg
       let stdout = Buffer.alloc(0);
       let stderr = Buffer.alloc(0);
       let settled = false;
-      const finish = (error?: Error, response?: BridgeResponse) => {
+      let timer: NodeJS.Timeout;
+      const finish = (error?: Error, response?: WindowsCredentialBridgeResponse) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
@@ -224,9 +225,9 @@ export class PowerShellWindowsCredentialBridge implements WindowsCredentialBridg
         finish(new CredentialVaultError("VAULT_OPERATION_FAILED", "Windows Credential Manager could not be started."));
       });
       child.once("close", (code) => {
-        let parsed: BridgeResponse | null = null;
+        let parsed: WindowsCredentialBridgeResponse | null = null;
         try {
-          parsed = JSON.parse(stdout.toString("utf8").trim()) as BridgeResponse;
+          parsed = JSON.parse(stdout.toString("utf8").trim()) as WindowsCredentialBridgeResponse;
         } catch {}
 
         if (code !== 0 || !parsed?.ok) {
@@ -240,7 +241,7 @@ export class PowerShellWindowsCredentialBridge implements WindowsCredentialBridg
         finish(undefined, parsed);
       });
 
-      const timer = setTimeout(() => {
+      timer = setTimeout(() => {
         child.kill();
         finish(new CredentialVaultError("VAULT_OPERATION_FAILED", "Windows Credential Manager operation timed out."));
       }, BRIDGE_TIMEOUT_MS);
