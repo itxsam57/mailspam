@@ -1,9 +1,12 @@
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { FixtureAdapter, type FixtureMessage } from "./fixtureAdapter.js";
+import {
+  FixtureAdapter,
+  type FixtureFolderOverrides,
+  type FixtureMessage,
+} from "./fixtureAdapter.js";
 import type { Provider } from "../../canonical/envelope.js";
-import type { FixtureFolderOverrides } from "../../api/adapterConfig.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CORPUS_DIR = join(__dirname, "../../../../fixtures/scam-corpus");
