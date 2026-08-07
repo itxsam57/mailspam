@@ -106,7 +106,11 @@ export function createServer(options: { community?: CommunityNetwork } = {}) {
         await adapter.disconnect();
       }
 
-      const session = sessionStore.create(provider, label ?? `${provider} (${mode})`, config);
+      // Validation above uses the submitted credential transiently. Only after
+      // the provider confirms it do we create the long-lived account session;
+      // Windows app passwords must enter Credential Manager here or the
+      // connection fails rather than silently degrading to persisted plaintext.
+      const session = await sessionStore.createSecured(provider, label ?? `${provider} (${mode})`, config);
       const policy = session.personalPolicy.snapshot();
       res.json({
         accountId: session.id,
