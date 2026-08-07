@@ -1,28 +1,65 @@
 # Rebuild status
 
-This package is the first transport-architecture rebuild after the repeated lag/zero-message/failed-stop failures.
+## Milestone 1 — CLOSED
 
-## Implemented
+Milestone 1 was formally accepted on **2026-08-07** after the final owner browser retest passed and the post-merge Engineering Gate passed on both Windows and Ubuntu.
+
+Accepted baseline build:
+
+`3d70e85fcad16bded8e27d31ebeff00031a2a592`
+
+Formal closure record:
+
+`docs/MILESTONE_1_CLOSURE.md`
+
+## Accepted Milestone 1 foundation
 
 - Dedicated killable Worker thread per scan
-- Cooperative cancellation plus forced termination after one second
-- Operation-scoped provider adapters; no shared connected adapter lifecycle
+- Cooperative cancellation plus forced termination
+- Operation-scoped provider adapters with one canonical provider contract
+- Gmail, iCloud, Outlook, Yahoo and generic IMAP fixture coverage
 - Actual IMAP UID search and UIDVALIDITY-aware cursors
-- Bounded 32 KiB IMAP message prefix instead of unrestricted full source/attachments
-- Partial verdict protection for bounded/truncated messages
-- Stable encoded IMAP action identifiers
-- Gmail fetch concurrency limited to four
-- Opaque Microsoft Graph continuation URLs retained unchanged
-- Localhost-only server binding by default
-- Live iCloud, Yahoo and generic IMAP connection forms
-- Evidence-description HTML escaping
-- Build/start/verify scripts
-- Architecture regression tests
+- Bounded readable IMAP MIME extraction without attachment-body fetching
+- Partial-content verdict protection
+- Stable provider action identifiers and exact provider confirmation
+- Deterministic Safe / Review / High Risk / Confirmed Threat / Unknown verdict pipeline
+- Explainable privacy-reduced diagnostics
+- Quick, Full and Spam/Junk scan workflows
+- Responsive stop/restart scan lifecycle
+- Stale-tab session validation before scan EventSource startup
+- Account-scoped encrypted personal policy persistence
+- Reversible sender/domain blocks
+- Mark Safe, Trust sender, Trash, Spam/Junk, unsubscribe and scam-report action boundaries
+- Localhost-only protected desktop API with HttpOnly session, CSRF, same-origin mutation nonce, replay protection, Host checks and redaction
+- Provider-neutral community-report client and signed-feed verification architecture
+- Live iCloud hard-test coverage
+- Windows and Ubuntu engineering gates
+- Permanent regression register and browser handoff workflow
 
-## Deliberately not claimed complete
+## Later milestone work — not claimed complete
 
-- Gmail and Outlook browser OAuth onboarding is not yet exposed in the normal UI.
-- Full dependency installation and Vitest execution could not be completed in the build environment because npm downloads timed out.
-- Real provider behavior must be hard-tested using the included guide.
+Milestone 1 closure does **not** claim completion of:
 
-Run `npm install`, then `npm run verify`, then `npm run dev` on the test PC.
+- persisted scan-history presentation after browser refresh;
+- resumable scan cursors across restart/rate limits;
+- guided Gmail OAuth onboarding;
+- guided Outlook OAuth onboarding;
+- OS-keychain / credential-vault-backed key and provider-token custody;
+- complete searchable policy-management centre;
+- production community-service deployment operations and gateway abuse defence;
+- production QR decoder;
+- controlled real-destination Analyze Links validation;
+- deeper mailbox-derived relationship history;
+- structural detection work for known deferred false-negative coverage gaps.
+
+Those remain explicit Milestone 2+ work and must not be represented as already complete.
+
+## Run
+
+```bash
+npm install
+npm run gate
+npm run dev
+```
+
+The accepted Milestone 1 baseline should remain green. Any regression in its locked invariants is a defect, not new scope.
