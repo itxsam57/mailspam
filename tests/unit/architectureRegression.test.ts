@@ -41,8 +41,9 @@ describe("transport architecture regressions", () => {
     expect(monitor).not.toContain(".then(() => { btn.textContent = 'Moved'");
   });
 
-  it("scopes, encrypts, and transactionally persists personal policy", () => {
+  it("scopes, encrypts, transactionally persists, and reverses personal blocks", () => {
     const server = read("server/src/api/server.ts");
+    const desktopServer = read("server/src/api/localDesktopServer.ts");
     const sessions = read("server/src/api/sessionStore.ts");
     const persistence = read("server/src/api/policyPersistence.ts");
     const monitor = read("web/scan-monitor.js");
@@ -58,9 +59,14 @@ describe("transport architecture regressions", () => {
     expect(persistence).toContain("personal-policies.enc.json");
     expect(persistence).toContain("unsubscribedActions");
     expect(persistence).not.toContain("appPassword:");
-    expect(monitor).toContain("Block this ${scope} for the selected account?");
+    expect(monitor).toContain("'Remove the block for' : 'Block'");
     expect(monitor).toContain("This does not move or delete mail.");
-    expect(monitor).toContain("result.blocked !== true || result.scope !== scope || result.accountId !== id");
+    expect(monitor).toContain("result.blocked !== !isUnblock || result.scope !== scope || result.accountId !== id");
+    expect(monitor).toContain("unblock-${scope}");
+    expect(desktopServer).toContain('/messages/unblock-sender');
+    expect(desktopServer).toContain('/messages/unblock-domain');
+    expect(desktopServer).toContain("policy.unblockSender(address)");
+    expect(desktopServer).toContain("policy.unblockDomain(domain)");
   });
 
   it("uses opaque tokens for unsubscribe from both warning and Safe views", () => {
