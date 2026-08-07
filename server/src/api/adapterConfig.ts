@@ -1,14 +1,10 @@
-import type { NormalizedFolder, Provider } from "../canonical/envelope.js";
+import type { Provider } from "../canonical/envelope.js";
 import type { EmailAdapter } from "../canonical/adapter.js";
 import { buildDemoMailbox } from "../adapters/fixtures/demoMailbox.js";
+import type { FixtureFolderOverrides } from "../adapters/fixtures/fixtureAdapter.js";
 import { GmailAdapter, type GmailOAuthCredentials } from "../adapters/gmail/gmailAdapter.js";
 import { OutlookAdapter, type OutlookOAuthCredentials } from "../adapters/outlook/outlookAdapter.js";
 import { createGenericImapAdapter, createIcloudAdapter, createYahooAdapter, type ImapCredentials } from "../adapters/imap/imapAdapter.js";
-
-export type FixtureFolderOverrides = Record<
-  string,
-  Extract<NormalizedFolder, "inbox" | "spam" | "trash">
->;
 
 export type AdapterConfig =
   | { provider: Provider; mode: "fixture"; fixtureFolderOverrides?: FixtureFolderOverrides }
