@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   CredentialVaultError,
@@ -76,6 +77,20 @@ describe("credential vault contract", () => {
     }
   });
 
+  it("rejects malformed credential payloads read from a backend", async () => {
+    const emptyBridge: WindowsCredentialBridge = {
+      async invoke() { return { ok: true, found: true, secret: "" }; },
+    };
+    await expect(new WindowsCredentialManagerVault(emptyBridge).read(reference))
+      .rejects.toMatchObject({ code: "VAULT_OPERATION_FAILED" });
+
+    const oversizedBridge: WindowsCredentialBridge = {
+      async invoke() { return { ok: true, found: true, secret: "x".repeat(2_561) }; },
+    };
+    await expect(new WindowsCredentialManagerVault(oversizedBridge).read(reference))
+      .rejects.toMatchObject({ code: "INVALID_SECRET" });
+  });
+
   it("fails closed on unsupported platforms and never substitutes plaintext storage", async () => {
     const vault = new UnsupportedCredentialVault("test-platform");
     expect(vault.capabilities()).toEqual({
@@ -108,6 +123,17 @@ describe("credential vault contract", () => {
       expect((error as Error).message).not.toContain(secret);
       expect(String(error)).not.toContain(secret);
     }
+  });
+
+  it("keeps runtime secrets off the PowerShell command line and disables shell execution", () => {
+    const source = readFileSync(
+      new URL("../../server/src/security/windowsCredentialManagerVault.ts", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain('["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encodedCommand]');
+    expect(source).toContain('child.stdin.end(JSON.stringify(request), "utf8")');
+    expect(source).not.toContain("shell: true");
+    expect(source).toContain("child.stderr.resume()");
   });
 
   it("uses the real Windows backend only on Windows", () => {
