@@ -72,13 +72,27 @@ export interface SecuredAdapterConfigResult {
   vaultReferences: CredentialReference[];
 }
 
+type HostedAppPasswordConfig = {
+  provider: "icloud" | "yahoo";
+  mode: "live";
+  credentials: { user: string; appPassword: string };
+};
+
+type GenericImapAppPasswordConfig = {
+  provider: "imap";
+  mode: "live";
+  credentials: ImapCredentials;
+};
+
+type AppPasswordRuntimeConfig = HostedAppPasswordConfig | GenericImapAppPasswordConfig;
+
 const APP_PASSWORD_REFERENCE_NAMESPACE = "email-shield-app-password-account-v1\0";
 
 function memorySecret(value: string): MemorySecretHandle {
   return { storage: "memory", value };
 }
 
-function appPasswordAccountIdentity(config: Extract<AdapterConfig, { mode: "live"; provider: "icloud" | "yahoo" | "imap" }>): string {
+function appPasswordAccountIdentity(config: AppPasswordRuntimeConfig): string {
   switch (config.provider) {
     case "icloud":
     case "yahoo":
@@ -93,9 +107,7 @@ function appPasswordAccountIdentity(config: Extract<AdapterConfig, { mode: "live
  * credential across reconnects without exposing mailbox metadata in Credential
  * Manager or accumulating random orphaned records after process restarts.
  */
-export function appPasswordCredentialReference(
-  config: Extract<AdapterConfig, { mode: "live"; provider: "icloud" | "yahoo" | "imap" }>,
-): CredentialReference {
+export function appPasswordCredentialReference(config: AppPasswordRuntimeConfig): CredentialReference {
   const id = createHash("sha256")
     .update(APP_PASSWORD_REFERENCE_NAMESPACE, "utf8")
     .update(appPasswordAccountIdentity(config), "utf8")
@@ -192,47 +204,51 @@ export async function secureAdapterConfig(
   config: AdapterConfig,
   vault: CredentialVault,
 ): Promise<SecuredAdapterConfigResult> {
-  if (
-    config.mode !== "live" ||
-    !["icloud", "yahoo", "imap"].includes(config.provider) ||
-    !vault.capabilities().available
-  ) {
+  if (config.mode !== "live" || !vault.capabilities().available) {
     return secureAdapterConfigInMemory(config);
   }
 
-  const appPasswordConfig = config as Extract<AdapterConfig, { mode: "live"; provider: "icloud" | "yahoo" | "imap" }>;
-  const reference = appPasswordCredentialReference(appPasswordConfig);
-  await vault.write(reference, appPasswordConfig.credentials.appPassword);
-  const appPassword: VaultSecretHandle = { storage: "vault", reference };
-
-  if (appPasswordConfig.provider === "icloud" || appPasswordConfig.provider === "yahoo") {
-    return {
-      config: {
-        provider: appPasswordConfig.provider,
-        mode: "live",
-        credentials: {
-          user: appPasswordConfig.credentials.user,
-          appPassword,
+  switch (config.provider) {
+    case "icloud":
+    case "yahoo": {
+      const reference = appPasswordCredentialReference(config);
+      await vault.write(reference, config.credentials.appPassword);
+      const appPassword: VaultSecretHandle = { storage: "vault", reference };
+      return {
+        config: {
+          provider: config.provider,
+          mode: "live",
+          credentials: {
+            user: config.credentials.user,
+            appPassword,
+          },
         },
-      },
-      vaultReferences: [reference],
-    };
+        vaultReferences: [reference],
+      };
+    }
+    case "imap": {
+      const reference = appPasswordCredentialReference(config);
+      await vault.write(reference, config.credentials.appPassword);
+      const appPassword: VaultSecretHandle = { storage: "vault", reference };
+      return {
+        config: {
+          provider: "imap",
+          mode: "live",
+          credentials: {
+            host: config.credentials.host,
+            port: config.credentials.port,
+            secure: config.credentials.secure,
+            user: config.credentials.user,
+            appPassword,
+          },
+        },
+        vaultReferences: [reference],
+      };
+    }
+    case "gmail":
+    case "outlook":
+      return secureAdapterConfigInMemory(config);
   }
-
-  return {
-    config: {
-      provider: "imap",
-      mode: "live",
-      credentials: {
-        host: appPasswordConfig.credentials.host,
-        port: appPasswordConfig.credentials.port,
-        secure: appPasswordConfig.credentials.secure,
-        user: appPasswordConfig.credentials.user,
-        appPassword,
-      },
-    },
-    vaultReferences: [reference],
-  };
 }
 
 async function materializeSecret(handle: SecretHandle, vault: CredentialVault): Promise<string> {
