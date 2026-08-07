@@ -51,6 +51,7 @@ export interface AccountSession {
   personalPolicy: InMemoryPersonalPolicyStore;
   policyAccountKey: string;
   vaultReferences: CredentialReference[];
+  closing: boolean;
   unsubscribeActions: Map<string, RegisteredUnsubscribeAction>;
   reviewActions: Map<string, RegisteredReviewAction>;
 }
@@ -74,6 +75,7 @@ export class SessionStore {
   private sessions = new Map<string, AccountSession>();
   private policyStores = new Map<string, InMemoryPersonalPolicyStore>();
   private vaultReferenceCounts = new Map<string, number>();
+  private vaultLifecycleTail: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly policyRepository: PersonalPolicyRepository = new EncryptedFilePolicyRepository(),
@@ -96,29 +98,37 @@ export class SessionStore {
    * back to plaintext or long-lived raw AdapterConfig storage.
    */
   async createSecured(provider: string, label: string, config: AdapterConfig): Promise<AccountSession> {
-    const accountKey = policyAccountKey(config);
-    const secured = await secureAdapterConfig(config, this.credentialVault);
-    try {
-      return this.createFromSecured(provider, label, secured.config, accountKey, secured.vaultReferences);
-    } catch (error) {
-      // If session initialization fails after a new vault write, clean only
-      // references not already owned by another active session. Never delete a
-      // shared credential out from underneath a working session.
+    return this.withVaultLifecycle(async () => {
+      const accountKey = policyAccountKey(config);
+      const secured = await secureAdapterConfig(config, this.credentialVault);
       try {
-        for (const reference of secured.vaultReferences) {
-          if ((this.vaultReferenceCounts.get(credentialReferenceKey(reference)) ?? 0) === 0) {
-            await this.credentialVault.delete(reference);
+        return this.createFromSecured(provider, label, secured.config, accountKey, secured.vaultReferences);
+      } catch (error) {
+        // If session initialization fails after a new vault write, clean only
+        // references not already owned by another active session. Never delete
+        // a shared credential out from underneath a working session.
+        try {
+          for (const reference of secured.vaultReferences) {
+            if ((this.vaultReferenceCounts.get(credentialReferenceKey(reference)) ?? 0) === 0) {
+              await this.credentialVault.delete(reference);
+            }
           }
+        } catch {
+          throw new Error("Account session initialization failed and protected credential cleanup also failed.");
         }
-      } catch {
-        throw new Error("Account session initialization failed and protected credential cleanup also failed.");
+        throw error;
       }
-      throw error;
-    }
+    });
   }
 
   async materializeConfig(session: AccountSession): Promise<AdapterConfig> {
     return materializeAdapterConfig(session.config, this.credentialVault);
+  }
+
+  private async withVaultLifecycle<T>(operation: () => Promise<T>): Promise<T> {
+    const run = this.vaultLifecycleTail.then(operation, operation);
+    this.vaultLifecycleTail = run.then(() => undefined, () => undefined);
+    return run;
   }
 
   private createFromSecured(
@@ -144,6 +154,7 @@ export class SessionStore {
       personalPolicy,
       policyAccountKey: accountKey,
       vaultReferences: vaultReferences.map((reference) => ({ ...reference })),
+      closing: false,
       unsubscribeActions: new Map(),
       reviewActions: new Map(),
     };
@@ -274,37 +285,51 @@ export class SessionStore {
     this.mutateAndPersistPersonalPolicy(session, (policy) => policy.rememberUnsubscribed(actionKey));
   }
 
-  get(id: string): AccountSession | undefined { return this.sessions.get(id); }
-  list(): AccountSession[] { return [...this.sessions.values()]; }
+  get(id: string): AccountSession | undefined {
+    const session = this.sessions.get(id);
+    return session?.closing ? undefined : session;
+  }
+
+  list(): AccountSession[] {
+    return [...this.sessions.values()].filter((session) => !session.closing);
+  }
 
   async remove(id: string): Promise<void> {
     const session = this.sessions.get(id);
-    if (!session) return;
+    if (!session || session.closing) return;
+    session.closing = true;
 
-    if (session.activeScanWorker) {
-      await session.activeScanWorker.terminate();
-      session.activeScanWorker = null;
-    }
-
-    // Delete native credentials before reporting the last session removed. If
-    // the OS refuses deletion, keep the session so the user can retry instead
-    // of silently leaving a credential behind while the UI claims success.
-    for (const reference of session.vaultReferences) {
-      const key = credentialReferenceKey(reference);
-      if ((this.vaultReferenceCounts.get(key) ?? 0) === 1) {
-        await this.credentialVault.delete(reference);
+    try {
+      if (session.activeScanWorker) {
+        await session.activeScanWorker.terminate();
+        session.activeScanWorker = null;
       }
-    }
 
-    this.clearScanActions(session);
-    this.sessions.delete(id);
-    releaseMemorySecrets(session.config);
+      await this.withVaultLifecycle(async () => {
+        // Delete native credentials before reporting the last session removed.
+        // If the OS refuses deletion, the catch below restores visibility so
+        // the user can retry instead of receiving a false cleanup success.
+        for (const reference of session.vaultReferences) {
+          const key = credentialReferenceKey(reference);
+          if ((this.vaultReferenceCounts.get(key) ?? 0) === 1) {
+            await this.credentialVault.delete(reference);
+          }
+        }
 
-    for (const reference of session.vaultReferences) {
-      const key = credentialReferenceKey(reference);
-      const remaining = (this.vaultReferenceCounts.get(key) ?? 0) - 1;
-      if (remaining > 0) this.vaultReferenceCounts.set(key, remaining);
-      else this.vaultReferenceCounts.delete(key);
+        this.clearScanActions(session);
+        this.sessions.delete(id);
+        releaseMemorySecrets(session.config);
+
+        for (const reference of session.vaultReferences) {
+          const key = credentialReferenceKey(reference);
+          const remaining = (this.vaultReferenceCounts.get(key) ?? 0) - 1;
+          if (remaining > 0) this.vaultReferenceCounts.set(key, remaining);
+          else this.vaultReferenceCounts.delete(key);
+        }
+      });
+    } catch (error) {
+      session.closing = false;
+      throw error;
     }
   }
 }
