@@ -6,7 +6,12 @@ import { fileURLToPath } from "node:url";
 import { createServer } from "./server.js";
 import { localSecurity, type LocalSecurityManager } from "./localSecurity.js";
 import { createScanStreamHandler } from "./scanStream.js";
+import { sessionStore } from "./sessionStore.js";
 import { communityNetwork, type CommunityNetwork } from "../community/network.js";
+import {
+  normalizeSenderAddress,
+  normalizeSenderDomain,
+} from "../workflows/blockAndCleanup.js";
 
 function escapeAttribute(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({
@@ -108,6 +113,36 @@ export function createLocalDesktopServer(options: {
   });
 
   app.get("/api/accounts/:id/scan/:type", createScanStreamHandler({ community }));
+
+  app.post("/api/accounts/:id/messages/unblock-sender", (req: Request, res: Response) => {
+    const session = sessionStore.get(req.params.id!);
+    if (!session) return res.status(404).json({ error: "Unknown account" });
+    let address: string;
+    try { address = normalizeSenderAddress((req.body as { address?: unknown }).address); }
+    catch (error) { return res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); }
+
+    try {
+      sessionStore.mutateAndPersistPersonalPolicy(session, (policy) => policy.unblockSender(address));
+      res.json({ blocked: false, persisted: true, scope: "sender", value: address, accountId: session.id });
+    } catch (error) {
+      res.status(500).json({ error: `Sender unblock was not saved: ${error instanceof Error ? error.message : String(error)}` });
+    }
+  });
+
+  app.post("/api/accounts/:id/messages/unblock-domain", (req: Request, res: Response) => {
+    const session = sessionStore.get(req.params.id!);
+    if (!session) return res.status(404).json({ error: "Unknown account" });
+    let domain: string;
+    try { domain = normalizeSenderDomain((req.body as { domain?: unknown }).domain); }
+    catch (error) { return res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); }
+
+    try {
+      sessionStore.mutateAndPersistPersonalPolicy(session, (policy) => policy.unblockDomain(domain));
+      res.json({ blocked: false, persisted: true, scope: "domain", value: domain, accountId: session.id });
+    } catch (error) {
+      res.status(500).json({ error: `Domain unblock was not saved: ${error instanceof Error ? error.message : String(error)}` });
+    }
+  });
 
   app.use("/api/dev", security.requireProtectedRead());
   app.use("/api/dev", (req: Request, res: Response, next) => {
