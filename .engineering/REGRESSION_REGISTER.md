@@ -61,6 +61,7 @@ Status values:
 | REG-038 | LOCKED | An exact fixture Trash or Spam/Junk move must remain moved when a later action or scan recreates the provider adapter in the same account session. | `fixtureMailboxState.test.ts`, provider action tests |
 | REG-039 | LOCKED | A stale browser tab after a desktop-process restart must validate its protected session before opening EventSource and fail immediately with a reload/reconnect message rather than remain on `Starting scan`. | browser source/architecture checks; manual stale-tab retest |
 | REG-040 | LOCKED | Personal sender/domain blocks must be visibly reversible through protected account-scoped mutations, and rescanned cards must disclose existing block and locally reported-campaign state instead of silently greying controls or re-offering conflicting Safe/Trust decisions. | `policyUndoApi.test.ts`, architecture/browser checks |
+| REG-041 | LOCKED | Credential persistence must fail closed when a native vault is unavailable; Windows vault targets must be opaque, secrets must never be truncated or placed in command-line arguments, and public vault failures must not retain secret-bearing lower-layer error text. | `credentialVault.test.ts`, Windows native round trip, source review |
 
 ## Resolved registered gaps
 
@@ -74,7 +75,7 @@ Status values:
 |---|---|---|---|
 | GAP-001 | KNOWN-GAP | Guided Gmail OAuth onboarding | Adapter exists; normal browser onboarding is not exposed/live-validated. |
 | GAP-002 | KNOWN-GAP | Guided Outlook OAuth onboarding | Adapter exists; normal browser onboarding is not exposed/live-validated. |
-| GAP-003 | KNOWN-GAP | OS-keychain-backed local encryption keys and provider-token custody | AES-GCM file/key protection exists; OS keychain/credential-vault integration is absent. |
+| GAP-003 | KNOWN-GAP | OS-keychain-backed local encryption keys and provider-token custody | Shared fail-closed vault contract and Windows Credential Manager backend now exist. Existing live account configs and the local policy-encryption key are not yet migrated to opaque vault references; macOS Keychain and Linux Secret Service remain unimplemented. |
 | GAP-004 | KNOWN-GAP | Public production community deployment and operations | Self-hostable ingestion, aggregation, signing, verification and client protocol exist. DNS/TLS, gateway abuse controls, monitoring, backups and an executed key-rotation ceremony require the deployment environment. |
 | GAP-005 | KNOWN-GAP | Controlled real-destination Analyze Links validation | Hardened workflow exists; complete controlled live validation remains. |
 | GAP-006 | KNOWN-GAP | Production QR decoder | Injectable interface exists; production decoder is absent. |
