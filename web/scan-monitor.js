@@ -43,7 +43,7 @@
   status.className = 'scan-monitor-status';
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
-  status.textContent = 'Ready to scan.';
+  status.textContent = 'Ready to scan. Scan result cards reset after a page refresh; encrypted account rules remain saved.';
   counters.before(status);
 
   const diagnostics = document.createElement('details');
@@ -62,6 +62,12 @@
   let accountId = null;
   let receivedServerEvent = false;
   let diagnosticRows = [];
+  let sessionExpired = false;
+
+  window.addEventListener('email-shield-session-expired', () => {
+    sessionExpired = true;
+    finish();
+  });
 
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, (character) => ({
@@ -82,6 +88,21 @@
     stopButton.disabled = true;
     source?.close();
     source = null;
+  }
+
+  async function validateProtectedScanSession(id) {
+    const response = await fetch('/api/accounts', {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(body?.error || 'The protected local session expired. Reload Email Shield.');
+    }
+    if (!Array.isArray(body) || !body.some((account) => account?.accountId === id)) {
+      throw new Error('The selected account no longer exists in this Email Shield process. Reload and reconnect it.');
+    }
   }
 
   function renderDiagnostics() {
@@ -127,24 +148,46 @@
     }
   }
 
-  function start(type) {
-    accountId = selectedAccountId();
-    if (!accountId) {
+  async function start(type) {
+    const requestedAccountId = selectedAccountId();
+    accountId = requestedAccountId;
+    if (!requestedAccountId) {
       setStatus('Select a connected account first.', 'error');
       return;
     }
 
     source?.close();
+    receivedServerEvent = false;
+    sessionExpired = false;
+    stopButton.disabled = true;
+    setStatus(`Authorizing ${type} scan…`, 'running');
+
+    try {
+      await validateProtectedScanSession(requestedAccountId);
+    } catch (error) {
+      finish();
+      const message = sessionExpired
+        ? 'The protected local session expired after the Email Shield process restarted. Reload the dashboard before scanning.'
+        : error instanceof Error ? error.message : String(error);
+      setStatus(message, 'error');
+      return;
+    }
+
+    if (selectedAccountId() !== requestedAccountId) {
+      finish();
+      setStatus('The selected account changed before the scan started. Start the scan again.', 'error');
+      return;
+    }
+
     counters.innerHTML = '';
     cards.innerHTML = '';
     diagnosticRows = [];
     diagnostics.open = false;
     renderDiagnostics();
     stopButton.disabled = false;
-    receivedServerEvent = false;
     setStatus(`Starting ${type} scan…`, 'running');
 
-    const es = new EventSource(`/api/accounts/${encodeURIComponent(accountId)}/scan/${type}`);
+    const es = new EventSource(`/api/accounts/${encodeURIComponent(requestedAccountId)}/scan/${type}`);
     source = es;
 
     es.addEventListener('scan-started', () => {
@@ -178,9 +221,11 @@
     es.onerror = () => {
       if (es.readyState === EventSource.CLOSED) return;
       setStatus(
-        receivedServerEvent
-          ? 'The scan connection was interrupted. Check the terminal for details.'
-          : 'Could not open the scan stream. Check the terminal for the server error.',
+        sessionExpired
+          ? 'The protected local session expired. Reload Email Shield before scanning.'
+          : receivedServerEvent
+            ? 'The scan connection was interrupted. Check the terminal for details.'
+            : 'Could not open the scan stream. Reload if the Email Shield process was restarted.',
         'error',
       );
       finish();
@@ -356,7 +401,7 @@
     document.getElementById(id)?.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopImmediatePropagation();
-      start(type);
+      void start(type);
     }, true);
   }
 
