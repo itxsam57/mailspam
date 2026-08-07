@@ -14,6 +14,11 @@ export interface FixtureMessage {
   providerFolderName: string;
 }
 
+export type FixtureFolderOverrides = Record<
+  string,
+  Extract<NormalizedFolder, "inbox" | "spam" | "trash">
+>;
+
 /**
  * One adapter implementation shared by every provider's fixture — this is
  * the direct proof of spec Section 4's rule: "No adapter may have its own
@@ -28,7 +33,11 @@ export class FixtureAdapter implements EmailAdapter {
   private messages: FixtureMessage[];
   private connected = false;
 
-  constructor(provider: Provider, messages: FixtureMessage[]) {
+  constructor(
+    provider: Provider,
+    messages: FixtureMessage[],
+    private readonly folderOverrides: FixtureFolderOverrides = {},
+  ) {
     this.provider = provider;
     this.messages = messages.map((message) => ({ ...message }));
   }
@@ -50,6 +59,21 @@ export class FixtureAdapter implements EmailAdapter {
         });
       }
     }
+
+    // A real mailbox can expose an empty special-use folder. Fixtures must do
+    // the same so a Spam/Junk scan tests an empty folder truthfully instead of
+    // failing folder discovery merely because the current fixture has no row
+    // in that folder.
+    for (const descriptor of [
+      { providerFolderName: "INBOX", normalized: "inbox" as const, includedByDefault: true },
+      { providerFolderName: "Spam", normalized: "spam" as const, includedByDefault: true },
+      { providerFolderName: "Trash", normalized: "trash" as const, includedByDefault: false },
+    ]) {
+      if (![...seen.values()].some((folder) => folder.normalized === descriptor.normalized)) {
+        seen.set(descriptor.providerFolderName, descriptor);
+      }
+    }
+
     return [...seen.values()];
   }
 
@@ -91,6 +115,7 @@ export class FixtureAdapter implements EmailAdapter {
       if (!idSet.has(message.id)) continue;
       message.folder = target;
       message.providerFolderName = targetProviderFolderName;
+      this.folderOverrides[message.id] = target;
       moved++;
     }
     if (moved !== idSet.size) {
