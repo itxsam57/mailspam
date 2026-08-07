@@ -1,12 +1,13 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { createAdapter, type AdapterConfig } from "../api/adapterConfig.js";
+import type { SecureAdapterConfig } from "../security/secureAdapterConfig.js";
 import { quickScan, fullMailboxAudit, spamJunkScan } from "../workflows/scanWorkflows.js";
 import { InMemoryPersonalPolicyStore, type PersonalPolicySnapshot } from "../engine/layers/personalRules.js";
 import type { SignedFeedEntry } from "../engine/layers/globalIntelligence.js";
 import { runWithSingleRetry } from "./retryPolicy.js";
 
 interface WorkData {
-  config: AdapterConfig;
+  config: AdapterConfig | SecureAdapterConfig;
   type: "quick" | "full" | "spam";
   pageSize?: number;
   maxMessages?: number;
