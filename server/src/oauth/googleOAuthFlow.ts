@@ -64,8 +64,6 @@ function base64UrlRandom(bytes: number): string {
 }
 
 export function createPkcePair(): { verifier: string; challenge: string } {
-  // 64 random bytes produce an 86-character base64url verifier, safely inside
-  // RFC 7636 / Google's required 43..128 character range.
   const verifier = base64UrlRandom(64);
   const challenge = createHash("sha256").update(verifier, "ascii").digest("base64url");
   return { verifier, challenge };
@@ -141,9 +139,7 @@ export class DefaultGoogleOAuthRuntime implements GoogleOAuthRuntime {
     if (raw.length > 64 * 1024) throw new Error("Google token response was oversized.");
     let payload: Record<string, unknown> = {};
     try { payload = JSON.parse(raw) as Record<string, unknown>; } catch {}
-    if (!response.ok) {
-      throw new Error("Google authorization-code exchange failed.");
-    }
+    if (!response.ok) throw new Error("Google authorization-code exchange failed.");
 
     const refreshToken = typeof payload.refresh_token === "string" ? payload.refresh_token : "";
     const idToken = typeof payload.id_token === "string" ? payload.id_token : "";
@@ -178,6 +174,19 @@ export class DefaultGoogleOAuthRuntime implements GoogleOAuthRuntime {
   }
 }
 
+async function validateGmailProvider(config: AdapterConfig): Promise<void> {
+  const adapter = createAdapter(config);
+  const controller = new AbortController();
+  const validationTimeout = setTimeout(() => controller.abort(), 35_000);
+  try {
+    await adapter.connect(controller.signal);
+    await adapter.listFolders(controller.signal);
+  } finally {
+    clearTimeout(validationTimeout);
+    await adapter.disconnect();
+  }
+}
+
 export class GoogleOAuthFlowManager {
   private readonly flows = new Map<string, PendingFlow>();
 
@@ -187,6 +196,8 @@ export class GoogleOAuthFlowManager {
       sessionStore: SessionStore;
       runtime?: GoogleOAuthRuntime;
       flowTtlMs?: number;
+      /** Tests may replace only the provider validation seam; production uses the real Gmail adapter above. */
+      validateProvider?: (config: AdapterConfig) => Promise<void>;
     },
   ) {}
 
@@ -326,9 +337,6 @@ export class GoogleOAuthFlowManager {
       return;
     }
 
-    // A valid state consumes the callback before any asynchronous token
-    // exchange. This prevents the same authorization response being replayed
-    // while the first exchange is still in flight.
     flow.consumed = true;
     clearTimeout(flow.cleanupTimer);
     flow.server.close();
@@ -368,23 +376,9 @@ export class GoogleOAuthFlowManager {
         },
       };
 
-      // Validate real provider access before committing the long-lived session.
-      // The raw refresh token exists only in this local callback operation until
-      // createSecured moves it behind the native vault boundary where available.
-      const adapter = createAdapter(config);
-      const controller = new AbortController();
-      const validationTimeout = setTimeout(() => controller.abort(), 35_000);
-      try {
-        await adapter.connect(controller.signal);
-        await adapter.listFolders(controller.signal);
-      } finally {
-        clearTimeout(validationTimeout);
-        await adapter.disconnect();
-      }
+      await (this.options.validateProvider ?? validateGmailProvider)(config);
 
-      const label = identity.emailVerified && identity.email
-        ? identity.email
-        : "Gmail";
+      const label = identity.emailVerified && identity.email ? identity.email : "Gmail";
       const session = await this.options.sessionStore.createSecured("gmail", label, config);
       flow.status = {
         status: "complete",
@@ -411,9 +405,6 @@ export class GoogleOAuthFlowManager {
       });
       response.end(callbackHtml(false, flow.status.error));
     } finally {
-      // Erase references to one-time secrets as soon as the terminal result is
-      // known. Strings cannot be zeroed in JS, but dropping them avoids keeping
-      // the verifier/state/nonce reachable for the terminal retention period.
       flow.codeVerifier = "";
       flow.state = "";
       flow.nonce = "";
