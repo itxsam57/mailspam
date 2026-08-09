@@ -49,6 +49,7 @@ export function alignedAuthenticationDomains(envelope: CanonicalEnvelope): strin
   if (envelope.authentication.dmarc === "pass") {
     return [organizationalDomain(fromDomain)];
   }
+  if (envelope.authentication.dmarc === "fail") return [];
 
   const rawHeader = envelope.authentication.rawHeader;
   if (!rawHeader) return [];
