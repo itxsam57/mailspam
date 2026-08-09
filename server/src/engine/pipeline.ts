@@ -10,6 +10,7 @@ import { messageIntentLayer } from "./layers/messageIntent.js";
 import { linkStructureLayer } from "./layers/linkStructure.js";
 import { destinationLayerNotRun } from "./layers/destinationClassification.js";
 import { attachmentQrLayer } from "./layers/attachmentQr.js";
+import { htmlInteractionLayer } from "./layers/htmlInteraction.js";
 import { relationshipContextLayer } from "./layers/relationshipContext.js";
 import { personalRulesLayer, type PersonalPolicyStore } from "./layers/personalRules.js";
 import { globalIntelligenceLayer, type ThreatFeedCache } from "./layers/globalIntelligence.js";
@@ -69,6 +70,7 @@ export function scanMessage(
     linkStructureLayer(envelope),
     destinationLayerNotRun(),
     attachmentQrLayer(envelope),
+    htmlInteractionLayer(envelope),
     relationshipContextLayer(envelope),
     personalResult,
     globalResult,
