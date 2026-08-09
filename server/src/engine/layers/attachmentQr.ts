@@ -70,36 +70,26 @@ export function attachmentQrLayer(envelope: CanonicalEnvelope): LayerResult {
     }
   }
 
-  // QR phishing: bounded local extraction when a decodable image is available.
-  // In this build, QR payload extraction is delegated to an injectable decoder
-  // (kept out of the base engine so it has zero dependency on native image
-  // libraries unless the operator's environment provides one).
-  return { layer: "attachment_qr", applicable: true, evidence, incomplete: false };
-}
-
-/**
- * QR phishing detection (spec Section 6): image-only credential/payment
- * destinations embedded as QR codes in message images. `decodeQr` is
- * injected so the core engine has no hard dependency on a QR/image
- * library; wire a real decoder (e.g. jsQR + an image codec) at the
- * application composition root.
- */
-export function qrPhishingEvidence(
-  imageAttachmentNames: string[],
-  decodeQr: (attachmentName: string) => string | null
-) {
-  const evidence: import("../verdict.js").Evidence[] = [];
-  for (const name of imageAttachmentNames) {
-    const payload = decodeQr(name);
-    if (payload && /^https?:\/\//i.test(payload)) {
-      evidence.push({
-        layer: "attachment_qr",
-        code: "QR_CODE_URL_PAYLOAD",
-        description: `Embedded image "${name}" contains a QR code encoding a URL, evaluated as a link with no visible text for the user to inspect.`,
-        scoreContribution: 3,
-        source: "local",
-      });
-    }
+  const qrLinks = envelope.links.filter((link) => link.source === "qr");
+  if (qrLinks.length > 0) {
+    evidence.push({
+      layer: "attachment_qr",
+      code: "QR_CODE_URL_PAYLOAD",
+      description: qrLinks.length === 1
+        ? "A locally decoded QR image contains a web destination with no visible link text for the user to inspect."
+        : `${qrLinks.length} locally decoded QR images contain web destinations with no visible link text for the user to inspect.`,
+      scoreContribution: 3,
+      source: "local",
+    });
   }
-  return evidence;
+
+  const qrInspection = envelope.diagnostics.qrInspection;
+  return {
+    layer: "attachment_qr",
+    applicable: true,
+    evidence,
+    incomplete: qrInspection?.incomplete === true,
+    incompleteReason: qrInspection?.incompleteReasons.join(" ") || undefined,
+    blocksSafeVerdict: qrInspection?.incomplete === true,
+  };
 }

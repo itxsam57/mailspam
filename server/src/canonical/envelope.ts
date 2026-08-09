@@ -40,6 +40,8 @@ export interface LinkInfo {
   normalizedUrl: string;
   claimedBrand: string | null;
   brandDomainMismatch: boolean | null;
+  /** Body/HTML link vs a URL decoded locally from a bounded QR-capable image. */
+  source?: "body" | "qr";
 }
 
 export interface AttachmentInfo {
@@ -123,6 +125,13 @@ export interface CanonicalEnvelope {
      * body, attachment, or unreadable MIME part.
      */
     contentCoverage: ContentCoverage;
+    /** Privacy-reduced QR inspection status; never contains image bytes or QR payload text. */
+    qrInspection?: {
+      supportedImages: number;
+      decodedUrlCount: number;
+      incomplete: boolean;
+      incompleteReasons: string[];
+    };
   };
 }
 

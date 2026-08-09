@@ -9,6 +9,7 @@ import type {
   Provider,
   ParseStatus,
 } from "../canonical/envelope.js";
+import { analyzeQrImages, isSupportedQrImageMimeType } from "./qrDecode.js";
 
 const TEXT_PREVIEW_MAX_CHARS = 4000;
 
@@ -85,15 +86,13 @@ function extractLinks(mail: ParsedMail): LinkInfo[] {
     try { normalizedUrl = new URL(rawUrl).toString(); }
     catch { /* link_structure reports malformed values. */ }
 
-    // Identity inference must not depend on a compiled-in brand list. These
-    // legacy fields remain null for schema compatibility; signed intelligence
-    // may add identity evidence later in the pipeline.
     links.push({
       visibleText,
       rawUrl,
       normalizedUrl,
       claimedBrand: null,
       brandDomainMismatch: null,
+      source: "body",
     });
   }
 
@@ -110,9 +109,17 @@ function extractLinks(mail: ParsedMail): LinkInfo[] {
           normalizedUrl: url.toString(),
           claimedBrand: null,
           brandDomainMismatch: null,
+          source: "body",
         });
       } catch {
-        links.push({ visibleText: bare[0], rawUrl, normalizedUrl: rawUrl, claimedBrand: null, brandDomainMismatch: null });
+        links.push({
+          visibleText: bare[0],
+          rawUrl,
+          normalizedUrl: rawUrl,
+          claimedBrand: null,
+          brandDomainMismatch: null,
+          source: "body",
+        });
       }
     }
   }
@@ -169,6 +176,17 @@ export async function normalizeRawMessage(raw: string | Buffer, opts: NormalizeO
 
   const links = extractLinks(mail);
   const attachments = extractAttachments(mail);
+  const qrInputs = (mail.attachments ?? [])
+    .filter((attachment) => isSupportedQrImageMimeType(attachment.contentType ?? ""))
+    .map((attachment) => ({
+      name: attachment.filename ?? "unnamed-image",
+      mimeType: attachment.contentType ?? "application/octet-stream",
+      content: Buffer.from(attachment.content),
+    }));
+  const qrAnalysis = analyzeQrImages(qrInputs);
+  links.push(...qrAnalysis.links);
+  parseNotes.push(...qrAnalysis.incompleteReasons);
+
   const listHeader = mail.headers.get("list") as
     | { id?: { name?: string }; unsubscribe?: { url?: string }; ["unsubscribe-post"]?: { name?: string } }
     | undefined;
@@ -192,7 +210,7 @@ export async function normalizeRawMessage(raw: string | Buffer, opts: NormalizeO
     htmlSignals: mail.html
       ? {
           extractedText: htmlText,
-          hrefs: links.map((link) => link.rawUrl),
+          hrefs: links.filter((link) => link.source !== "qr").map((link) => link.rawUrl),
           hasForm: /<form[\s>]/i.test(mail.html),
           hasPasswordField: /<input[^>]+type=["']?password/i.test(mail.html),
         }
@@ -208,6 +226,12 @@ export async function normalizeRawMessage(raw: string | Buffer, opts: NormalizeO
       sizeBytes: typeof raw === "string" ? Buffer.byteLength(raw) : raw.length,
       encoding: mail.html ? "multipart" : "plain",
       contentCoverage: parseStatus === "complete" ? "complete" : "insufficient",
+      qrInspection: {
+        supportedImages: qrInputs.length,
+        decodedUrlCount: qrAnalysis.links.length,
+        incomplete: qrAnalysis.incomplete,
+        incompleteReasons: [...qrAnalysis.incompleteReasons],
+      },
     },
   };
 }
@@ -233,6 +257,12 @@ function malformedEnvelope(opts: NormalizeOptions, reason: string): CanonicalEnv
     threadContext: { isFirstContact: true, threadContinuityBroken: false, replyToChangedMidThread: false },
     parseStatus: "malformed",
     parseNotes: [reason],
-    diagnostics: { fetchedAt: new Date().toISOString(), sizeBytes: 0, encoding: "unknown", contentCoverage: "insufficient" },
+    diagnostics: {
+      fetchedAt: new Date().toISOString(),
+      sizeBytes: 0,
+      encoding: "unknown",
+      contentCoverage: "insufficient",
+      qrInspection: { supportedImages: 0, decodedUrlCount: 0, incomplete: false, incompleteReasons: [] },
+    },
   };
 }
