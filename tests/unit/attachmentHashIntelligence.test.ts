@@ -4,14 +4,26 @@ import type { CanonicalEnvelope } from "../../server/src/canonical/envelope.js";
 import { buildCommunityReportContext } from "../../server/src/community/fingerprint.js";
 import { globalIntelligenceLayer } from "../../server/src/engine/layers/globalIntelligence.js";
 import type { ScoredMessage } from "../../server/src/engine/verdict.js";
+import {
+  MAX_ATTACHMENT_HASH_BYTES,
+  MAX_ATTACHMENT_HASHES_PER_MESSAGE,
+} from "../../server/src/util/attachmentHash.js";
 import { normalizeRawMessage } from "../../server/src/util/mimeNormalize.js";
 
 function sha256(content: Buffer): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
-function rawWithAttachment(content: Buffer): Buffer {
+function rawWithAttachments(contents: Buffer[]): Buffer {
   const boundary = "email-shield-attachment-hash-test";
+  const attachmentParts = contents.flatMap((content, index) => [
+    `--${boundary}`,
+    `Content-Type: application/octet-stream; name="payload-${index}.bin"`,
+    `Content-Disposition: attachment; filename="payload-${index}.bin"`,
+    "Content-Transfer-Encoding: base64",
+    "",
+    content.toString("base64"),
+  ]);
   return Buffer.from([
     "From: Example Sender <sender@example.test>",
     "To: user@example.test",
@@ -25,25 +37,28 @@ function rawWithAttachment(content: Buffer): Buffer {
     "Content-Type: text/plain; charset=utf-8",
     "",
     "Please review the attached document.",
-    `--${boundary}`,
-    'Content-Type: application/octet-stream; name="payload.bin"',
-    'Content-Disposition: attachment; filename="payload.bin"',
-    "Content-Transfer-Encoding: base64",
-    "",
-    content.toString("base64"),
+    ...attachmentParts,
     `--${boundary}--`,
     "",
   ].join("\r\n"), "utf8");
 }
 
-async function normalizedAttachmentEnvelope(content = Buffer.from("exact malicious attachment bytes", "utf8")): Promise<CanonicalEnvelope> {
-  return normalizeRawMessage(rawWithAttachment(content), {
+function rawWithAttachment(content: Buffer): Buffer {
+  return rawWithAttachments([content]);
+}
+
+async function normalizedRawEnvelope(raw: Buffer): Promise<CanonicalEnvelope> {
+  return normalizeRawMessage(raw, {
     provider: "gmail",
     accountProof: "proof",
     providerFolderName: "INBOX",
     normalizedFolder: "inbox",
     providerNativeId: "native-attachment-hash",
   });
+}
+
+async function normalizedAttachmentEnvelope(content = Buffer.from("exact malicious attachment bytes", "utf8")): Promise<CanonicalEnvelope> {
+  return normalizedRawEnvelope(rawWithAttachment(content));
 }
 
 function scored(verdict: ScoredMessage["verdict"] = "high_risk"): ScoredMessage {
@@ -75,6 +90,32 @@ describe("attachment hash intelligence", () => {
       incomplete: false,
       incompleteReasons: [],
     });
+  });
+
+  it("applies the same four-attachment exact-hash cap to raw MIME providers", async () => {
+    const contents = Array.from(
+      { length: MAX_ATTACHMENT_HASHES_PER_MESSAGE + 1 },
+      (_, index) => Buffer.from(`small-attachment-${index}`, "utf8"),
+    );
+    const envelope = await normalizedRawEnvelope(rawWithAttachments(contents));
+
+    expect(envelope.attachments).toHaveLength(MAX_ATTACHMENT_HASHES_PER_MESSAGE + 1);
+    expect(envelope.attachments.slice(0, MAX_ATTACHMENT_HASHES_PER_MESSAGE).every((attachment) => attachment.sha256 !== null)).toBe(true);
+    expect(envelope.attachments[MAX_ATTACHMENT_HASHES_PER_MESSAGE]?.sha256).toBeNull();
+    expect(envelope.diagnostics.attachmentHashInspection?.hashed).toBe(MAX_ATTACHMENT_HASHES_PER_MESSAGE);
+    expect(envelope.diagnostics.attachmentHashInspection?.incomplete).toBe(true);
+  });
+
+  it("does not exact-hash an already-local raw MIME attachment above the decoded-byte cap", async () => {
+    const oversized = Buffer.alloc(MAX_ATTACHMENT_HASH_BYTES + 1, 0x61);
+    const envelope = await normalizedAttachmentEnvelope(oversized);
+
+    expect(envelope.attachments).toHaveLength(1);
+    expect(envelope.attachments[0]?.sizeBytes).toBe(MAX_ATTACHMENT_HASH_BYTES + 1);
+    expect(envelope.attachments[0]?.sha256).toBeNull();
+    expect(envelope.diagnostics.attachmentHashInspection?.hashed).toBe(0);
+    expect(envelope.diagnostics.attachmentHashInspection?.incomplete).toBe(true);
+    expect(envelope.diagnostics.attachmentHashInspection?.incompleteReasons.join(" ")).toContain("size limit");
   });
 
   it("activates an exact confirmed signed attachment-hash rule", async () => {
