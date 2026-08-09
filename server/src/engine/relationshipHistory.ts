@@ -32,8 +32,15 @@ export interface RelationshipHistoryWorkerSnapshot {
   /** Process-local HMAC key. It is never persisted in this snapshot or returned to browser JavaScript. */
   indexKey: string;
   records: Record<string, RelationshipProfile>;
-  /** HMAC message keys only. Structured-cloned into the Worker for replay-safe scans. */
+  /** HMAC message keys only. Structured-cloned into the Worker for replay-safe scans and thread-reference matching. */
   seenMessageKeys: Set<string>;
+}
+
+interface ThreadReferenceState {
+  knownReference: boolean;
+  knownInReplyTo: boolean;
+  hasReferenceChain: boolean;
+  inReplyToIncludedInReferences: boolean;
 }
 
 const INDEX_KEY_BYTES = 32;
@@ -109,6 +116,50 @@ function stableHistoricalReplyTo(profile: RelationshipProfile): string | null {
   return entries[0]![0];
 }
 
+function messageReferenceKey(
+  envelope: CanonicalEnvelope,
+  snapshot: RelationshipHistoryWorkerSnapshot,
+  messageId: string,
+): string {
+  return relationshipIdentityKey(snapshot.indexKey, "message", `${envelope.provider}\0${messageId}`);
+}
+
+/**
+ * Consumes transient raw RFC thread identifiers before any scoring/browser
+ * result can exist. Matching happens only in the account-specific HMAC space
+ * already used by the replay index; raw References/In-Reply-To values are not
+ * copied into observations or persistent relationship state.
+ */
+function consumeThreadReferences(
+  envelope: CanonicalEnvelope,
+  snapshot: RelationshipHistoryWorkerSnapshot | undefined,
+): ThreadReferenceState {
+  const pending = envelope.threadContext.pendingThreadReferences;
+  delete envelope.threadContext.pendingThreadReferences;
+  if (!pending || !snapshot) {
+    return {
+      knownReference: false,
+      knownInReplyTo: false,
+      hasReferenceChain: Boolean(pending?.references.length),
+      inReplyToIncludedInReferences: true,
+    };
+  }
+
+  const inReplyToKey = pending.inReplyTo
+    ? messageReferenceKey(envelope, snapshot, pending.inReplyTo)
+    : null;
+  const referenceKeys = pending.references.map((messageId) => messageReferenceKey(envelope, snapshot, messageId));
+  const knownInReplyTo = Boolean(inReplyToKey && snapshot.seenMessageKeys.has(inReplyToKey));
+  const knownReference = knownInReplyTo || referenceKeys.some((key) => snapshot.seenMessageKeys.has(key));
+
+  return {
+    knownReference,
+    knownInReplyTo,
+    hasReferenceChain: referenceKeys.length > 0,
+    inReplyToIncludedInReferences: !inReplyToKey || referenceKeys.length === 0 || referenceKeys.includes(inReplyToKey),
+  };
+}
+
 /**
  * Enriches the canonical relationship signals from prior local history. The
  * sender address itself never enters the persisted relationship database; it
@@ -120,6 +171,7 @@ export function annotateRelationshipHistory(
   envelope: CanonicalEnvelope,
   snapshot: RelationshipHistoryWorkerSnapshot | undefined,
 ): string | null {
+  const threadReferences = consumeThreadReferences(envelope, snapshot);
   const address = envelope.from.address?.trim().toLowerCase() ?? "";
   if (!snapshot || !address) return null;
 
@@ -138,16 +190,34 @@ export function annotateRelationshipHistory(
     established && explicitAuthenticationFailure(envelope),
   );
 
+  if (
+    established
+    && threadReferences.knownInReplyTo
+    && threadReferences.hasReferenceChain
+    && !threadReferences.inReplyToIncludedInReferences
+  ) {
+    envelope.threadContext.threadContinuityBroken = true;
+  }
+
   const historicalReplyTo = profile ? stableHistoricalReplyTo(profile) : null;
   const currentReplyTo = envelope.replyTo?.address
     ? relationshipIdentityKey(snapshot.indexKey, "reply-to", envelope.replyTo.address)
     : null;
-  envelope.threadContext.replyToChangedFromRelationshipHistory = Boolean(
+  const replyToChanged = Boolean(
     established
       && historicalReplyTo
       && currentReplyTo
       && !timingSafeEqual(Buffer.from(historicalReplyTo, "hex"), Buffer.from(currentReplyTo, "hex")),
   );
+
+  if (replyToChanged && threadReferences.knownReference) {
+    // A known local parent/ancestor makes this a specific mid-thread route
+    // change. Do not also emit the broader relationship-level change.
+    envelope.threadContext.replyToChangedMidThread = true;
+    envelope.threadContext.replyToChangedFromRelationshipHistory = false;
+  } else {
+    envelope.threadContext.replyToChangedFromRelationshipHistory = replyToChanged;
+  }
 
   return senderKey;
 }
