@@ -89,9 +89,14 @@ describe("Linux Secret Service vault", () => {
       },
     });
 
-    await expect(vault.write(reference, secret)).rejects.toSatisfy((error: unknown) => {
-      return error instanceof Error && !error.message.includes(secret) && !String(error).includes(secret);
-    });
+    try {
+      await vault.write(reference, secret);
+      throw new Error("Expected Linux vault write to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).not.toContain(secret);
+      expect(String(error)).not.toContain(secret);
+    }
   });
 });
 
