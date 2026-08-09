@@ -9,6 +9,12 @@ import { createScanStreamHandler } from "./scanStream.js";
 import { sessionStore } from "./sessionStore.js";
 import { communityNetwork, type CommunityNetwork } from "../community/network.js";
 import { GoogleOAuthFlowManager, GOOGLE_GMAIL_MODIFY_SCOPE } from "../oauth/googleOAuthFlow.js";
+import { MicrosoftOAuthFlowManager } from "../oauth/microsoftOAuthFlow.js";
+import {
+  MICROSOFT_MAIL_READWRITE_SCOPE,
+  MICROSOFT_OFFLINE_SCOPE,
+  MICROSOFT_USER_READ_SCOPE,
+} from "../oauth/microsoftOAuth.js";
 import {
   normalizeSenderAddress,
   normalizeSenderDomain,
@@ -32,12 +38,17 @@ export function createLocalDesktopServer(options: {
   community?: CommunityNetwork;
   security?: LocalSecurityManager;
   googleOAuth?: GoogleOAuthFlowManager;
+  microsoftOAuth?: MicrosoftOAuthFlowManager;
 } = {}) {
   const app = express();
   const security = options.security ?? localSecurity;
   const community = options.community ?? communityNetwork;
   const googleOAuth = options.googleOAuth ?? new GoogleOAuthFlowManager({
     clientId: process.env.EMAIL_SHIELD_GOOGLE_CLIENT_ID?.trim() ?? "",
+    sessionStore,
+  });
+  const microsoftOAuth = options.microsoftOAuth ?? new MicrosoftOAuthFlowManager({
+    clientId: process.env.EMAIL_SHIELD_MICROSOFT_CLIENT_ID?.trim() ?? "",
     sessionStore,
   });
   const inner = createServer({ community });
@@ -63,7 +74,7 @@ export function createLocalDesktopServer(options: {
       .replace(/<script>(\s*const API\s*=)/, `<script nonce="${nonce}">$1`)
       .replace(
         "</body>",
-        '<script src="/scan-monitor.js"></script><script src="/unsubscribe-monitor.js"></script><script src="/gmail-oauth.js"></script><script src="/account-disconnect.js"></script></body>',
+        '<script src="/scan-monitor.js"></script><script src="/unsubscribe-monitor.js"></script><script src="/gmail-oauth.js"></script><script src="/outlook-oauth.js"></script><script src="/account-disconnect.js"></script></body>',
       );
 
     res.setHeader("Referrer-Policy", "same-origin");
@@ -129,15 +140,41 @@ export function createLocalDesktopServer(options: {
       res.setHeader("Cache-Control", "no-store");
       res.json(result);
     } catch (error) {
-      res.status(503).json({
-        error: error instanceof Error ? error.message : String(error),
-      });
+      res.status(503).json({ error: error instanceof Error ? error.message : String(error) });
     }
   });
 
   app.get("/api/accounts/oauth/google/status/:flowId", (req: Request, res: Response) => {
     res.setHeader("Cache-Control", "no-store");
     const status = googleOAuth.status(req.params.flowId!);
+    res.status(status.status === "error" && status.error.startsWith("Unknown") ? 404 : 200).json(status);
+  });
+
+  app.get("/api/accounts/oauth/microsoft/config", (_req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json({
+      configured: microsoftOAuth.configured(),
+      flow: "desktop-loopback-pkce-s256-public-client",
+      clientType: "public",
+      permissions: [MICROSOFT_OFFLINE_SCOPE, MICROSOFT_USER_READ_SCOPE, MICROSOFT_MAIL_READWRITE_SCOPE],
+      disconnect: "local-protected-token-removal",
+    });
+  });
+
+  app.post("/api/accounts/oauth/microsoft/start", async (req: Request, res: Response) => {
+    if (!security.enforceRouteLimit(req, res, "microsoft-oauth-start", 6)) return;
+    try {
+      const result = await microsoftOAuth.start();
+      res.setHeader("Cache-Control", "no-store");
+      res.json(result);
+    } catch (error) {
+      res.status(503).json({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.get("/api/accounts/oauth/microsoft/status/:flowId", (req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "no-store");
+    const status = microsoftOAuth.status(req.params.flowId!);
     res.status(status.status === "error" && status.error.startsWith("Unknown") ? 404 : 200).json(status);
   });
 

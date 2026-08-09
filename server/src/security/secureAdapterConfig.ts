@@ -43,9 +43,10 @@ export type SecureAdapterConfig =
       mode: "live";
       credentials: {
         clientId: string;
-        clientSecret: SecretHandle;
-        tenantId: string;
         refreshToken: SecretHandle;
+        accountId?: string;
+        clientSecret?: SecretHandle;
+        tenantId?: string;
       };
     }
   | {
@@ -86,11 +87,12 @@ type GenericImapAppPasswordConfig = {
 };
 
 type AppPasswordRuntimeConfig = HostedAppPasswordConfig | GenericImapAppPasswordConfig;
-
 type GmailRuntimeConfig = Extract<AdapterConfig, { provider: "gmail"; mode: "live" }>;
+type OutlookRuntimeConfig = Extract<AdapterConfig, { provider: "outlook"; mode: "live" }>;
 
 const APP_PASSWORD_REFERENCE_NAMESPACE = "email-shield-app-password-account-v1\0";
 const GMAIL_REFRESH_REFERENCE_NAMESPACE = "email-shield-gmail-refresh-account-v1\0";
+const OUTLOOK_REFRESH_REFERENCE_NAMESPACE = "email-shield-outlook-refresh-account-v1\0";
 
 function memorySecret(value: string): MemorySecretHandle {
   return { storage: "memory", value };
@@ -116,17 +118,10 @@ export function appPasswordCredentialReference(config: AppPasswordRuntimeConfig)
     .update(APP_PASSWORD_REFERENCE_NAMESPACE, "utf8")
     .update(appPasswordAccountIdentity(config), "utf8")
     .digest("hex");
-  return {
-    id: `app-password-${id}`,
-    kind: "imap-app-password",
-  };
+  return { id: `app-password-${id}`, kind: "imap-app-password" };
 }
 
-/**
- * Guided Gmail OAuth uses Google's stable OpenID Connect `sub` as account
- * identity. Refresh-token rotation therefore changes the secret value without
- * changing the native-vault reference or the user's personal-policy identity.
- */
+/** Guided Gmail OAuth uses Google's verified OIDC `sub` as stable identity. */
 export function gmailRefreshTokenCredentialReference(
   clientId: string,
   accountSubject: string,
@@ -142,10 +137,26 @@ export function gmailRefreshTokenCredentialReference(
     .update("\0", "utf8")
     .update(normalizedSubject, "utf8")
     .digest("hex");
-  return {
-    id: `gmail-refresh-${id}`,
-    kind: "oauth-refresh-token",
-  };
+  return { id: `gmail-refresh-${id}`, kind: "oauth-refresh-token" };
+}
+
+/** Guided Outlook OAuth uses Microsoft Graph `/me.id`, never the rotating token. */
+export function outlookRefreshTokenCredentialReference(
+  clientId: string,
+  accountId: string,
+): CredentialReference {
+  const normalizedClientId = clientId.trim();
+  const normalizedAccountId = accountId.trim();
+  if (!normalizedClientId || !normalizedAccountId) {
+    throw new Error("A stable Microsoft OAuth client and Graph account ID are required.");
+  }
+  const id = createHash("sha256")
+    .update(OUTLOOK_REFRESH_REFERENCE_NAMESPACE, "utf8")
+    .update(normalizedClientId, "utf8")
+    .update("\0", "utf8")
+    .update(normalizedAccountId, "utf8")
+    .digest("hex");
+  return { id: `outlook-refresh-${id}`, kind: "oauth-refresh-token" };
 }
 
 /**
@@ -171,9 +182,7 @@ export function secureAdapterConfigInMemory(config: AdapterConfig): SecuredAdapt
           mode: "live",
           credentials: {
             clientId: config.credentials.clientId,
-            clientSecret: config.credentials.clientSecret
-              ? memorySecret(config.credentials.clientSecret)
-              : undefined,
+            clientSecret: config.credentials.clientSecret ? memorySecret(config.credentials.clientSecret) : undefined,
             refreshToken: memorySecret(config.credentials.refreshToken),
             accountSubject: config.credentials.accountSubject,
           },
@@ -187,9 +196,10 @@ export function secureAdapterConfigInMemory(config: AdapterConfig): SecuredAdapt
           mode: "live",
           credentials: {
             clientId: config.credentials.clientId,
-            clientSecret: memorySecret(config.credentials.clientSecret),
-            tenantId: config.credentials.tenantId,
             refreshToken: memorySecret(config.credentials.refreshToken),
+            accountId: config.credentials.accountId,
+            clientSecret: config.credentials.clientSecret ? memorySecret(config.credentials.clientSecret) : undefined,
+            tenantId: config.credentials.tenantId,
           },
         },
         vaultReferences: [],
@@ -232,10 +242,7 @@ async function secureGuidedGmail(
   const accountSubject = config.credentials.accountSubject?.trim();
   if (!accountSubject) return secureAdapterConfigInMemory(config);
 
-  const reference = gmailRefreshTokenCredentialReference(
-    config.credentials.clientId,
-    accountSubject,
-  );
+  const reference = gmailRefreshTokenCredentialReference(config.credentials.clientId, accountSubject);
   await vault.write(reference, config.credentials.refreshToken);
   return {
     config: {
@@ -243,9 +250,7 @@ async function secureGuidedGmail(
       mode: "live",
       credentials: {
         clientId: config.credentials.clientId,
-        clientSecret: config.credentials.clientSecret
-          ? memorySecret(config.credentials.clientSecret)
-          : undefined,
+        clientSecret: config.credentials.clientSecret ? memorySecret(config.credentials.clientSecret) : undefined,
         refreshToken: { storage: "vault", reference },
         accountSubject,
       },
@@ -254,12 +259,36 @@ async function secureGuidedGmail(
   };
 }
 
+async function secureGuidedOutlook(
+  config: OutlookRuntimeConfig,
+  vault: CredentialVault,
+): Promise<SecuredAdapterConfigResult> {
+  const accountId = config.credentials.accountId?.trim();
+  if (!accountId) return secureAdapterConfigInMemory(config);
+
+  const reference = outlookRefreshTokenCredentialReference(config.credentials.clientId, accountId);
+  await vault.write(reference, config.credentials.refreshToken);
+  return {
+    config: {
+      provider: "outlook",
+      mode: "live",
+      credentials: {
+        clientId: config.credentials.clientId,
+        refreshToken: { storage: "vault", reference },
+        accountId,
+        clientSecret: config.credentials.clientSecret ? memorySecret(config.credentials.clientSecret) : undefined,
+        tenantId: config.credentials.tenantId,
+      },
+    },
+    vaultReferences: [reference],
+  };
+}
+
 /**
  * Protect provider credentials with the native vault when one is available.
- * There is deliberately no plaintext persistence fallback. Guided Gmail OAuth
- * is eligible only after a verified stable `sub` is present; legacy Gmail
- * developer credentials remain memory-only rather than deriving identity from
- * a refresh token.
+ * There is deliberately no plaintext persistence fallback. Guided OAuth paths
+ * are vault-eligible only after their provider returns a verified stable account
+ * identifier; legacy developer credentials stay process-memory-only.
  */
 export async function secureAdapterConfig(
   config: AdapterConfig,
@@ -272,19 +301,17 @@ export async function secureAdapterConfig(
   switch (config.provider) {
     case "gmail":
       return secureGuidedGmail(config, vault);
+    case "outlook":
+      return secureGuidedOutlook(config, vault);
     case "icloud":
     case "yahoo": {
       const reference = appPasswordCredentialReference(config);
       await vault.write(reference, config.credentials.appPassword);
-      const appPassword: VaultSecretHandle = { storage: "vault", reference };
       return {
         config: {
           provider: config.provider,
           mode: "live",
-          credentials: {
-            user: config.credentials.user,
-            appPassword,
-          },
+          credentials: { user: config.credentials.user, appPassword: { storage: "vault", reference } },
         },
         vaultReferences: [reference],
       };
@@ -292,7 +319,6 @@ export async function secureAdapterConfig(
     case "imap": {
       const reference = appPasswordCredentialReference(config);
       await vault.write(reference, config.credentials.appPassword);
-      const appPassword: VaultSecretHandle = { storage: "vault", reference };
       return {
         config: {
           provider: "imap",
@@ -302,14 +328,12 @@ export async function secureAdapterConfig(
             port: config.credentials.port,
             secure: config.credentials.secure,
             user: config.credentials.user,
-            appPassword,
+            appPassword: { storage: "vault", reference },
           },
         },
         vaultReferences: [reference],
       };
     }
-    case "outlook":
-      return secureAdapterConfigInMemory(config);
   }
 }
 
@@ -318,19 +342,27 @@ async function materializeSecret(handle: SecretHandle, vault: CredentialVault): 
     if (!handle.value) throw new Error("The in-memory provider credential is no longer available. Reconnect the account.");
     return handle.value;
   }
-
   const secret = await vault.read(handle.reference);
-  if (!secret) {
-    throw new Error("The protected provider credential is unavailable. Reconnect the account.");
-  }
+  if (!secret) throw new Error("The protected provider credential is unavailable. Reconnect the account.");
   return secret;
 }
 
-/**
- * Raw provider secrets exist only in this short-lived runtime configuration,
- * immediately before an adapter/worker operation. The secure account session
- * itself stores handles instead of raw persistent secrets.
- */
+/** Persist a Microsoft replacement refresh token into the existing account handle. */
+export async function replaceSecureOutlookRefreshToken(
+  config: Extract<SecureAdapterConfig, { provider: "outlook"; mode: "live" }>,
+  vault: CredentialVault,
+  refreshToken: string,
+): Promise<void> {
+  if (!refreshToken) throw new Error("A replacement Microsoft refresh token is required.");
+  const handle = config.credentials.refreshToken;
+  if (handle.storage === "memory") {
+    handle.value = refreshToken;
+    return;
+  }
+  await vault.write(handle.reference, refreshToken);
+}
+
+/** Raw provider secrets exist only immediately before adapter/provider use. */
 export async function materializeAdapterConfig(
   config: SecureAdapterConfig,
   vault: CredentialVault,
@@ -347,9 +379,7 @@ export async function materializeAdapterConfig(
     case "gmail": {
       const credentials: GmailOAuthCredentials = {
         clientId: config.credentials.clientId,
-        clientSecret: config.credentials.clientSecret
-          ? await materializeSecret(config.credentials.clientSecret, vault)
-          : undefined,
+        clientSecret: config.credentials.clientSecret ? await materializeSecret(config.credentials.clientSecret, vault) : undefined,
         refreshToken: await materializeSecret(config.credentials.refreshToken, vault),
         accountSubject: config.credentials.accountSubject,
       };
@@ -358,9 +388,10 @@ export async function materializeAdapterConfig(
     case "outlook": {
       const credentials: OutlookOAuthCredentials = {
         clientId: config.credentials.clientId,
-        clientSecret: await materializeSecret(config.credentials.clientSecret, vault),
-        tenantId: config.credentials.tenantId,
         refreshToken: await materializeSecret(config.credentials.refreshToken, vault),
+        accountId: config.credentials.accountId,
+        clientSecret: config.credentials.clientSecret ? await materializeSecret(config.credentials.clientSecret, vault) : undefined,
+        tenantId: config.credentials.tenantId,
       };
       return { provider: "outlook", mode: "live", credentials };
     }

@@ -8,12 +8,13 @@ import type {
 import { buildDemoMailbox } from "../adapters/fixtures/demoMailbox.js";
 import type { FixtureFolderOverrides } from "../adapters/fixtures/fixtureAdapter.js";
 import { GmailAdapter, type GmailOAuthCredentials } from "../adapters/gmail/gmailAdapter.js";
-import { OutlookAdapter, type OutlookOAuthCredentials } from "../adapters/outlook/outlookAdapter.js";
+import { OutlookAdapter, type OutlookOAuthCredentials, type OutlookRefreshTokenSink } from "../adapters/outlook/outlookAdapter.js";
 import { createGenericImapAdapter, createIcloudAdapter, createYahooAdapter, type ImapCredentials } from "../adapters/imap/imapAdapter.js";
 import type { CredentialVault } from "../security/credentialVault.js";
 import { createCredentialVault } from "../security/credentialVaultFactory.js";
 import {
   materializeAdapterConfig,
+  replaceSecureOutlookRefreshToken,
   type SecureAdapterConfig,
 } from "../security/secureAdapterConfig.js";
 
@@ -37,7 +38,7 @@ function isSecureLiveConfig(config: AdapterConfig | SecureAdapterConfig): config
   }
 }
 
-function createRuntimeAdapter(config: AdapterConfig): EmailAdapter {
+function createRuntimeAdapter(config: AdapterConfig, outlookRefreshTokenSink?: OutlookRefreshTokenSink): EmailAdapter {
   if (config.mode === "fixture") {
     const folderOverrides = config.fixtureFolderOverrides ?? {};
     config.fixtureFolderOverrides = folderOverrides;
@@ -45,7 +46,7 @@ function createRuntimeAdapter(config: AdapterConfig): EmailAdapter {
   }
   switch (config.provider) {
     case "gmail": return new GmailAdapter(config.credentials);
-    case "outlook": return new OutlookAdapter(config.credentials);
+    case "outlook": return new OutlookAdapter(config.credentials, outlookRefreshTokenSink);
     case "icloud": return createIcloudAdapter(config.credentials.user, config.credentials.appPassword);
     case "yahoo": return createYahooAdapter(config.credentials.user, config.credentials.appPassword);
     case "imap": return createGenericImapAdapter(config.credentials);
@@ -55,8 +56,9 @@ function createRuntimeAdapter(config: AdapterConfig): EmailAdapter {
 /**
  * Deferred adapter used only for secure session configuration. Credential
  * handles are resolved immediately before provider connect, then the raw
- * runtime adapter is discarded on disconnect. This keeps secrets out of the
- * long-lived account session and out of vault-backed Worker payloads.
+ * runtime adapter is discarded on disconnect. Outlook additionally writes a
+ * replacement Microsoft refresh token back to the same secure handle before
+ * the adapter treats that replacement as current.
  */
 class SecureConfigAdapter implements EmailAdapter {
   readonly provider: Provider;
@@ -72,7 +74,13 @@ class SecureConfigAdapter implements EmailAdapter {
   async connect(signal: AbortSignal): Promise<void> {
     if (this.delegate) throw new Error("Provider adapter is already connected.");
     const runtimeConfig = await materializeAdapterConfig(this.secureConfig, this.credentialVault);
-    const delegate = createRuntimeAdapter(runtimeConfig);
+    const secureOutlookConfig = this.secureConfig.provider === "outlook" ? this.secureConfig : null;
+    const outlookRotationSink: OutlookRefreshTokenSink | undefined = secureOutlookConfig
+      ? async (refreshToken) => {
+          await replaceSecureOutlookRefreshToken(secureOutlookConfig, this.credentialVault, refreshToken);
+        }
+      : undefined;
+    const delegate = createRuntimeAdapter(runtimeConfig, outlookRotationSink);
     try {
       await delegate.connect(signal);
       this.delegate = delegate;
@@ -119,11 +127,7 @@ export function createAdapter(
   config: AdapterConfig | SecureAdapterConfig,
   credentialVault: CredentialVault = createCredentialVault(),
 ): EmailAdapter {
-  if (config.mode === "fixture") {
-    return createRuntimeAdapter(config);
-  }
-  if (isSecureLiveConfig(config)) {
-    return new SecureConfigAdapter(config, credentialVault);
-  }
+  if (config.mode === "fixture") return createRuntimeAdapter(config);
+  if (isSecureLiveConfig(config)) return new SecureConfigAdapter(config, credentialVault);
   return createRuntimeAdapter(config);
 }

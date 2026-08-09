@@ -122,9 +122,7 @@ export class EncryptedFilePolicyRepository implements PersonalPolicyRepository {
   }
 
   save(accountKey: string, snapshot: PersonalPolicySnapshot): void {
-    if (!/^[a-f0-9]{64}$/.test(accountKey)) {
-      throw new Error("Personal policy account key is invalid.");
-    }
+    if (!/^[a-f0-9]{64}$/.test(accountKey)) throw new Error("Personal policy account key is invalid.");
     const database = this.readDatabase();
     database.policies[accountKey] = sanitizePolicySnapshot(snapshot);
     this.writeDatabase(database);
@@ -150,18 +148,14 @@ export class EncryptedFilePolicyRepository implements PersonalPolicyRepository {
     }
 
     const key = readFileSync(this.keyPath);
-    if (key.length !== 32) {
-      throw new Error("Local personal policy encryption key is invalid.");
-    }
+    if (key.length !== 32) throw new Error("Local personal policy encryption key is invalid.");
     try { chmodSync(this.keyPath, 0o600); } catch {}
     this.keyCache = key;
     return key;
   }
 
   private readDatabase(): PolicyDatabase {
-    if (!existsSync(this.databasePath)) {
-      return { version: DATABASE_VERSION, policies: {} };
-    }
+    if (!existsSync(this.databasePath)) return { version: DATABASE_VERSION, policies: {} };
 
     try {
       const envelope = JSON.parse(readFileSync(this.databasePath, "utf8")) as Partial<EncryptedPolicyEnvelope>;
@@ -171,9 +165,7 @@ export class EncryptedFilePolicyRepository implements PersonalPolicyRepository {
         typeof envelope.iv !== "string" ||
         typeof envelope.authTag !== "string" ||
         typeof envelope.ciphertext !== "string"
-      ) {
-        throw new Error("Unsupported encrypted policy file format.");
-      }
+      ) throw new Error("Unsupported encrypted policy file format.");
 
       const decipher = createDecipheriv(ALGORITHM, this.readKey(), Buffer.from(envelope.iv, "base64"));
       decipher.setAAD(AAD);
@@ -190,15 +182,11 @@ export class EncryptedFilePolicyRepository implements PersonalPolicyRepository {
 
       const policies: Record<string, PersonalPolicySnapshot> = {};
       for (const [accountKey, snapshot] of Object.entries(parsed.policies)) {
-        if (/^[a-f0-9]{64}$/.test(accountKey)) {
-          policies[accountKey] = sanitizePolicySnapshot(snapshot);
-        }
+        if (/^[a-f0-9]{64}$/.test(accountKey)) policies[accountKey] = sanitizePolicySnapshot(snapshot);
       }
       return { version: DATABASE_VERSION, policies };
     } catch (error) {
-      throw new Error(
-        `Encrypted local personal policies could not be read: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      throw new Error(`Encrypted local personal policies could not be read: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -245,15 +233,17 @@ export function policyAccountKey(config: AdapterConfig): string {
         identity = `imap:${config.credentials.host.trim().toLowerCase()}:${config.credentials.port}:${config.credentials.user.trim().toLowerCase()}`;
         break;
       case "gmail":
-        // Guided OAuth uses Google's immutable account `sub`, not a refresh
-        // token. Legacy developer credentials retain their historical identity
-        // path so existing test/dev sessions do not silently move policy state.
         identity = config.credentials.accountSubject?.trim()
           ? `gmail-sub:${config.credentials.clientId.trim()}:${config.credentials.accountSubject.trim()}`
           : `gmail:${config.credentials.clientId}:${config.credentials.refreshToken}`;
         break;
       case "outlook":
-        identity = `outlook:${config.credentials.tenantId}:${config.credentials.clientId}:${config.credentials.refreshToken}`;
+        // Guided Microsoft OAuth uses Graph `/me.id`; refresh tokens rotate and
+        // therefore must never define policy identity. Legacy developer sessions
+        // retain their historical path so pre-guided test/dev state does not move.
+        identity = config.credentials.accountId?.trim()
+          ? `outlook-id:${config.credentials.clientId.trim()}:${config.credentials.accountId.trim()}`
+          : `outlook:${config.credentials.tenantId ?? "common"}:${config.credentials.clientId}:${config.credentials.refreshToken}`;
         break;
     }
   }
