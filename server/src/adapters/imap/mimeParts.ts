@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { simpleParser } from "mailparser";
 import type { AttachmentInfo } from "../../canonical/envelope.js";
+import { isSupportedQrImageMimeType } from "../../util/qrDecode.js";
 
 export interface ImapBodyNode {
   part?: string;
@@ -21,6 +22,14 @@ export interface ReadableTextPart {
   transferEncoding: string | null;
 }
 
+export interface QrImagePart {
+  part: string;
+  name: string;
+  mimeType: "image/png" | "image/jpeg";
+  sizeBytes: number | null;
+  transferEncoding: string | null;
+}
+
 export interface ReadablePartSelection {
   /** Legacy convenience fields retained for existing callers/tests. */
   plainPart: string | null;
@@ -28,6 +37,8 @@ export interface ReadablePartSelection {
   plain: ReadableTextPart | null;
   html: ReadableTextPart | null;
   attachments: AttachmentInfo[];
+  /** Supported image parts only; their bytes are fetched separately under QR limits. */
+  qrImages: QrImagePart[];
 }
 
 export interface DecodedTextPart {
@@ -78,9 +89,6 @@ function readablePart(node: ImapBodyNode, isRoot: boolean): ReadableTextPart | n
   const contentType = (node.type ?? "").toLowerCase();
   if (contentType !== "text/plain" && contentType !== "text/html") return null;
 
-  // ImapFlow addresses a single-node message body as TEXT. Using the former
-  // fallback of "1" caused an extra BODYSTRUCTURE command for every such
-  // message before the body could be downloaded.
   const part = parameterText(node.part) ?? (isRoot && !node.childNodes?.length ? "TEXT" : null);
   if (!part) return null;
 
@@ -93,12 +101,30 @@ function readablePart(node: ImapBodyNode, isRoot: boolean): ReadableTextPart | n
   };
 }
 
+function qrImagePart(node: ImapBodyNode, isRoot: boolean): QrImagePart | null {
+  const mimeType = (node.type ?? "").toLowerCase();
+  if (!isSupportedQrImageMimeType(mimeType)) return null;
+  const part = parameterText(node.part) ?? (isRoot && !node.childNodes?.length ? "TEXT" : null);
+  if (!part) return null;
+  return {
+    part,
+    name:
+      parameterText(node.dispositionParameters?.filename) ??
+      parameterText(node.parameters?.name) ??
+      `image-${part.replace(/[^a-z0-9_.-]/gi, "-")}`,
+    mimeType,
+    sizeBytes: finiteSize(node.size),
+    transferEncoding: parameterText(node.encoding)?.toLowerCase() ?? null,
+  };
+}
+
 export function inspectBodyStructure(root: ImapBodyNode | null | undefined): ReadablePartSelection {
   const selected: { plain: ReadableTextPart | null; html: ReadableTextPart | null } = {
     plain: null,
     html: null,
   };
   const attachments: AttachmentInfo[] = [];
+  const qrImages: QrImagePart[] = [];
 
   const visit = (node: ImapBodyNode, insideAttachment: boolean, isRoot: boolean) => {
     const disposition = (node.disposition ?? "").toLowerCase();
@@ -110,6 +136,8 @@ export function inspectBodyStructure(root: ImapBodyNode | null | undefined): Rea
 
     const attachment = attachmentInfo(node);
     if (attachment) attachments.push(attachment);
+    const qrCandidate = qrImagePart(node, isRoot);
+    if (qrCandidate) qrImages.push(qrCandidate);
 
     for (const child of node.childNodes ?? []) visit(child, branchIsAttachment, false);
   };
@@ -121,6 +149,7 @@ export function inspectBodyStructure(root: ImapBodyNode | null | undefined): Rea
     plain: selected.plain,
     html: selected.html,
     attachments,
+    qrImages,
   };
 }
 
@@ -259,6 +288,23 @@ export async function decodeFetchedTextPart(
     decodedLength,
     truncated: decodedLength > maxDecodedChars,
   };
+}
+
+/** Decode one bounded PNG/JPEG IMAP body part without retaining it afterward. */
+export async function decodeFetchedQrImagePart(rawPart: Buffer, part: QrImagePart): Promise<Buffer> {
+  const transferEncoding = safeHeaderToken(part.transferEncoding);
+  const safeName = part.name.replace(/[\r\n";]/g, "").slice(0, 160) || "qr-image";
+  const headers = [
+    `Content-Type: ${part.mimeType}; name="${safeName}"`,
+    `Content-Disposition: attachment; filename="${safeName}"`,
+    ...(transferEncoding ? [`Content-Transfer-Encoding: ${transferEncoding}`] : []),
+    "MIME-Version: 1.0",
+    "",
+  ].join("\r\n") + "\r\n";
+  const parsed = await simpleParser(Buffer.concat([Buffer.from(headers, "utf8"), rawPart]));
+  const attachment = parsed.attachments?.[0];
+  if (!attachment?.content?.length) throw new Error("The image body part did not decode to attachment bytes.");
+  return Buffer.from(attachment.content);
 }
 
 /**
