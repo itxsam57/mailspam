@@ -19,7 +19,7 @@ const html = read("web/index.html");
 const server = read("server/src/api/server.ts");
 const desktopServer = read("server/src/api/localDesktopServer.ts");
 const localSecurityServer = read("server/src/api/localSecurity.ts");
-const googleOAuthServer = read("server/src/oauth/googleOAuthFlow.ts");
+const gmailOAuthServer = read("server/src/oauth/googleOAuthFlow.ts");
 const browserFiles = readdirSync(webDir).filter((name) => name.endsWith(".js")).sort();
 requireCondition(browserFiles.length > 0, "No browser JavaScript files were found.");
 
