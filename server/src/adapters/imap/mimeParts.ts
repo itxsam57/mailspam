@@ -351,8 +351,16 @@ export async function decodeFetchedQrImagePart(rawPart: Buffer, part: QrImagePar
   return decodeFetchedBinaryPart(rawPart, part);
 }
 
-/** Decode one bounded generic IMAP attachment part for local exact hashing. */
+/**
+ * Decode one bounded generic IMAP attachment part for local exact hashing.
+ * BODYSTRUCTURE provides the expected transfer-encoded body octet count. A
+ * shorter provider response is incomplete and must never be converted into a
+ * valid exact hash of only the returned prefix.
+ */
 export async function decodeFetchedAttachmentPart(rawPart: Buffer, part: HashableAttachmentPart): Promise<Buffer> {
+  if (part.sizeBytes !== null && rawPart.length < part.sizeBytes) {
+    throw new Error("The provider returned fewer attachment-part bytes than declared by BODYSTRUCTURE.");
+  }
   return decodeFetchedBinaryPart(rawPart, part);
 }
 
