@@ -29,7 +29,7 @@ function isSecureLiveConfig(config: AdapterConfig | SecureAdapterConfig): config
   switch (config.provider) {
     case "gmail":
     case "outlook":
-      return typeof config.credentials.clientSecret === "object";
+      return typeof config.credentials.refreshToken === "object";
     case "icloud":
     case "yahoo":
     case "imap":
@@ -56,7 +56,7 @@ function createRuntimeAdapter(config: AdapterConfig): EmailAdapter {
  * Deferred adapter used only for secure session configuration. Credential
  * handles are resolved immediately before provider connect, then the raw
  * runtime adapter is discarded on disconnect. This keeps secrets out of the
- * long-lived account session and out of Worker structured-clone payloads.
+ * long-lived account session and out of vault-backed Worker payloads.
  */
 class SecureConfigAdapter implements EmailAdapter {
   readonly provider: Provider;
