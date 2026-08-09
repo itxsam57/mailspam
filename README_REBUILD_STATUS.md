@@ -14,12 +14,14 @@ Formal closure record:
 
 ## Accepted Milestone 1 foundation
 
+The following list records the Milestone 1 baseline as accepted at closure. Later Milestone 2 work may deliberately strengthen these boundaries; the current behavior is governed by the regression register and test matrix.
+
 - Dedicated killable Worker thread per scan
 - Cooperative cancellation plus forced termination
 - Operation-scoped provider adapters with one canonical provider contract
 - Gmail, iCloud, Outlook, Yahoo and generic IMAP fixture coverage
 - Actual IMAP UID search and UIDVALIDITY-aware cursors
-- Bounded readable IMAP MIME extraction without attachment-body fetching
+- Bounded readable IMAP MIME extraction
 - Partial-content verdict protection
 - Stable provider action identifiers and exact provider confirmation
 - Deterministic Safe / Review / High Risk / Confirmed Threat / Unknown verdict pipeline
@@ -36,23 +38,35 @@ Formal closure record:
 - Windows and Ubuntu engineering gates
 - Permanent regression register and browser handoff workflow
 
-## Later milestone work — not claimed complete
+## Milestone 2 — IN PROGRESS
 
-Milestone 1 closure does **not** claim completion of:
+Milestone 2 is not formally closed. The following engineering bricks are implemented and regression-locked on the current rebuild line:
 
-- persisted scan-history presentation after browser refresh;
-- resumable scan cursors across restart/rate limits;
-- guided Gmail OAuth onboarding;
-- guided Outlook OAuth onboarding;
-- OS-keychain / credential-vault-backed key and provider-token custody;
-- complete searchable policy-management centre;
-- production community-service deployment operations and gateway abuse defence;
-- production QR decoder;
-- controlled real-destination Analyze Links validation;
-- deeper mailbox-derived relationship history;
-- structural detection work for known deferred false-negative coverage gaps.
+- guided Gmail desktop OAuth with PKCE, stable identity, protected refresh-token custody and owner-accepted live Gmail reconnect/scan flow;
+- guided Outlook public-client PKCE architecture, stable Graph identity and protected refresh-token rotation, with real-Outlook owner acceptance still open;
+- one cross-platform native credential-vault abstraction covering Windows Credential Manager, macOS Keychain and Linux Secret Service;
+- personal-policy encryption-key migration into protected native custody;
+- complete selected-account Personal Policy Management Centre with strict policy-only import/export;
+- encrypted resumable scan history, provider cursor checkpoints, restart recovery and detached-dashboard continuation;
+- encrypted account-local relationship history with HMAC-only identities and replay-safe persistence;
+- bounded local PNG/JPEG QR decoding with provider-neutral link evidence and no cloud decoder;
+- hardened explicit Analyze Links transport with per-hop DNS validation/socket pinning, SSRF/rebinding protection and strict resource limits;
+- mailbox-derived RFC thread-continuity and mid-thread Reply-To anomaly detection using account-local HMAC history;
+- bounded attachment-hash threat intelligence: provider-neutral 4-attachment / 2 MiB exact-hash limits, local raw-MIME hashing, selected-part IMAP acquisition, complete-part validation, inline-attachment parity, QR-byte reuse, privacy-reduced diagnostics and fail-closed signed-hash coverage.
 
-Those remain explicit Milestone 2+ work and must not be represented as already complete.
+The exact current security and behavior claims are defined by `.engineering/REGRESSION_REGISTER.md`, `.engineering/TEST_MATRIX.md` and the feature-specific security contracts under `.engineering/`.
+
+## Remaining known gaps — not accepted as complete
+
+The current register intentionally keeps these deployment/live-acceptance items open:
+
+- **GAP-001** — production Google OAuth publication/consent verification;
+- **GAP-002** — controlled real Microsoft/Outlook owner acceptance;
+- **GAP-004** — public community-service deployment, DNS/TLS, monitoring, backups and operational key rotation;
+- **GAP-005** — controlled real-destination Analyze Links validation against deliberately managed public infrastructure;
+- **GAP-008** — production gateway reporter reputation and volumetric/DDoS abuse defence.
+
+Manual visible acceptance items in the regression register also remain manual until the owner performs them. A green engineering gate does not convert those live/deployment claims into completed work.
 
 ## Run
 
@@ -62,4 +76,4 @@ npm run gate
 npm run dev
 ```
 
-The accepted Milestone 1 baseline should remain green. Any regression in its locked invariants is a defect, not new scope.
+Milestone 1 locked invariants and every later `REG-*` entry must remain green. A regression is a defect, not new scope. Milestone 2 must not be declared closed until its remaining registered gaps and required owner acceptance are actually completed.
