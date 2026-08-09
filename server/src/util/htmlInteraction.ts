@@ -1,11 +1,13 @@
 import type { LinkInfo } from "../canonical/envelope.js";
 
 /**
- * HTML email is attacker-controlled input. Keep structural inspection bounded
- * and deterministic; if a limit is reached the caller must block an automatic
- * Safe verdict rather than silently treating the uninspected tail as clean.
+ * Message content is attacker-controlled input. Keep structural interaction
+ * inspection bounded and deterministic; if a limit is reached the caller must
+ * block an automatic Safe verdict rather than silently treating uninspected
+ * content as clean.
  */
 export const MAX_HTML_INTERACTION_CHARS = 512 * 1024;
+export const MAX_PLAIN_TEXT_INTERACTION_CHARS = 512 * 1024;
 export const MAX_HTML_INTERACTION_TAGS = 4096;
 export const MAX_HTML_INTERACTION_LINKS = 256;
 const MAX_VISIBLE_LINK_TEXT_CHARS = 512;
@@ -249,8 +251,8 @@ function makeBodyLink(
   };
 }
 
-function limitReason(): string {
-  return `HTML interaction inspection was limited to ${MAX_HTML_INTERACTION_LINKS} destinations.`;
+function destinationLimitReason(): string {
+  return `Message interaction inspection was limited to ${MAX_HTML_INTERACTION_LINKS} destinations.`;
 }
 
 function appendLink(
@@ -263,7 +265,7 @@ function appendLink(
   const key = `${link.interaction ?? "navigation"}\0${link.normalizedUrl || link.rawUrl}\0${link.visibleText ?? ""}`;
   if (seen.has(key)) return;
   if (links.length >= MAX_HTML_INTERACTION_LINKS) {
-    if (!incompleteReasons.includes(limitReason())) incompleteReasons.push(limitReason());
+    if (!incompleteReasons.includes(destinationLimitReason())) incompleteReasons.push(destinationLimitReason());
     return;
   }
   seen.add(key);
@@ -277,9 +279,16 @@ function appendPlainTextLinks(
   incompleteReasons: string[],
 ): void {
   if (!text) return;
+  const boundedText = text.length > MAX_PLAIN_TEXT_INTERACTION_CHARS
+    ? text.slice(0, MAX_PLAIN_TEXT_INTERACTION_CHARS)
+    : text;
+  if (text.length > MAX_PLAIN_TEXT_INTERACTION_CHARS) {
+    incompleteReasons.push(`Plain-text interaction inspection was bounded to ${MAX_PLAIN_TEXT_INTERACTION_CHARS} characters.`);
+  }
+
   const bareRe = /(?:https?:\/\/|www\.)[^\s<>"']+/gi;
   let match: RegExpExecArray | null;
-  while ((match = bareRe.exec(text))) {
+  while ((match = bareRe.exec(boundedText))) {
     const rawUrl = match[0]!.replace(/[),.;!?]+$/, "");
     const normalizedUrl = normalizedDestination(rawUrl, null);
     appendLink(
@@ -288,7 +297,6 @@ function appendPlainTextLinks(
       makeBodyLink(rawUrl, normalizedUrl, match[0]!, "navigation"),
       incompleteReasons,
     );
-    if (links.length >= MAX_HTML_INTERACTION_LINKS) break;
   }
 }
 
@@ -339,8 +347,8 @@ export function analyzeHtmlInteractions(
         if (!seenHrefs.has(href) && htmlHrefs.length < MAX_HTML_INTERACTION_LINKS) {
           seenHrefs.add(href);
           htmlHrefs.push(href);
-        } else if (!seenHrefs.has(href) && !incompleteReasons.includes(limitReason())) {
-          incompleteReasons.push(limitReason());
+        } else if (!seenHrefs.has(href) && !incompleteReasons.includes(destinationLimitReason())) {
+          incompleteReasons.push(destinationLimitReason());
         }
         appendLink(
           links,
