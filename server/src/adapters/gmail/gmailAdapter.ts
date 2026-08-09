@@ -11,8 +11,14 @@ import { normalizeRawMessage } from "../../util/mimeNormalize.js";
 
 export interface GmailOAuthCredentials {
   clientId: string;
-  clientSecret: string;
+  /**
+   * Desktop OAuth clients are public clients and cannot keep a client secret.
+   * The field remains optional only for the legacy developer credential flow.
+   */
+  clientSecret?: string;
   refreshToken: string;
+  /** Stable Google Account subject (`sub`) for guided OAuth sessions. */
+  accountSubject?: string;
 }
 
 function normalizeLabelToFolder(labelId: string): NormalizedFolder {
@@ -28,15 +34,14 @@ function normalizeLabelToFolder(labelId: string): NormalizedFolder {
 }
 
 /**
- * Gmail adapter (spec Section 3): OAuth-based, uses Gmail API batch
- * requests rather than per-message HTTP calls — the exact regression spec
- * 12.3 calls out ("One HTTP request per message instead of batch"). Scopes
- * requested must be read-only + labels-modify-only for explicit mailbox
- * actions, never unrestricted mailbox write access.
+ * Gmail adapter (spec Section 3): OAuth-based, uses Gmail API bounded concurrent
+ * requests rather than fully serial per-message HTTP calls. Guided desktop OAuth
+ * uses a public client with PKCE; no client secret is required at runtime.
  *
- * Required OAuth scopes: https://www.googleapis.com/auth/gmail.readonly
- * and https://www.googleapis.com/auth/gmail.modify. If modify permission is
- * not granted, Trash and Report Spam return an actionable provider error.
+ * Email Shield currently requests gmail.modify for the guided desktop flow
+ * because the existing product includes both mailbox reading and explicit
+ * Trash/Spam actions. Google does not support incremental authorization for
+ * installed apps, so a fake read-only-to-modify incremental upgrade is not used.
  */
 export class GmailAdapter implements EmailAdapter {
   readonly provider = "gmail" as const;
@@ -50,7 +55,10 @@ export class GmailAdapter implements EmailAdapter {
 
   async connect(signal: AbortSignal): Promise<void> {
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-    const auth = new google.auth.OAuth2(this.credentials.clientId, this.credentials.clientSecret);
+    const auth = new google.auth.OAuth2(
+      this.credentials.clientId,
+      this.credentials.clientSecret || undefined,
+    );
     auth.setCredentials({ refresh_token: this.credentials.refreshToken });
     this.gmail = google.gmail({ version: "v1", auth });
 
