@@ -40,6 +40,13 @@ describe("bounded IMAP QR parts", () => {
     expect(analyzeQrImages([{ name: "qr.png", mimeType: "image/png", content: decoded }]).links[0]?.normalizedUrl).toBe(QR_URL);
   });
 
+  it("rejects a QR MIME-part response shorter than BODYSTRUCTURE declared", async () => {
+    const encodedPrefix = Buffer.from(QR_PNG.subarray(0, 16).toString("base64"), "ascii");
+    await expect(decodeFetchedQrImagePart(encodedPrefix, {
+      part: "2", name: "qr.png", mimeType: "image/png", sizeBytes: QR_PNG.length, transferEncoding: "base64",
+    })).rejects.toThrow("fewer MIME-part bytes");
+  });
+
   it("fetches only bounded supported image parts and never requests PDF/full raw source", async () => {
     const selection = inspectBodyStructure({
       type: "multipart/mixed",

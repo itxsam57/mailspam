@@ -9,6 +9,11 @@ import type {
   Provider,
   ParseStatus,
 } from "../canonical/envelope.js";
+import {
+  attachmentSha256,
+  MAX_ATTACHMENT_HASH_BYTES,
+  MAX_ATTACHMENT_HASHES_PER_MESSAGE,
+} from "./attachmentHash.js";
 import { analyzeQrImages, isSupportedQrImageMimeType } from "./qrDecode.js";
 
 const TEXT_PREVIEW_MAX_CHARS = 4000;
@@ -163,21 +168,48 @@ function extractLinks(mail: ParsedMail): LinkInfo[] {
 }
 
 function extractAttachments(mail: ParsedMail): AttachmentInfo[] {
-  return (mail.attachments ?? []).map((attachment) => {
+  return (mail.attachments ?? []).map((attachment, index) => {
     const name = attachment.filename ?? "unnamed";
     const parts = name.split(".");
     const extension = parts.length > 1 ? parts[parts.length - 1]!.toLowerCase() : null;
     const knownDocLike = new Set(["pdf", "doc", "docx", "xls", "xlsx", "jpg", "jpeg", "png", "txt"]);
     const suspiciousNamePattern = parts.length >= 3 && knownDocLike.has(parts[parts.length - 2]!.toLowerCase());
+    const content = attachment.content ? Buffer.from(attachment.content) : null;
+    const hashEligible = Boolean(
+      content &&
+      index < MAX_ATTACHMENT_HASHES_PER_MESSAGE &&
+      content.length <= MAX_ATTACHMENT_HASH_BYTES,
+    );
     return {
       name,
       mimeType: attachment.contentType ?? "application/octet-stream",
-      sizeBytes: attachment.size ?? (attachment.content ? attachment.content.length : 0),
+      sizeBytes: attachment.size ?? content?.length ?? 0,
       extension,
-      sha256: null,
+      sha256: hashEligible ? attachmentSha256(content!) : null,
       suspiciousNamePattern,
     };
   });
+}
+
+function attachmentHashInspection(attachments: AttachmentInfo[]): NonNullable<CanonicalEnvelope["diagnostics"]["attachmentHashInspection"]> {
+  const hashed = attachments.filter((attachment) => attachment.sha256 !== null).length;
+  const incomplete = hashed !== attachments.length;
+  const incompleteReasons: string[] = [];
+  if (attachments.length > MAX_ATTACHMENT_HASHES_PER_MESSAGE) {
+    incompleteReasons.push(`Only the first ${MAX_ATTACHMENT_HASHES_PER_MESSAGE} attachments were eligible for local exact-hash inspection.`);
+  }
+  if (attachments.slice(0, MAX_ATTACHMENT_HASHES_PER_MESSAGE).some((attachment) => attachment.sizeBytes > MAX_ATTACHMENT_HASH_BYTES)) {
+    incompleteReasons.push("One or more attachments exceeded the bounded local exact-hash size limit.");
+  }
+  if (incomplete && incompleteReasons.length === 0) {
+    incompleteReasons.push("One or more complete decoded attachment bodies were unavailable for local exact-hash inspection.");
+  }
+  return {
+    attachments: attachments.length,
+    hashed,
+    incomplete,
+    incompleteReasons,
+  };
 }
 
 export interface NormalizeOptions {
@@ -273,6 +305,7 @@ export async function normalizeRawMessage(raw: string | Buffer, opts: NormalizeO
         incomplete: qrAnalysis.incomplete,
         incompleteReasons: [...qrAnalysis.incompleteReasons],
       },
+      attachmentHashInspection: attachmentHashInspection(attachments),
     },
   };
 }
@@ -304,6 +337,7 @@ function malformedEnvelope(opts: NormalizeOptions, reason: string): CanonicalEnv
       encoding: "unknown",
       contentCoverage: "insufficient",
       qrInspection: { supportedImages: 0, decodedUrlCount: 0, incomplete: false, incompleteReasons: [] },
+      attachmentHashInspection: { attachments: 0, hashed: 0, incomplete: false, incompleteReasons: [] },
     },
   };
 }

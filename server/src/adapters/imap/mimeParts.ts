@@ -30,6 +30,15 @@ export interface QrImagePart {
   transferEncoding: string | null;
 }
 
+export interface HashableAttachmentPart {
+  part: string;
+  attachmentIndex: number;
+  name: string;
+  mimeType: string;
+  sizeBytes: number | null;
+  transferEncoding: string | null;
+}
+
 export interface ReadablePartSelection {
   /** Legacy convenience fields retained for existing callers/tests. */
   plainPart: string | null;
@@ -37,6 +46,8 @@ export interface ReadablePartSelection {
   plain: ReadableTextPart | null;
   html: ReadableTextPart | null;
   attachments: AttachmentInfo[];
+  /** Complete attachment MIME parts eligible for bounded local exact hashing. */
+  hashableAttachments: HashableAttachmentPart[];
   /** Supported image parts only; their bytes are fetched separately under QR limits. */
   qrImages: QrImagePart[];
 }
@@ -59,16 +70,18 @@ function attachmentInfo(node: ImapBodyNode): AttachmentInfo | null {
   const type = (node.type ?? "application/octet-stream").toLowerCase();
   const topType = type.split("/")[0];
   const disposition = (node.disposition ?? "").toLowerCase();
-  const isAttachment =
+  const explicitName =
+    parameterText(node.dispositionParameters?.filename) ??
+    parameterText(node.parameters?.name);
+  const isAttachment = topType !== "multipart" && (
     disposition === "attachment" ||
-    (topType !== "text" && topType !== "multipart" && disposition !== "inline");
+    topType !== "text" ||
+    (disposition === "inline" && Boolean(explicitName))
+  );
 
   if (!isAttachment) return null;
 
-  const name =
-    parameterText(node.dispositionParameters?.filename) ??
-    parameterText(node.parameters?.name) ??
-    "unnamed";
+  const name = explicitName ?? "unnamed";
   const pieces = name.split(".");
   const extension = pieces.length > 1 ? pieces[pieces.length - 1]!.toLowerCase() : null;
   const documentLike = new Set(["pdf", "doc", "docx", "xls", "xlsx", "jpg", "jpeg", "png", "txt"]);
@@ -82,6 +95,24 @@ function attachmentInfo(node: ImapBodyNode): AttachmentInfo | null {
     extension,
     sha256: null,
     suspiciousNamePattern,
+  };
+}
+
+function hashableAttachmentPart(
+  node: ImapBodyNode,
+  attachmentIndex: number,
+  attachment: AttachmentInfo,
+  isRoot: boolean,
+): HashableAttachmentPart | null {
+  const part = parameterText(node.part) ?? (isRoot && !node.childNodes?.length ? "TEXT" : null);
+  if (!part) return null;
+  return {
+    part,
+    attachmentIndex,
+    name: attachment.name,
+    mimeType: attachment.mimeType,
+    sizeBytes: finiteSize(node.size),
+    transferEncoding: parameterText(node.encoding)?.toLowerCase() ?? null,
   };
 }
 
@@ -124,18 +155,23 @@ export function inspectBodyStructure(root: ImapBodyNode | null | undefined): Rea
     html: null,
   };
   const attachments: AttachmentInfo[] = [];
+  const hashableAttachments: HashableAttachmentPart[] = [];
   const qrImages: QrImagePart[] = [];
 
   const visit = (node: ImapBodyNode, insideAttachment: boolean, isRoot: boolean) => {
-    const disposition = (node.disposition ?? "").toLowerCase();
-    const branchIsAttachment = insideAttachment || disposition === "attachment";
+    const attachment = attachmentInfo(node);
+    const branchIsAttachment = insideAttachment || attachment !== null;
     const candidate = !branchIsAttachment ? readablePart(node, isRoot) : null;
 
     if (candidate?.contentType === "text/plain" && !selected.plain) selected.plain = candidate;
     if (candidate?.contentType === "text/html" && !selected.html) selected.html = candidate;
 
-    const attachment = attachmentInfo(node);
-    if (attachment) attachments.push(attachment);
+    if (attachment) {
+      const attachmentIndex = attachments.length;
+      attachments.push(attachment);
+      const hashPart = hashableAttachmentPart(node, attachmentIndex, attachment, isRoot);
+      if (hashPart) hashableAttachments.push(hashPart);
+    }
     const qrCandidate = qrImagePart(node, isRoot);
     if (qrCandidate) qrImages.push(qrCandidate);
 
@@ -149,6 +185,7 @@ export function inspectBodyStructure(root: ImapBodyNode | null | undefined): Rea
     plain: selected.plain,
     html: selected.html,
     attachments,
+    hashableAttachments,
     qrImages,
   };
 }
@@ -290,12 +327,15 @@ export async function decodeFetchedTextPart(
   };
 }
 
-/** Decode one bounded PNG/JPEG IMAP body part without retaining it afterward. */
-export async function decodeFetchedQrImagePart(rawPart: Buffer, part: QrImagePart): Promise<Buffer> {
+async function decodeFetchedBinaryPart(
+  rawPart: Buffer,
+  part: { name: string; mimeType: string; transferEncoding: string | null },
+): Promise<Buffer> {
   const transferEncoding = safeHeaderToken(part.transferEncoding);
-  const safeName = part.name.replace(/[\r\n";]/g, "").slice(0, 160) || "qr-image";
+  const safeName = part.name.replace(/[\r\n";]/g, "").slice(0, 160) || "attachment";
+  const safeMimeType = part.mimeType.replace(/[\r\n";]/g, "").trim().toLowerCase() || "application/octet-stream";
   const headers = [
-    `Content-Type: ${part.mimeType}; name="${safeName}"`,
+    `Content-Type: ${safeMimeType}; name="${safeName}"`,
     `Content-Disposition: attachment; filename="${safeName}"`,
     ...(transferEncoding ? [`Content-Transfer-Encoding: ${transferEncoding}`] : []),
     "MIME-Version: 1.0",
@@ -303,8 +343,30 @@ export async function decodeFetchedQrImagePart(rawPart: Buffer, part: QrImagePar
   ].join("\r\n") + "\r\n";
   const parsed = await simpleParser(Buffer.concat([Buffer.from(headers, "utf8"), rawPart]));
   const attachment = parsed.attachments?.[0];
-  if (!attachment?.content?.length) throw new Error("The image body part did not decode to attachment bytes.");
+  if (!attachment?.content) throw new Error("The MIME body part did not decode to attachment bytes.");
   return Buffer.from(attachment.content);
+}
+
+function assertCompleteFetchedBinaryPart(rawPart: Buffer, expectedBytes: number | null): void {
+  if (expectedBytes !== null && rawPart.length < expectedBytes) {
+    throw new Error("The provider returned fewer MIME-part bytes than declared by BODYSTRUCTURE.");
+  }
+}
+
+/** Decode one bounded PNG/JPEG IMAP body part without retaining it afterward. */
+export async function decodeFetchedQrImagePart(rawPart: Buffer, part: QrImagePart): Promise<Buffer> {
+  assertCompleteFetchedBinaryPart(rawPart, part.sizeBytes);
+  return decodeFetchedBinaryPart(rawPart, part);
+}
+
+/**
+ * Decode one bounded generic IMAP attachment part for local exact hashing.
+ * BODYSTRUCTURE provides the expected body octet count. A shorter provider
+ * response is incomplete and must never become a valid hash of only a prefix.
+ */
+export async function decodeFetchedAttachmentPart(rawPart: Buffer, part: HashableAttachmentPart): Promise<Buffer> {
+  assertCompleteFetchedBinaryPart(rawPart, part.sizeBytes);
+  return decodeFetchedBinaryPart(rawPart, part);
 }
 
 /**

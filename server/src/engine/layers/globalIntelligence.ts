@@ -102,6 +102,11 @@ export function globalIntelligenceLayer(
   const attachmentHashes = envelope.attachments.map((attachment) => attachment.sha256).filter((hash): hash is string => Boolean(hash));
   const identityText = `${envelope.from.displayName ?? ""}\n${envelope.subject}`;
   const messageCampaignFingerprint = campaignFingerprint(envelope);
+  const attachmentHashRulesPresent = entries.some((entry) => entry.type === "attachment_hash");
+  const attachmentHashCoverageIncomplete = attachmentHashRulesPresent && (
+    envelope.diagnostics.attachmentHashInspection?.incomplete === true ||
+    envelope.attachments.some((attachment) => attachment.sha256 === null)
+  );
 
   for (const entry of entries) {
     if (entry.type === "identity") {
@@ -142,7 +147,16 @@ export function globalIntelligenceLayer(
   }
 
   return {
-    result: { layer: "global_intelligence", applicable: true, evidence, incomplete: false },
+    result: {
+      layer: "global_intelligence",
+      applicable: true,
+      evidence,
+      incomplete: attachmentHashCoverageIncomplete,
+      incompleteReason: attachmentHashCoverageIncomplete
+        ? "Signed attachment-hash intelligence exists, but one or more attachment bodies could not be hashed completely within the local bounded inspection limits."
+        : undefined,
+      blocksSafeVerdict: attachmentHashCoverageIncomplete,
+    },
     confirmedByGlobalRule: confirmed,
   };
 }

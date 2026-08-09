@@ -7,6 +7,13 @@ import type {
   SpamReportResult,
 } from "../../canonical/adapter.js";
 import type { CanonicalEnvelope, NormalizedFolder, Provider } from "../../canonical/envelope.js";
+import {
+  attachmentHashSizeIsEligible,
+  attachmentSha256,
+  MAX_ATTACHMENT_HASH_BYTES,
+  MAX_ATTACHMENT_HASHES_PER_MESSAGE,
+  MAX_ENCODED_ATTACHMENT_HASH_PART_BYTES,
+} from "../../util/attachmentHash.js";
 import { normalizeRawMessage } from "../../util/mimeNormalize.js";
 import {
   analyzeQrImages,
@@ -18,6 +25,7 @@ import { normalizeImapFolder, providerFolderPath } from "./folderNames.js";
 import {
   boundedTextPartWasTruncated,
   buildSyntheticReadableMessage,
+  decodeFetchedAttachmentPart,
   decodeFetchedQrImagePart,
   decodeFetchedTextPart,
   inspectBodyStructure,
@@ -45,6 +53,7 @@ const SEARCH_TIMEOUT_MS = 20_000;
 const METADATA_TIMEOUT_MS = 30_000;
 const TEXT_PART_TIMEOUT_MS = 15_000;
 const QR_PART_TIMEOUT_MS = 20_000;
+const ATTACHMENT_HASH_PART_TIMEOUT_MS = 20_000;
 const MOVE_TIMEOUT_MS = 30_000;
 const SOCKET_IDLE_TIMEOUT_MS = 45_000;
 
@@ -97,9 +106,18 @@ export interface BoundedReadableBodies {
   notes: string[];
 }
 
+interface FetchedQrImage extends QrImageInput {
+  part: string;
+}
+
 interface BoundedQrImages {
-  images: QrImageInput[];
+  images: FetchedQrImage[];
   supportedCount: number;
+  incompleteReasons: string[];
+}
+
+export interface BoundedAttachmentHashes {
+  hashesByAttachmentIndex: Map<number, string>;
   incompleteReasons: string[];
 }
 
@@ -221,7 +239,7 @@ export async function fetchBoundedQrImages(
 
   const fetchable = selected.filter((part) => {
     if (qrPartFetchable(part)) return true;
-    incompleteReasons.push(`QR-capable image "${part.name}" exceeded the bounded IMAP image fetch limit.`);
+    incompleteReasons.push(`A QR-capable image exceeded the bounded IMAP image fetch limit.`);
     return false;
   });
   if (!fetchable.length) return { images: [], supportedCount, incompleteReasons };
@@ -248,25 +266,112 @@ export async function fetchBoundedQrImages(
     return { images: [], supportedCount, incompleteReasons };
   }
 
-  const images: QrImageInput[] = [];
+  const images: FetchedQrImage[] = [];
   for (const part of fetchable) {
     const rawPart = bodyPartBuffer(response.bodyParts, part.part);
     if (!rawPart) {
-      incompleteReasons.push(`QR-capable image "${part.name}" was not returned by the provider.`);
+      incompleteReasons.push("A requested QR-capable image was not returned by the provider.");
       continue;
     }
     if (rawPart.length >= MAX_ENCODED_QR_PART_BYTES) {
-      incompleteReasons.push(`QR-capable image "${part.name}" reached the bounded IMAP fetch limit.`);
+      incompleteReasons.push("A QR-capable image reached the bounded IMAP fetch limit.");
       continue;
     }
     try {
       const content = await decodeFetchedQrImagePart(rawPart, part);
-      images.push({ name: part.name, mimeType: part.mimeType, content });
+      images.push({ part: part.part, name: part.name, mimeType: part.mimeType, content });
     } catch {
-      incompleteReasons.push(`QR-capable image "${part.name}" could not be decoded from its MIME transfer encoding.`);
+      incompleteReasons.push("A QR-capable image could not be decoded from its MIME transfer encoding.");
     }
   }
   return { images, supportedCount, incompleteReasons };
+}
+
+/**
+ * Hashes a small bounded set of complete IMAP attachment MIME parts locally.
+ * QR image bytes already fetched by the QR layer are reused. No attachment
+ * bytes survive this function and no full-message fallback is permitted.
+ */
+export async function fetchBoundedAttachmentHashes(
+  client: ImapTextFetchClient,
+  uid: number,
+  selection: ReadablePartSelection,
+  qrImages: FetchedQrImage[],
+  signal: AbortSignal,
+): Promise<BoundedAttachmentHashes> {
+  const hashesByAttachmentIndex = new Map<number, string>();
+  const incompleteReasons: string[] = [];
+  const selected = selection.hashableAttachments.slice(0, MAX_ATTACHMENT_HASHES_PER_MESSAGE);
+
+  if (selection.hashableAttachments.length > MAX_ATTACHMENT_HASHES_PER_MESSAGE) {
+    incompleteReasons.push(`Only the first ${MAX_ATTACHMENT_HASHES_PER_MESSAGE} attachments were eligible for exact-hash inspection.`);
+  }
+  if (selection.hashableAttachments.length < selection.attachments.length) {
+    incompleteReasons.push("One or more attachment MIME parts could not be addressed safely for exact-hash inspection.");
+  }
+
+  const qrByPart = new Map(qrImages.map((image) => [image.part.toLowerCase(), image]));
+  const remaining = [] as typeof selected;
+  for (const part of selected) {
+    const qrImage = qrByPart.get(part.part.toLowerCase());
+    if (qrImage && qrImage.content.length <= MAX_ATTACHMENT_HASH_BYTES) {
+      hashesByAttachmentIndex.set(part.attachmentIndex, attachmentSha256(qrImage.content));
+      continue;
+    }
+    if (!attachmentHashSizeIsEligible(part.sizeBytes)) {
+      incompleteReasons.push("An attachment exceeded the bounded exact-hash size limit.");
+      continue;
+    }
+    remaining.push(part);
+  }
+
+  if (!remaining.length) return { hashesByAttachmentIndex, incompleteReasons };
+
+  const response = await withImapDeadline(
+    client.fetchOne(
+      uid,
+      {
+        bodyParts: remaining.map((part) => ({
+          key: part.part,
+          start: 0,
+          maxLength: MAX_ENCODED_ATTACHMENT_HASH_PART_BYTES,
+        })),
+      },
+      { uid: true, binary: false },
+    ),
+    signal,
+    `bounded attachment hash fetch for UID ${uid}`,
+    ATTACHMENT_HASH_PART_TIMEOUT_MS,
+  );
+
+  if (!response || !(response.bodyParts instanceof Map)) {
+    incompleteReasons.push("The provider did not return the requested bounded attachment parts for exact hashing.");
+    return { hashesByAttachmentIndex, incompleteReasons };
+  }
+
+  for (const part of remaining) {
+    const rawPart = bodyPartBuffer(response.bodyParts, part.part);
+    if (!rawPart) {
+      incompleteReasons.push("A requested attachment part was not returned by the provider for exact hashing.");
+      continue;
+    }
+    if (rawPart.length >= MAX_ENCODED_ATTACHMENT_HASH_PART_BYTES) {
+      incompleteReasons.push("An attachment reached the bounded encoded fetch limit before exact hashing could complete.");
+      continue;
+    }
+    try {
+      const content = await decodeFetchedAttachmentPart(rawPart, part);
+      if (content.length > MAX_ATTACHMENT_HASH_BYTES) {
+        incompleteReasons.push("A decoded attachment exceeded the bounded exact-hash size limit.");
+        continue;
+      }
+      hashesByAttachmentIndex.set(part.attachmentIndex, attachmentSha256(content));
+    } catch {
+      incompleteReasons.push("An attachment could not be decoded completely for exact hashing.");
+    }
+  }
+
+  return { hashesByAttachmentIndex, incompleteReasons };
 }
 
 function fallbackHeaders(uid: number): Buffer {
@@ -393,6 +498,20 @@ export class ImapAdapter implements EmailAdapter {
           qrImages.incompleteReasons.push(`QR-capable image content could not be downloaded: ${error instanceof Error ? error.message : String(error)}`);
         }
 
+        let attachmentHashes: BoundedAttachmentHashes = { hashesByAttachmentIndex: new Map(), incompleteReasons: [] };
+        try {
+          attachmentHashes = await fetchBoundedAttachmentHashes(
+            client as unknown as ImapTextFetchClient,
+            uid,
+            selection,
+            qrImages.images,
+            signal,
+          );
+        } catch (error) {
+          if (signal.aborted || error instanceof ImapCommandTimeoutError) throw error;
+          attachmentHashes.incompleteReasons.push(`Attachment exact-hash inspection could not complete: ${error instanceof Error ? error.message : String(error)}`);
+        }
+
         const syntheticRaw = buildSyntheticReadableMessage({
           headers,
           plainBody: bodies.plain,
@@ -405,8 +524,24 @@ export class ImapAdapter implements EmailAdapter {
           normalizedFolder: folder.normalized,
           providerNativeId: encodeNativeId(folder.providerFolderName, uid),
         });
-        envelope.attachments = selection.attachments;
+        envelope.attachments = selection.attachments.map((attachment, index) => ({
+          ...attachment,
+          sha256: attachmentHashes.hashesByAttachmentIndex.get(index) ?? null,
+        }));
         envelope.diagnostics.sizeBytes = Number(message?.size ?? syntheticRaw.length);
+        const hashedAttachments = envelope.attachments.filter((attachment) => attachment.sha256 !== null).length;
+        const hashIncomplete = hashedAttachments !== envelope.attachments.length;
+        envelope.diagnostics.attachmentHashInspection = {
+          attachments: envelope.attachments.length,
+          hashed: hashedAttachments,
+          incomplete: hashIncomplete,
+          incompleteReasons: hashIncomplete
+            ? [...new Set([
+                ...attachmentHashes.incompleteReasons,
+                "One or more attachment bodies were not fully available within the bounded exact-hash inspection limits.",
+              ])]
+            : [],
+        };
 
         const qrAnalysis = analyzeQrImages(qrImages.images);
         envelope.links.push(...qrAnalysis.links);

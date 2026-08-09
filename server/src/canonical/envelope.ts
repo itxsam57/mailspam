@@ -49,6 +49,7 @@ export interface AttachmentInfo {
   mimeType: string;
   sizeBytes: number;
   extension: string | null;
+  /** SHA-256 of the complete locally decoded attachment bytes, or null when those bytes were not safely available. */
   sha256: string | null;
   suspiciousNamePattern: boolean;
 }
@@ -139,6 +140,17 @@ export interface CanonicalEnvelope {
     qrInspection?: {
       supportedImages: number;
       decodedUrlCount: number;
+      incomplete: boolean;
+      incompleteReasons: string[];
+    };
+    /**
+     * Privacy-reduced exact-hash coverage. This records only counts and generic
+     * reasons; attachment bytes are transient and attachment names must not be
+     * copied into this diagnostic object.
+     */
+    attachmentHashInspection?: {
+      attachments: number;
+      hashed: number;
       incomplete: boolean;
       incompleteReasons: string[];
     };
