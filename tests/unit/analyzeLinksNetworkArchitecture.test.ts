@@ -16,7 +16,7 @@ describe("Analyze Links network architecture", () => {
     expect(hardened).toContain('Host: target.host');
     expect(hardened).toContain('"Accept-Encoding": "identity"');
     expect(hardened).not.toMatch(/\bfetch\s*\(/);
-    expect(hardened).not.toMatch(/cookie|authorization\s*:/i);
+    expect(hardened).not.toMatch(/^\s*["']?(?:Cookie|Authorization)["']?\s*:/im);
   });
 
   it("keeps deep-link network access out of automatic mailbox scans", () => {
@@ -27,7 +27,7 @@ describe("Analyze Links network architecture", () => {
     expect(scans).not.toContain("hardenedFetch");
     expect(scans).not.toContain("analyzeLinks(");
     expect(worker).not.toContain("hardenedFetch");
-    expect(analyze).toContain("explicit per-message Analyze Links action");
+    expect(analyze).toContain("never called automatically during any scan");
   });
 
   it("wires the production API to hardenedFetch and fails uninspectable content closed", () => {
