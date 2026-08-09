@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 
 describe("detached resumable scan contract", () => {
   it("commits the protected checkpoint before skipping browser-only action-token registration", () => {
-    const source = readFileSync(resolve(process.cwd(), "server/src/api/scanStream.ts"), "utf8");
+    const source = readFileSync(resolve(process.cwd(), "src/api/scanStream.ts"), "utf8");
     const progressBranch = source.indexOf('} else if (message.type === "progress")');
     const checkpointSave = source.indexOf('if (!saveRecord())', progressBranch);
     const detachedGuard = source.indexOf('if (res.writableEnded || res.destroyed) return;', checkpointSave);
