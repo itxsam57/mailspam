@@ -1,7 +1,12 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { createAdapter, type AdapterConfig } from "../api/adapterConfig.js";
 import type { SecureAdapterConfig } from "../security/secureAdapterConfig.js";
-import { quickScan, fullMailboxAudit, spamJunkScan } from "../workflows/scanWorkflows.js";
+import {
+  quickScan,
+  fullMailboxAudit,
+  spamJunkScan,
+  type ScanResumeInput,
+} from "../workflows/scanWorkflows.js";
 import { InMemoryPersonalPolicyStore, type PersonalPolicySnapshot } from "../engine/layers/personalRules.js";
 import type { SignedFeedEntry } from "../engine/layers/globalIntelligence.js";
 import { runWithSingleRetry } from "./retryPolicy.js";
@@ -11,6 +16,7 @@ interface WorkData {
   type: "quick" | "full" | "spam";
   pageSize?: number;
   maxMessages?: number;
+  resume?: ScanResumeInput;
   personalPolicy?: Partial<PersonalPolicySnapshot>;
   threatFeedEntries?: SignedFeedEntry[] | null;
 }
@@ -34,10 +40,10 @@ async function runScanAttempt(onProgress: () => void): Promise<boolean> {
   const deps = buildDependencies();
   const pageSize = data.pageSize ?? 20;
   const generator = data.type === "quick"
-    ? quickScan(adapter, deps, controller.signal, pageSize, data.maxMessages ?? pageSize)
+    ? quickScan(adapter, deps, controller.signal, pageSize, data.maxMessages ?? pageSize, data.resume)
     : data.type === "spam"
-      ? spamJunkScan(adapter, deps, controller.signal, pageSize)
-      : fullMailboxAudit(adapter, deps, controller.signal, { pageSize });
+      ? spamJunkScan(adapter, deps, controller.signal, pageSize, data.resume)
+      : fullMailboxAudit(adapter, deps, controller.signal, { pageSize, resume: data.resume });
 
   let emittedProgress = false;
   for await (const progress of generator) {
@@ -51,7 +57,10 @@ async function runScanAttempt(onProgress: () => void): Promise<boolean> {
 async function main() {
   parentPort?.postMessage({
     type: "status",
-    status: { phase: "starting", message: `Starting ${data.type} scan worker…` },
+    status: {
+      phase: data.resume ? "resuming" : "starting",
+      message: data.resume ? `Resuming ${data.type} scan worker from the last protected checkpoint…` : `Starting ${data.type} scan worker…`,
+    },
   });
   parentPort?.postMessage({
     type: "status",
@@ -89,7 +98,7 @@ async function main() {
     type: "status",
     status: emittedProgress
       ? { phase: "complete", message: "Scan completed." }
-      : { phase: "complete", message: "Scan completed, but the selected folder contained no readable messages." },
+      : { phase: "complete", message: "Scan completed, but the selected folder contained no additional readable messages." },
   });
   parentPort?.postMessage({ type: "complete" });
 }

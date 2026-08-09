@@ -18,6 +18,7 @@ function read(path) {
 const html = read("web/index.html");
 const server = read("server/src/api/server.ts");
 const desktopServer = read("server/src/api/localDesktopServer.ts");
+const scanStreamServer = read("server/src/api/scanStream.ts");
 const localSecurityServer = read("server/src/api/localSecurity.ts");
 const gmailOAuthServer = read("server/src/oauth/googleOAuthFlow.ts");
 const microsoftOAuthServer = read("server/src/oauth/microsoftOAuthFlow.ts");
@@ -56,10 +57,12 @@ for (const id of [
 const injectedScripts = [
   "local-security.js",
   "scan-monitor.js",
+  "scan-history.js",
   "unsubscribe-monitor.js",
   "gmail-oauth.js",
   "outlook-oauth.js",
   "account-disconnect.js",
+  "policy-management.js",
 ];
 for (const script of injectedScripts) {
   requireCondition(desktopServer.includes(`/${script}`), `Local desktop dashboard injection no longer includes /${script}.`);
@@ -99,6 +102,8 @@ const desktopEndpointContracts = [
   ["web/outlook-oauth.js", "/api/accounts/oauth/microsoft/start", 'app.post("/api/accounts/oauth/microsoft/start"'],
   ["web/outlook-oauth.js", "/api/accounts/oauth/microsoft/status/", 'app.get("/api/accounts/oauth/microsoft/status/:flowId"'],
   ["web/account-disconnect.js", "method: 'DELETE'", 'app.delete("/api/accounts/:id"'],
+  ["web/scan-history.js", "/scan-history", 'app.get("/api/accounts/:id/scan-history"'],
+  ["web/scan-monitor.js", "/scan/resume/", 'app.get("/api/accounts/:id/scan/resume/:scanId"'],
 ];
 for (const [browserPath, browserNeedle, serverNeedle] of desktopEndpointContracts) {
   requireCondition(read(browserPath).includes(browserNeedle), `${browserPath} no longer references ${browserNeedle}.`);
@@ -112,7 +117,7 @@ for (const serverNeedle of [
   'app.get("/api/community/v1/public-key"',
 ]) requireCondition(server.includes(serverNeedle), `Community service endpoint contract is missing: ${serverNeedle}.`);
 
-for (const path of ["web/scan-monitor.js", "web/safe-audit.js", "web/review-actions.js", "web/unsubscribe-monitor.js"]) {
+for (const path of ["web/scan-monitor.js", "web/safe-audit.js", "web/review-actions.js", "web/unsubscribe-monitor.js", "web/scan-history.js"]) {
   const content = read(path);
   for (const forbidden of [
     "textPreview", "htmlSignals", "listUnsubscribe:", "listUnsubscribePost:",
@@ -121,6 +126,19 @@ for (const path of ["web/scan-monitor.js", "web/safe-audit.js", "web/review-acti
     requireCondition(!content.includes(forbidden), `${path} exposes or depends on privacy-sensitive field ${forbidden}.`);
   }
 }
+
+const scanHistoryBrowser = read("web/scan-history.js");
+for (const forbidden of [
+  "currentCursor", "folderCursors", "seenSenderHashes", "seenMessageHashes",
+  "refreshToken", "accessToken", "clientSecret", "appPassword", "vaultReferences",
+  "localStorage", "sessionStorage",
+]) {
+  requireCondition(!scanHistoryBrowser.includes(forbidden), `web/scan-history.js must never receive or persist protected scan/credential field ${forbidden}.`);
+}
+requireCondition(scanHistoryBrowser.includes("emailShieldStartScan"), "Scan history Resume is no longer delegated to the protected scan monitor.");
+requireCondition(scanHistoryBrowser.includes("record.scanId"), "Scan history no longer resumes by opaque scan ID.");
+requireCondition(scanStreamServer.includes("publicScanProgress"), "Server no longer has an explicit browser scan-progress reduction boundary.");
+requireCondition(scanStreamServer.includes('"cursor" | "checkpoint"'), "Browser scan-progress type no longer explicitly excludes cursor/checkpoint state.");
 
 const gmailOAuthBrowser = read("web/gmail-oauth.js");
 for (const forbidden of ["refreshToken", "accessToken", "idToken", "codeVerifier", "clientSecret"]) {

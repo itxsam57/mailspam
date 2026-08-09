@@ -5,7 +5,12 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createServer } from "./server.js";
 import { localSecurity, type LocalSecurityManager } from "./localSecurity.js";
-import { createScanStreamHandler } from "./scanStream.js";
+import {
+  createResumeScanStreamHandler,
+  createScanStreamHandler,
+  requestActiveScanStop,
+} from "./scanStream.js";
+import { defaultScanStateRepository } from "./defaultScanStateRepository.js";
 import { sessionStore } from "./sessionStore.js";
 import { registerPolicyManagementRoutes } from "./policyManagement.js";
 import { communityNetwork, type CommunityNetwork } from "../community/network.js";
@@ -32,7 +37,21 @@ function escapeAttribute(value: string): string {
 }
 
 function isScanStreamPath(path: string): boolean {
-  return /^\/[^/]+\/scan\/(?:quick|full|spam)$/.test(path);
+  return /^\/[^/]+\/scan\/(?:quick|full|spam|resume\/[0-9a-f-]{36})$/i.test(path);
+}
+
+function publicScanHistory(session: NonNullable<ReturnType<typeof sessionStore.get>>) {
+  const resumableStatuses = new Set(["interrupted", "failed", "stopped"]);
+  return defaultScanStateRepository.list(session.policyAccountKey).map((record) => ({
+    scanId: record.scanId,
+    type: record.type,
+    status: record.status,
+    startedAt: record.startedAt,
+    updatedAt: record.updatedAt,
+    completedAt: record.completedAt,
+    counters: { ...record.counters },
+    resumable: Boolean(record.checkpoint && resumableStatuses.has(record.status)),
+  }));
 }
 
 export function createLocalDesktopServer(options: {
@@ -75,7 +94,7 @@ export function createLocalDesktopServer(options: {
       .replace(/<script>(\s*const API\s*=)/, `<script nonce="${nonce}">$1`)
       .replace(
         "</body>",
-        '<script src="/scan-monitor.js"></script><script src="/unsubscribe-monitor.js"></script><script src="/gmail-oauth.js"></script><script src="/outlook-oauth.js"></script><script src="/account-disconnect.js"></script><script src="/policy-management.js"></script></body>',
+        '<script src="/scan-monitor.js"></script><script src="/scan-history.js"></script><script src="/unsubscribe-monitor.js"></script><script src="/gmail-oauth.js"></script><script src="/outlook-oauth.js"></script><script src="/account-disconnect.js"></script><script src="/policy-management.js"></script></body>',
       );
 
     res.setHeader("Referrer-Policy", "same-origin");
@@ -181,7 +200,9 @@ export function createLocalDesktopServer(options: {
 
   app.delete("/api/accounts/:id", async (req: Request, res: Response) => {
     const id = req.params.id!;
-    if (!sessionStore.get(id)) return res.status(404).json({ error: "Unknown account" });
+    const session = sessionStore.get(id);
+    if (!session) return res.status(404).json({ error: "Unknown account" });
+    if (session.activeScanWorker) requestActiveScanStop(id);
     try {
       await sessionStore.remove(id);
       res.status(204).send();
@@ -192,7 +213,34 @@ export function createLocalDesktopServer(options: {
     }
   });
 
+  app.get("/api/accounts/:id/scan-history", (req: Request, res: Response) => {
+    const session = sessionStore.get(req.params.id!);
+    if (!session) return res.status(404).json({ error: "Unknown account" });
+    try {
+      res.setHeader("Cache-Control", "no-store");
+      res.json({
+        persistent: defaultScanStateRepository.persistent,
+        history: publicScanHistory(session),
+      });
+    } catch (error) {
+      res.status(500).json({ error: `Protected scan history could not be read: ${error instanceof Error ? error.message : String(error)}` });
+    }
+  });
+
+  app.get("/api/accounts/:id/scan/resume/:scanId", createResumeScanStreamHandler({ community }));
   app.get("/api/accounts/:id/scan/:type", createScanStreamHandler({ community }));
+
+  app.post("/api/accounts/:id/scan/stop", (req: Request, res: Response) => {
+    const session = sessionStore.get(req.params.id!);
+    if (!session) return res.status(404).json({ error: "Unknown account" });
+    const worker = session.activeScanWorker;
+    if (!worker) return res.json({ stopped: true, active: false });
+    requestActiveScanStop(session.id);
+    try { worker.postMessage({ type: "cancel" }); } catch {}
+    const hardStop = setTimeout(() => { void worker.terminate(); }, 1000);
+    hardStop.unref();
+    res.json({ stopped: true, active: true });
+  });
 
   app.post("/api/accounts/:id/messages/unblock-sender", (req: Request, res: Response) => {
     const session = sessionStore.get(req.params.id!);
@@ -203,7 +251,7 @@ export function createLocalDesktopServer(options: {
 
     try {
       sessionStore.mutateAndPersistPersonalPolicy(session, (policy) => policy.unblockSender(address));
-      res.json({ blocked: false, persisted: true, scope: "sender", value: address, accountId: session.id });
+      res.json({ blocked: false, persisted: sessionStore.personalPolicyPersistent(), scope: "sender", value: address, accountId: session.id });
     } catch (error) {
       res.status(500).json({ error: `Sender unblock was not saved: ${error instanceof Error ? error.message : String(error)}` });
     }
@@ -218,7 +266,7 @@ export function createLocalDesktopServer(options: {
 
     try {
       sessionStore.mutateAndPersistPersonalPolicy(session, (policy) => policy.unblockDomain(domain));
-      res.json({ blocked: false, persisted: true, scope: "domain", value: domain, accountId: session.id });
+      res.json({ blocked: false, persisted: sessionStore.personalPolicyPersistent(), scope: "domain", value: domain, accountId: session.id });
     } catch (error) {
       res.status(500).json({ error: `Domain unblock was not saved: ${error instanceof Error ? error.message : String(error)}` });
     }

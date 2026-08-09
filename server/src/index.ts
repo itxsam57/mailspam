@@ -1,4 +1,5 @@
 import { initializeDefaultPersonalPolicyRepository } from "./api/defaultPolicyRepository.js";
+import { initializeDefaultScanStateRepository } from "./api/defaultScanStateRepository.js";
 import { createLocalDesktopServer } from "./api/localDesktopServer.js";
 
 const PORT = Number(process.env.PORT ?? 4173);
@@ -8,10 +9,11 @@ if (!["127.0.0.1", "localhost", "::1"].includes(HOST)) {
   throw new Error("The Email Shield desktop server may bind only to a loopback host.");
 }
 
-// Resolve or migrate the AES policy key before the desktop API becomes
-// reachable. Windows Credential Manager failures therefore stop startup instead
-// of silently recreating a plaintext key file or running with non-durable state.
+// Resolve or migrate protected local encryption keys before the desktop API
+// becomes reachable. Native-vault failures therefore stop startup instead of
+// silently recreating plaintext keys or discarding encrypted local state.
 await initializeDefaultPersonalPolicyRepository();
+await initializeDefaultScanStateRepository();
 
 const app = createLocalDesktopServer();
 app.listen(PORT, HOST, () => {
