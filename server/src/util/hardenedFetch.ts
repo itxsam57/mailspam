@@ -143,7 +143,7 @@ export function isPublicAnalyzeAddress(address: string): boolean {
   // Reject IPv4-mapped, translation/tunnelling and special-purpose ranges so
   // a private IPv4 target cannot be smuggled through an IPv6 representation.
   if (ipv6PrefixMatches(ipv6, 0xffffn << 32n, 96)) return false; // ::ffff:0:0/96
-  if (ipv6PrefixMatches(ipv6, 0x64ff9bn << 80n, 96)) return false; // 64:ff9b::/96
+  if (ipv6PrefixMatches(ipv6, 0x64ff9bn << 96n, 96)) return false; // 64:ff9b::/96
   if (ipv6PrefixMatches(ipv6, 0x64ff9b0001n << 80n, 48)) return false; // 64:ff9b:1::/48
   if (ipv6PrefixMatches(ipv6, 0x100n << 112n, 64)) return false; // 100::/64
   if (ipv6PrefixMatches(ipv6, 0x20010000n << 96n, 32)) return false; // Teredo 2001:0000::/32
@@ -152,6 +152,9 @@ export function isPublicAnalyzeAddress(address: string): boolean {
 
   const topByte = Number(ipv6 >> 120n);
   const top16 = Number(ipv6 >> 112n);
+  // Public Internet IPv6 unicast is currently allocated from 2000::/3.
+  // Treat every other range as non-public for this outbound analyzer.
+  if ((top16 & 0xe000) !== 0x2000) return false;
   if ((topByte & 0xfe) === 0xfc) return false; // unique local fc00::/7
   if ((top16 & 0xffc0) === 0xfe80) return false; // link local fe80::/10
   if ((top16 & 0xffc0) === 0xfec0) return false; // deprecated site-local
