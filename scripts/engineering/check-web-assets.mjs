@@ -19,6 +19,7 @@ const html = read("web/index.html");
 const server = read("server/src/api/server.ts");
 const desktopServer = read("server/src/api/localDesktopServer.ts");
 const localSecurityServer = read("server/src/api/localSecurity.ts");
+const googleOAuthServer = read("server/src/oauth/googleOAuthFlow.ts");
 const browserFiles = readdirSync(webDir).filter((name) => name.endsWith(".js")).sort();
 requireCondition(browserFiles.length > 0, "No browser JavaScript files were found.");
 
@@ -50,7 +51,13 @@ for (const id of [
   requireCondition(new RegExp(`id=["']${id}["']`).test(html), `Required browser element #${id} is missing from web/index.html.`);
 }
 
-const injectedScripts = ["local-security.js", "scan-monitor.js", "unsubscribe-monitor.js"];
+const injectedScripts = [
+  "local-security.js",
+  "scan-monitor.js",
+  "unsubscribe-monitor.js",
+  "gmail-oauth.js",
+  "account-disconnect.js",
+];
 for (const script of injectedScripts) {
   requireCondition(desktopServer.includes(`/${script}`), `Local desktop dashboard injection no longer includes /${script}.`);
   requireCondition(browserFiles.includes(script), `Injected browser script is missing: web/${script}.`);
@@ -81,6 +88,17 @@ for (const [browserPath, browserNeedle, serverNeedle] of endpointContracts) {
   requireCondition(server.includes(serverNeedle), `Server endpoint contract is missing: ${serverNeedle}.`);
 }
 
+const desktopEndpointContracts = [
+  ["web/gmail-oauth.js", "/api/accounts/oauth/google/config", 'app.get("/api/accounts/oauth/google/config"'],
+  ["web/gmail-oauth.js", "/api/accounts/oauth/google/start", 'app.post("/api/accounts/oauth/google/start"'],
+  ["web/gmail-oauth.js", "/api/accounts/oauth/google/status/", 'app.get("/api/accounts/oauth/google/status/:flowId"'],
+  ["web/account-disconnect.js", "method: 'DELETE'", 'app.delete("/api/accounts/:id"'],
+];
+for (const [browserPath, browserNeedle, serverNeedle] of desktopEndpointContracts) {
+  requireCondition(read(browserPath).includes(browserNeedle), `${browserPath} no longer references ${browserNeedle}.`);
+  requireCondition(desktopServer.includes(serverNeedle), `Protected desktop endpoint contract is missing: ${serverNeedle}.`);
+}
+
 for (const serverNeedle of [
   'app.get("/api/community/v1/status"',
   'app.post("/api/community/v1/report"',
@@ -97,6 +115,17 @@ for (const path of ["web/scan-monitor.js", "web/safe-audit.js", "web/review-acti
     requireCondition(!content.includes(forbidden), `${path} exposes or depends on privacy-sensitive field ${forbidden}.`);
   }
 }
+
+const gmailOAuthBrowser = read("web/gmail-oauth.js");
+for (const forbidden of ["refreshToken", "accessToken", "idToken", "codeVerifier", "clientSecret"]) {
+  requireCondition(!gmailOAuthBrowser.includes(forbidden), `web/gmail-oauth.js must never receive or name secret OAuth field ${forbidden}.`);
+}
+requireCondition(gmailOAuthBrowser.includes("https://accounts.google.com"), "Guided Gmail browser flow no longer pins the Google authorization origin.");
+requireCondition(gmailOAuthBrowser.includes("Continue with Google"), "Guided Gmail browser control is missing.");
+requireCondition(gmailOAuthServer.includes('server.listen(0, "127.0.0.1"'), "Google OAuth callback is no longer random-port loopback-only.");
+requireCondition(gmailOAuthServer.includes('method !== "GET"'), "Google OAuth callback no longer rejects non-GET requests.");
+requireCondition(gmailOAuthServer.includes('callback.pathname !== "/"'), "Google OAuth callback no longer pins the root callback path.");
+requireCondition(gmailOAuthServer.includes("createSecuredValidated"), "Google OAuth provider validation and secure session commit are no longer serialized together.");
 
 const reviewActions = read("web/review-actions.js");
 const safeAudit = read("web/safe-audit.js");
