@@ -9,6 +9,7 @@ import {
 } from "../workflows/scanWorkflows.js";
 import { InMemoryPersonalPolicyStore, type PersonalPolicySnapshot } from "../engine/layers/personalRules.js";
 import type { SignedFeedEntry } from "../engine/layers/globalIntelligence.js";
+import type { RelationshipHistoryWorkerSnapshot } from "../engine/relationshipHistory.js";
 import { runWithSingleRetry } from "./retryPolicy.js";
 
 interface WorkData {
@@ -19,6 +20,7 @@ interface WorkData {
   resume?: ScanResumeInput;
   personalPolicy?: Partial<PersonalPolicySnapshot>;
   threatFeedEntries?: SignedFeedEntry[] | null;
+  relationshipHistory?: RelationshipHistoryWorkerSnapshot;
 }
 
 const data = workerData as WorkData;
@@ -32,6 +34,9 @@ function buildDependencies() {
   return {
     personalPolicy,
     threatFeed: { getVerifiedEntries: () => entries },
+    relationshipHistory: data.relationshipHistory
+      ? structuredClone(data.relationshipHistory)
+      : undefined,
   };
 }
 
