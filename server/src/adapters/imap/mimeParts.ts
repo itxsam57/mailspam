@@ -346,21 +346,25 @@ async function decodeFetchedBinaryPart(
   return Buffer.from(attachment.content);
 }
 
+function assertCompleteFetchedBinaryPart(rawPart: Buffer, expectedBytes: number | null): void {
+  if (expectedBytes !== null && rawPart.length < expectedBytes) {
+    throw new Error("The provider returned fewer MIME-part bytes than declared by BODYSTRUCTURE.");
+  }
+}
+
 /** Decode one bounded PNG/JPEG IMAP body part without retaining it afterward. */
 export async function decodeFetchedQrImagePart(rawPart: Buffer, part: QrImagePart): Promise<Buffer> {
+  assertCompleteFetchedBinaryPart(rawPart, part.sizeBytes);
   return decodeFetchedBinaryPart(rawPart, part);
 }
 
 /**
  * Decode one bounded generic IMAP attachment part for local exact hashing.
- * BODYSTRUCTURE provides the expected transfer-encoded body octet count. A
- * shorter provider response is incomplete and must never be converted into a
- * valid exact hash of only the returned prefix.
+ * BODYSTRUCTURE provides the expected body octet count. A shorter provider
+ * response is incomplete and must never become a valid hash of only a prefix.
  */
 export async function decodeFetchedAttachmentPart(rawPart: Buffer, part: HashableAttachmentPart): Promise<Buffer> {
-  if (part.sizeBytes !== null && rawPart.length < part.sizeBytes) {
-    throw new Error("The provider returned fewer attachment-part bytes than declared by BODYSTRUCTURE.");
-  }
+  assertCompleteFetchedBinaryPart(rawPart, part.sizeBytes);
   return decodeFetchedBinaryPart(rawPart, part);
 }
 
