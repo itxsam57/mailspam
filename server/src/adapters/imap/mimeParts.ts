@@ -73,10 +73,11 @@ function attachmentInfo(node: ImapBodyNode): AttachmentInfo | null {
   const explicitName =
     parameterText(node.dispositionParameters?.filename) ??
     parameterText(node.parameters?.name);
-  const isAttachment =
+  const isAttachment = topType !== "multipart" && (
     disposition === "attachment" ||
-    (disposition === "inline" && Boolean(explicitName)) ||
-    (topType !== "text" && topType !== "multipart");
+    topType !== "text" ||
+    (disposition === "inline" && Boolean(explicitName))
+  );
 
   if (!isAttachment) return null;
 
@@ -158,14 +159,13 @@ export function inspectBodyStructure(root: ImapBodyNode | null | undefined): Rea
   const qrImages: QrImagePart[] = [];
 
   const visit = (node: ImapBodyNode, insideAttachment: boolean, isRoot: boolean) => {
-    const disposition = (node.disposition ?? "").toLowerCase();
-    const branchIsAttachment = insideAttachment || disposition === "attachment";
+    const attachment = attachmentInfo(node);
+    const branchIsAttachment = insideAttachment || attachment !== null;
     const candidate = !branchIsAttachment ? readablePart(node, isRoot) : null;
 
     if (candidate?.contentType === "text/plain" && !selected.plain) selected.plain = candidate;
     if (candidate?.contentType === "text/html" && !selected.html) selected.html = candidate;
 
-    const attachment = attachmentInfo(node);
     if (attachment) {
       const attachmentIndex = attachments.length;
       attachments.push(attachment);
