@@ -6,6 +6,8 @@ import { quickScan } from "../../server/src/workflows/scanWorkflows.js";
 import { publicScanProgress } from "../../server/src/api/scanStream.js";
 
 const ACCOUNT_KEY = "c".repeat(64);
+const PRIVATE_PARENT_ID = "<private-parent@example.com>";
+const PRIVATE_ROOT_ID = "<private-root@example.com>";
 
 function message(): FixtureMessage {
   return {
@@ -17,6 +19,8 @@ function message(): FixtureMessage {
       "To: user@example.com",
       "Subject: Routine relationship update",
       "Message-ID: <relationship-message-1@example.com>",
+      `In-Reply-To: ${PRIVATE_PARENT_ID}`,
+      `References: ${PRIVATE_ROOT_ID} ${PRIVATE_PARENT_ID}`,
       "Date: Tue, 4 Aug 2026 10:00:00 +0000",
       "Authentication-Results: mx.example; dkim=pass; spf=pass; dmarc=pass",
       "Content-Type: text/plain; charset=utf-8",
@@ -47,7 +51,7 @@ async function run(repository: InMemoryRelationshipHistoryRepository) {
 }
 
 describe("relationship-aware scan workflow", () => {
-  it("emits HMAC-only server observations and does not expose them through public scan progress", async () => {
+  it("emits HMAC-only server observations and does not expose them or raw thread references through public scan progress", async () => {
     const repository = new InMemoryRelationshipHistoryRepository(Buffer.alloc(32, 14));
     const events = await run(repository);
     const progress = events.at(-1)!;
@@ -56,6 +60,8 @@ describe("relationship-aware scan workflow", () => {
     const serializedObservation = JSON.stringify(progress.relationshipObservations[0]);
     expect(serializedObservation).not.toContain("relationship.sender@example.com");
     expect(serializedObservation).not.toContain("relationship-message-1@example.com");
+    expect(serializedObservation).not.toContain(PRIVATE_PARENT_ID);
+    expect(serializedObservation).not.toContain(PRIVATE_ROOT_ID);
     expect(progress.relationshipObservations[0]?.senderKey).toMatch(/^[a-f0-9]{64}$/);
     expect(progress.relationshipObservations[0]?.messageKey).toMatch(/^[a-f0-9]{64}$/);
 
@@ -64,6 +70,9 @@ describe("relationship-aware scan workflow", () => {
     expect(browserJson).not.toContain("relationshipObservations");
     expect(browserJson).not.toContain(progress.relationshipObservations[0]!.senderKey);
     expect(browserJson).not.toContain(progress.relationshipObservations[0]!.messageKey);
+    expect(browserJson).not.toContain("pendingThreadReferences");
+    expect(browserJson).not.toContain(PRIVATE_PARENT_ID);
+    expect(browserJson).not.toContain(PRIVATE_ROOT_ID);
   });
 
   it("does not emit a second observation for a message already committed to relationship history", async () => {
