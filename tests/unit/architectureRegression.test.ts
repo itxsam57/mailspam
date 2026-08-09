@@ -167,6 +167,7 @@ describe("transport architecture regressions", () => {
     const imap = read("server/src/adapters/imap/imapAdapter.ts");
     const mime = read("server/src/adapters/imap/mimeParts.ts");
     const hashing = read("server/src/util/attachmentHash.ts");
+    const normalizer = read("server/src/util/mimeNormalize.ts");
     expect(imap).not.toContain("source: true");
     expect(imap).not.toContain("MAX_MESSAGE_PREFIX_BYTES");
     expect(imap).toContain("bodyStructure: true");
@@ -185,11 +186,14 @@ describe("transport architecture regressions", () => {
     expect(imap).not.toContain("downloadMany");
     expect(mime).toContain('isRoot && !node.childNodes?.length ? "TEXT"');
     expect(mime).toContain("decodeFetchedAttachmentPart");
+    expect(mime).toContain("rawPart.length < part.sizeBytes");
     expect(mime).toContain("hashableAttachments");
     expect(mime).toContain("plainBody");
     expect(mime).toContain("htmlBody");
     expect(hashing).toContain("MAX_ATTACHMENT_HASH_BYTES = 2 * 1024 * 1024");
     expect(hashing).toContain("MAX_ATTACHMENT_HASHES_PER_MESSAGE = 4");
+    expect(normalizer).toContain("index < MAX_ATTACHMENT_HASHES_PER_MESSAGE");
+    expect(normalizer).toContain("content.length <= MAX_ATTACHMENT_HASH_BYTES");
   });
 
   it("completes metadata fetches before issuing bounded text-part fetches", () => {
