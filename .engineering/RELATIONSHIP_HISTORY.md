@@ -106,7 +106,7 @@ Current hard bounds are:
 - maximum 8 Reply-To fingerprints per relationship profile;
 - maximum encrypted relationship-history database size 32 MiB.
 
-Pruning favors the most recently locally observed profiles/message fingerprints. Raising these limits requires storage/privacy review.
+Relationship profiles are bounded to the most recently observed profiles. The exact message replay index is different: old replay fingerprints are never rotated or evicted merely to admit newer messages, because doing so would allow a later Full scan to count old mailbox messages again. Once the 100,000-message replay index reaches capacity, Email Shield conservatively stops learning new relationship observations for that account until a future reviewed retention design can preserve exact replay safety. Saturation therefore makes history stale rather than corrupting relationship counts or manufacturing trust. Raising, compacting or replacing these limits requires explicit storage/privacy and replay-safety review.
 
 ## Regression requirements
 
@@ -118,6 +118,7 @@ The engineering gate must continue proving:
 - fail-closed missing-key behavior;
 - memory-only unsupported fresh-platform behavior;
 - duplicate message observations count once;
+- replay-index saturation freezes new learning instead of evicting old fingerprints and double-counting later scans;
 - established history never disables canonical first-contact semantics;
 - explicit authentication downgrade and stable Reply-To changes create positive relationship evidence;
 - suspicious historical patterns add risk rather than trust;
