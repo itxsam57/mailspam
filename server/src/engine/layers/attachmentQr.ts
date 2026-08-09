@@ -54,13 +54,23 @@ const ARCHIVE_MEDIA_TYPES = new Set([
   "application/x-iso9660-image",
 ]);
 
-const BIDI_FILENAME_CONTROL = /[\u202a-\u202e\u2066-\u2069]/u;
+const BIDI_FILENAME_CONTROL = /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u;
+const BIDI_FILENAME_CONTROLS = /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/gu;
+const EVIDENCE_FILENAME_MAX_CHARS = 256;
 
 function normalizedFilename(name: string): string {
   return name
     .normalize("NFKC")
-    .replace(/[\u202a-\u202e\u2066-\u2069]/gu, "")
+    .replace(BIDI_FILENAME_CONTROLS, "")
     .trim();
+}
+
+function evidenceFilename(name: string): string {
+  const safe = normalizedFilename(name)
+    .replace(/[\u0000-\u001f\u007f]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return (safe || "unnamed").slice(0, EVIDENCE_FILENAME_MAX_CHARS);
 }
 
 function extOf(name: string): string {
@@ -86,6 +96,7 @@ export function attachmentQrLayer(envelope: CanonicalEnvelope): LayerResult {
   for (const att of envelope.attachments) {
     const ext = extOf(att.name) || att.extension?.trim().toLowerCase() || "";
     const mediaType = mediaTypeOf(att.mimeType);
+    const displayName = evidenceFilename(att.name);
     const dangerousExtension = DANGEROUS_EXTENSIONS.has(ext);
     const macroExtension = MACRO_ENABLED_EXTENSIONS.has(ext);
     const archiveExtension = ARCHIVE_EXTENSIONS.has(ext);
@@ -94,7 +105,7 @@ export function attachmentQrLayer(envelope: CanonicalEnvelope): LayerResult {
       evidence.push({
         layer: "attachment_qr",
         code: "DANGEROUS_EXECUTABLE_ATTACHMENT",
-        description: `Attachment "${att.name}" has a directly executable extension (.${ext}).`,
+        description: `Attachment "${displayName}" has a directly executable extension (.${ext}).`,
         scoreContribution: 6,
         source: "local",
       });
@@ -102,7 +113,7 @@ export function attachmentQrLayer(envelope: CanonicalEnvelope): LayerResult {
       evidence.push({
         layer: "attachment_qr",
         code: "DANGEROUS_ATTACHMENT_MEDIA_TYPE",
-        description: `Attachment "${att.name}" is declared as executable or active content (${mediaType}) despite lacking a recognized executable extension.`,
+        description: `Attachment "${displayName}" is declared as executable or active content (${mediaType}) despite lacking a recognized executable extension.`,
         scoreContribution: 6,
         source: "local",
       });
@@ -112,7 +123,7 @@ export function attachmentQrLayer(envelope: CanonicalEnvelope): LayerResult {
       evidence.push({
         layer: "attachment_qr",
         code: "MACRO_ENABLED_DOCUMENT",
-        description: `Attachment "${att.name}" is a macro-enabled Office document (.${ext}).`,
+        description: `Attachment "${displayName}" is a macro-enabled Office document (.${ext}).`,
         scoreContribution: 4,
         source: "local",
       });
@@ -120,7 +131,7 @@ export function attachmentQrLayer(envelope: CanonicalEnvelope): LayerResult {
       evidence.push({
         layer: "attachment_qr",
         code: "MACRO_ENABLED_MEDIA_TYPE",
-        description: `Attachment "${att.name}" is declared as a macro-enabled Office document (${mediaType}) despite lacking a recognized macro-enabled extension.`,
+        description: `Attachment "${displayName}" is declared as a macro-enabled Office document (${mediaType}) despite lacking a recognized macro-enabled extension.`,
         scoreContribution: 4,
         source: "local",
       });
@@ -130,7 +141,7 @@ export function attachmentQrLayer(envelope: CanonicalEnvelope): LayerResult {
       evidence.push({
         layer: "attachment_qr",
         code: "ARCHIVE_ATTACHMENT",
-        description: `Attachment "${att.name}" is an archive (.${ext}); contents were not extracted for scanning (spec: bounded local rules only).`,
+        description: `Attachment "${displayName}" is an archive (.${ext}); contents were not extracted for scanning (spec: bounded local rules only).`,
         scoreContribution: 1,
         source: "local",
       });
@@ -138,7 +149,7 @@ export function attachmentQrLayer(envelope: CanonicalEnvelope): LayerResult {
       evidence.push({
         layer: "attachment_qr",
         code: "ARCHIVE_MEDIA_TYPE",
-        description: `Attachment "${att.name}" is declared as an archive (${mediaType}); contents were not extracted for scanning.`,
+        description: `Attachment "${displayName}" is declared as an archive (${mediaType}); contents were not extracted for scanning.`,
         scoreContribution: 1,
         source: "local",
       });
@@ -148,7 +159,7 @@ export function attachmentQrLayer(envelope: CanonicalEnvelope): LayerResult {
       evidence.push({
         layer: "attachment_qr",
         code: "BIDI_FILENAME_DISGUISE",
-        description: `Attachment "${att.name}" contains bidirectional filename controls that can obscure the displayed extension.`,
+        description: `Attachment "${displayName}" contains bidirectional filename controls that can obscure the displayed extension.`,
         scoreContribution: 4,
         source: "local",
       });
@@ -158,7 +169,7 @@ export function attachmentQrLayer(envelope: CanonicalEnvelope): LayerResult {
       evidence.push({
         layer: "attachment_qr",
         code: "DOUBLE_EXTENSION_DISGUISE",
-        description: `Attachment "${att.name}" uses a disguised double-extension pattern.`,
+        description: `Attachment "${displayName}" uses a disguised double-extension pattern.`,
         scoreContribution: 5,
         source: "local",
       });
