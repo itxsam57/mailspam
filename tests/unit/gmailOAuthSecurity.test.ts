@@ -57,6 +57,16 @@ function mockSession(id: string, label: string): AccountSession {
   return { id, label } as AccountSession;
 }
 
+function callbackParts(started: { authorizationUrl: string }) {
+  const auth = new URL(started.authorizationUrl);
+  return {
+    auth,
+    redirect: auth.searchParams.get("redirect_uri")!,
+    state: auth.searchParams.get("state")!,
+    nonce: auth.searchParams.get("nonce")!,
+  };
+}
+
 describe("guided Gmail OAuth security", () => {
   it("generates a high-entropy S256 PKCE verifier/challenge pair", () => {
     const first = createPkcePair();
@@ -144,16 +154,33 @@ describe("guided Gmail OAuth security", () => {
     });
     managers.push(manager);
     const started = await manager.start();
-    const auth = new URL(started.authorizationUrl);
-    const redirect = auth.searchParams.get("redirect_uri")!;
+    const { redirect, state } = callbackParts(started);
 
     const wrong = await fetch(`${redirect}/?state=wrong&error=access_denied`);
     expect(wrong.status).toBe(400);
     expect(manager.status(started.flowId)).toEqual({ status: "pending" });
 
-    const denied = await fetch(`${redirect}/?state=${encodeURIComponent(auth.searchParams.get("state")!)}&error=access_denied`);
+    const denied = await fetch(`${redirect}/?state=${encodeURIComponent(state)}&error=access_denied`);
     expect(denied.status).toBe(400);
     expect(manager.status(started.flowId)).toEqual({ status: "error", error: "Google access was not granted." });
+  });
+
+  it("rejects non-GET and non-root loopback callback requests without consuming the OAuth flow", async () => {
+    const manager = new GoogleOAuthFlowManager({
+      clientId: "desktop-client.apps.googleusercontent.com",
+      sessionStore: unusedSessionStore(),
+    });
+    managers.push(manager);
+    const started = await manager.start();
+    const { redirect, state } = callbackParts(started);
+
+    const post = await fetch(`${redirect}/?state=${encodeURIComponent(state)}&error=access_denied`, { method: "POST" });
+    expect(post.status).toBe(405);
+    expect(manager.status(started.flowId)).toEqual({ status: "pending" });
+
+    const wrongPath = await fetch(`${redirect}/unexpected?state=${encodeURIComponent(state)}&error=access_denied`);
+    expect(wrongPath.status).toBe(404);
+    expect(manager.status(started.flowId)).toEqual({ status: "pending" });
   });
 
   it("completes the full callback path once and exposes no authorization secrets to the dashboard", async () => {
@@ -188,8 +215,14 @@ describe("guided Gmail OAuth security", () => {
       },
     };
     const sessionStore = {
-      async createSecured(provider: string, label: string, config: AdapterConfig) {
+      async createSecuredValidated(
+        provider: string,
+        label: string,
+        config: AdapterConfig,
+        validateProvider: () => Promise<void>,
+      ) {
         expect(provider).toBe("gmail");
+        await validateProvider();
         createdConfig = structuredClone(config);
         return mockSession("gmail-session-1", label);
       },
@@ -203,10 +236,8 @@ describe("guided Gmail OAuth security", () => {
     managers.push(manager);
 
     const started = await manager.start();
-    const auth = new URL(started.authorizationUrl);
-    const redirect = auth.searchParams.get("redirect_uri")!;
-    const state = auth.searchParams.get("state")!;
-    expectedNonce = auth.searchParams.get("nonce")!;
+    const { redirect, state, nonce } = callbackParts(started);
+    expectedNonce = nonce;
 
     const response = await fetch(`${redirect}/?state=${encodeURIComponent(state)}&code=${encodeURIComponent(authorizationCode)}`);
     const callbackBody = await response.text();
@@ -265,7 +296,8 @@ describe("guided Gmail OAuth security", () => {
       },
     };
     const sessionStore = {
-      async createSecured(_provider: string, label: string) {
+      async createSecuredValidated(_provider: string, label: string, _config: AdapterConfig, validateProvider: () => Promise<void>) {
+        await validateProvider();
         return mockSession("replay-session", label);
       },
     } as unknown as SessionStore;
@@ -278,10 +310,8 @@ describe("guided Gmail OAuth security", () => {
     managers.push(manager);
 
     const started = await manager.start();
-    const auth = new URL(started.authorizationUrl);
-    const redirect = auth.searchParams.get("redirect_uri")!;
-    const state = auth.searchParams.get("state")!;
-    expectedNonce = auth.searchParams.get("nonce")!;
+    const { redirect, state, nonce } = callbackParts(started);
+    expectedNonce = nonce;
     const callbackUrl = `${redirect}/?state=${encodeURIComponent(state)}&code=replay-code`;
 
     const first = fetch(callbackUrl);
@@ -300,7 +330,7 @@ describe("guided Gmail OAuth security", () => {
     let createCalls = 0;
     let validationCalls = 0;
     const sessionStore = {
-      async createSecured() { createCalls += 1; throw new Error("must not be reached"); },
+      async createSecuredValidated() { createCalls += 1; throw new Error("must not be reached"); },
     } as unknown as SessionStore;
     const runtime: GoogleOAuthRuntime = {
       async exchangeAuthorizationCode(input) {
@@ -329,9 +359,7 @@ describe("guided Gmail OAuth security", () => {
     });
     managers.push(manager);
     const started = await manager.start();
-    const auth = new URL(started.authorizationUrl);
-    const redirect = auth.searchParams.get("redirect_uri")!;
-    const state = auth.searchParams.get("state")!;
+    const { redirect, state } = callbackParts(started);
 
     const response = await fetch(`${redirect}/?state=${encodeURIComponent(state)}&code=authorization-code`);
     expect(response.status).toBe(502);
