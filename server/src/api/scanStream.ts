@@ -377,6 +377,11 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
           return;
         }
 
+        // A detached dashboard has no consumer for browser action tokens. Keep
+        // the Worker and protected checkpoint advancing, but do not accumulate
+        // thousands of unusable review/unsubscribe tokens after a page refresh.
+        if (res.writableEnded || res.destroyed) return;
+
         const actionsByNativeId = new Map<string, ReturnType<typeof registerPublicActions>>();
         for (const summary of progress.diagnosticSummaries ?? []) {
           const context = summary.actionContext as ScanActionContext | undefined;
@@ -401,14 +406,13 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
           };
         }
 
-        if (!res.writableEnded && !res.destroyed) {
-          res.write(`data: ${JSON.stringify(publicScanProgress(progress))}\n\n`);
-        }
+        res.write(`data: ${JSON.stringify(publicScanProgress(progress))}\n\n`);
       } else if (message.type === "complete") {
         terminalEventSent = true;
         record.status = "completed";
-        record.completedAt = Date.now();
-        record.updatedAt = record.completedAt;
+        const completedAt = Date.now();
+        record.completedAt = completedAt;
+        record.updatedAt = completedAt;
         record.checkpoint = null;
         if (!saveRecord()) {
           writeEvent("scan-error", {
