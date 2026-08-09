@@ -75,8 +75,9 @@ describe("Linux Secret Service vault", () => {
 
     expect(source).toContain('"store",');
     expect(source).toContain("stdin: request.secret");
-    expect(source).not.toContain("request.secret,");
     expect(source).not.toContain("args: [request.secret");
+    expect(source).not.toContain('"credential", request.secret');
+    expect(source).not.toContain('`--label=${request.secret}`');
     expect(runner).toContain("shell: false");
     expect(runner).toContain("child.stderr.resume()");
   });
