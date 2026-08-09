@@ -7,13 +7,14 @@ function source(path: string): string {
 }
 
 describe("QR decoder architecture", () => {
-  it("keeps image bytes outside the canonical message and browser contracts", () => {
+  it("keeps raw image content outside the canonical message and browser contracts", () => {
     const envelope = source("src/canonical/envelope.ts");
     const qrDecoder = source("src/util/qrDecode.ts");
     const mimeNormalizer = source("src/util/mimeNormalize.ts");
 
     const attachmentInterface = envelope.match(/export interface AttachmentInfo \{([\s\S]*?)\n\}/)?.[1] ?? "";
-    expect(attachmentInterface).not.toMatch(/content|bytes|buffer|base64/i);
+    expect(attachmentInterface).not.toMatch(/\b(content|buffer|base64|rawImage|imageData)\b/i);
+    expect(attachmentInterface).toContain("sizeBytes: number");
     expect(envelope).toContain('source?: "body" | "qr"');
     expect(qrDecoder).toContain("MAX_QR_IMAGE_BYTES");
     expect(qrDecoder).toContain("MAX_QR_IMAGE_PIXELS");
