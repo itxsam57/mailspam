@@ -13,6 +13,7 @@ const FLOW_TTL_MS = 5 * 60 * 1_000;
 const TERMINAL_RETENTION_MS = 5 * 60 * 1_000;
 const MAX_ACTIVE_FLOWS = 4;
 const MAX_CALLBACK_URL_LENGTH = 8_192;
+const MAX_TOKEN_RESPONSE_BYTES = 64 * 1024;
 
 export interface GoogleOAuthIdentity {
   sub: string;
@@ -114,6 +115,32 @@ function callbackHtml(success: boolean, message: string): string {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Email Shield Google authorization</title></head><body><main><h1>${success ? "Google connected" : "Google connection failed"}</h1><p>${safeMessage}</p><p>You can close this tab and return to Email Shield.</p></main></body></html>`;
 }
 
+async function readBoundedText(response: Response, maximumBytes: number): Promise<string> {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > maximumBytes) throw new Error("Google token response was oversized.");
+      chunks.push(value);
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+  const combined = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(combined);
+}
+
 export class DefaultGoogleOAuthRuntime implements GoogleOAuthRuntime {
   async exchangeAuthorizationCode(input: {
     clientId: string;
@@ -135,8 +162,7 @@ export class DefaultGoogleOAuthRuntime implements GoogleOAuthRuntime {
       redirect: "error",
       signal: AbortSignal.timeout(20_000),
     });
-    const raw = await response.text();
-    if (raw.length > 64 * 1024) throw new Error("Google token response was oversized.");
+    const raw = await readBoundedText(response, MAX_TOKEN_RESPONSE_BYTES);
     let payload: Record<string, unknown> = {};
     try { payload = JSON.parse(raw) as Record<string, unknown>; } catch {}
     if (!response.ok) throw new Error("Google authorization-code exchange failed.");
@@ -263,7 +289,13 @@ export class GoogleOAuthFlowManager {
     this.flows.set(flowId, flow);
 
     server.on("request", (request, response) => {
-      void this.handleCallback(flow, request.url ?? "/", request.headers.host ?? "", response);
+      void this.handleCallback(
+        flow,
+        request.method ?? "",
+        request.url ?? "/",
+        request.headers.host ?? "",
+        response,
+      );
     });
 
     return {
@@ -302,6 +334,7 @@ export class GoogleOAuthFlowManager {
 
   private async handleCallback(
     flow: PendingFlow,
+    method: string,
     rawUrl: string,
     host: string,
     response: import("node:http").ServerResponse,
@@ -310,6 +343,11 @@ export class GoogleOAuthFlowManager {
     if (host !== expectedHost) {
       response.writeHead(421, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
       response.end("Misdirected request");
+      return;
+    }
+    if (method !== "GET") {
+      response.writeHead(405, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", Allow: "GET" });
+      response.end("Method not allowed");
       return;
     }
     if (rawUrl.length > MAX_CALLBACK_URL_LENGTH) {
@@ -330,6 +368,12 @@ export class GoogleOAuthFlowManager {
       response.end("Invalid callback URL");
       return;
     }
+    if (callback.pathname !== "/") {
+      response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
+      response.end("Not found");
+      return;
+    }
+
     const returnedState = callback.searchParams.get("state") ?? "";
     if (!returnedState || !constantTimeEqual(returnedState, flow.state)) {
       response.writeHead(400, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
@@ -375,11 +419,15 @@ export class GoogleOAuthFlowManager {
           accountSubject: identity.sub,
         },
       };
-
-      await (this.options.validateProvider ?? validateGmailProvider)(config);
-
       const label = identity.emailVerified && identity.email ? identity.email : "Gmail";
-      const session = await this.options.sessionStore.createSecured("gmail", label, config);
+      const validateProvider = this.options.validateProvider ?? validateGmailProvider;
+      const session = await this.options.sessionStore.createSecuredValidated(
+        "gmail",
+        label,
+        config,
+        () => validateProvider(config),
+      );
+
       flow.status = {
         status: "complete",
         accountId: session.id,
