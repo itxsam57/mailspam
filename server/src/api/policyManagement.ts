@@ -156,7 +156,8 @@ function categoryFromUnknown(value: unknown): PersonalPolicyCategory {
   return value as PersonalPolicyCategory;
 }
 
-function removeOne(snapshot: PersonalPolicySnapshot, category: PersonalPolicyCategory, value: string): void {
+function removeOne(snapshot: PersonalPolicySnapshot, category: PersonalPolicyCategory, value: string): number {
+  const before = snapshot[category].length;
   switch (category) {
     case "blockedSenders": snapshot.blockedSenders = snapshot.blockedSenders.filter((item) => item !== value); break;
     case "blockedDomains": snapshot.blockedDomains = snapshot.blockedDomains.filter((item) => item !== value); break;
@@ -165,6 +166,7 @@ function removeOne(snapshot: PersonalPolicySnapshot, category: PersonalPolicyCat
     case "unsubscribedActions": snapshot.unsubscribedActions = snapshot.unsubscribedActions.filter((item) => item !== value); break;
     case "reportedCampaigns": snapshot.reportedCampaigns = snapshot.reportedCampaigns.filter((item) => item !== value); break;
   }
+  return before - snapshot[category].length;
 }
 
 function noStore(res: Response): void {
@@ -205,6 +207,22 @@ function persistReplacement(
   sessionStore.clearScanActions(session);
 }
 
+function saveOrFail(
+  res: Response,
+  session: NonNullable<ReturnType<typeof sessionStore.get>>,
+  replacement: PersonalPolicySnapshot,
+  label: string,
+): boolean {
+  try {
+    persistReplacement(session, replacement);
+    return true;
+  } catch (error) {
+    noStore(res);
+    res.status(500).json({ error: `${label} was not saved: ${errorMessage(error)}` });
+    return false;
+  }
+}
+
 export function registerPolicyManagementRoutes(app: Express): void {
   app.get("/api/accounts/:id/personal-policy/export", (req: Request, res: Response) => {
     const session = accountSession(req, res);
@@ -222,47 +240,63 @@ export function registerPolicyManagementRoutes(app: Express): void {
   app.post("/api/accounts/:id/personal-policy/import", (req: Request, res: Response) => {
     const session = accountSession(req, res);
     if (!session) return;
-    const body = requireObject(req.body, "Policy import request");
-    if (!sameKeys(ownKeys(body), ["mode", "document"])) {
-      return res.status(400).json({ error: "Policy import request contains missing or unsupported fields." });
-    }
-    if (body.mode !== "merge" && body.mode !== "replace") {
-      return res.status(400).json({ error: "Policy import mode must be merge or replace." });
-    }
 
+    let mode: "merge" | "replace";
+    let replacement: PersonalPolicySnapshot;
     try {
+      const body = requireObject(req.body, "Policy import request");
+      if (!sameKeys(ownKeys(body), ["mode", "document"])) {
+        throw new Error("Policy import request contains missing or unsupported fields.");
+      }
+      if (body.mode !== "merge" && body.mode !== "replace") {
+        throw new Error("Policy import mode must be merge or replace.");
+      }
+      mode = body.mode;
       const imported = parsePersonalPolicyImportDocument(body.document);
-      const replacement = body.mode === "merge"
+      replacement = mode === "merge"
         ? mergePersonalPolicySnapshots(session.personalPolicy.snapshot(), imported)
         : imported;
-      persistReplacement(session, replacement);
-      noStore(res);
-      res.json({ ...mutationResponse(session), mode: body.mode });
     } catch (error) {
-      res.status(400).json({ error: `Policy import was rejected: ${errorMessage(error)}` });
+      noStore(res);
+      return res.status(400).json({ error: `Policy import was rejected: ${errorMessage(error)}` });
     }
+
+    if (!saveOrFail(res, session, replacement, "Policy import")) return;
+    noStore(res);
+    res.json({ ...mutationResponse(session), mode });
   });
 
   app.post("/api/accounts/:id/personal-policy/revoke", (req: Request, res: Response) => {
     const session = accountSession(req, res);
     if (!session) return;
+
+    let category: PersonalPolicyCategory;
+    let value: string;
+    let replacement: PersonalPolicySnapshot;
+    let revoked: number;
     try {
       const body = requireObject(req.body, "Policy revoke request");
       if (!sameKeys(ownKeys(body), ["category", "value"])) throw new Error("Policy revoke request contains missing or unsupported fields.");
-      const category = categoryFromUnknown(body.category);
-      const value = normalizePersonalPolicyValue(category, body.value);
-      const replacement = session.personalPolicy.snapshot();
-      removeOne(replacement, category, value);
-      persistReplacement(session, replacement);
-      res.json({ ...mutationResponse(session), revoked: 1, category, value });
+      category = categoryFromUnknown(body.category);
+      value = normalizePersonalPolicyValue(category, body.value);
+      replacement = session.personalPolicy.snapshot();
+      revoked = removeOne(replacement, category, value);
     } catch (error) {
-      res.status(400).json({ error: errorMessage(error) });
+      noStore(res);
+      return res.status(400).json({ error: errorMessage(error) });
     }
+
+    if (!saveOrFail(res, session, replacement, "Policy revoke")) return;
+    noStore(res);
+    res.json({ ...mutationResponse(session), revoked, category, value });
   });
 
   app.post("/api/accounts/:id/personal-policy/bulk-revoke", (req: Request, res: Response) => {
     const session = accountSession(req, res);
     if (!session) return;
+
+    let replacement: PersonalPolicySnapshot;
+    let revoked = 0;
     try {
       const body = requireObject(req.body, "Bulk policy revoke request");
       if (!sameKeys(ownKeys(body), ["items"]) || !Array.isArray(body.items)) {
@@ -281,52 +315,70 @@ export function registerPolicyManagementRoutes(app: Express): void {
         normalized.set(`${category}\0${value}`, { category, value });
       }
 
-      const replacement = session.personalPolicy.snapshot();
-      for (const item of normalized.values()) removeOne(replacement, item.category, item.value);
-      persistReplacement(session, replacement);
-      res.json({ ...mutationResponse(session), revoked: normalized.size });
+      replacement = session.personalPolicy.snapshot();
+      for (const item of normalized.values()) revoked += removeOne(replacement, item.category, item.value);
     } catch (error) {
-      res.status(400).json({ error: errorMessage(error) });
+      noStore(res);
+      return res.status(400).json({ error: errorMessage(error) });
     }
+
+    if (!saveOrFail(res, session, replacement, "Bulk policy revoke")) return;
+    noStore(res);
+    res.json({ ...mutationResponse(session), revoked });
   });
 
   app.post("/api/accounts/:id/personal-policy/clear-category", (req: Request, res: Response) => {
     const session = accountSession(req, res);
     if (!session) return;
+
+    let category: PersonalPolicyCategory;
+    let replacement: PersonalPolicySnapshot;
+    let removed: number;
     try {
       const body = requireObject(req.body, "Policy category clear request");
       if (!sameKeys(ownKeys(body), ["category", "confirmation"])) throw new Error("Policy category clear request contains missing or unsupported fields.");
-      const category = categoryFromUnknown(body.category);
+      category = categoryFromUnknown(body.category);
       if (body.confirmation !== category) throw new Error("Policy category clear confirmation did not match the selected category.");
-      const replacement = session.personalPolicy.snapshot();
+      replacement = session.personalPolicy.snapshot();
+      removed = replacement[category].length;
       replacement[category] = [];
-      persistReplacement(session, replacement);
-      res.json({ ...mutationResponse(session), clearedCategory: category });
     } catch (error) {
-      res.status(400).json({ error: errorMessage(error) });
+      noStore(res);
+      return res.status(400).json({ error: errorMessage(error) });
     }
+
+    if (!saveOrFail(res, session, replacement, "Policy category clear")) return;
+    noStore(res);
+    res.json({ ...mutationResponse(session), clearedCategory: category, removed });
   });
 
   app.post("/api/accounts/:id/personal-policy/reset", (req: Request, res: Response) => {
     const session = accountSession(req, res);
     if (!session) return;
+
+    let removed = 0;
     try {
       const body = requireObject(req.body, "Policy reset request");
       if (!sameKeys(ownKeys(body), ["confirmation"]) || body.confirmation !== PERSONAL_POLICY_RESET_CONFIRMATION) {
         throw new Error(`Reset requires the exact confirmation phrase: ${PERSONAL_POLICY_RESET_CONFIRMATION}`);
       }
-      const replacement: PersonalPolicySnapshot = {
-        blockedSenders: [],
-        blockedDomains: [],
-        trustedSenders: [],
-        approvedExceptions: [],
-        unsubscribedActions: [],
-        reportedCampaigns: [],
-      };
-      persistReplacement(session, replacement);
-      res.json({ ...mutationResponse(session), reset: true });
+      const current = session.personalPolicy.snapshot();
+      removed = PERSONAL_POLICY_CATEGORIES.reduce((sum, category) => sum + current[category].length, 0);
     } catch (error) {
-      res.status(400).json({ error: errorMessage(error) });
+      noStore(res);
+      return res.status(400).json({ error: errorMessage(error) });
     }
+
+    const replacement: PersonalPolicySnapshot = {
+      blockedSenders: [],
+      blockedDomains: [],
+      trustedSenders: [],
+      approvedExceptions: [],
+      unsubscribedActions: [],
+      reportedCampaigns: [],
+    };
+    if (!saveOrFail(res, session, replacement, "Policy reset")) return;
+    noStore(res);
+    res.json({ ...mutationResponse(session), reset: true, removed });
   });
 }
