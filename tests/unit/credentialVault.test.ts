@@ -136,11 +136,15 @@ describe("credential vault contract", () => {
     expect(source).toContain("child.stderr.resume()");
   });
 
-  it("uses the real Windows backend only on Windows", () => {
-    const linux = createCredentialVault("linux");
-    expect(linux.capabilities().available).toBe(false);
-    const darwin = createCredentialVault("darwin");
-    expect(darwin.capabilities().available).toBe(false);
+  it("selects native platform backends without a plaintext fallback", () => {
+    expect(createCredentialVault("win32").capabilities().backend).toBe("windows-credential-manager");
+    expect(createCredentialVault("darwin").capabilities().backend).toBe("macos-keychain");
+    expect(createCredentialVault("linux").capabilities().backend).toBe("linux-secret-service");
+    expect(createCredentialVault("aix").capabilities()).toMatchObject({
+      backend: "unsupported:aix",
+      available: false,
+      persistent: false,
+    });
   });
 });
 
