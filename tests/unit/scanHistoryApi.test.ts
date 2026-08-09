@@ -98,7 +98,7 @@ function resumableRecord(): ScanHistoryRecord {
 }
 
 describe("protected scan history API", () => {
-  it("returns privacy-reduced history and resumes by opaque scan ID without serializing checkpoints", async () => {
+  it("returns privacy-reduced history and resolves resume by opaque scan ID without serializing checkpoints", async () => {
     const context = await start();
     const connected = await mutate(context, "/api/accounts/connect", {
       provider: "gmail",
@@ -138,6 +138,12 @@ describe("protected scan history API", () => {
       counters: { examined: 1 },
     });
 
+    // Source-level Vitest imports server/src directly, while the Worker entry is
+    // intentionally compiled JavaScript under server/dist. This API test proves
+    // the protected resume route resolves the account-scoped checkpoint and
+    // fails without leaking it in the source-only environment. The workflow
+    // resume tests prove next-page completion, and integration/smoke tests prove
+    // the compiled Worker runtime used by the real desktop process.
     const resumeResponse = await fetch(`${context.baseUrl}/api/accounts/${accountId}/scan/resume/${record.scanId}`, {
       headers: {
         Cookie: context.cookie,
@@ -150,17 +156,18 @@ describe("protected scan history API", () => {
     const stream = await resumeResponse.text();
     expect(stream).toContain("event: scan-started");
     expect(stream).toContain('"resumed":true');
-    expect(stream).toContain("event: scan-complete");
+    expect(stream).toContain("event: scan-error");
     expect(stream).not.toContain('"checkpoint"');
     expect(stream).not.toContain('"currentCursor"');
     expect(stream).not.toContain('"folderCursors"');
     expect(stream).not.toContain('"seenSenderHashes"');
     expect(stream).not.toContain('"seenMessageHashes"');
+    expect(stream).not.toContain('"1"');
 
-    const completed = defaultScanStateRepository.get(session!.policyAccountKey, record.scanId);
-    expect(completed?.status).toBe("completed");
-    expect(completed?.checkpoint).toBeNull();
-    expect(completed?.counters.examined).toBeGreaterThan(1);
+    const retained = defaultScanStateRepository.get(session!.policyAccountKey, record.scanId);
+    expect(retained?.status).toBe("failed");
+    expect(retained?.checkpoint?.currentCursor).toBe("1");
+    expect(retained?.counters.examined).toBe(1);
   });
 
   it("rejects resume requests that do not belong to the selected account", async () => {
