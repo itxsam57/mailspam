@@ -186,7 +186,8 @@ describe("transport architecture regressions", () => {
     expect(imap).not.toContain("downloadMany");
     expect(mime).toContain('isRoot && !node.childNodes?.length ? "TEXT"');
     expect(mime).toContain("decodeFetchedAttachmentPart");
-    expect(mime).toContain("rawPart.length < part.sizeBytes");
+    expect(mime).toContain("assertCompleteFetchedBinaryPart");
+    expect(mime).toContain("rawPart.length < expectedBytes");
     expect(mime).toContain("hashableAttachments");
     expect(mime).toContain("plainBody");
     expect(mime).toContain("htmlBody");
