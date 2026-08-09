@@ -46,7 +46,7 @@ function safeCodePoint(value: number): string {
   return String.fromCodePoint(value);
 }
 
-/** Decode the entity forms that can materially change a destination or its visible label. */
+/** Decode entity forms that can materially alter a URL or a displayed-domain label. */
 export function decodeHtmlEntities(value: string): string {
   const numericDecoded = value
     .replace(/&#x([0-9a-f]{1,6});?/gi, (_match, hex: string) => safeCodePoint(Number.parseInt(hex, 16)))
@@ -55,19 +55,27 @@ export function decodeHtmlEntities(value: string): string {
   const named: Record<string, string> = {
     amp: "&",
     apos: "'",
+    bsol: "\\",
     colon: ":",
+    commat: "@",
     equals: "=",
     gt: ">",
     lt: "<",
     newline: "\n",
     nbsp: " ",
+    num: "#",
+    percnt: "%",
+    period: ".",
+    quest: "?",
     quot: '"',
+    semi: ";",
     sol: "/",
     tab: "\t",
   };
-  return numericDecoded.replace(/&(amp|apos|colon|equals|gt|lt|newline|nbsp|quot|sol|tab);/gi, (match, name: string) => (
-    named[name.toLowerCase()] ?? match
-  ));
+  return numericDecoded.replace(
+    /&(amp|apos|bsol|colon|commat|equals|gt|lt|newline|nbsp|num|percnt|period|quest|quot|semi|sol|tab);/gi,
+    (match, name: string) => named[name.toLowerCase()] ?? match,
+  );
 }
 
 function parseTag(html: string, start: number): ParsedTag | null {
@@ -129,6 +137,7 @@ function parseTag(html: string, start: number): ParsedTag | null {
 
 function scanTags(html: string): { tags: ParsedTag[]; tagLimitReached: boolean } {
   const tags: ParsedTag[] = [];
+  const lowerHtml = html.toLowerCase();
   let index = 0;
   while (index < html.length && tags.length < MAX_HTML_INTERACTION_TAGS) {
     const start = html.indexOf("<", index);
@@ -150,6 +159,14 @@ function scanTags(html: string): { tags: ParsedTag[]; tagLimitReached: boolean }
     }
     tags.push(tag);
     index = Math.max(start + 1, tag.end + 1);
+
+    // SCRIPT and STYLE are raw-text elements. Markup-looking strings inside
+    // them are inert text for this static email analysis and must not be
+    // reinterpreted as anchors/forms/redirects.
+    if (!tag.closing && (tag.name === "script" || tag.name === "style")) {
+      const closingStart = lowerHtml.indexOf(`</${tag.name}`, index);
+      index = closingStart < 0 ? html.length : closingStart;
+    }
   }
   return {
     tags,
@@ -232,6 +249,10 @@ function makeBodyLink(
   };
 }
 
+function limitReason(): string {
+  return `HTML interaction inspection was limited to ${MAX_HTML_INTERACTION_LINKS} destinations.`;
+}
+
 function appendLink(
   links: LinkInfo[],
   seen: Set<string>,
@@ -242,9 +263,7 @@ function appendLink(
   const key = `${link.interaction ?? "navigation"}\0${link.normalizedUrl || link.rawUrl}\0${link.visibleText ?? ""}`;
   if (seen.has(key)) return;
   if (links.length >= MAX_HTML_INTERACTION_LINKS) {
-    if (!incompleteReasons.includes(`HTML interaction inspection was limited to ${MAX_HTML_INTERACTION_LINKS} destinations.`)) {
-      incompleteReasons.push(`HTML interaction inspection was limited to ${MAX_HTML_INTERACTION_LINKS} destinations.`);
-    }
+    if (!incompleteReasons.includes(limitReason())) incompleteReasons.push(limitReason());
     return;
   }
   seen.add(key);
@@ -301,6 +320,7 @@ export function analyzeHtmlInteractions(
   const links: LinkInfo[] = [];
   const htmlHrefs: string[] = [];
   const seen = new Set<string>();
+  const seenHrefs = new Set<string>();
   let hasForm = false;
   let hasPasswordField = false;
 
@@ -316,7 +336,12 @@ export function analyzeHtmlInteractions(
       const href = tag.attrs.get("href");
       if (href?.trim()) {
         const normalizedUrl = normalizedDestination(href, baseHref);
-        htmlHrefs.push(href);
+        if (!seenHrefs.has(href) && htmlHrefs.length < MAX_HTML_INTERACTION_LINKS) {
+          seenHrefs.add(href);
+          htmlHrefs.push(href);
+        } else if (!seenHrefs.has(href) && !incompleteReasons.includes(limitReason())) {
+          incompleteReasons.push(limitReason());
+        }
         appendLink(
           links,
           seen,
