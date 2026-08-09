@@ -74,12 +74,12 @@ class SecureConfigAdapter implements EmailAdapter {
   async connect(signal: AbortSignal): Promise<void> {
     if (this.delegate) throw new Error("Provider adapter is already connected.");
     const runtimeConfig = await materializeAdapterConfig(this.secureConfig, this.credentialVault);
-    const outlookRotationSink: OutlookRefreshTokenSink | undefined =
-      this.secureConfig.provider === "outlook"
-        ? async (refreshToken) => {
-            await replaceSecureOutlookRefreshToken(this.secureConfig, this.credentialVault, refreshToken);
-          }
-        : undefined;
+    const secureOutlookConfig = this.secureConfig.provider === "outlook" ? this.secureConfig : null;
+    const outlookRotationSink: OutlookRefreshTokenSink | undefined = secureOutlookConfig
+      ? async (refreshToken) => {
+          await replaceSecureOutlookRefreshToken(secureOutlookConfig, this.credentialVault, refreshToken);
+        }
+      : undefined;
     const delegate = createRuntimeAdapter(runtimeConfig, outlookRotationSink);
     try {
       await delegate.connect(signal);
