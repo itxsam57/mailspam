@@ -114,6 +114,25 @@ describe("encrypted relationship history", () => {
     expect(repository.workerSnapshot(ACCOUNT_A).seenMessageKeys.size).toBe(1);
   });
 
+  it("freezes new learning at replay capacity instead of evicting old keys and double-counting on later scans", () => {
+    const repository = new InMemoryRelationshipHistoryRepository(
+      Buffer.alloc(32, 16),
+      { maxObservedMessages: 2, maxRelationships: 10 },
+    );
+    const sender = "capacity@example.com";
+    const first = observationFor(repository, ACCOUNT_A, { sender, message: "<capacity-1@example.com>", observedAt: 1 });
+    const second = observationFor(repository, ACCOUNT_A, { sender, message: "<capacity-2@example.com>", observedAt: 2 });
+    const third = observationFor(repository, ACCOUNT_A, { sender, message: "<capacity-3@example.com>", observedAt: 3 });
+
+    repository.merge(ACCOUNT_A, [first, second, third]);
+    expect(profileFor(repository, ACCOUNT_A, sender)?.messagesSeen).toBe(2);
+    expect(repository.workerSnapshot(ACCOUNT_A).seenMessageKeys.size).toBe(2);
+
+    repository.merge(ACCOUNT_A, [first, second, third]);
+    expect(profileFor(repository, ACCOUNT_A, sender)?.messagesSeen).toBe(2);
+    expect(repository.workerSnapshot(ACCOUNT_A).seenMessageKeys.size).toBe(2);
+  });
+
   it("encrypts history at rest without plaintext sender or raw message identity", () => {
     const directory = temporaryDirectory();
     const repository = new EncryptedFileRelationshipHistoryRepository(directory, Buffer.alloc(32, 9));
