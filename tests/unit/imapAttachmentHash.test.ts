@@ -169,13 +169,13 @@ describe("bounded IMAP attachment hash acquisition", () => {
     expect(result.incompleteReasons.join(" ")).toContain("first");
   });
 
-  it("reuses QR image bytes already fetched locally instead of downloading the attachment twice", async () => {
+  it("treats a named inline image as a canonical hashable attachment and reuses its already-fetched QR bytes", async () => {
     const content = Buffer.from("not-a-real-png-but-already-decoded-fixture", "utf8");
     const selection = inspectBodyStructure({
       part: "2",
       type: "image/png",
       size: content.length,
-      disposition: "attachment",
+      disposition: "inline",
       dispositionParameters: { filename: "code.png" },
     });
     const client = {
@@ -185,6 +185,11 @@ describe("bounded IMAP attachment hash acquisition", () => {
         _options?: Record<string, unknown>,
       ) => ({ bodyParts: new Map<string, Buffer>() })),
     };
+
+    expect(selection.attachments).toHaveLength(1);
+    expect(selection.hashableAttachments).toEqual([
+      expect.objectContaining({ part: "2", attachmentIndex: 0, name: "code.png", mimeType: "image/png" }),
+    ]);
 
     const result = await fetchBoundedAttachmentHashes(
       client,
