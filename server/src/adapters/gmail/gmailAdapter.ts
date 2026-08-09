@@ -11,10 +11,7 @@ import { normalizeRawMessage } from "../../util/mimeNormalize.js";
 
 export interface GmailOAuthCredentials {
   clientId: string;
-  /**
-   * Desktop OAuth clients are public clients and cannot keep a client secret.
-   * The field remains optional only for the legacy developer credential flow.
-   */
+  /** Matching Google OAuth client credential used by the guided OIDC flow. */
   clientSecret?: string;
   refreshToken: string;
   /** Stable Google Account subject (`sub`) for guided OAuth sessions. */
@@ -36,7 +33,8 @@ function normalizeLabelToFolder(labelId: string): NormalizedFolder {
 /**
  * Gmail adapter (spec Section 3): OAuth-based, uses Gmail API bounded concurrent
  * requests rather than fully serial per-message HTTP calls. Guided desktop OAuth
- * uses a public client with PKCE; no client secret is required at runtime.
+ * uses Authorization Code + PKCE and carries the matching Google client
+ * credentials into token refreshes while keeping them outside browser state.
  *
  * Email Shield currently requests gmail.modify for the guided desktop flow
  * because the existing product includes both mailbox reading and explicit
