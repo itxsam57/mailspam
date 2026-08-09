@@ -3,7 +3,6 @@ import type {
   CanonicalEnvelope,
   AuthenticationSignals,
   FromField,
-  LinkInfo,
   AttachmentInfo,
   NormalizedFolder,
   Provider,
@@ -14,6 +13,7 @@ import {
   MAX_ATTACHMENT_HASH_BYTES,
   MAX_ATTACHMENT_HASHES_PER_MESSAGE,
 } from "./attachmentHash.js";
+import { analyzeHtmlInteractions, MAX_HTML_INTERACTION_CHARS } from "./htmlInteraction.js";
 import { analyzeQrImages, isSupportedQrImageMimeType } from "./qrDecode.js";
 
 const TEXT_PREVIEW_MAX_CHARS = 4000;
@@ -108,65 +108,6 @@ function pendingThreadReferences(mail: ParsedMail): CanonicalEnvelope["threadCon
   return inReplyTo || references.length > 0 ? { inReplyTo, references } : undefined;
 }
 
-function urlCandidate(raw: string): string {
-  const trimmed = raw.trim();
-  if (/^www\./i.test(trimmed)) return `https://${trimmed}`;
-  if (/^\/\//.test(trimmed)) return `https:${trimmed}`;
-  return trimmed;
-}
-
-function extractLinks(mail: ParsedMail): LinkInfo[] {
-  const links: LinkInfo[] = [];
-  const html = mail.html || "";
-  const anchorRe = /<a\s+[^>]*href=["']([^"']+)["'][^>]*>(.*?)<\/a>/gis;
-  let match: RegExpExecArray | null;
-  while ((match = anchorRe.exec(html))) {
-    const rawUrl = urlCandidate(match[1]!);
-    const visibleText = match[2]!.replace(/<[^>]+>/g, "").replace(/&nbsp;/gi, " ").trim() || null;
-    let normalizedUrl = rawUrl;
-    try { normalizedUrl = new URL(rawUrl).toString(); }
-    catch { /* link_structure reports malformed values. */ }
-
-    links.push({
-      visibleText,
-      rawUrl,
-      normalizedUrl,
-      claimedBrand: null,
-      brandDomainMismatch: null,
-      source: "body",
-    });
-  }
-
-  if (!html && mail.text) {
-    const bareRe = /(?:https?:\/\/|www\.)[^\s<>"']+/gi;
-    let bare: RegExpExecArray | null;
-    while ((bare = bareRe.exec(mail.text))) {
-      const rawUrl = urlCandidate(bare[0]);
-      try {
-        const url = new URL(rawUrl);
-        links.push({
-          visibleText: bare[0],
-          rawUrl,
-          normalizedUrl: url.toString(),
-          claimedBrand: null,
-          brandDomainMismatch: null,
-          source: "body",
-        });
-      } catch {
-        links.push({
-          visibleText: bare[0],
-          rawUrl,
-          normalizedUrl: rawUrl,
-          claimedBrand: null,
-          brandDomainMismatch: null,
-          source: "body",
-        });
-      }
-    }
-  }
-  return links;
-}
-
 function extractAttachments(mail: ParsedMail): AttachmentInfo[] {
   return (mail.attachments ?? []).map((attachment, index) => {
     const name = attachment.filename ?? "unnamed";
@@ -238,11 +179,19 @@ export async function normalizeRawMessage(raw: string | Buffer, opts: NormalizeO
   const replyTo = firstAddress(mail.replyTo);
   const authHeader = mail.headers.get("authentication-results");
   const textPreview = mail.text ? mail.text.slice(0, TEXT_PREVIEW_MAX_CHARS) : null;
-  const htmlText = mail.html
-    ? mail.html.replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, TEXT_PREVIEW_MAX_CHARS)
+  const htmlSource = typeof mail.html === "string"
+    ? mail.html.slice(0, MAX_HTML_INTERACTION_CHARS)
+    : "";
+  const htmlText = htmlSource
+    ? htmlSource.replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, TEXT_PREVIEW_MAX_CHARS)
     : null;
 
-  const links = extractLinks(mail);
+  const htmlAnalysis = analyzeHtmlInteractions(mail.html, mail.text);
+  if (htmlAnalysis.incomplete) {
+    parseStatus = "partial";
+    parseNotes.push(...htmlAnalysis.incompleteReasons);
+  }
+  const links = [...htmlAnalysis.links];
   const attachments = extractAttachments(mail);
   const qrInputs = (mail.attachments ?? [])
     .filter((attachment) => isSupportedQrImageMimeType(attachment.contentType ?? ""))
@@ -283,9 +232,9 @@ export async function normalizeRawMessage(raw: string | Buffer, opts: NormalizeO
     htmlSignals: mail.html
       ? {
           extractedText: htmlText,
-          hrefs: links.filter((link) => link.source !== "qr").map((link) => link.rawUrl),
-          hasForm: /<form[\s>]/i.test(mail.html),
-          hasPasswordField: /<input[^>]+type=["']?password/i.test(mail.html),
+          hrefs: [...htmlAnalysis.htmlHrefs],
+          hasForm: htmlAnalysis.hasForm,
+          hasPasswordField: htmlAnalysis.hasPasswordField,
         }
       : null,
     links,
