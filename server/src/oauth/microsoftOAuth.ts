@@ -1,9 +1,11 @@
-const MICROSOFT_AUTHORITY = "https://login.microsoftonline.com/common/oauth2/v2.0";
+const MICROSOFT_LOGIN_BASE = "https://login.microsoftonline.com";
+const MICROSOFT_COMMON_AUTHORITY = `${MICROSOFT_LOGIN_BASE}/common/oauth2/v2.0`;
 const MICROSOFT_GRAPH_BASE = "https://graph.microsoft.com/v1.0";
 const MAX_PROVIDER_RESPONSE_BYTES = 64 * 1024;
+const TENANT_PATTERN = /^[A-Za-z0-9.-]{1,253}$/;
 
-export const MICROSOFT_AUTHORIZE_ENDPOINT = `${MICROSOFT_AUTHORITY}/authorize`;
-export const MICROSOFT_TOKEN_ENDPOINT = `${MICROSOFT_AUTHORITY}/token`;
+export const MICROSOFT_AUTHORIZE_ENDPOINT = `${MICROSOFT_COMMON_AUTHORITY}/authorize`;
+export const MICROSOFT_TOKEN_ENDPOINT = `${MICROSOFT_COMMON_AUTHORITY}/token`;
 export const MICROSOFT_OFFLINE_SCOPE = "offline_access";
 export const MICROSOFT_USER_READ_SCOPE = "https://graph.microsoft.com/User.Read";
 export const MICROSOFT_MAIL_READWRITE_SCOPE = "https://graph.microsoft.com/Mail.ReadWrite";
@@ -33,6 +35,12 @@ function normalizedScope(scope: string): string {
 export function microsoftScopeGranted(grantedScopes: readonly string[], requiredScope: string): boolean {
   const required = normalizedScope(requiredScope);
   return grantedScopes.some((scope) => normalizedScope(scope) === required);
+}
+
+function tokenEndpoint(tenantId?: string): string {
+  const tenant = tenantId?.trim() || "common";
+  if (!TENANT_PATTERN.test(tenant)) throw new Error("Microsoft tenant authority is invalid.");
+  return `${MICROSOFT_LOGIN_BASE}/${tenant}/oauth2/v2.0/token`;
 }
 
 async function readBoundedText(response: Response, maximumBytes = MAX_PROVIDER_RESPONSE_BYTES): Promise<string> {
@@ -85,8 +93,11 @@ function validateRequiredScopes(scopes: readonly string[]): void {
   }
 }
 
-async function postToken(body: URLSearchParams): Promise<{ response: Response; payload: Record<string, unknown> }> {
-  const response = await fetch(MICROSOFT_TOKEN_ENDPOINT, {
+async function postToken(
+  endpoint: string,
+  body: URLSearchParams,
+): Promise<{ response: Response; payload: Record<string, unknown> }> {
+  const response = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
@@ -111,7 +122,7 @@ export async function exchangeMicrosoftAuthorizationCode(input: {
     redirect_uri: input.redirectUri,
     scope: MICROSOFT_REQUIRED_SCOPES.join(" "),
   });
-  const { response, payload } = await postToken(body);
+  const { response, payload } = await postToken(MICROSOFT_TOKEN_ENDPOINT, body);
   if (!response.ok) throw new Error("Microsoft authorization-code exchange failed.");
 
   const accessToken = typeof payload.access_token === "string" ? payload.access_token : "";
@@ -127,6 +138,7 @@ export async function refreshMicrosoftAccessToken(input: {
   clientId: string;
   refreshToken: string;
   clientSecret?: string;
+  tenantId?: string;
 }): Promise<MicrosoftTokenResult> {
   const body = new URLSearchParams({
     client_id: input.clientId,
@@ -138,7 +150,7 @@ export async function refreshMicrosoftAccessToken(input: {
   // Guided Email Shield desktop OAuth never supplies or depends on this field.
   if (input.clientSecret?.trim()) body.set("client_secret", input.clientSecret.trim());
 
-  const { response, payload } = await postToken(body);
+  const { response, payload } = await postToken(tokenEndpoint(input.tenantId), body);
   if (!response.ok) throw new Error("Microsoft refresh-token exchange failed. Reconnect the Outlook account.");
 
   const accessToken = typeof payload.access_token === "string" ? payload.access_token : "";
@@ -174,8 +186,6 @@ export async function validateMicrosoftMailbox(accessToken: string): Promise<Mic
   const displayName = typeof profile.displayName === "string" ? profile.displayName.trim() : "";
   const label = mail || principal || displayName || "Microsoft Outlook";
 
-  // Prove the delegated Mail.ReadWrite grant reaches this mailbox before
-  // committing a protected long-lived session.
   const inboxResponse = await graphGet(accessToken, "/me/mailFolders/inbox?$select=id");
   if (!inboxResponse.ok) throw new Error(`Microsoft Graph mailbox validation failed: ${inboxResponse.status}`);
   const inbox = parsePayload(await readBoundedText(inboxResponse));
