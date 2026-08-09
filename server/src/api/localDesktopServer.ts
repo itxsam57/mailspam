@@ -28,11 +28,6 @@ function isScanStreamPath(path: string): boolean {
   return /^\/[^/]+\/scan\/(?:quick|full|spam)$/.test(path);
 }
 
-/**
- * Public desktop entry point. The inner application retains provider and
- * detection behavior; this wrapper supplies the local browser/process trust
- * boundary before any mailbox or developer route can execute.
- */
 export function createLocalDesktopServer(options: {
   community?: CommunityNetwork;
   security?: LocalSecurityManager;
@@ -68,7 +63,7 @@ export function createLocalDesktopServer(options: {
       .replace(/<script>(\s*const API\s*=)/, `<script nonce="${nonce}">$1`)
       .replace(
         "</body>",
-        '<script src="/scan-monitor.js"></script><script src="/unsubscribe-monitor.js"></script><script src="/gmail-oauth.js"></script></body>',
+        '<script src="/scan-monitor.js"></script><script src="/unsubscribe-monitor.js"></script><script src="/gmail-oauth.js"></script><script src="/account-disconnect.js"></script></body>',
       );
 
     res.setHeader("Referrer-Policy", "same-origin");
@@ -146,10 +141,6 @@ export function createLocalDesktopServer(options: {
     res.status(status.status === "error" && status.error.startsWith("Unknown") ? 404 : 200).json(status);
   });
 
-  // Handle account removal at the protected desktop boundary so remote OAuth
-  // revocation/native-vault failures are returned as a truthful visible error.
-  // This route precedes the inner compatibility route and therefore owns the
-  // production desktop disconnect lifecycle.
   app.delete("/api/accounts/:id", async (req: Request, res: Response) => {
     const id = req.params.id!;
     if (!sessionStore.get(id)) return res.status(404).json({ error: "Unknown account" });
