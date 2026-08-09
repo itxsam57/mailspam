@@ -6,6 +6,10 @@ import { InMemoryPersonalPolicyStore } from "../engine/layers/personalRules.js";
 import type { CredentialReference, CredentialVault } from "../security/credentialVault.js";
 import { createCredentialVault } from "../security/credentialVaultFactory.js";
 import {
+  providerCredentialRevoker,
+  type ProviderCredentialRevoker,
+} from "../security/providerCredentialRevocation.js";
+import {
   materializeAdapterConfig,
   releaseMemorySecrets,
   secureAdapterConfig,
@@ -80,6 +84,7 @@ export class SessionStore {
   constructor(
     private readonly policyRepository: PersonalPolicyRepository = new EncryptedFilePolicyRepository(),
     private readonly credentialVault: CredentialVault = createCredentialVault(),
+    private readonly credentialRevoker: ProviderCredentialRevoker = providerCredentialRevoker,
   ) {}
 
   /**
@@ -104,9 +109,6 @@ export class SessionStore {
       try {
         return this.createFromSecured(provider, label, secured.config, accountKey, secured.vaultReferences);
       } catch (error) {
-        // If session initialization fails after a new vault write, clean only
-        // references not already owned by another active session. Never delete
-        // a shared credential out from underneath a working session.
         try {
           for (const reference of secured.vaultReferences) {
             if ((this.vaultReferenceCounts.get(credentialReferenceKey(reference)) ?? 0) === 0) {
@@ -306,14 +308,22 @@ export class SessionStore {
       }
 
       await this.withVaultLifecycle(async () => {
-        // Delete native credentials before reporting the last session removed.
-        // If the OS refuses deletion, the catch below restores visibility so
-        // the user can retry instead of receiving a false cleanup success.
         for (const reference of session.vaultReferences) {
           const key = credentialReferenceKey(reference);
-          if ((this.vaultReferenceCounts.get(key) ?? 0) === 1) {
-            await this.credentialVault.delete(reference);
+          if ((this.vaultReferenceCounts.get(key) ?? 0) !== 1) continue;
+
+          if (this.credentialRevoker.requiresRevocation(session.config, reference)) {
+            const secret = await this.credentialVault.read(reference);
+            if (!secret) {
+              throw new Error("The protected provider credential is unavailable, so provider revocation could not be confirmed.");
+            }
+            await this.credentialRevoker.revoke(session.config, reference, secret);
           }
+
+          // Native deletion occurs only after any required provider revocation.
+          // If either step fails, the catch below restores session visibility so
+          // disconnect cannot falsely claim that cleanup succeeded.
+          await this.credentialVault.delete(reference);
         }
 
         this.clearScanActions(session);
