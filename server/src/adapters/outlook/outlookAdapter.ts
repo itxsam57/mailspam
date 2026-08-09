@@ -54,6 +54,7 @@ export class OutlookAdapter implements EmailAdapter {
         Authorization: `Bearer ${this.accessToken}`,
         Prefer: 'IdType="ImmutableId"',
       },
+      redirect: "error",
     });
   }
 
@@ -71,7 +72,7 @@ export class OutlookAdapter implements EmailAdapter {
     this.accessToken = tokenResult.accessToken;
 
     try {
-      const meRes = await this.graphFetch("/me?$select=id,mail,userPrincipalName");
+      const meRes = await this.graphFetch("/me?$select=id,mail,userPrincipalName", { signal });
       if (!meRes.ok) throw new Error(`Graph profile failed: ${meRes.status}`);
       const me = await meRes.json() as { id?: unknown; mail?: unknown; userPrincipalName?: unknown };
       const graphAccountId = typeof me.id === "string" ? me.id.trim() : "";
@@ -97,7 +98,7 @@ export class OutlookAdapter implements EmailAdapter {
     const wellKnown = ["inbox", "junkemail", "sentitems", "drafts", "deleteditems"];
     const results = await Promise.all(
       wellKnown.map(async (name) => {
-        const res = await this.graphFetch(`/me/mailFolders/${name}?$select=id,displayName`);
+        const res = await this.graphFetch(`/me/mailFolders/${name}?$select=id,displayName`, { signal });
         if (!res.ok) return null;
         const data = await res.json() as { id?: unknown };
         return typeof data.id === "string" && data.id ? { id: data.id, wellKnownName: name } : null;
@@ -151,6 +152,7 @@ export class OutlookAdapter implements EmailAdapter {
             headers: { Prefer: 'IdType="ImmutableId"' },
           })),
         }),
+        signal,
       });
       if (!batchRes.ok) throw new Error(`Graph batch fetch failed: ${batchRes.status}`);
       const batchData = await batchRes.json() as { responses?: Array<{ id?: unknown; status?: unknown; body?: unknown }> };
@@ -195,6 +197,7 @@ export class OutlookAdapter implements EmailAdapter {
             headers: { "Content-Type": "application/json", Prefer: 'IdType="ImmutableId"' },
           })),
         }),
+        signal,
       });
       if (!response.ok) throw new Error(`Graph batch move failed: ${response.status}`);
       const body = await response.json() as { responses?: Array<{ status?: unknown }> };
