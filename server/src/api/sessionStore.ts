@@ -19,8 +19,9 @@ import {
 import type { UnsubscribeMethod } from "../workflows/unsubscribe.js";
 import type { ScanActionContext } from "../workflows/scanWorkflows.js";
 import type { AdapterConfig } from "./adapterConfig.js";
+import { defaultPersonalPolicyRepository } from "./defaultPolicyRepository.js";
 import {
-  EncryptedFilePolicyRepository,
+  InMemoryPolicyRepository,
   policyAccountKey,
   type PersonalPolicyRepository,
 } from "./policyPersistence.js";
@@ -82,10 +83,14 @@ export class SessionStore {
   private vaultLifecycleTail: Promise<void> = Promise.resolve();
 
   constructor(
-    private readonly policyRepository: PersonalPolicyRepository = new EncryptedFilePolicyRepository(),
+    private readonly policyRepository: PersonalPolicyRepository = new InMemoryPolicyRepository(),
     private readonly credentialVault: CredentialVault = createCredentialVault(),
     private readonly credentialRevoker: ProviderCredentialRevoker = providerCredentialRevoker,
   ) {}
+
+  personalPolicyPersistent(): boolean {
+    return this.policyRepository.persistent;
+  }
 
   create(provider: string, label: string, config: AdapterConfig): AccountSession {
     const secured = secureAdapterConfigInMemory(config);
@@ -360,4 +365,4 @@ export class SessionStore {
   }
 }
 
-export const sessionStore = new SessionStore();
+export const sessionStore = new SessionStore(defaultPersonalPolicyRepository);
