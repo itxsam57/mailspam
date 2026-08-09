@@ -65,6 +65,7 @@ export class OutlookAdapter implements EmailAdapter {
       clientId: this.credentials.clientId,
       refreshToken: originalRefreshToken,
       clientSecret: this.credentials.clientSecret,
+      tenantId: this.credentials.tenantId,
     });
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
     this.accessToken = tokenResult.accessToken;
@@ -99,9 +100,7 @@ export class OutlookAdapter implements EmailAdapter {
         const res = await this.graphFetch(`/me/mailFolders/${name}?$select=id,displayName`);
         if (!res.ok) return null;
         const data = await res.json() as { id?: unknown };
-        return typeof data.id === "string" && data.id
-          ? { id: data.id, wellKnownName: name }
-          : null;
+        return typeof data.id === "string" && data.id ? { id: data.id, wellKnownName: name } : null;
       }),
     );
     return results
@@ -124,10 +123,7 @@ export class OutlookAdapter implements EmailAdapter {
     const listPath = cursor ?? `/me/mailFolders/${folder.providerFolderName}/messages?$select=id&$top=${pageSize}&$orderby=receivedDateTime desc`;
     const listRes = cursor && cursor.startsWith("https://graph.microsoft.com/")
       ? await fetch(cursor, {
-          headers: {
-            Authorization: `Bearer ${this.accessToken}`,
-            Prefer: 'IdType="ImmutableId"',
-          },
+          headers: { Authorization: `Bearer ${this.accessToken}`, Prefer: 'IdType="ImmutableId"' },
           signal,
           redirect: "error",
         })
@@ -203,9 +199,7 @@ export class OutlookAdapter implements EmailAdapter {
       if (!response.ok) throw new Error(`Graph batch move failed: ${response.status}`);
       const body = await response.json() as { responses?: Array<{ status?: unknown }> };
       const failures = (body.responses ?? []).filter((item) => typeof item.status !== "number" || item.status < 200 || item.status >= 300);
-      if (failures.length) {
-        throw new Error(`Graph rejected ${failures.length} of ${chunk.length} message move request(s).`);
-      }
+      if (failures.length) throw new Error(`Graph rejected ${failures.length} of ${chunk.length} message move request(s).`);
       moved += chunk.length;
     }
     return moved;
