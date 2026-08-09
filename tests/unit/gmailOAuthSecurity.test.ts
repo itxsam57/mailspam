@@ -1,12 +1,14 @@
 import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
+import type { AdapterConfig } from "../../server/src/api/adapterConfig.js";
+import type { AccountSession, SessionStore } from "../../server/src/api/sessionStore.js";
+import { policyAccountKey } from "../../server/src/api/policyPersistence.js";
 import type { CredentialReference, CredentialVault, CredentialVaultCapabilities } from "../../server/src/security/credentialVault.js";
 import {
   gmailRefreshTokenCredentialReference,
   materializeAdapterConfig,
   secureAdapterConfig,
 } from "../../server/src/security/secureAdapterConfig.js";
-import { policyAccountKey } from "../../server/src/api/policyPersistence.js";
 import {
   buildGoogleAuthorizationUrl,
   createPkcePair,
@@ -14,7 +16,6 @@ import {
   GoogleOAuthFlowManager,
   type GoogleOAuthRuntime,
 } from "../../server/src/oauth/googleOAuthFlow.js";
-import type { SessionStore } from "../../server/src/api/sessionStore.js";
 
 class TestVault implements CredentialVault {
   readonly values = new Map<string, string>();
@@ -50,6 +51,10 @@ afterEach(() => {
 
 function unusedSessionStore(): SessionStore {
   return {} as SessionStore;
+}
+
+function mockSession(id: string, label: string): AccountSession {
+  return { id, label } as AccountSession;
 }
 
 describe("guided Gmail OAuth security", () => {
@@ -151,8 +156,149 @@ describe("guided Gmail OAuth security", () => {
     expect(manager.status(started.flowId)).toEqual({ status: "error", error: "Google access was not granted." });
   });
 
-  it("rejects an ID token nonce mismatch before any account session can be created", async () => {
+  it("completes the full callback path once and exposes no authorization secrets to the dashboard", async () => {
+    const authorizationCode = "authorization-code-private";
+    const refreshToken = "refresh-token-private";
+    const idToken = "id-token-private";
+    let expectedNonce = "";
+    let exchangeCalls = 0;
+    let validationConfig: AdapterConfig | null = null;
+    let createdConfig: AdapterConfig | null = null;
+
+    const runtime: GoogleOAuthRuntime = {
+      async exchangeAuthorizationCode(input) {
+        exchangeCalls += 1;
+        expect(input.code).toBe(authorizationCode);
+        expect(input.codeVerifier).toMatch(/^[A-Za-z0-9_-]{43,128}$/);
+        expect(input.redirectUri).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+        return {
+          refreshToken,
+          idToken,
+          grantedScopes: ["openid", "email", GOOGLE_GMAIL_MODIFY_SCOPE],
+        };
+      },
+      async verifyIdToken(input) {
+        expect(input.idToken).toBe(idToken);
+        return {
+          sub: "stable-google-subject",
+          email: "person@example.com",
+          emailVerified: true,
+          nonce: expectedNonce,
+        };
+      },
+    };
+    const sessionStore = {
+      async createSecured(provider: string, label: string, config: AdapterConfig) {
+        expect(provider).toBe("gmail");
+        createdConfig = structuredClone(config);
+        return mockSession("gmail-session-1", label);
+      },
+    } as unknown as SessionStore;
+    const manager = new GoogleOAuthFlowManager({
+      clientId: "desktop-client.apps.googleusercontent.com",
+      sessionStore,
+      runtime,
+      async validateProvider(config) { validationConfig = structuredClone(config); },
+    });
+    managers.push(manager);
+
+    const started = await manager.start();
+    const auth = new URL(started.authorizationUrl);
+    const redirect = auth.searchParams.get("redirect_uri")!;
+    const state = auth.searchParams.get("state")!;
+    expectedNonce = auth.searchParams.get("nonce")!;
+
+    const response = await fetch(`${redirect}/?state=${encodeURIComponent(state)}&code=${encodeURIComponent(authorizationCode)}`);
+    const callbackBody = await response.text();
+    expect(response.status).toBe(200);
+    expect(exchangeCalls).toBe(1);
+    expect(validationConfig).toEqual(createdConfig);
+    expect(createdConfig).toEqual({
+      provider: "gmail",
+      mode: "live",
+      credentials: {
+        clientId: "desktop-client.apps.googleusercontent.com",
+        refreshToken,
+        accountSubject: "stable-google-subject",
+      },
+    });
+
+    const publicStatus = manager.status(started.flowId);
+    expect(publicStatus).toEqual({
+      status: "complete",
+      accountId: "gmail-session-1",
+      provider: "gmail",
+      label: "person@example.com",
+    });
+    const publicSurface = `${callbackBody}\n${JSON.stringify(publicStatus)}`;
+    for (const secret of [authorizationCode, refreshToken, idToken, expectedNonce]) {
+      expect(publicSurface).not.toContain(secret);
+    }
+  });
+
+  it("consumes a valid callback before token exchange so concurrent replay cannot exchange twice", async () => {
+    let expectedNonce = "";
+    let exchangeCalls = 0;
+    let releaseExchange!: () => void;
+    const exchangePause = new Promise<void>((resolve) => { releaseExchange = resolve; });
+    let exchangeStarted!: () => void;
+    const exchangeStartedPromise = new Promise<void>((resolve) => { exchangeStarted = resolve; });
+
+    const runtime: GoogleOAuthRuntime = {
+      async exchangeAuthorizationCode() {
+        exchangeCalls += 1;
+        exchangeStarted();
+        await exchangePause;
+        return {
+          refreshToken: "replay-refresh-token",
+          idToken: "replay-id-token",
+          grantedScopes: ["openid", "email", GOOGLE_GMAIL_MODIFY_SCOPE],
+        };
+      },
+      async verifyIdToken() {
+        return {
+          sub: "replay-subject",
+          email: "replay@example.com",
+          emailVerified: true,
+          nonce: expectedNonce,
+        };
+      },
+    };
+    const sessionStore = {
+      async createSecured(_provider: string, label: string) {
+        return mockSession("replay-session", label);
+      },
+    } as unknown as SessionStore;
+    const manager = new GoogleOAuthFlowManager({
+      clientId: "desktop-client.apps.googleusercontent.com",
+      sessionStore,
+      runtime,
+      async validateProvider() {},
+    });
+    managers.push(manager);
+
+    const started = await manager.start();
+    const auth = new URL(started.authorizationUrl);
+    const redirect = auth.searchParams.get("redirect_uri")!;
+    const state = auth.searchParams.get("state")!;
+    expectedNonce = auth.searchParams.get("nonce")!;
+    const callbackUrl = `${redirect}/?state=${encodeURIComponent(state)}&code=replay-code`;
+
+    const first = fetch(callbackUrl);
+    await exchangeStartedPromise;
+    const replay = fetch(callbackUrl).catch(() => null);
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    expect(exchangeCalls).toBe(1);
+    releaseExchange();
+    expect((await first).status).toBe(200);
+    const replayResponse = await replay;
+    if (replayResponse) expect([409, 502]).toContain(replayResponse.status);
+    expect(exchangeCalls).toBe(1);
+  });
+
+  it("rejects an ID token nonce mismatch before provider validation or account creation", async () => {
     let createCalls = 0;
+    let validationCalls = 0;
     const sessionStore = {
       async createSecured() { createCalls += 1; throw new Error("must not be reached"); },
     } as unknown as SessionStore;
@@ -179,6 +325,7 @@ describe("guided Gmail OAuth security", () => {
       clientId: "desktop-client.apps.googleusercontent.com",
       sessionStore,
       runtime,
+      async validateProvider() { validationCalls += 1; },
     });
     managers.push(manager);
     const started = await manager.start();
@@ -189,6 +336,7 @@ describe("guided Gmail OAuth security", () => {
     const response = await fetch(`${redirect}/?state=${encodeURIComponent(state)}&code=authorization-code`);
     expect(response.status).toBe(502);
     expect(createCalls).toBe(0);
+    expect(validationCalls).toBe(0);
     expect(manager.status(started.flowId).status).toBe("error");
     expect(await response.text()).not.toContain("refresh-token-that-must-not-escape");
   });
