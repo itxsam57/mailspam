@@ -20,6 +20,8 @@ const server = read("server/src/api/server.ts");
 const desktopServer = read("server/src/api/localDesktopServer.ts");
 const localSecurityServer = read("server/src/api/localSecurity.ts");
 const gmailOAuthServer = read("server/src/oauth/googleOAuthFlow.ts");
+const microsoftOAuthServer = read("server/src/oauth/microsoftOAuthFlow.ts");
+const microsoftOAuthRuntime = read("server/src/oauth/microsoftOAuth.ts");
 const browserFiles = readdirSync(webDir).filter((name) => name.endsWith(".js")).sort();
 requireCondition(browserFiles.length > 0, "No browser JavaScript files were found.");
 
@@ -56,6 +58,7 @@ const injectedScripts = [
   "scan-monitor.js",
   "unsubscribe-monitor.js",
   "gmail-oauth.js",
+  "outlook-oauth.js",
   "account-disconnect.js",
 ];
 for (const script of injectedScripts) {
@@ -92,6 +95,9 @@ const desktopEndpointContracts = [
   ["web/gmail-oauth.js", "/api/accounts/oauth/google/config", 'app.get("/api/accounts/oauth/google/config"'],
   ["web/gmail-oauth.js", "/api/accounts/oauth/google/start", 'app.post("/api/accounts/oauth/google/start"'],
   ["web/gmail-oauth.js", "/api/accounts/oauth/google/status/", 'app.get("/api/accounts/oauth/google/status/:flowId"'],
+  ["web/outlook-oauth.js", "/api/accounts/oauth/microsoft/config", 'app.get("/api/accounts/oauth/microsoft/config"'],
+  ["web/outlook-oauth.js", "/api/accounts/oauth/microsoft/start", 'app.post("/api/accounts/oauth/microsoft/start"'],
+  ["web/outlook-oauth.js", "/api/accounts/oauth/microsoft/status/", 'app.get("/api/accounts/oauth/microsoft/status/:flowId"'],
   ["web/account-disconnect.js", "method: 'DELETE'", 'app.delete("/api/accounts/:id"'],
 ];
 for (const [browserPath, browserNeedle, serverNeedle] of desktopEndpointContracts) {
@@ -126,6 +132,20 @@ requireCondition(gmailOAuthServer.includes('server.listen(0, "127.0.0.1"'), "Goo
 requireCondition(gmailOAuthServer.includes('method !== "GET"'), "Google OAuth callback no longer rejects non-GET requests.");
 requireCondition(gmailOAuthServer.includes('callback.pathname !== "/"'), "Google OAuth callback no longer pins the root callback path.");
 requireCondition(gmailOAuthServer.includes("createSecuredValidated"), "Google OAuth provider validation and secure session commit are no longer serialized together.");
+
+const outlookOAuthBrowser = read("web/outlook-oauth.js");
+for (const forbidden of ["refreshToken", "accessToken", "idToken", "codeVerifier", "clientSecret", "refresh_token", "access_token", "client_secret", "code_verifier"]) {
+  requireCondition(!outlookOAuthBrowser.includes(forbidden), `web/outlook-oauth.js must never receive or name secret OAuth field ${forbidden}.`);
+}
+requireCondition(outlookOAuthBrowser.includes("login.microsoftonline.com"), "Guided Outlook browser flow no longer pins the Microsoft authorization host.");
+requireCondition(outlookOAuthBrowser.includes("Continue with Microsoft"), "Guided Outlook browser control is missing.");
+requireCondition(microsoftOAuthServer.includes('server.listen(0, "127.0.0.1"'), "Microsoft OAuth listener is no longer random-port IPv4 loopback-only.");
+requireCondition(microsoftOAuthServer.includes('http://localhost:${address.port}'), "Microsoft OAuth request no longer uses the registered native system-browser localhost redirect.");
+requireCondition(microsoftOAuthServer.includes('method !== "GET"'), "Microsoft OAuth callback no longer rejects non-GET requests.");
+requireCondition(microsoftOAuthServer.includes('callback.pathname !== "/"'), "Microsoft OAuth callback no longer pins the root callback path.");
+requireCondition(microsoftOAuthRuntime.includes("code_verifier"), "Microsoft token exchange no longer carries the PKCE verifier.");
+requireCondition(!microsoftOAuthRuntime.includes('body.set("client_secret"') || microsoftOAuthRuntime.includes("Legacy developer credentials"), "Microsoft guided public-client OAuth unexpectedly requires a client secret.");
+requireCondition(microsoftOAuthRuntime.includes("offline_access") && microsoftOAuthRuntime.includes("Mail.ReadWrite") && microsoftOAuthRuntime.includes("User.Read"), "Microsoft OAuth scope contract is incomplete.");
 
 const reviewActions = read("web/review-actions.js");
 const safeAudit = read("web/safe-audit.js");
