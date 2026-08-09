@@ -70,6 +70,16 @@ export interface RelationshipHistoryRepositoryFactoryOptions {
   platform?: NodeJS.Platform;
 }
 
+interface RelationshipCapacity {
+  maxRelationships: number;
+  maxObservedMessages: number;
+}
+
+const DEFAULT_CAPACITY: RelationshipCapacity = {
+  maxRelationships: MAX_RELATIONSHIPS_PER_ACCOUNT,
+  maxObservedMessages: MAX_OBSERVED_MESSAGES_PER_ACCOUNT,
+};
+
 function defaultDataDirectory(): string {
   return process.env.EMAIL_SHIELD_DATA_DIR?.trim() || join(homedir(), ".email-shield");
 }
@@ -152,19 +162,26 @@ function sanitizeObservation(input: RelationshipObservation): RelationshipObserv
   };
 }
 
-function pruneAccount(state: RelationshipAccountState): RelationshipAccountState {
+function pruneAccount(
+  state: RelationshipAccountState,
+  capacity: RelationshipCapacity = DEFAULT_CAPACITY,
+): RelationshipAccountState {
   const records = Object.fromEntries(
     Object.entries(state.records)
       .filter(([key, value]) => validFingerprint(key) && Boolean(sanitizeProfile(value)))
       .sort((left, right) => right[1].lastObservedAt - left[1].lastObservedAt)
-      .slice(0, MAX_RELATIONSHIPS_PER_ACCOUNT)
+      .slice(0, capacity.maxRelationships)
       .map(([key, value]) => [key, cloneRelationshipProfile(value)]),
   );
+
+  // Replay fingerprints are deliberately not rotated by recency. Evicting an
+  // old key would let a later Full scan count that same message again. Once the
+  // exact index reaches capacity, mergeIntoState conservatively stops learning
+  // new observations instead of corrupting existing relationship counts.
   const observedMessages = Object.fromEntries(
     Object.entries(state.observedMessages)
       .filter(([key, value]) => validFingerprint(key) && boundedInteger(value) > 0)
-      .sort((left, right) => right[1] - left[1])
-      .slice(0, MAX_OBSERVED_MESSAGES_PER_ACCOUNT)
+      .slice(0, capacity.maxObservedMessages)
       .map(([key, value]) => [key, boundedInteger(value)]),
   );
   return { records, observedMessages };
@@ -207,6 +224,7 @@ function mergeIntoState(
   state: RelationshipAccountState,
   accountIndexKey: Buffer,
   observations: RelationshipObservation[],
+  capacity: RelationshipCapacity = DEFAULT_CAPACITY,
 ): RelationshipAccountState {
   const next = cloneAccountState(state);
   const snapshot = snapshotForState(next, accountIndexKey);
@@ -214,22 +232,38 @@ function mergeIntoState(
   for (const rawObservation of observations) {
     const observation = sanitizeObservation(rawObservation);
     if (!observation) continue;
+    if (snapshot.seenMessageKeys.has(observation.messageKey)) continue;
+
+    // Never recycle an old replay key. At hard capacity, relationship learning
+    // freezes for unseen messages so repeated scans remain idempotent.
+    if (snapshot.seenMessageKeys.size >= capacity.maxObservedMessages) continue;
+    if (!snapshot.records[observation.senderKey]
+      && Object.keys(snapshot.records).length >= capacity.maxRelationships) continue;
+
     if (applyRelationshipObservationToSnapshot(snapshot, observation)) {
       next.observedMessages[observation.messageKey] = observation.observedAt;
     }
   }
   next.records = snapshot.records;
-  return pruneAccount(next);
+  return pruneAccount(next, capacity);
 }
 
 export class InMemoryRelationshipHistoryRepository implements RelationshipHistoryRepository {
   readonly persistent = false;
   private readonly accounts = new Map<string, RelationshipAccountState>();
   private readonly masterIndexKey: Buffer;
+  private readonly capacity: RelationshipCapacity;
 
-  constructor(masterIndexKey = randomBytes(KEY_BYTES)) {
+  constructor(
+    masterIndexKey = randomBytes(KEY_BYTES),
+    capacity: Partial<RelationshipCapacity> = {},
+  ) {
     if (!Buffer.isBuffer(masterIndexKey) || masterIndexKey.length !== KEY_BYTES) throw new Error("Relationship-history index key is invalid.");
     this.masterIndexKey = Buffer.from(masterIndexKey);
+    this.capacity = {
+      maxRelationships: Math.max(1, Math.floor(capacity.maxRelationships ?? MAX_RELATIONSHIPS_PER_ACCOUNT)),
+      maxObservedMessages: Math.max(1, Math.floor(capacity.maxObservedMessages ?? MAX_OBSERVED_MESSAGES_PER_ACCOUNT)),
+    };
   }
 
   workerSnapshot(accountKey: string): RelationshipHistoryWorkerSnapshot {
@@ -248,6 +282,7 @@ export class InMemoryRelationshipHistoryRepository implements RelationshipHistor
         this.accounts.get(accountKey) ?? emptyState(),
         deriveAccountIndexKey(this.masterIndexKey, accountKey),
         observations,
+        this.capacity,
       ),
     );
   }
