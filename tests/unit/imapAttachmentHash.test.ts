@@ -13,6 +13,12 @@ function sha256(content: Buffer): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
+function requestedBodyParts(query: Record<string, unknown>): Array<{ key: string }> {
+  const value = query.bodyParts;
+  if (!Array.isArray(value)) throw new Error("Expected bodyParts array in test fetch query.");
+  return value as Array<{ key: string }>;
+}
+
 describe("bounded IMAP attachment hash acquisition", () => {
   it("fetches only the selected attachment MIME part and hashes the complete decoded bytes", async () => {
     const content = Buffer.from("small attachment bytes", "utf8");
@@ -32,9 +38,14 @@ describe("bounded IMAP attachment hash acquisition", () => {
       ],
     });
     const client = {
-      fetchOne: vi.fn(async (_uid: number, query: any) => ({
-        bodyParts: new Map([[query.bodyParts[0].key, encoded]]),
-      })),
+      fetchOne: vi.fn(async (
+        _uid: string | number,
+        query: Record<string, unknown>,
+        _options?: Record<string, unknown>,
+      ) => {
+        const parts = requestedBodyParts(query);
+        return { bodyParts: new Map<string, Buffer>([[parts[0]!.key, encoded]]) };
+      }),
     };
 
     const result = await fetchBoundedAttachmentHashes(
@@ -61,10 +72,16 @@ describe("bounded IMAP attachment hash acquisition", () => {
       disposition: "attachment",
       dispositionParameters: { filename: "large.bin" },
     });
-    const client = { fetchOne: vi.fn() };
+    const client = {
+      fetchOne: vi.fn(async (
+        _uid: string | number,
+        _query: Record<string, unknown>,
+        _options?: Record<string, unknown>,
+      ) => ({ bodyParts: new Map<string, Buffer>() })),
+    };
 
     const result = await fetchBoundedAttachmentHashes(
-      client as any,
+      client,
       42,
       selection,
       [],
@@ -87,11 +104,18 @@ describe("bounded IMAP attachment hash acquisition", () => {
     }));
     const selection = inspectBodyStructure({ type: "multipart/mixed", childNodes });
     const client = {
-      fetchOne: vi.fn(async (_uid: number, query: any) => ({
-        bodyParts: new Map(
-          query.bodyParts.map((part: { key: string }) => [part.key, Buffer.from(Buffer.from("12345678").toString("base64"))]),
-        ),
-      })),
+      fetchOne: vi.fn(async (
+        _uid: string | number,
+        query: Record<string, unknown>,
+        _options?: Record<string, unknown>,
+      ) => {
+        const parts = requestedBodyParts(query);
+        return {
+          bodyParts: new Map<string, Buffer>(
+            parts.map((part) => [part.key, Buffer.from(Buffer.from("12345678").toString("base64"))]),
+          ),
+        };
+      }),
     };
 
     const result = await fetchBoundedAttachmentHashes(
@@ -102,7 +126,8 @@ describe("bounded IMAP attachment hash acquisition", () => {
       new AbortController().signal,
     );
 
-    const requestedParts = client.fetchOne.mock.calls[0]?.[1]?.bodyParts ?? [];
+    const query = client.fetchOne.mock.calls[0]?.[1];
+    const requestedParts = query ? requestedBodyParts(query) : [];
     expect(requestedParts).toHaveLength(MAX_ATTACHMENT_HASHES_PER_MESSAGE);
     expect(result.hashesByAttachmentIndex.size).toBe(MAX_ATTACHMENT_HASHES_PER_MESSAGE);
     expect(result.incompleteReasons.join(" ")).toContain("first");
@@ -117,10 +142,16 @@ describe("bounded IMAP attachment hash acquisition", () => {
       disposition: "attachment",
       dispositionParameters: { filename: "code.png" },
     });
-    const client = { fetchOne: vi.fn() };
+    const client = {
+      fetchOne: vi.fn(async (
+        _uid: string | number,
+        _query: Record<string, unknown>,
+        _options?: Record<string, unknown>,
+      ) => ({ bodyParts: new Map<string, Buffer>() })),
+    };
 
     const result = await fetchBoundedAttachmentHashes(
-      client as any,
+      client,
       44,
       selection,
       [{ part: "2", name: "code.png", mimeType: "image/png", content }],
