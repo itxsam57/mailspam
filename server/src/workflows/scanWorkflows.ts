@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { EmailAdapter, FolderDescriptor } from "../canonical/adapter.js";
 import type { CanonicalEnvelope, ContentCoverage, NormalizedFolder, ParseStatus } from "../canonical/envelope.js";
 import type { Verdict } from "../engine/verdict.js";
@@ -22,6 +23,21 @@ export interface ScanCounters {
 
 function emptyCounters(): ScanCounters {
   return { examined: 0, safe: 0, review: 0, highRisk: 0, confirmedThreat: 0, unknown: 0, skipped: 0, malformed: 0 };
+}
+
+function initialCounters(input?: Partial<ScanCounters>): ScanCounters {
+  const source = input ?? {};
+  const integer = (value: unknown) => Number.isFinite(value) ? Math.max(0, Math.floor(Number(value))) : 0;
+  return {
+    examined: integer(source.examined),
+    safe: integer(source.safe),
+    review: integer(source.review),
+    highRisk: integer(source.highRisk),
+    confirmedThreat: integer(source.confirmedThreat),
+    unknown: integer(source.unknown),
+    skipped: integer(source.skipped),
+    malformed: integer(source.malformed),
+  };
 }
 
 function tally(counters: ScanCounters, result: ScanResult) {
@@ -101,13 +117,33 @@ function diagnosticSummary(result: ScanResult): ScanDiagnosticSummary {
   };
 }
 
+export interface ScanWorkflowCheckpoint {
+  currentCursor: string | null;
+  folderCursors: Record<string, string>;
+  completedFolders: string[];
+  seenSenderHashes: string[];
+  seenMessageHashes: string[];
+}
+
+export interface ScanResumeInput {
+  currentCursor?: string | null;
+  folderCursors?: Record<string, string>;
+  completedFolders?: string[];
+  seenSenderHashes?: string[];
+  seenMessageHashes?: string[];
+  counters?: Partial<ScanCounters>;
+}
+
 export interface ScanProgress {
   counters: ScanCounters;
   /** Only warning+ verdicts are included here; Safe stays in the compact audit. */
   suspiciousCards: ScanResult[];
   /** Privacy-reduced local audit plus opaque user-action tokens added by the API layer. */
   diagnosticSummaries: ScanDiagnosticSummary[];
+  /** Provider cursor retained only between Worker and server; never send this field to browser JavaScript. */
   cursor: string | null;
+  /** Server-only resumability checkpoint. It contains no raw sender/message identity. */
+  checkpoint: ScanWorkflowCheckpoint;
   done: boolean;
 }
 
@@ -120,18 +156,42 @@ function isSuspicious(result: ScanResult): boolean {
   return result.scored.verdict !== "safe";
 }
 
+function stableScanHash(namespace: string, value: string): string {
+  return createHash("sha256")
+    .update(`email-shield-scan-${namespace}-v1\0`, "utf8")
+    .update(value, "utf8")
+    .digest("hex");
+}
+
 /**
- * Adds only scan-local recurrence evidence. This does not trust the sender and
- * does not change the canonical first-contact flag used by high-confidence
- * scam patterns. It only lets narrowly scoped rules distinguish a recurring
- * subscription sender from a genuinely unseen sender.
+ * Adds only scan-local recurrence evidence. Hashes are used so the resumable
+ * checkpoint can preserve recurrence without persisting sender addresses.
  */
-function annotateSenderRecurrence(envelope: CanonicalEnvelope, seenSenderAddresses: Set<string>): void {
+function annotateSenderRecurrence(envelope: CanonicalEnvelope, seenSenderHashes: Set<string>): void {
   const senderAddress = envelope.from.address?.trim().toLowerCase() ?? "";
-  envelope.threadContext.senderPreviouslySeenInScan = Boolean(
-    senderAddress && seenSenderAddresses.has(senderAddress),
-  );
-  if (senderAddress) seenSenderAddresses.add(senderAddress);
+  const senderHash = senderAddress ? stableScanHash("sender", senderAddress) : "";
+  envelope.threadContext.senderPreviouslySeenInScan = Boolean(senderHash && seenSenderHashes.has(senderHash));
+  if (senderHash) seenSenderHashes.add(senderHash);
+}
+
+function messageIdentityHash(envelope: CanonicalEnvelope): string {
+  return stableScanHash("message", `${envelope.provider}\0${envelope.messageId || envelope.providerNativeId}`);
+}
+
+function checkpoint(
+  currentCursor: string | null,
+  folderCursors: Record<string, string>,
+  completedFolders: Set<string>,
+  seenSenderHashes: Set<string>,
+  seenMessageHashes: Set<string>,
+): ScanWorkflowCheckpoint {
+  return {
+    currentCursor,
+    folderCursors: { ...folderCursors },
+    completedFolders: [...completedFolders],
+    seenSenderHashes: [...seenSenderHashes],
+    seenMessageHashes: [...seenMessageHashes],
+  };
 }
 
 const DEFAULT_PAGE_SIZE = 50;
@@ -142,6 +202,7 @@ export async function* quickScan(
   signal: AbortSignal,
   pageSize = DEFAULT_PAGE_SIZE,
   maxMessages = pageSize,
+  resume: ScanResumeInput = {},
 ): AsyncGenerator<ScanProgress> {
   await adapter.connect(signal);
   try {
@@ -151,11 +212,12 @@ export async function* quickScan(
       throw new Error(`Inbox folder was not found. Discovered folders: ${folders.map((folder) => folder.providerFolderName).join(", ") || "none"}.`);
     }
 
-    const counters = emptyCounters();
-    const seenSenderAddresses = new Set<string>();
+    const counters = initialCounters(resume.counters);
+    const seenSenderHashes = new Set(resume.seenSenderHashes ?? []);
+    const seenMessageHashes = new Set<string>();
     const boundedPageSize = Math.max(1, Math.floor(pageSize));
     const boundedLimit = Math.max(1, Math.floor(maxMessages));
-    let cursor: string | null = null;
+    let cursor: string | null = resume.currentCursor ?? null;
     let done = false;
 
     while (!done && counters.examined < boundedLimit) {
@@ -169,7 +231,7 @@ export async function* quickScan(
 
       for (const envelope of page.envelopes) {
         if (signal.aborted) return;
-        annotateSenderRecurrence(envelope, seenSenderAddresses);
+        annotateSenderRecurrence(envelope, seenSenderHashes);
         const result = scanMessage(envelope, deps);
         tally(counters, result);
         diagnosticSummaries.push(diagnosticSummary(result));
@@ -185,6 +247,7 @@ export async function* quickScan(
         suspiciousCards,
         diagnosticSummaries,
         cursor,
+        checkpoint: checkpoint(cursor, {}, new Set(), seenSenderHashes, seenMessageHashes),
         done,
       };
 
@@ -201,13 +264,23 @@ export async function* fullMailboxAudit(
   adapter: EmailAdapter,
   deps: ScanDeps,
   signal: AbortSignal,
-  opts: { includeExcludedFolders?: boolean; pageSize?: number; resumeCursors?: Record<string, string | null> } = {},
+  opts: {
+    includeExcludedFolders?: boolean;
+    pageSize?: number;
+    resumeCursors?: Record<string, string | null>;
+    resume?: ScanResumeInput;
+  } = {},
 ): AsyncGenerator<ScanProgress & { folder: string }> {
   const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
+  const resume = opts.resume ?? {
+    folderCursors: Object.fromEntries(Object.entries(opts.resumeCursors ?? {}).filter((entry): entry is [string, string] => typeof entry[1] === "string")),
+  };
   await adapter.connect(signal);
-  const seenMessageIds = new Set<string>();
-  const seenSenderAddresses = new Set<string>();
-  const counters = emptyCounters();
+  const seenMessageHashes = new Set(resume.seenMessageHashes ?? []);
+  const seenSenderHashes = new Set(resume.seenSenderHashes ?? []);
+  const counters = initialCounters(resume.counters);
+  const completedFolders = new Set(resume.completedFolders ?? []);
+  const folderCursors: Record<string, string> = { ...(resume.folderCursors ?? {}) };
 
   try {
     const allFolders = await adapter.listFolders(signal);
@@ -218,21 +291,29 @@ export async function* fullMailboxAudit(
       throw new Error(`No eligible mailbox folders were found. Discovered folders: ${allFolders.map((folder) => folder.providerFolderName).join(", ") || "none"}.`);
     }
 
+    const targetNames = new Set(targetFolders.map((folder) => folder.providerFolderName));
+    for (const completed of [...completedFolders]) {
+      if (!targetNames.has(completed)) completedFolders.delete(completed);
+    }
+
     for (const folder of targetFolders) {
-      let cursor: string | null = opts.resumeCursors?.[folder.providerFolderName] ?? null;
+      if (completedFolders.has(folder.providerFolderName)) continue;
+      let cursor: string | null = folderCursors[folder.providerFolderName] ?? null;
       let done = false;
 
       while (!done) {
         if (signal.aborted) return;
+        const previousCursor = cursor;
         const page = await adapter.fetchPage(folder, cursor, pageSize, signal);
         const suspiciousCards: ScanResult[] = [];
         const diagnosticSummaries: ScanDiagnosticSummary[] = [];
 
         for (const envelope of page.envelopes) {
           if (signal.aborted) return;
-          if (seenMessageIds.has(envelope.messageId)) continue;
-          seenMessageIds.add(envelope.messageId);
-          annotateSenderRecurrence(envelope, seenSenderAddresses);
+          const identityHash = messageIdentityHash(envelope);
+          if (seenMessageHashes.has(identityHash)) continue;
+          seenMessageHashes.add(identityHash);
+          annotateSenderRecurrence(envelope, seenSenderHashes);
           const result = scanMessage(envelope, deps);
           tally(counters, result);
           diagnosticSummaries.push(diagnosticSummary(result));
@@ -240,15 +321,29 @@ export async function* fullMailboxAudit(
         }
 
         cursor = page.nextCursor;
-        done = page.done;
+        done = page.done || !page.nextCursor;
+        if (done) {
+          completedFolders.add(folder.providerFolderName);
+          delete folderCursors[folder.providerFolderName];
+          cursor = null;
+        } else if (cursor) {
+          folderCursors[folder.providerFolderName] = cursor;
+        }
+
+        const allDone = targetFolders.every((target) => completedFolders.has(target.providerFolderName));
         yield {
           counters: { ...counters },
           suspiciousCards,
           diagnosticSummaries,
           cursor,
-          done: done && folder === targetFolders[targetFolders.length - 1],
+          checkpoint: checkpoint(null, folderCursors, completedFolders, seenSenderHashes, seenMessageHashes),
+          done: allDone,
           folder: folder.providerFolderName,
         };
+
+        if (!done && page.envelopes.length === 0 && page.nextCursor === previousCursor) {
+          throw new Error("The provider returned an empty page without advancing the mailbox cursor.");
+        }
       }
     }
   } finally {
@@ -261,6 +356,7 @@ export async function* spamJunkScan(
   deps: ScanDeps,
   signal: AbortSignal,
   pageSize = DEFAULT_PAGE_SIZE,
+  resume: ScanResumeInput = {},
 ): AsyncGenerator<ScanProgress> {
   await adapter.connect(signal);
   try {
@@ -270,20 +366,22 @@ export async function* spamJunkScan(
       throw new Error(`Spam/Junk folder was not found. Discovered folders: ${folders.map((folder) => folder.providerFolderName).join(", ") || "none"}.`);
     }
 
-    const counters = emptyCounters();
-    const seenSenderAddresses = new Set<string>();
-    let cursor: string | null = null;
+    const counters = initialCounters(resume.counters);
+    const seenSenderHashes = new Set(resume.seenSenderHashes ?? []);
+    const seenMessageHashes = new Set<string>();
+    let cursor: string | null = resume.currentCursor ?? null;
     let done = false;
 
     while (!done) {
       if (signal.aborted) return;
+      const previousCursor = cursor;
       const page = await adapter.fetchPage(spam, cursor, pageSize, signal);
       const suspiciousCards: ScanResult[] = [];
       const diagnosticSummaries: ScanDiagnosticSummary[] = [];
 
       for (const envelope of page.envelopes) {
         if (signal.aborted) return;
-        annotateSenderRecurrence(envelope, seenSenderAddresses);
+        annotateSenderRecurrence(envelope, seenSenderHashes);
         const result = scanMessage(envelope, deps);
         tally(counters, result);
         diagnosticSummaries.push(diagnosticSummary(result));
@@ -291,8 +389,20 @@ export async function* spamJunkScan(
       }
 
       cursor = page.nextCursor;
-      done = page.done;
-      yield { counters: { ...counters }, suspiciousCards, diagnosticSummaries, cursor, done };
+      done = page.done || !page.nextCursor;
+      if (done) cursor = null;
+      yield {
+        counters: { ...counters },
+        suspiciousCards,
+        diagnosticSummaries,
+        cursor,
+        checkpoint: checkpoint(cursor, {}, new Set(), seenSenderHashes, seenMessageHashes),
+        done,
+      };
+
+      if (!done && page.envelopes.length === 0 && page.nextCursor === previousCursor) {
+        throw new Error("The provider returned an empty page without advancing the mailbox cursor.");
+      }
     }
   } finally {
     await adapter.disconnect();
