@@ -11,10 +11,13 @@ import {
 } from "../../server/src/oauth/googleOAuthFlow.js";
 
 const managers: GoogleOAuthFlowManager[] = [];
+const originalGoogleClientSecret = process.env.EMAIL_SHIELD_GOOGLE_CLIENT_SECRET;
 
 afterEach(() => {
   for (const manager of managers.splice(0)) manager.close();
   vi.unstubAllGlobals();
+  if (originalGoogleClientSecret === undefined) delete process.env.EMAIL_SHIELD_GOOGLE_CLIENT_SECRET;
+  else process.env.EMAIL_SHIELD_GOOGLE_CLIENT_SECRET = originalGoogleClientSecret;
 });
 
 function callbackParts(authorizationUrl: string): { redirect: string; state: string; nonce: string } {
@@ -55,6 +58,40 @@ describe("Google OAuth provider compatibility", () => {
     ]));
   });
 
+  it("posts the matching client secret only to Google's token endpoint", async () => {
+    const clientSecret = "desktop-client-secret-private";
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body;
+      expect(body).toBeInstanceOf(URLSearchParams);
+      const form = body as URLSearchParams;
+      expect(form.get("client_id")).toBe("desktop-client.apps.googleusercontent.com");
+      expect(form.get("client_secret")).toBe(clientSecret);
+      expect(form.get("code")).toBe("authorization-code-private");
+      expect(form.get("code_verifier")).toBe("a".repeat(64));
+      expect(form.get("redirect_uri")).toBe("http://127.0.0.1:43123");
+      return new Response(JSON.stringify({
+        access_token: "access-token-private",
+        expires_in: 3600,
+        refresh_token: "refresh-token-private",
+        id_token: "id-token-private",
+        scope: `openid https://www.googleapis.com/auth/userinfo.email ${GOOGLE_GMAIL_MODIFY_SCOPE}`,
+        token_type: "Bearer",
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await new DefaultGoogleOAuthRuntime().exchangeAuthorizationCode({
+      clientId: "desktop-client.apps.googleusercontent.com",
+      clientSecret,
+      code: "authorization-code-private",
+      codeVerifier: "a".repeat(64),
+      redirectUri: "http://127.0.0.1:43123",
+    });
+
+    expect(result.refreshToken).toBe("refresh-token-private");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("accepts Google's canonical userinfo.email grant as equivalent to OIDC email", async () => {
     expect(googleScopeGranted(["openid", "https://www.googleapis.com/auth/userinfo.email"], "email")).toBe(true);
     expect(googleScopeGranted(["openid", "email"], "email")).toBe(true);
@@ -71,6 +108,7 @@ describe("Google OAuth provider compatibility", () => {
 
     const result = await new DefaultGoogleOAuthRuntime().exchangeAuthorizationCode({
       clientId: "desktop-client.apps.googleusercontent.com",
+      clientSecret: "desktop-client-secret-private",
       code: "authorization-code-private",
       codeVerifier: "a".repeat(64),
       redirectUri: "http://127.0.0.1:43123",
@@ -78,6 +116,57 @@ describe("Google OAuth provider compatibility", () => {
 
     expect(result.refreshToken).toBe("refresh-token-private");
     expect(result.grantedScopes).toContain("https://www.googleapis.com/auth/userinfo.email");
+  });
+
+  it("reads the process-local client secret at the OAuth boundary and carries it into the Gmail session config", async () => {
+    process.env.EMAIL_SHIELD_GOOGLE_CLIENT_SECRET = "process-client-secret-private";
+    let expectedNonce = "";
+    let exchangeSecret: string | undefined;
+    let committedConfig: AdapterConfig | null = null;
+    const runtime: GoogleOAuthRuntime = {
+      async exchangeAuthorizationCode(input) {
+        exchangeSecret = input.clientSecret;
+        return {
+          refreshToken: "refresh-token-private",
+          idToken: "id-token-private",
+          grantedScopes: ["openid", "email", GOOGLE_GMAIL_MODIFY_SCOPE],
+        };
+      },
+      async verifyIdToken() {
+        return {
+          sub: "stable-google-subject",
+          email: "person@example.com",
+          emailVerified: true,
+          nonce: expectedNonce,
+        };
+      },
+    };
+    const store = fakeSessionStore(async (_provider, _label, config, validate) => {
+      committedConfig = config as AdapterConfig;
+      await validate();
+      return mockSession();
+    });
+    const manager = new GoogleOAuthFlowManager({
+      clientId: "desktop-client.apps.googleusercontent.com",
+      sessionStore: store,
+      runtime,
+      async validateProvider() {},
+    });
+    managers.push(manager);
+    const started = await manager.start();
+    const { redirect, state, nonce } = callbackParts(started.authorizationUrl);
+    expectedNonce = nonce;
+
+    const response = await fetch(`${redirect}/?state=${encodeURIComponent(state)}&code=valid-code`);
+    const body = await response.text();
+    expect(response.status).toBe(200);
+    expect(exchangeSecret).toBe("process-client-secret-private");
+    expect(committedConfig?.provider).toBe("gmail");
+    if (committedConfig?.provider === "gmail" && committedConfig.mode === "live") {
+      expect(committedConfig.credentials.clientSecret).toBe("process-client-secret-private");
+    }
+    expect(body).not.toContain("process-client-secret-private");
+    expect(manager.status(started.flowId)).toMatchObject({ status: "complete", provider: "gmail" });
   });
 
   it("returns ES-GOOGLE-01 for token exchange failure without exposing provider details", async () => {
