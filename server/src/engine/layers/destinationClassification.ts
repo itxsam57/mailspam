@@ -44,23 +44,11 @@ export interface DestinationResult {
 }
 
 /**
- * Real implementation for the explicit Analyze Links action.
- * NOTE: this sandbox's egress is restricted to package registries and
- * cannot reach arbitrary mail-link destinations, so the actual fetch call
- * is isolated behind `fetchImpl` for dependency injection — in this build
- * it is exercised against fixture data only. On your machine, wire
- * `fetchImpl` to the hardened isolated resolver described below.
- *
- * Hardened resolver requirements (spec 8.5, Section 10):
- * - block localhost, private ranges (10/8, 172.16/12, 192.168/16, 127/8),
- *   link-local (169.254/16, fe80::/10), cloud metadata (169.254.169.254),
- *   and non-http(s) schemes
- * - resolve DNS once and pin the connection to that IP to prevent
- *   DNS-rebinding between the check and the actual fetch
- * - cap redirects (max 3), response size (e.g. 512KB), content types
- *   (text/html, text/plain only), and total time (e.g. 5s)
- * - never execute downloaded files, submit forms, or send mailbox
- *   cookies/session data
+ * Explicit Analyze Links classifier. Network acquisition is isolated behind
+ * fetchImpl and the production composition root supplies hardenedFetch, which
+ * performs resolve/validate/socket-pin per redirect hop with strict time,
+ * redirect, content-type and body limits. The classifier never executes
+ * downloaded content, submits forms or runs during mailbox scans.
  */
 export async function classifyDestination(
   url: string,
@@ -79,13 +67,25 @@ export async function classifyDestination(
       classification: "blocked_unsafe_target",
       hasForm: false,
       hasPasswordField: false,
-      detail: "Destination resolves to a private, loopback, link-local, or cloud-metadata address and was blocked before fetching.",
+      detail: "Destination is a private, loopback, link-local, metadata, or non-HTTP(S) target and was blocked before fetching.",
     };
   }
 
   const result = await fetchImpl(url);
   if (!result) {
-    return { url, classification: "error", hasForm: false, hasPasswordField: false, detail: "Fetch failed, timed out, or exceeded limits." };
+    return { url, classification: "error", hasForm: false, hasPasswordField: false, detail: "Fetch failed, timed out, was blocked by network safety checks, or exceeded inspection limits." };
+  }
+
+  if (result.contentType !== "text/html" && result.contentType !== "text/plain") {
+    return {
+      url,
+      classification: "error",
+      hasForm: false,
+      hasPasswordField: false,
+      detail: result.contentType
+        ? `Destination returned unsupported content type ${result.contentType}; it was not treated as benign.`
+        : "Destination did not provide an inspectable text content type; it was not treated as benign.",
+    };
   }
 
   const hasForm = /<form[\s>]/i.test(result.body);
@@ -104,13 +104,14 @@ export async function classifyDestination(
 
 function isBlockedTarget(url: URL): boolean {
   if (!["http:", "https:"].includes(url.protocol)) return true;
-  const host = url.hostname;
+  if (url.username || url.password) return true;
+  const host = url.hostname.toLowerCase();
   if (host === "localhost" || host === "0.0.0.0" || host === "169.254.169.254") return true;
   if (/^127\./.test(host)) return true;
   if (/^10\./.test(host)) return true;
   if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return true;
   if (/^192\.168\./.test(host)) return true;
   if (/^169\.254\./.test(host)) return true;
-  if (host === "::1" || host.startsWith("fe80:") || host.startsWith("fc") || host.startsWith("fd")) return true;
+  if (host === "[::1]" || host === "::1" || host.startsWith("[fe80:") || host.startsWith("fe80:") || host.startsWith("[fc") || host.startsWith("fc") || host.startsWith("[fd") || host.startsWith("fd")) return true;
   return false;
 }

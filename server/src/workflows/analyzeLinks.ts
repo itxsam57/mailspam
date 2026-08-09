@@ -9,13 +9,13 @@ export interface AnalyzeLinksResult {
 
 /**
  * Wired to a single explicit user action ("Analyze Links" button on a
- * message card) — never called automatically during any scan (spec
- * 8.1/8.5). `fetchImpl` is the hardened isolated resolver; see
- * destinationClassification.ts for the required hardening rules. In this
- * sandbox `fetchImpl` only has network access to package registries, not
- * arbitrary mail-link destinations, so it's injected here rather than
- * hardcoded — wire a real implementation (undici request with redirect/
- * size/time caps + DNS pinning) at the deployment composition root.
+ * message card) — never called automatically during any scan (spec 8.1/8.5).
+ * The production API composition root supplies hardenedFetch, which resolves
+ * and validates DNS once per redirect hop and pins the outbound socket to a
+ * validated public address before reading bounded text content.
+ *
+ * fetchImpl stays injectable so the deterministic classifier can be tested
+ * without granting CI access to arbitrary mail-link destinations.
  */
 export async function analyzeLinks(
   envelope: CanonicalEnvelope,
