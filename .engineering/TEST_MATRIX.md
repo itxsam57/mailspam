@@ -39,6 +39,7 @@ This matrix is project-specific. A check is installed only when it protects an e
 | A-31 | Live IMAP text integrity | Truncation uses selected MIME-part limits rather than complete-message size; root single-part bodies use `TEXT`; bounded plain and HTML alternatives decode in one provider request; HTML destinations reach the canonical envelope; attachment bodies and full raw source remain unfetched | `imapMimeParts.test.ts`, architecture regression tests | Windows + Ubuntu | Blocking |
 | A-32 | Credential vault boundary | Opaque target derivation, size validation, fail-closed unsupported platforms, write/read/delete contract, secret-safe error handling, and a real ephemeral Windows Credential Manager round trip on Windows CI | `credentialVault.test.ts` | Windows + Ubuntu contract; Windows native round trip | Blocking |
 | A-33 | App-password session custody | Long-lived iCloud/Yahoo/generic-IMAP sessions keep raw app passwords out of session config on Windows, resolve vault handles only at provider connect, preserve policy identity across password rotation, reference-count shared credentials, serialize reconnect/remove lifecycle, fail account creation on native write failure, keep last session on native delete failure, and use memory-only nonpersistent handles where no native backend exists | `secureSessionCredentials.test.ts`, strict type/build, existing Worker/server regression suites | Windows + Ubuntu | Blocking |
+| A-34 | Guided Gmail OAuth | Desktop Authorization Code + PKCE S256, high-entropy state/nonce, exact random-port `127.0.0.1` callback Host/path/method, callback replay rejection, bounded token responses, verified Google ID-token nonce, stable `sub` policy identity, native-vault/memory-only refresh-token custody, validation+commit serialization, final-account provider revocation, revocation-failure truthfulness and browser token/code privacy | `gmailOAuthSecurity.test.ts`, `gmailOAuthRevocation.test.ts`, `npm run check:web`, strict type/build | Windows + Ubuntu | Blocking |
 
 ## Final visible browser test — owner only
 
@@ -56,9 +57,10 @@ After a green gate, the generated handoff contains only subjective/visible check
 10. duplicate successful action controls requiring a rescan;
 11. controlled live iCloud presentation when credentials are available;
 12. live provider scans show bounded-batch status at least every 15 seconds, produce partial results as batches complete, or stop with a specific timeout error rather than remaining indefinitely on Scanning;
-13. ordinary short live iCloud messages no longer uniformly show the former `Readable text was bounded to 24576 bytes` note, and HTML-only/multipart messages show available content and link evidence.
+13. ordinary short live iCloud messages no longer uniformly show the former `Readable text was bounded to 24576 bytes` note, and HTML-only/multipart messages show available content and link evidence;
+14. guided Gmail opens Google consent in a separate browser window, returns to Email Shield without exposing authorization code/tokens, adds the Gmail account, completes Quick Scan, and Disconnect removes the account only after provider/local credential cleanup is confirmed.
 
-The local session, CSRF, nonce, Host, redaction, bounded scan deadlines, selected-part MIME decoding, warning/confirmed aggregation, cryptographic feed verification, cross-provider report contract, credential-vault contract and app-password session ownership lifecycle are automated. Public DNS/TLS/gateway/monitoring are deployment acceptance, not browser acceptance.
+The local session, CSRF, nonce, Host, redaction, bounded scan deadlines, selected-part MIME decoding, warning/confirmed aggregation, cryptographic feed verification, cross-provider report contract, credential-vault contract, app-password session ownership lifecycle, Gmail PKCE/replay/identity/token-custody/revocation lifecycle are automated. Real Google authorization and real Gmail mailbox acceptance remain owner-controlled because CI receives no live mailbox credentials.
 
 ## Not applicable
 
