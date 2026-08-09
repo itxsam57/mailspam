@@ -43,7 +43,7 @@
   status.className = 'scan-monitor-status';
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
-  status.textContent = 'Ready to scan. Scan result cards reset after a page refresh; encrypted account rules remain saved.';
+  status.textContent = 'Ready to scan. Running scans continue locally across a page refresh; protected scan history is shown below.';
   counters.before(status);
 
   const diagnostics = document.createElement('details');
@@ -68,6 +68,10 @@
     sessionExpired = true;
     finish();
   });
+
+  function historyChanged() {
+    window.dispatchEvent(new CustomEvent('email-shield-scan-history-changed'));
+  }
 
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, (character) => ({
@@ -137,7 +141,7 @@
     if (typeof window.renderCounters === 'function') window.renderCounters(progress.counters);
     else counters.textContent = `${progress.counters.examined} messages examined`;
 
-    setStatus(`Scanning… ${progress.counters.examined} messages examined.`, 'running');
+    setStatus(`Scanning… ${progress.counters.examined} messages examined. Last completed page is protected for resume.`, 'running');
     if (progress.diagnosticSummaries?.length) {
       diagnosticRows.push(...progress.diagnosticSummaries);
       renderDiagnostics();
@@ -148,7 +152,8 @@
     }
   }
 
-  async function start(type) {
+  async function start(type, options = {}) {
+    const resumeScanId = typeof options?.resumeScanId === 'string' ? options.resumeScanId : null;
     const requestedAccountId = selectedAccountId();
     accountId = requestedAccountId;
     if (!requestedAccountId) {
@@ -160,7 +165,7 @@
     receivedServerEvent = false;
     sessionExpired = false;
     stopButton.disabled = true;
-    setStatus(`Authorizing ${type} scan…`, 'running');
+    setStatus(`Authorizing ${resumeScanId ? 'resumed ' : ''}${type} scan…`, 'running');
 
     try {
       await validateProtectedScanSession(requestedAccountId);
@@ -185,14 +190,20 @@
     diagnostics.open = false;
     renderDiagnostics();
     stopButton.disabled = false;
-    setStatus(`Starting ${type} scan…`, 'running');
+    setStatus(`${resumeScanId ? 'Resuming' : 'Starting'} ${type} scan…`, 'running');
 
-    const es = new EventSource(`/api/accounts/${encodeURIComponent(requestedAccountId)}/scan/${type}`);
+    const streamPath = resumeScanId
+      ? `/api/accounts/${encodeURIComponent(requestedAccountId)}/scan/resume/${encodeURIComponent(resumeScanId)}`
+      : `/api/accounts/${encodeURIComponent(requestedAccountId)}/scan/${encodeURIComponent(type)}`;
+    const es = new EventSource(streamPath);
     source = es;
 
-    es.addEventListener('scan-started', () => {
+    es.addEventListener('scan-started', (event) => {
       receivedServerEvent = true;
-      setStatus('Scan worker started. Connecting to the provider…', 'running');
+      let resumed = Boolean(resumeScanId);
+      try { resumed = JSON.parse(event.data).resumed === true; } catch {}
+      setStatus(resumed ? 'Protected checkpoint restored. Connecting to the provider…' : 'Scan worker started. Connecting to the provider…', 'running');
+      historyChanged();
     });
     es.addEventListener('scan-status', (event) => {
       receivedServerEvent = true;
@@ -209,14 +220,16 @@
       catch (error) { setStatus(`Could not render scan progress: ${error.message}`, 'error'); }
     };
     es.addEventListener('scan-complete', () => {
-      setStatus(counters.textContent.trim() ? 'Scan complete. Results are shown below.' : 'Scan complete. No readable messages were returned.', 'complete');
+      setStatus(counters.textContent.trim() ? 'Scan complete. Results are shown below and the privacy-reduced history record is saved.' : 'Scan complete. No additional readable messages were returned.', 'complete');
       finish();
+      historyChanged();
     });
     es.addEventListener('scan-error', (event) => {
       let message = 'The scan failed.';
       try { message = JSON.parse(event.data).message || message; } catch {}
       setStatus(message, 'error');
       finish();
+      historyChanged();
     });
     es.onerror = () => {
       if (es.readyState === EventSource.CLOSED) return;
@@ -224,11 +237,12 @@
         sessionExpired
           ? 'The protected local session expired. Reload Email Shield before scanning.'
           : receivedServerEvent
-            ? 'The scan connection was interrupted. Check the terminal for details.'
-            : 'Could not open the scan stream. Reload if the Email Shield process was restarted.',
+            ? 'The dashboard lost the live scan stream. The Worker continues locally and its protected progress is available in Scan history.'
+            : 'Could not open the scan stream. Check Scan history for an existing running or resumable scan.',
         'error',
       );
       finish();
+      historyChanged();
     };
   }
 
@@ -402,6 +416,13 @@
   document.addEventListener('click', handlePolicyAction, true);
   document.addEventListener('click', handleTrashAction, true);
 
+  Object.defineProperty(window, 'emailShieldStartScan', {
+    value: (type, options = {}) => start(type, options),
+    writable: false,
+    configurable: false,
+    enumerable: false,
+  });
+
   for (const [id, type] of [
     ['quickScanBtn', 'quick'],
     ['fullScanBtn', 'full'],
@@ -421,11 +442,12 @@
     setStatus('Stopping scan…', 'running');
     try {
       if (id) await fetch(`/api/accounts/${encodeURIComponent(id)}/scan/stop`, { method: 'POST' });
-      setStatus('Scan stopped.', 'complete');
+      setStatus('Scan stopped. The last completed page is available in Scan history.', 'complete');
     } catch (error) {
       setStatus(`Stop failed: ${error.message}`, 'error');
     } finally {
       finish();
+      historyChanged();
     }
   }, true);
 })();
