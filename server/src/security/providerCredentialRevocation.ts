@@ -1,27 +1,38 @@
-import type { CredentialReference } from "./credentialVault.js";
+import type { CredentialVault } from "./credentialVault.js";
 import type { SecureAdapterConfig } from "./secureAdapterConfig.js";
-import { revokeGoogleOAuthToken } from "../oauth/googleOAuthRevocation.js";
+import {
+  GoogleOAuthRevocationError,
+  revokeGoogleOAuthToken,
+} from "../oauth/googleOAuthRevocation.js";
 
 export interface ProviderCredentialRevoker {
-  requiresRevocation(config: SecureAdapterConfig, reference: CredentialReference): boolean;
-  revoke(config: SecureAdapterConfig, reference: CredentialReference, secret: string): Promise<void>;
+  requiresRevocation(config: SecureAdapterConfig): boolean;
+  revoke(config: SecureAdapterConfig, vault: CredentialVault): Promise<void>;
 }
 
 /**
- * Provider-aware cleanup boundary for long-lived credentials. Only credentials
- * whose provider supports and requires an explicit remote revocation are marked
- * here. Native-vault deletion remains SessionStore's responsibility.
+ * Provider-aware cleanup boundary for long-lived credentials. Native-vault
+ * deletion remains SessionStore's responsibility. The revoker resolves the
+ * credential from the secure handle so the same provider cleanup works on
+ * Windows vault-backed sessions and current-process memory-only compatibility
+ * sessions on platforms whose native store is not implemented yet.
  */
 export const providerCredentialRevoker: ProviderCredentialRevoker = {
-  requiresRevocation(config, reference) {
+  requiresRevocation(config) {
     return config.mode === "live" &&
       config.provider === "gmail" &&
-      Boolean(config.credentials.accountSubject) &&
-      reference.kind === "oauth-refresh-token";
+      Boolean(config.credentials.accountSubject);
   },
 
-  async revoke(config, reference, secret) {
-    if (!this.requiresRevocation(config, reference)) return;
+  async revoke(config, vault) {
+    if (!this.requiresRevocation(config) || config.mode !== "live" || config.provider !== "gmail") return;
+    const handle = config.credentials.refreshToken;
+    const secret = handle.storage === "memory"
+      ? handle.value
+      : await vault.read(handle.reference);
+    if (!secret) {
+      throw new GoogleOAuthRevocationError("The protected Google credential is unavailable for revocation.");
+    }
     await revokeGoogleOAuthToken(secret);
   },
 };
