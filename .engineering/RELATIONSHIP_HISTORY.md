@@ -1,6 +1,6 @@
 # Email Shield — Local Relationship History Security Contract
 
-Status: Milestone 2 / GAP-011 implementation contract.
+Status: Milestone 2 / GAP-011 implementation contract, extended by the mailbox-thread continuity regression contract.
 
 ## Purpose
 
@@ -11,7 +11,7 @@ Relationship history gives Email Shield durable, account-local context about rep
 The relationship-history repository may persist only bounded, privacy-reduced aggregate state:
 
 - a per-account HMAC sender fingerprint;
-- a per-account HMAC message fingerprint used only for replay/idempotency control;
+- a per-account HMAC message fingerprint used for replay/idempotency control and locally known thread-reference matching;
 - bounded HMAC Reply-To fingerprints;
 - message count;
 - authenticated-message count;
@@ -32,7 +32,7 @@ Relationship history must never persist:
 - message bodies or text previews;
 - raw HTML;
 - raw URLs or destination paths/query values;
-- raw RFC Message-ID values;
+- raw RFC Message-ID, In-Reply-To or References values;
 - provider-native message IDs;
 - attachment names or content;
 - provider credentials or app passwords;
@@ -69,14 +69,31 @@ Even when history is established:
 Relationship history may add positive risk evidence when current behavior diverges from a previously stable local pattern. Current protected signals are:
 
 - `RELATIONSHIP_AUTH_DOWNGRADE`: an established sender with prior authenticated history now has an explicit DMARC failure or combined SPF/DKIM failure pattern;
-- `RELATIONSHIP_REPLY_TO_CHANGE`: an established sender changes a previously stable, non-empty Reply-To fingerprint;
+- `RELATIONSHIP_REPLY_TO_CHANGE`: an established sender changes a previously stable, non-empty Reply-To fingerprint outside a locally proven thread context;
+- `REPLY_TO_CHANGED_MID_THREAD`: an established sender changes that stable Reply-To route while the current RFC reply chain identifies at least one message already present in the selected account's HMAC replay index;
+- `THREAD_CONTINUITY_BROKEN`: an established sender supplies a direct `In-Reply-To` that is already known locally while also supplying a `References` chain that explicitly omits/contradicts that known direct parent;
 - `REPEATED_SUSPICIOUS_RELATIONSHIP_HISTORY`: most prior locally observed messages from the sender already required Review or stronger protection.
 
 These are additive risk signals only. They do not independently create provider actions.
 
+### Thread-continuity derivation rules
+
+Raw RFC threading identifiers are not new durable relationship data. MIME normalization may temporarily carry bounded `In-Reply-To` / `References` `<msg-id>` values into the Worker only so relationship annotation can compare them against the already-existing per-account HMAC message replay index.
+
+The boundary is intentionally conservative:
+
+- only explicit angle-bracket RFC message identifiers are accepted;
+- at most the newest 20 unique identifiers are retained from a bounded 32 KiB header tail, because RFC reply chains append the direct parent at the newest end;
+- raw values are consumed and deleted before the detection engine scores the message and before any browser progress can be serialized;
+- if relationship history is unavailable, the raw values are still deleted and no thread-history risk is manufactured;
+- an unknown parent/reference never means continuity is broken;
+- a bare `Re:` subject never creates thread-continuity risk;
+- a mid-thread Reply-To change uses `REPLY_TO_CHANGED_MID_THREAD` instead of also emitting `RELATIONSHIP_REPLY_TO_CHANGE`, so one route change is not double-counted;
+- no provider-specific thread database, plaintext subject index or raw thread graph is created.
+
 ## Replay and resumable-scan consistency
 
-Every relationship observation carries a per-account HMAC message fingerprint. Both Worker state and persistent state deduplicate on that fingerprint.
+Every relationship observation carries a per-account HMAC message fingerprint. Both Worker state and persistent state deduplicate on that fingerprint. The same HMAC replay index is also the only durable evidence source for deciding whether a referenced RFC Message-ID is already known locally.
 
 The server commit order for each completed provider page is:
 
@@ -95,6 +112,8 @@ The Worker may receive only the selected account's relationship snapshot: accoun
 
 `relationshipObservations`, the HMAC index key and replay-key set are server/Worker-only. `publicScanProgress` must remove relationship observations alongside provider cursor/checkpoint state before any SSE payload reaches browser JavaScript. Browser source must not depend on these internal fields.
 
+Transient raw `pendingThreadReferences` must be consumed and deleted during relationship annotation before `scanMessage()` creates a result. They must never appear in relationship observations, persistent state, diagnostics or public scan progress.
+
 Aggregate current-message relationship flags may appear inside the canonical current-message result because they contain no historical raw identity. Raw historical identities never do.
 
 ## Retention limits
@@ -107,6 +126,8 @@ Current hard bounds are:
 - maximum encrypted relationship-history database size 32 MiB.
 
 Relationship profiles are bounded to the most recently observed profiles. The exact message replay index is different: old replay fingerprints are never rotated or evicted merely to admit newer messages, because doing so would allow a later Full scan to count old mailbox messages again. Once the 100,000-message replay index reaches capacity, Email Shield conservatively stops learning new relationship observations for that account until a future reviewed retention design can preserve exact replay safety. Saturation therefore makes history stale rather than corrupting relationship counts or manufacturing trust. Raising, compacting or replacing these limits requires explicit storage/privacy and replay-safety review.
+
+Thread matching inherits that same conservative saturation behavior: a reference that is absent from a saturated/stale replay index is treated as unknown, never as broken.
 
 ## Regression requirements
 
@@ -121,7 +142,12 @@ The engineering gate must continue proving:
 - replay-index saturation freezes new learning instead of evicting old fingerprints and double-counting later scans;
 - established history never disables canonical first-contact semantics;
 - explicit authentication downgrade and stable Reply-To changes create positive relationship evidence;
+- known-thread stable Reply-To changes create the specific mid-thread signal without duplicate generic Reply-To evidence;
+- a locally known direct parent plus an explicitly contradictory References chain can create `THREAD_CONTINUITY_BROKEN`;
+- unknown thread references and bare reply subjects do not manufacture continuity risk;
+- RFC thread-reference extraction keeps the newest bounded IDs rather than dropping the direct parent from long chains;
+- transient raw In-Reply-To/References values are deleted even when relationship history is unavailable;
 - suspicious historical patterns add risk rather than trust;
 - high-confidence first-contact adult-campaign detection remains active for established senders;
-- relationship observations/HMAC internals never cross the browser progress boundary;
+- relationship observations/HMAC internals/raw thread references never cross the browser progress boundary;
 - relationship commit happens before scan-checkpoint advancement.
