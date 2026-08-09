@@ -118,7 +118,7 @@ export function createServer(options: { community?: CommunityNetwork } = {}) {
         label: session.label,
         mode,
         personalPolicy: {
-          persistent: true,
+          persistent: sessionStore.personalPolicyPersistent(),
           blockedSenders: policy.blockedSenders.length,
           blockedDomains: policy.blockedDomains.length,
           trustedSenders: policy.trustedSenders.length,
@@ -327,7 +327,7 @@ export function createServer(options: { community?: CommunityNetwork } = {}) {
     session.personalPolicy.blockSender(address);
     try {
       sessionStore.persistPersonalPolicy(session);
-      res.json({ blocked: true, persisted: true, scope: "sender", value: address, accountId: session.id });
+      res.json({ blocked: true, persisted: sessionStore.personalPolicyPersistent(), scope: "sender", value: address, accountId: session.id });
     } catch (error) {
       session.personalPolicy.replace(previous);
       res.status(500).json({ error: `Sender block was not saved: ${error instanceof Error ? error.message : String(error)}` });
@@ -345,7 +345,7 @@ export function createServer(options: { community?: CommunityNetwork } = {}) {
     session.personalPolicy.blockDomain(domain);
     try {
       sessionStore.persistPersonalPolicy(session);
-      res.json({ blocked: true, persisted: true, scope: "domain", value: domain, accountId: session.id });
+      res.json({ blocked: true, persisted: sessionStore.personalPolicyPersistent(), scope: "domain", value: domain, accountId: session.id });
     } catch (error) {
       session.personalPolicy.replace(previous);
       res.status(500).json({ error: `Domain block was not saved: ${error instanceof Error ? error.message : String(error)}` });
@@ -363,7 +363,7 @@ export function createServer(options: { community?: CommunityNetwork } = {}) {
       sessionStore.mutateAndPersistPersonalPolicy(session, (policy) => policy.approveException(action.exceptionKey));
       res.json({
         markedSafe: true,
-        persisted: true,
+        persisted: sessionStore.personalPolicyPersistent(),
         scope: "message",
         accountId: session.id,
         token: action.token,
@@ -385,7 +385,7 @@ export function createServer(options: { community?: CommunityNetwork } = {}) {
       sessionStore.mutateAndPersistPersonalPolicy(session, (policy) => policy.trustSender(action.senderAddress!));
       res.json({
         trusted: true,
-        persisted: true,
+        persisted: sessionStore.personalPolicyPersistent(),
         scope: "sender",
         value: action.senderAddress,
         accountId: session.id,
@@ -438,7 +438,7 @@ export function createServer(options: { community?: CommunityNetwork } = {}) {
   app.get("/api/accounts/:id/personal-policy", (req: Request, res: Response) => {
     const session = sessionStore.get(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
-    res.json({ persistent: true, ...session.personalPolicy.snapshot() });
+    res.json({ persistent: sessionStore.personalPolicyPersistent(), ...session.personalPolicy.snapshot() });
   });
 
   app.post("/api/accounts/:id/messages/trash", async (req: Request, res: Response) => {
