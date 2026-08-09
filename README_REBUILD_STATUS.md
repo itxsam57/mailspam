@@ -54,7 +54,8 @@ Milestone 2 is not formally closed. The following engineering bricks are impleme
 - mailbox-derived RFC thread-continuity and mid-thread Reply-To anomaly detection using account-local HMAC history;
 - bounded attachment-hash threat intelligence: provider-neutral 4-attachment / 2 MiB exact-hash limits, local raw-MIME hashing, selected-part IMAP acquisition, complete-part validation, inline-attachment parity, QR-byte reuse, privacy-reduced diagnostics and fail-closed signed-hash coverage;
 - bounded provider-neutral HTML interaction normalization: quoted/unquoted and entity-obfuscated destinations, accepted BASE-relative navigation, form/formaction and META-refresh targets, companion plain-text URLs, inert SCRIPT/STYLE raw text, fail-closed content/tag/destination limits, and reuse of the existing signed-intelligence/community privacy path;
-- attachment type-integrity enforcement using provider-neutral canonical MIME metadata, Unicode-safe filename normalization, same-category no-double-count scoring and spoof-resistant evidence display, without new attachment downloads or provider permissions.
+- attachment type-integrity enforcement using provider-neutral canonical MIME metadata, Unicode-safe filename normalization, same-category no-double-count scoring and spoof-resistant evidence display, without new attachment downloads or provider permissions;
+- RFC-aware author-domain authentication alignment for sender trust and bounded-content Safe gating: DMARC pass qualifies, explicit DMARC failure is authoritative negative, and SPF/DKIM fallback is accepted only from same-result RFC 8601 identities aligned with RFC5322.From, with no new DNS or provider lookup.
 
 The exact current security and behavior claims are defined by `.engineering/REGRESSION_REGISTER.md`, `.engineering/TEST_MATRIX.md` and the feature-specific security contracts under `.engineering/`.
 
