@@ -26,8 +26,8 @@ function rawWithAttachment(content: Buffer): Buffer {
     "",
     "Please review the attached document.",
     `--${boundary}`,
-    "Content-Type: application/octet-stream; name=" + '"payload.bin"',
-    "Content-Disposition: attachment; filename=" + '"payload.bin"',
+    'Content-Type: application/octet-stream; name="payload.bin"',
+    'Content-Disposition: attachment; filename="payload.bin"',
     "Content-Transfer-Encoding: base64",
     "",
     content.toString("base64"),
@@ -159,6 +159,6 @@ describe("attachment hash intelligence", () => {
     });
 
     expect(result.incomplete).toBe(false);
-    expect(result.blocksSafeVerdict).toBeUndefined();
+    expect(result.blocksSafeVerdict).toBe(false);
   });
 });
