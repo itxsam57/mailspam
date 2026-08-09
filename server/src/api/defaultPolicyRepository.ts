@@ -1,16 +1,21 @@
 import {
   createDefaultPersonalPolicyRepository,
+  InMemoryPolicyRepository,
   type PersonalPolicyRepository,
   type PersonalPolicyRepositoryFactoryOptions,
 } from "./policyPersistence.js";
 
 /**
- * The desktop server initializes this delegate before accepting requests. This
- * keeps the credential-vault lookup asynchronous at process startup while the
- * hot policy read/write path remains synchronous once the AES key is in memory.
+ * The production desktop entry point initializes this delegate before accepting
+ * requests. Direct server/unit construction may use the temporary in-memory
+ * fallback, but once that fallback is touched the process may not later switch
+ * to persistent storage: that would make earlier mutations appear durable when
+ * they were not.
  */
 class DeferredPersonalPolicyRepository implements PersonalPolicyRepository {
   private delegate: PersonalPolicyRepository | null = null;
+  private readonly fallback = new InMemoryPolicyRepository();
+  private fallbackUsed = false;
   private initializing: Promise<void> | null = null;
 
   get persistent(): boolean {
@@ -19,6 +24,9 @@ class DeferredPersonalPolicyRepository implements PersonalPolicyRepository {
 
   async initialize(options: PersonalPolicyRepositoryFactoryOptions = {}): Promise<void> {
     if (this.delegate) return;
+    if (this.fallbackUsed) {
+      throw new Error("Personal policy persistence cannot be initialized after temporary in-memory policy state has been used.");
+    }
     if (this.initializing) return this.initializing;
     this.initializing = (async () => {
       const repository = await createDefaultPersonalPolicyRepository(options);
@@ -40,10 +48,9 @@ class DeferredPersonalPolicyRepository implements PersonalPolicyRepository {
   }
 
   private ready(): PersonalPolicyRepository {
-    if (!this.delegate) {
-      throw new Error("Personal policy persistence is not initialized. Restart Email Shield.");
-    }
-    return this.delegate;
+    if (this.delegate) return this.delegate;
+    this.fallbackUsed = true;
+    return this.fallback;
   }
 }
 
