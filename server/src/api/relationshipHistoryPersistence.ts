@@ -177,9 +177,17 @@ function cloneAccountState(state: RelationshipAccountState): RelationshipAccount
   };
 }
 
-function deriveIndexKey(encryptionKey: Buffer): Buffer {
+function deriveMasterIndexKey(encryptionKey: Buffer): Buffer {
   return createHmac("sha256", encryptionKey)
     .update("email-shield-relationship-index-key-v1", "utf8")
+    .digest();
+}
+
+function deriveAccountIndexKey(masterIndexKey: Buffer, accountKey: string): Buffer {
+  if (!validAccountKey(accountKey)) throw new Error("Relationship-history account key is invalid.");
+  return createHmac("sha256", masterIndexKey)
+    .update("email-shield-relationship-account-index-v1\0", "utf8")
+    .update(accountKey, "utf8")
     .digest();
 }
 
@@ -187,9 +195,9 @@ function emptyState(): RelationshipAccountState {
   return { records: {}, observedMessages: {} };
 }
 
-function snapshotForState(state: RelationshipAccountState, indexKey: Buffer): RelationshipHistoryWorkerSnapshot {
+function snapshotForState(state: RelationshipAccountState, accountIndexKey: Buffer): RelationshipHistoryWorkerSnapshot {
   return {
-    indexKey: indexKey.toString("base64"),
+    indexKey: accountIndexKey.toString("base64"),
     records: Object.fromEntries(Object.entries(state.records).map(([key, value]) => [key, cloneRelationshipProfile(value)])),
     seenMessageKeys: new Set(Object.keys(state.observedMessages)),
   };
@@ -197,11 +205,11 @@ function snapshotForState(state: RelationshipAccountState, indexKey: Buffer): Re
 
 function mergeIntoState(
   state: RelationshipAccountState,
-  indexKey: Buffer,
+  accountIndexKey: Buffer,
   observations: RelationshipObservation[],
 ): RelationshipAccountState {
   const next = cloneAccountState(state);
-  const snapshot = snapshotForState(next, indexKey);
+  const snapshot = snapshotForState(next, accountIndexKey);
 
   for (const rawObservation of observations) {
     const observation = sanitizeObservation(rawObservation);
@@ -217,21 +225,31 @@ function mergeIntoState(
 export class InMemoryRelationshipHistoryRepository implements RelationshipHistoryRepository {
   readonly persistent = false;
   private readonly accounts = new Map<string, RelationshipAccountState>();
-  private readonly indexKey: Buffer;
+  private readonly masterIndexKey: Buffer;
 
-  constructor(indexKey = randomBytes(KEY_BYTES)) {
-    if (!Buffer.isBuffer(indexKey) || indexKey.length !== KEY_BYTES) throw new Error("Relationship-history index key is invalid.");
-    this.indexKey = Buffer.from(indexKey);
+  constructor(masterIndexKey = randomBytes(KEY_BYTES)) {
+    if (!Buffer.isBuffer(masterIndexKey) || masterIndexKey.length !== KEY_BYTES) throw new Error("Relationship-history index key is invalid.");
+    this.masterIndexKey = Buffer.from(masterIndexKey);
   }
 
   workerSnapshot(accountKey: string): RelationshipHistoryWorkerSnapshot {
     if (!validAccountKey(accountKey)) throw new Error("Relationship-history account key is invalid.");
-    return snapshotForState(this.accounts.get(accountKey) ?? emptyState(), this.indexKey);
+    return snapshotForState(
+      this.accounts.get(accountKey) ?? emptyState(),
+      deriveAccountIndexKey(this.masterIndexKey, accountKey),
+    );
   }
 
   merge(accountKey: string, observations: RelationshipObservation[]): void {
     if (!validAccountKey(accountKey)) throw new Error("Relationship-history account key is invalid.");
-    this.accounts.set(accountKey, mergeIntoState(this.accounts.get(accountKey) ?? emptyState(), this.indexKey, observations));
+    this.accounts.set(
+      accountKey,
+      mergeIntoState(
+        this.accounts.get(accountKey) ?? emptyState(),
+        deriveAccountIndexKey(this.masterIndexKey, accountKey),
+        observations,
+      ),
+    );
   }
 }
 
@@ -239,7 +257,7 @@ export class EncryptedFileRelationshipHistoryRepository implements RelationshipH
   readonly persistent = true;
   private readonly databasePath: string;
   private readonly encryptionKey: Buffer;
-  private readonly indexKey: Buffer;
+  private readonly masterIndexKey: Buffer;
 
   constructor(readonly dataDirectory: string, encryptionKey: Buffer) {
     if (!Buffer.isBuffer(encryptionKey) || encryptionKey.length !== KEY_BYTES) {
@@ -247,12 +265,15 @@ export class EncryptedFileRelationshipHistoryRepository implements RelationshipH
     }
     this.databasePath = join(dataDirectory, "relationship-history.enc.json");
     this.encryptionKey = Buffer.from(encryptionKey);
-    this.indexKey = deriveIndexKey(this.encryptionKey);
+    this.masterIndexKey = deriveMasterIndexKey(this.encryptionKey);
   }
 
   workerSnapshot(accountKey: string): RelationshipHistoryWorkerSnapshot {
     if (!validAccountKey(accountKey)) throw new Error("Relationship-history account key is invalid.");
-    return snapshotForState(this.readDatabase().accounts[accountKey] ?? emptyState(), this.indexKey);
+    return snapshotForState(
+      this.readDatabase().accounts[accountKey] ?? emptyState(),
+      deriveAccountIndexKey(this.masterIndexKey, accountKey),
+    );
   }
 
   merge(accountKey: string, observations: RelationshipObservation[]): void {
@@ -260,7 +281,11 @@ export class EncryptedFileRelationshipHistoryRepository implements RelationshipH
     if (!Array.isArray(observations) || observations.length === 0) return;
     const database = this.readDatabase();
     const current = database.accounts[accountKey] ?? emptyState();
-    database.accounts[accountKey] = mergeIntoState(current, this.indexKey, observations);
+    database.accounts[accountKey] = mergeIntoState(
+      current,
+      deriveAccountIndexKey(this.masterIndexKey, accountKey),
+      observations,
+    );
     this.writeDatabase(database);
   }
 
