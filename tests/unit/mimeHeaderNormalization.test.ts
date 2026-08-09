@@ -32,13 +32,13 @@ describe("provider header normalization", () => {
     });
   });
 
-  it("extracts only bounded explicit RFC message identifiers", () => {
+  it("keeps the newest bounded explicit RFC message identifiers", () => {
     const identifiers = Array.from({ length: 30 }, (_, index) => `<thread-${index}@example.test>`).join(" ");
     const extracted = extractThreadMessageIds(`noise ${identifiers} bare-id@example.test`);
 
     expect(extracted).toHaveLength(20);
-    expect(extracted[0]).toBe("<thread-0@example.test>");
-    expect(extracted.at(-1)).toBe("<thread-19@example.test>");
+    expect(extracted[0]).toBe("<thread-10@example.test>");
+    expect(extracted.at(-1)).toBe("<thread-29@example.test>");
     expect(extracted).not.toContain("bare-id@example.test");
   });
 
