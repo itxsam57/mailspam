@@ -67,6 +67,17 @@ export interface ThreadContext {
    * never persisted, uploaded, or used as a sender allowlist.
    */
   senderPreviouslySeenInScan?: boolean;
+  /** Aggregate local history only; no raw historical sender/message identity is carried here. */
+  relationshipPriorMessages?: number;
+  relationshipPriorAuthenticatedMessages?: number;
+  relationshipPriorSafeMessages?: number;
+  relationshipPriorSuspiciousMessages?: number;
+  /** True only after a conservative prior-history threshold; never an allowlist. */
+  hasEstablishedSenderHistory?: boolean;
+  /** Prior established authenticated history followed by an explicit current authentication failure. */
+  relationshipAuthenticationDowngrade?: boolean;
+  /** A previously stable non-empty Reply-To fingerprint changed for an established sender. */
+  replyToChangedFromRelationshipHistory?: boolean;
 }
 
 export interface CanonicalEnvelope {

@@ -4,6 +4,13 @@ import type { CanonicalEnvelope, ContentCoverage, NormalizedFolder, ParseStatus 
 import type { Verdict } from "../engine/verdict.js";
 import type { PersonalPolicyStore } from "../engine/layers/personalRules.js";
 import type { ThreatFeedCache } from "../engine/layers/globalIntelligence.js";
+import {
+  annotateRelationshipHistory,
+  applyRelationshipObservationToSnapshot,
+  createRelationshipObservation,
+  type RelationshipHistoryWorkerSnapshot,
+  type RelationshipObservation,
+} from "../engine/relationshipHistory.js";
 import type { CommunityReportContext } from "../community/types.js";
 import { buildCommunityReportContext } from "../community/fingerprint.js";
 import { scanMessage, type ScanResult } from "../engine/pipeline.js";
@@ -144,12 +151,15 @@ export interface ScanProgress {
   cursor: string | null;
   /** Server-only resumability checkpoint. It contains no raw sender/message identity. */
   checkpoint: ScanWorkflowCheckpoint;
+  /** Server-only privacy-reduced observations committed to encrypted local relationship history. */
+  relationshipObservations: RelationshipObservation[];
   done: boolean;
 }
 
 export interface ScanDeps {
   personalPolicy: PersonalPolicyStore;
   threatFeed: ThreatFeedCache;
+  relationshipHistory?: RelationshipHistoryWorkerSnapshot;
 }
 
 function isSuspicious(result: ScanResult): boolean {
@@ -176,6 +186,21 @@ function annotateSenderRecurrence(envelope: CanonicalEnvelope, seenSenderHashes:
 
 function messageIdentityHash(envelope: CanonicalEnvelope): string {
   return stableScanHash("message", `${envelope.provider}\0${envelope.messageId || envelope.providerNativeId}`);
+}
+
+function relationshipObservationFor(
+  envelope: CanonicalEnvelope,
+  result: ScanResult,
+  deps: ScanDeps,
+): RelationshipObservation | null {
+  const observation = createRelationshipObservation(
+    envelope,
+    result.scored.verdict,
+    deps.relationshipHistory,
+  );
+  return applyRelationshipObservationToSnapshot(deps.relationshipHistory, observation)
+    ? observation
+    : null;
 }
 
 function checkpoint(
@@ -228,14 +253,18 @@ export async function* quickScan(
       const page = await adapter.fetchPage(inbox, cursor, requestSize, signal);
       const suspiciousCards: ScanResult[] = [];
       const diagnosticSummaries: ScanDiagnosticSummary[] = [];
+      const relationshipObservations: RelationshipObservation[] = [];
 
       for (const envelope of page.envelopes) {
         if (signal.aborted) return;
         annotateSenderRecurrence(envelope, seenSenderHashes);
+        annotateRelationshipHistory(envelope, deps.relationshipHistory);
         const result = scanMessage(envelope, deps);
         tally(counters, result);
         diagnosticSummaries.push(diagnosticSummary(result));
         if (isSuspicious(result)) suspiciousCards.push(result);
+        const observation = relationshipObservationFor(envelope, result, deps);
+        if (observation) relationshipObservations.push(observation);
       }
 
       const reachedLimit = counters.examined >= boundedLimit;
@@ -248,6 +277,7 @@ export async function* quickScan(
         diagnosticSummaries,
         cursor,
         checkpoint: checkpoint(cursor, {}, new Set(), seenSenderHashes, seenMessageHashes),
+        relationshipObservations,
         done,
       };
 
@@ -307,6 +337,7 @@ export async function* fullMailboxAudit(
         const page = await adapter.fetchPage(folder, cursor, pageSize, signal);
         const suspiciousCards: ScanResult[] = [];
         const diagnosticSummaries: ScanDiagnosticSummary[] = [];
+        const relationshipObservations: RelationshipObservation[] = [];
 
         for (const envelope of page.envelopes) {
           if (signal.aborted) return;
@@ -314,10 +345,13 @@ export async function* fullMailboxAudit(
           if (seenMessageHashes.has(identityHash)) continue;
           seenMessageHashes.add(identityHash);
           annotateSenderRecurrence(envelope, seenSenderHashes);
+          annotateRelationshipHistory(envelope, deps.relationshipHistory);
           const result = scanMessage(envelope, deps);
           tally(counters, result);
           diagnosticSummaries.push(diagnosticSummary(result));
           if (isSuspicious(result)) suspiciousCards.push(result);
+          const observation = relationshipObservationFor(envelope, result, deps);
+          if (observation) relationshipObservations.push(observation);
         }
 
         cursor = page.nextCursor;
@@ -337,6 +371,7 @@ export async function* fullMailboxAudit(
           diagnosticSummaries,
           cursor,
           checkpoint: checkpoint(null, folderCursors, completedFolders, seenSenderHashes, seenMessageHashes),
+          relationshipObservations,
           done: allDone,
           folder: folder.providerFolderName,
         };
@@ -378,14 +413,18 @@ export async function* spamJunkScan(
       const page = await adapter.fetchPage(spam, cursor, pageSize, signal);
       const suspiciousCards: ScanResult[] = [];
       const diagnosticSummaries: ScanDiagnosticSummary[] = [];
+      const relationshipObservations: RelationshipObservation[] = [];
 
       for (const envelope of page.envelopes) {
         if (signal.aborted) return;
         annotateSenderRecurrence(envelope, seenSenderHashes);
+        annotateRelationshipHistory(envelope, deps.relationshipHistory);
         const result = scanMessage(envelope, deps);
         tally(counters, result);
         diagnosticSummaries.push(diagnosticSummary(result));
         if (isSuspicious(result)) suspiciousCards.push(result);
+        const observation = relationshipObservationFor(envelope, result, deps);
+        if (observation) relationshipObservations.push(observation);
       }
 
       cursor = page.nextCursor;
@@ -397,6 +436,7 @@ export async function* spamJunkScan(
         diagnosticSummaries,
         cursor,
         checkpoint: checkpoint(cursor, {}, new Set(), seenSenderHashes, seenMessageHashes),
+        relationshipObservations,
         done,
       };
 

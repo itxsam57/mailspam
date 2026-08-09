@@ -1,5 +1,6 @@
 import { initializeDefaultPersonalPolicyRepository } from "./api/defaultPolicyRepository.js";
 import { initializeDefaultScanStateRepository } from "./api/defaultScanStateRepository.js";
+import { initializeDefaultRelationshipHistoryRepository } from "./api/defaultRelationshipHistoryRepository.js";
 import { createLocalDesktopServer } from "./api/localDesktopServer.js";
 
 const PORT = Number(process.env.PORT ?? 4173);
@@ -14,6 +15,7 @@ if (!["127.0.0.1", "localhost", "::1"].includes(HOST)) {
 // silently recreating plaintext keys or discarding encrypted local state.
 await initializeDefaultPersonalPolicyRepository();
 await initializeDefaultScanStateRepository();
+await initializeDefaultRelationshipHistoryRepository();
 
 const app = createLocalDesktopServer();
 app.listen(PORT, HOST, () => {
