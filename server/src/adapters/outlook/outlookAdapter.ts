@@ -1,4 +1,3 @@
-import { ConfidentialClientApplication } from "@azure/msal-node";
 import { createHash } from "node:crypto";
 import type {
   EmailAdapter,
@@ -7,14 +6,21 @@ import type {
   SpamReportResult,
 } from "../../canonical/adapter.js";
 import type { CanonicalEnvelope, NormalizedFolder } from "../../canonical/envelope.js";
+import { refreshMicrosoftAccessToken } from "../../oauth/microsoftOAuth.js";
 import { normalizeRawMessage } from "../../util/mimeNormalize.js";
 
 export interface OutlookOAuthCredentials {
   clientId: string;
-  clientSecret: string;
-  tenantId: string;
   refreshToken: string;
+  /** Stable Microsoft Graph `/me.id` for guided OAuth sessions. */
+  accountId?: string;
+  /** Legacy developer-flow compatibility only; guided desktop OAuth is public-client. */
+  clientSecret?: string;
+  /** Legacy developer-flow compatibility only. Guided OAuth uses the common authority. */
+  tenantId?: string;
 }
+
+export type OutlookRefreshTokenSink = (refreshToken: string) => Promise<void>;
 
 const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
 
@@ -31,44 +37,58 @@ function normalizeWellKnownFolder(name: string): NormalizedFolder {
 
 export class OutlookAdapter implements EmailAdapter {
   readonly provider = "outlook" as const;
-  private credentials: OutlookOAuthCredentials;
-  private msal: ConfidentialClientApplication;
   private accessToken: string | null = null;
   private accountProof: string | null = null;
 
-  constructor(credentials: OutlookOAuthCredentials) {
-    this.credentials = credentials;
-    this.msal = new ConfidentialClientApplication({
-      auth: {
-        clientId: credentials.clientId,
-        clientSecret: credentials.clientSecret,
-        authority: `https://login.microsoftonline.com/${credentials.tenantId}`,
-      },
-    });
-  }
+  constructor(
+    private readonly credentials: OutlookOAuthCredentials,
+    private readonly onRefreshTokenRotated?: OutlookRefreshTokenSink,
+  ) {}
 
   private async graphFetch(path: string, init?: RequestInit): Promise<Response> {
     if (!this.accessToken) throw new Error("Not connected");
     return fetch(`${GRAPH_BASE}${path}`, {
       ...init,
-      headers: { ...(init?.headers ?? {}), Authorization: `Bearer ${this.accessToken}` },
+      headers: {
+        ...(init?.headers ?? {}),
+        Authorization: `Bearer ${this.accessToken}`,
+        Prefer: 'IdType="ImmutableId"',
+      },
     });
   }
 
   async connect(signal: AbortSignal): Promise<void> {
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-    const result = await this.msal.acquireTokenByRefreshToken({
-      refreshToken: this.credentials.refreshToken,
-      scopes: ["https://graph.microsoft.com/Mail.ReadWrite"],
-    });
-    if (!result?.accessToken) throw new Error("Failed to acquire Graph access token.");
-    this.accessToken = result.accessToken;
 
-    const meRes = await this.graphFetch("/me?$select=mail,userPrincipalName");
-    if (!meRes.ok) throw new Error(`Graph profile failed: ${meRes.status}`);
-    const me = await meRes.json();
-    const identity = me.mail ?? me.userPrincipalName ?? "unknown";
-    this.accountProof = createHash("sha256").update(identity).digest("hex");
+    const originalRefreshToken = this.credentials.refreshToken;
+    const tokenResult = await refreshMicrosoftAccessToken({
+      clientId: this.credentials.clientId,
+      refreshToken: originalRefreshToken,
+      clientSecret: this.credentials.clientSecret,
+    });
+    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+    this.accessToken = tokenResult.accessToken;
+
+    try {
+      const meRes = await this.graphFetch("/me?$select=id,mail,userPrincipalName");
+      if (!meRes.ok) throw new Error(`Graph profile failed: ${meRes.status}`);
+      const me = await meRes.json() as { id?: unknown; mail?: unknown; userPrincipalName?: unknown };
+      const graphAccountId = typeof me.id === "string" ? me.id.trim() : "";
+      if (!graphAccountId) throw new Error("Microsoft Graph profile did not contain a stable account ID.");
+      if (this.credentials.accountId && graphAccountId !== this.credentials.accountId) {
+        throw new Error("The protected Outlook credential resolved to a different Microsoft account. Reconnect the account.");
+      }
+
+      if (tokenResult.refreshToken !== originalRefreshToken) {
+        await this.onRefreshTokenRotated?.(tokenResult.refreshToken);
+        this.credentials.refreshToken = tokenResult.refreshToken;
+      }
+      this.accountProof = createHash("sha256").update(graphAccountId).digest("hex");
+    } catch (error) {
+      this.accessToken = null;
+      this.accountProof = null;
+      throw error;
+    }
   }
 
   async listFolders(signal: AbortSignal): Promise<FolderDescriptor[]> {
@@ -78,9 +98,11 @@ export class OutlookAdapter implements EmailAdapter {
       wellKnown.map(async (name) => {
         const res = await this.graphFetch(`/me/mailFolders/${name}?$select=id,displayName`);
         if (!res.ok) return null;
-        const data = await res.json();
-        return { id: data.id as string, wellKnownName: name };
-      })
+        const data = await res.json() as { id?: unknown };
+        return typeof data.id === "string" && data.id
+          ? { id: data.id, wellKnownName: name }
+          : null;
+      }),
     );
     return results
       .filter((r): r is { id: string; wellKnownName: string } => r !== null)
@@ -94,18 +116,27 @@ export class OutlookAdapter implements EmailAdapter {
     folder: FolderDescriptor,
     cursor: string | null,
     pageSize: number,
-    signal: AbortSignal
+    signal: AbortSignal,
   ): Promise<FetchPage> {
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
     if (!this.accountProof) throw new Error("Not connected");
 
     const listPath = cursor ?? `/me/mailFolders/${folder.providerFolderName}/messages?$select=id&$top=${pageSize}&$orderby=receivedDateTime desc`;
-    const listRes = cursor && cursor.startsWith("https://")
-      ? await fetch(cursor, { headers: { Authorization: `Bearer ${this.accessToken}` }, signal })
+    const listRes = cursor && cursor.startsWith("https://graph.microsoft.com/")
+      ? await fetch(cursor, {
+          headers: {
+            Authorization: `Bearer ${this.accessToken}`,
+            Prefer: 'IdType="ImmutableId"',
+          },
+          signal,
+          redirect: "error",
+        })
       : await this.graphFetch(listPath, { signal });
     if (!listRes.ok) throw new Error(`Graph list failed: ${listRes.status}`);
-    const listData = await listRes.json();
-    const ids: string[] = (listData.value ?? []).map((m: { id: string }) => m.id);
+    const listData = await listRes.json() as { value?: Array<{ id?: unknown }>; "@odata.nextLink"?: unknown };
+    const ids = (listData.value ?? [])
+      .map((message) => typeof message.id === "string" ? message.id : "")
+      .filter(Boolean);
 
     if (ids.length === 0) return { envelopes: [], nextCursor: null, done: true };
 
@@ -121,30 +152,37 @@ export class OutlookAdapter implements EmailAdapter {
             id: String(idx),
             method: "GET",
             url: `/me/messages/${id}/$value`,
+            headers: { Prefer: 'IdType="ImmutableId"' },
           })),
         }),
       });
       if (!batchRes.ok) throw new Error(`Graph batch fetch failed: ${batchRes.status}`);
-      const batchData = await batchRes.json();
+      const batchData = await batchRes.json() as { responses?: Array<{ id?: unknown; status?: unknown; body?: unknown }> };
       for (const resp of batchData.responses ?? []) {
-        if (resp.status !== 200) continue;
+        if (resp.status !== 200 || typeof resp.body !== "string" || typeof resp.id !== "string") continue;
+        const index = Number(resp.id);
+        if (!Number.isInteger(index) || index < 0 || index >= chunk.length) continue;
         envelopes.push(
-          await normalizeRawMessage(resp.body as string, {
+          await normalizeRawMessage(resp.body, {
             provider: "outlook",
             accountProof: this.accountProof,
             providerFolderName: folder.providerFolderName,
             normalizedFolder: folder.normalized,
-            providerNativeId: chunk[Number(resp.id)]!,
-          })
+            providerNativeId: chunk[index]!,
+          }),
         );
       }
     }
 
-    const nextLink: string | undefined = listData["@odata.nextLink"];
+    const nextLink = typeof listData["@odata.nextLink"] === "string" ? listData["@odata.nextLink"] : undefined;
     return { envelopes, nextCursor: nextLink ?? null, done: !nextLink };
   }
 
-  private async batchMove(messageIds: string[], destinationId: "deleteditems" | "junkemail", signal: AbortSignal): Promise<number> {
+  private async batchMove(
+    messageIds: string[],
+    destinationId: "deleteditems" | "junkemail",
+    signal: AbortSignal,
+  ): Promise<number> {
     let moved = 0;
     for (let i = 0; i < messageIds.length; i += 20) {
       if (signal.aborted) throw new DOMException("Aborted", "AbortError");
@@ -158,13 +196,13 @@ export class OutlookAdapter implements EmailAdapter {
             method: "POST",
             url: `/me/messages/${id}/move`,
             body: { destinationId },
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", Prefer: 'IdType="ImmutableId"' },
           })),
         }),
       });
       if (!response.ok) throw new Error(`Graph batch move failed: ${response.status}`);
-      const body = await response.json();
-      const failures = (body.responses ?? []).filter((item: { status: number }) => item.status < 200 || item.status >= 300);
+      const body = await response.json() as { responses?: Array<{ status?: unknown }> };
+      const failures = (body.responses ?? []).filter((item) => typeof item.status !== "number" || item.status < 200 || item.status >= 300);
       if (failures.length) {
         throw new Error(`Graph rejected ${failures.length} of ${chunk.length} message move request(s).`);
       }
@@ -184,5 +222,6 @@ export class OutlookAdapter implements EmailAdapter {
 
   async disconnect(): Promise<void> {
     this.accessToken = null;
+    this.accountProof = null;
   }
 }
