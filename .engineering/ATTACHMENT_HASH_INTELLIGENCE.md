@@ -30,13 +30,15 @@ An attachment beyond either bound remains unhashed. The bound is about determini
 
 ## Gmail, Outlook and fixture/raw MIME providers
 
-These providers already supply the complete raw RFC message to the existing MIME normalizer. `mailparser` therefore already materializes decoded attachment bytes as part of the accepted provider path.
+These providers already supply the complete raw RFC message to the existing MIME normalizer. `mailparser` therefore already materializes decoded attachment bytes as part of the accepted provider path, including MIME parts represented as inline attachments.
 
 For the first four attachments whose complete decoded bytes are at most 2 MiB each, Email Shield hashes the bytes already present locally. Hashing introduces no additional provider request and no external network lookup. Excess-count or oversized attachments remain unhashed and are represented only through privacy-reduced incomplete coverage.
 
 ## iCloud, Yahoo and generic IMAP
 
 The existing IMAP architecture deliberately avoids full-message downloads and selects MIME parts. Exact attachment hashing is therefore a separate bounded acquisition path, not an excuse to fetch the complete RFC message.
+
+IMAP attachment classification must stay aligned with the raw-MIME path: non-text leaf MIME parts, explicit attachments, and named inline text parts are canonical attachment candidates. A MIME node classified as an attachment cannot simultaneously become the selected readable body. This prevents provider-specific hash blind spots and prevents inline attachment text from being mistaken for the email body.
 
 In addition to the provider-neutral 4-attachment / 2 MiB decoded limits, live IMAP applies:
 
@@ -93,6 +95,7 @@ The engineering gate must continue proving:
 - community reporting includes only the permitted hash, not attachment names or bytes;
 - missing hash coverage blocks automatic Safe only when verified attachment-hash intelligence is actually present;
 - live IMAP requests only selected attachment MIME parts for hashing;
+- IMAP inline attachment classification remains aligned with raw-MIME attachment behavior and does not steal named inline text into readable-body selection;
 - live IMAP never uses full RFC822/raw-source fallback for attachment hashing;
 - a part that reaches the bounded encoded fetch cap is not hashed as though complete;
 - a provider-returned MIME part shorter than its BODYSTRUCTURE declaration is not hashed as a complete attachment;
