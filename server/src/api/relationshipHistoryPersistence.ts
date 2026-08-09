@@ -104,7 +104,7 @@ function sanitizeFolderCounts(input: unknown): RelationshipProfile["folderCounts
   for (const [folder, rawCount] of Object.entries(input as Record<string, unknown>)) {
     if (!allowed.has(folder)) continue;
     const count = boundedInteger(rawCount);
-    if (count > 0) output[folder as keyof RelationshipProfile["folderCounts"]] = count;
+    if (count > 0) output[folder as "inbox" | "spam" | "sent" | "drafts" | "trash" | "archive" | "other"] = count;
   }
   return output;
 }
@@ -187,22 +187,28 @@ function emptyState(): RelationshipAccountState {
   return { records: {}, observedMessages: {} };
 }
 
+function snapshotForState(state: RelationshipAccountState, indexKey: Buffer): RelationshipHistoryWorkerSnapshot {
+  return {
+    indexKey: indexKey.toString("base64"),
+    records: Object.fromEntries(Object.entries(state.records).map(([key, value]) => [key, cloneRelationshipProfile(value)])),
+    seenMessageKeys: new Set(Object.keys(state.observedMessages)),
+  };
+}
+
 function mergeIntoState(
   state: RelationshipAccountState,
   indexKey: Buffer,
   observations: RelationshipObservation[],
 ): RelationshipAccountState {
   const next = cloneAccountState(state);
-  const snapshot: RelationshipHistoryWorkerSnapshot = {
-    indexKey: indexKey.toString("base64"),
-    records: next.records,
-  };
+  const snapshot = snapshotForState(next, indexKey);
 
   for (const rawObservation of observations) {
     const observation = sanitizeObservation(rawObservation);
-    if (!observation || next.observedMessages[observation.messageKey]) continue;
-    applyRelationshipObservationToSnapshot(snapshot, observation);
-    next.observedMessages[observation.messageKey] = observation.observedAt;
+    if (!observation) continue;
+    if (applyRelationshipObservationToSnapshot(snapshot, observation)) {
+      next.observedMessages[observation.messageKey] = observation.observedAt;
+    }
   }
   next.records = snapshot.records;
   return pruneAccount(next);
@@ -220,11 +226,7 @@ export class InMemoryRelationshipHistoryRepository implements RelationshipHistor
 
   workerSnapshot(accountKey: string): RelationshipHistoryWorkerSnapshot {
     if (!validAccountKey(accountKey)) throw new Error("Relationship-history account key is invalid.");
-    const state = this.accounts.get(accountKey) ?? emptyState();
-    return {
-      indexKey: this.indexKey.toString("base64"),
-      records: Object.fromEntries(Object.entries(state.records).map(([key, value]) => [key, cloneRelationshipProfile(value)])),
-    };
+    return snapshotForState(this.accounts.get(accountKey) ?? emptyState(), this.indexKey);
   }
 
   merge(accountKey: string, observations: RelationshipObservation[]): void {
@@ -250,11 +252,7 @@ export class EncryptedFileRelationshipHistoryRepository implements RelationshipH
 
   workerSnapshot(accountKey: string): RelationshipHistoryWorkerSnapshot {
     if (!validAccountKey(accountKey)) throw new Error("Relationship-history account key is invalid.");
-    const state = this.readDatabase().accounts[accountKey] ?? emptyState();
-    return {
-      indexKey: this.indexKey.toString("base64"),
-      records: Object.fromEntries(Object.entries(state.records).map(([key, value]) => [key, cloneRelationshipProfile(value)])),
-    };
+    return snapshotForState(this.readDatabase().accounts[accountKey] ?? emptyState(), this.indexKey);
   }
 
   merge(accountKey: string, observations: RelationshipObservation[]): void {
