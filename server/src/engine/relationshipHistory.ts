@@ -32,6 +32,8 @@ export interface RelationshipHistoryWorkerSnapshot {
   /** Process-local HMAC key. It is never persisted in this snapshot or returned to browser JavaScript. */
   indexKey: string;
   records: Record<string, RelationshipProfile>;
+  /** HMAC message keys only. Structured-cloned into the Worker for replay-safe scans. */
+  seenMessageKeys: Set<string>;
 }
 
 const INDEX_KEY_BYTES = 32;
@@ -194,15 +196,14 @@ export function createRelationshipObservation(
 }
 
 /**
- * Applies one already-deduplicated observation to a Worker snapshot so later
- * messages in the same scan benefit from the newly observed local context.
- * The persistent repository performs the authoritative message-key dedupe.
+ * Applies one observation only once per message fingerprint. Worker replay and
+ * persistent merge therefore share the same idempotency rule.
  */
 export function applyRelationshipObservationToSnapshot(
   snapshot: RelationshipHistoryWorkerSnapshot | undefined,
   observation: RelationshipObservation | null,
-): void {
-  if (!snapshot || !observation) return;
+): boolean {
+  if (!snapshot || !observation || snapshot.seenMessageKeys.has(observation.messageKey)) return false;
   const current = snapshot.records[observation.senderKey]
     ? cloneRelationshipProfile(snapshot.records[observation.senderKey]!)
     : emptyProfile(observation.observedAt);
@@ -231,4 +232,6 @@ export function applyRelationshipObservationToSnapshot(
   }
 
   snapshot.records[observation.senderKey] = current;
+  snapshot.seenMessageKeys.add(observation.messageKey);
+  return true;
 }
