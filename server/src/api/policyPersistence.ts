@@ -218,7 +218,6 @@ export class EncryptedFilePolicyRepository implements PersonalPolicyRepository {
       authTag: cipher.getAuthTag().toString("base64"),
       ciphertext: ciphertext.toString("base64"),
     };
-
     const temporaryPath = `${this.databasePath}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
     writeFileSync(temporaryPath, JSON.stringify(envelope), { mode: 0o600 });
     try {
@@ -246,7 +245,12 @@ export function policyAccountKey(config: AdapterConfig): string {
         identity = `imap:${config.credentials.host.trim().toLowerCase()}:${config.credentials.port}:${config.credentials.user.trim().toLowerCase()}`;
         break;
       case "gmail":
-        identity = `gmail:${config.credentials.clientId}:${config.credentials.refreshToken}`;
+        // Guided OAuth uses Google's immutable account `sub`, not a refresh
+        // token. Legacy developer credentials retain their historical identity
+        // path so existing test/dev sessions do not silently move policy state.
+        identity = config.credentials.accountSubject?.trim()
+          ? `gmail-sub:${config.credentials.clientId.trim()}:${config.credentials.accountSubject.trim()}`
+          : `gmail:${config.credentials.clientId}:${config.credentials.refreshToken}`;
         break;
       case "outlook":
         identity = `outlook:${config.credentials.tenantId}:${config.credentials.clientId}:${config.credentials.refreshToken}`;
