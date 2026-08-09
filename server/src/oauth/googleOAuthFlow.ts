@@ -110,6 +110,11 @@ export function buildGoogleAuthorizationUrl(input: {
   url.searchParams.set("response_type", "code");
   url.searchParams.set("scope", GOOGLE_REQUIRED_SCOPES.join(" "));
   url.searchParams.set("access_type", "offline");
+  // An explicit Email Shield connection cannot complete without durable,
+  // protected refresh-token custody. Google may omit a refresh token after a
+  // previous consent (including a locally failed connection), so this user-
+  // initiated connect flow deliberately requests fresh consent.
+  url.searchParams.set("prompt", "consent");
   url.searchParams.set("state", input.state);
   url.searchParams.set("nonce", input.nonce);
   url.searchParams.set("code_challenge", input.codeChallenge);

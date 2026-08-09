@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AccountSession, SessionStore } from "../../server/src/api/sessionStore.js";
 import type { AdapterConfig } from "../../server/src/api/adapterConfig.js";
 import {
+  buildGoogleAuthorizationUrl,
   DefaultGoogleOAuthRuntime,
   GOOGLE_GMAIL_MODIFY_SCOPE,
   GoogleOAuthFlowManager,
@@ -34,6 +35,26 @@ function mockSession(id = "gmail-session", label = "person@example.com"): Accoun
 }
 
 describe("Google OAuth provider compatibility", () => {
+  it("requests fresh consent for every explicit protected offline Gmail connection", () => {
+    const authorization = new URL(buildGoogleAuthorizationUrl({
+      clientId: "desktop-client.apps.googleusercontent.com",
+      redirectUri: "http://127.0.0.1:43123",
+      state: "state-value",
+      nonce: "nonce-value",
+      codeChallenge: "challenge-value",
+    }));
+
+    expect(authorization.searchParams.get("access_type")).toBe("offline");
+    expect(authorization.searchParams.get("prompt")).toBe("consent");
+    expect(authorization.searchParams.get("code_challenge_method")).toBe("S256");
+    expect(authorization.searchParams.get("client_secret")).toBeNull();
+    expect(authorization.searchParams.get("scope")?.split(" ")).toEqual(expect.arrayContaining([
+      "openid",
+      "email",
+      GOOGLE_GMAIL_MODIFY_SCOPE,
+    ]));
+  });
+
   it("accepts Google's canonical userinfo.email grant as equivalent to OIDC email", async () => {
     expect(googleScopeGranted(["openid", "https://www.googleapis.com/auth/userinfo.email"], "email")).toBe(true);
     expect(googleScopeGranted(["openid", "email"], "email")).toBe(true);
