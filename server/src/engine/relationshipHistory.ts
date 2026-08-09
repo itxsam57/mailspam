@@ -112,7 +112,9 @@ function stableHistoricalReplyTo(profile: RelationshipProfile): string | null {
 /**
  * Enriches the canonical relationship signals from prior local history. The
  * sender address itself never enters the persisted relationship database; it
- * is converted to an HMAC fingerprint inside the Worker.
+ * is converted to an HMAC fingerprint inside the Worker. Established history
+ * does not mutate `isFirstContact`; first-contact-specific threat rules stay
+ * active even if a known sender account is later compromised.
  */
 export function annotateRelationshipHistory(
   envelope: CanonicalEnvelope,
@@ -131,7 +133,6 @@ export function annotateRelationshipHistory(
   envelope.threadContext.relationshipPriorSafeMessages = profile?.safeMessages ?? 0;
   envelope.threadContext.relationshipPriorSuspiciousMessages = suspicious;
   envelope.threadContext.hasEstablishedSenderHistory = established;
-  if (established) envelope.threadContext.isFirstContact = false;
 
   envelope.threadContext.relationshipAuthenticationDowngrade = Boolean(
     established && explicitAuthenticationFailure(envelope),
