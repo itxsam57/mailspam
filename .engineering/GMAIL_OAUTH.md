@@ -4,7 +4,7 @@
 
 This Milestone 2 package replaces the old live-Gmail developer credential entry path with a guided desktop OAuth flow while preserving fixture mode and the existing Gmail provider/detection behavior.
 
-The implementation follows Google's installed desktop application model:
+The implementation uses Google's desktop authorization model together with the OpenID Connect identity layer required for stable verified `sub` identity:
 
 - system/browser authorization at Google's HTTPS authorization endpoint;
 - temporary `127.0.0.1` loopback listener on a random available port;
@@ -13,7 +13,7 @@ The implementation follows Google's installed desktop application model:
 - cryptographically random `state` for callback CSRF protection;
 - cryptographically random OpenID Connect `nonce` checked against the verified ID token;
 - no manual copy/paste/OOB flow;
-- no required desktop `client_secret`;
+- matching Google Desktop OAuth client ID and client secret supplied to the local token endpoint exchange;
 - one-time callback consumption before asynchronous token exchange;
 - callback listener closed after the first valid-state response or expiry;
 - exact loopback Host, `GET` method and root callback path enforcement;
@@ -21,11 +21,15 @@ The implementation follows Google's installed desktop application model:
 
 ## Google application configuration
 
-Development builds read the application-owned public desktop OAuth client ID from:
+Development builds read the matching Google Desktop OAuth client credentials from process-local environment variables:
 
 `EMAIL_SHIELD_GOOGLE_CLIENT_ID`
 
-A client ID is public application metadata, not a password or refresh token. The browser does not supply an arbitrary client ID to the local server.
+`EMAIL_SHIELD_GOOGLE_CLIENT_SECRET`
+
+Neither value is accepted from browser request data. The client secret is used only inside the local OAuth/provider runtime and is never inserted into the Google authorization URL, dashboard state, callback HTML, status responses, logs, or repository files.
+
+Google's installed-application OAuth documentation describes the Desktop client secret as optional for the generic OAuth token exchange, while Google's current OpenID Connect token endpoint documents `client_secret` as required for Authorization Code and refresh-token exchanges. Email Shield requests `openid`, verifies an ID token, and depends on verified `sub`, so the guided flow supplies the matching Desktop client secret to the token endpoint and subsequent Gmail OAuth refresh runtime.
 
 The Google Cloud project must have the Gmail API enabled and use an OAuth client of type **Desktop app**. Public production distribution will require the appropriate Google OAuth consent-screen/scopes verification before this flow is treated as production-ready.
 
@@ -55,20 +59,26 @@ The account-scoped policy key is derived from:
 
 The email address is display metadata only and is never used as the unique Google account identifier.
 
-## Refresh-token custody
+## OAuth client credential and refresh-token custody
 
-On a platform with an available native credential vault:
+The Google client secret is application-level OAuth configuration, while the refresh token is a user/account credential.
 
-1. Google returns the refresh token only to the local loopback/token-exchange process.
-2. The verified Google `sub` establishes stable account identity.
-3. Real Gmail provider validation and secure credential/session commit execute inside the same serialized account-lifecycle transaction.
-4. The refresh token is stored behind a deterministic opaque `oauth-refresh-token` vault reference derived from client ID + verified Google `sub`.
-5. The long-lived session stores only that handle.
-6. Scans/actions resolve the token only when the Gmail provider adapter connects.
+For guided Gmail:
+
+1. The browser receives only the public authorization request; the client secret is never included in it.
+2. The local OAuth process sends the matching client ID, client secret, authorization code, PKCE verifier, grant type and exact loopback redirect URI directly to Google's HTTPS token endpoint.
+3. Google returns tokens only to the local process.
+4. The verified Google `sub` establishes stable account identity.
+5. Real Gmail provider validation and secure credential/session commit execute inside the same serialized account-lifecycle transaction.
+6. On a platform with an available native credential vault, the refresh token is stored behind a deterministic opaque `oauth-refresh-token` vault reference derived from client ID + verified Google `sub`.
+7. The long-lived session stores the refresh-token handle. The process-local client secret is wrapped by the existing secure adapter configuration boundary and materialized only for provider OAuth use.
+8. Scans/actions resolve the protected account token only when the Gmail provider adapter connects, and the Gmail OAuth client is constructed with the same matching client credentials used for the original exchange.
 
 Serializing validation and commit with disconnect/revocation prevents a race where an old session could revoke the Google grant after a new connection validates but before the new token is committed.
 
 On platforms whose native vault backend has not yet been implemented, the current compatibility boundary remains process-memory-only storage; Email Shield does not substitute plaintext persistent storage. Guided Gmail disconnect still performs provider-side revocation from the secure in-memory handle before that handle is released.
+
+Persistent native-vault custody of the application-level Google client secret itself is not claimed by this package. Development configuration remains process-local; packaging/distribution secret handling remains part of the broader Milestone 2 credential-custody work.
 
 ## Provider-side revocation and Disconnect
 
@@ -94,6 +104,7 @@ The dashboard receives only:
 
 The dashboard must never receive:
 
+- Google client secret;
 - authorization code after Google's redirect;
 - PKCE verifier;
 - refresh token;
@@ -111,6 +122,8 @@ The engineering gate locks:
 - state and nonce handling;
 - callback Host/method/path restrictions;
 - callback replay rejection before token exchange;
+- matching client credential presence in the token POST while remaining absent from the authorization URL/browser surfaces;
+- client credential propagation into Gmail OAuth refresh/provider runtime;
 - verified stable `sub` identity;
 - refresh-token rotation without policy-identity rotation;
 - vault-backed and memory-only custody behavior;
@@ -128,6 +141,7 @@ Real Google authorization and a real Gmail Quick Scan remain owner-controlled ac
 - macOS Keychain;
 - Linux Secret Service;
 - local policy-encryption key migration;
+- persistent OS-vault packaging of the Google application client secret;
 - Google DPoP-bound refresh tokens;
 - final public Google OAuth app verification/production consent publishing;
 - provider capability-matrix UI;

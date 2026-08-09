@@ -33,6 +33,7 @@ export interface GoogleOAuthTokenResult {
 export interface GoogleOAuthRuntime {
   exchangeAuthorizationCode(input: {
     clientId: string;
+    clientSecret?: string;
     code: string;
     codeVerifier: string;
     redirectUri: string;
@@ -82,6 +83,10 @@ function base64UrlRandom(bytes: number): string {
   return randomBytes(bytes).toString("base64url");
 }
 
+function resolveGoogleClientSecret(explicit?: string): string {
+  return explicit?.trim() || process.env.EMAIL_SHIELD_GOOGLE_CLIENT_SECRET?.trim() || "";
+}
+
 export function createPkcePair(): { verifier: string; challenge: string } {
   const verifier = base64UrlRandom(64);
   const challenge = createHash("sha256").update(verifier, "ascii").digest("base64url");
@@ -110,10 +115,6 @@ export function buildGoogleAuthorizationUrl(input: {
   url.searchParams.set("response_type", "code");
   url.searchParams.set("scope", GOOGLE_REQUIRED_SCOPES.join(" "));
   url.searchParams.set("access_type", "offline");
-  // An explicit Email Shield connection cannot complete without durable,
-  // protected refresh-token custody. Google may omit a refresh token after a
-  // previous consent (including a locally failed connection), so this user-
-  // initiated connect flow deliberately requests fresh consent.
   url.searchParams.set("prompt", "consent");
   url.searchParams.set("state", input.state);
   url.searchParams.set("nonce", input.nonce);
@@ -177,12 +178,17 @@ async function readBoundedText(response: Response, maximumBytes: number): Promis
 export class DefaultGoogleOAuthRuntime implements GoogleOAuthRuntime {
   async exchangeAuthorizationCode(input: {
     clientId: string;
+    clientSecret?: string;
     code: string;
     codeVerifier: string;
     redirectUri: string;
   }): Promise<GoogleOAuthTokenResult> {
+    const clientSecret = resolveGoogleClientSecret(input.clientSecret);
+    if (!clientSecret) throw new Error("Google OAuth client secret is not configured.");
+
     const body = new URLSearchParams({
       client_id: input.clientId,
+      client_secret: clientSecret,
       code: input.code,
       code_verifier: input.codeVerifier,
       grant_type: "authorization_code",
@@ -217,10 +223,7 @@ export class DefaultGoogleOAuthRuntime implements GoogleOAuthRuntime {
 
   async verifyIdToken(input: { clientId: string; idToken: string }): Promise<GoogleOAuthIdentity> {
     const verifier = new google.auth.OAuth2(input.clientId);
-    const ticket = await verifier.verifyIdToken({
-      idToken: input.idToken,
-      audience: input.clientId,
-    });
+    const ticket = await verifier.verifyIdToken({ idToken: input.idToken, audience: input.clientId });
     const payload = ticket.getPayload();
     const sub = payload?.sub?.trim() ?? "";
     if (!sub) throw new Error("Google identity token did not contain a stable account subject.");
@@ -252,6 +255,7 @@ export class GoogleOAuthFlowManager {
   constructor(
     private readonly options: {
       clientId: string;
+      clientSecret?: string;
       sessionStore: SessionStore;
       runtime?: GoogleOAuthRuntime;
       flowTtlMs?: number;
@@ -265,14 +269,10 @@ export class GoogleOAuthFlowManager {
   }
 
   async start(): Promise<{ flowId: string; authorizationUrl: string }> {
-    if (!this.configured()) {
-      throw new Error("Google OAuth is not configured for this Email Shield build.");
-    }
+    if (!this.configured()) throw new Error("Google OAuth is not configured for this Email Shield build.");
     this.prune();
     const active = [...this.flows.values()].filter((flow) => flow.status.status === "pending").length;
-    if (active >= MAX_ACTIVE_FLOWS) {
-      throw new Error("Too many Google authorization requests are already active.");
-    }
+    if (active >= MAX_ACTIVE_FLOWS) throw new Error("Too many Google authorization requests are already active.");
 
     const flowId = base64UrlRandom(24);
     const state = base64UrlRandom(32);
@@ -322,13 +322,7 @@ export class GoogleOAuthFlowManager {
     this.flows.set(flowId, flow);
 
     server.on("request", (request, response) => {
-      void this.handleCallback(
-        flow,
-        request.method ?? "",
-        request.url ?? "/",
-        request.headers.host ?? "",
-        response,
-      );
+      void this.handleCallback(flow, request.method ?? "", request.url ?? "/", request.headers.host ?? "", response);
     });
 
     return {
@@ -344,9 +338,7 @@ export class GoogleOAuthFlowManager {
   }
 
   status(flowId: string): GoogleOAuthPublicStatus {
-    if (!/^[A-Za-z0-9_-]{32}$/.test(flowId)) {
-      return { status: "error", error: "Unknown Google authorization request." };
-    }
+    if (!/^[A-Za-z0-9_-]{32}$/.test(flowId)) return { status: "error", error: "Unknown Google authorization request." };
     const flow = this.flows.get(flowId);
     if (!flow) return { status: "error", error: "Unknown Google authorization request." };
     if (flow.status.status === "pending" && Date.now() >= flow.expiresAt) {
@@ -429,10 +421,12 @@ export class GoogleOAuthFlowManager {
 
     try {
       const runtime = this.options.runtime ?? new DefaultGoogleOAuthRuntime();
+      const clientSecret = resolveGoogleClientSecret(this.options.clientSecret);
       let tokens: GoogleOAuthTokenResult;
       try {
         tokens = await runtime.exchangeAuthorizationCode({
           clientId: this.options.clientId.trim(),
+          clientSecret: clientSecret || undefined,
           code,
           codeVerifier: flow.codeVerifier,
           redirectUri: flow.redirectUri,
@@ -440,19 +434,14 @@ export class GoogleOAuthFlowManager {
       } catch {
         throw new GoogleOAuthStageError(
           "ES-GOOGLE-01",
-          "Google token exchange could not be completed (ES-GOOGLE-01). Confirm the Desktop OAuth client belongs to this project and try again.",
+          "Google token exchange could not be completed (ES-GOOGLE-01). Confirm the matching Desktop OAuth client credentials and try again.",
         );
       }
 
       let identity: GoogleOAuthIdentity;
       try {
-        identity = await runtime.verifyIdToken({
-          clientId: this.options.clientId.trim(),
-          idToken: tokens.idToken,
-        });
-        if (!identity.nonce || !constantTimeEqual(identity.nonce, flow.nonce)) {
-          throw new Error("nonce mismatch");
-        }
+        identity = await runtime.verifyIdToken({ clientId: this.options.clientId.trim(), idToken: tokens.idToken });
+        if (!identity.nonce || !constantTimeEqual(identity.nonce, flow.nonce)) throw new Error("nonce mismatch");
       } catch {
         throw new GoogleOAuthStageError(
           "ES-GOOGLE-02",
@@ -465,6 +454,7 @@ export class GoogleOAuthFlowManager {
         mode: "live",
         credentials: {
           clientId: this.options.clientId.trim(),
+          clientSecret: clientSecret || undefined,
           refreshToken: tokens.refreshToken,
           accountSubject: identity.sub,
         },
@@ -479,9 +469,8 @@ export class GoogleOAuthFlowManager {
           label,
           config,
           async () => {
-            try {
-              await validateProvider(config);
-            } catch {
+            try { await validateProvider(config); }
+            catch {
               throw new GoogleOAuthStageError(
                 "ES-GOOGLE-03",
                 "Google signed in, but Gmail API validation failed (ES-GOOGLE-03). Confirm Gmail API is enabled for this OAuth project and gmail.modify was granted.",
@@ -497,12 +486,7 @@ export class GoogleOAuthFlowManager {
         );
       }
 
-      flow.status = {
-        status: "complete",
-        accountId: session.id,
-        provider: "gmail",
-        label: session.label,
-      };
+      flow.status = { status: "complete", accountId: session.id, provider: "gmail", label: session.label };
       response.writeHead(200, {
         "Content-Type": "text/html; charset=utf-8",
         "Cache-Control": "no-store",

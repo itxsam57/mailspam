@@ -2,9 +2,10 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 
 const clientId = (process.env.EMAIL_SHIELD_GOOGLE_CLIENT_ID ?? "").trim();
-if (!clientId) {
+const clientSecret = (process.env.EMAIL_SHIELD_GOOGLE_CLIENT_SECRET ?? "").trim();
+if (!clientId || !clientSecret) {
   console.error("RESULT=CONFIG_ERROR");
-  console.error("DETAIL=EMAIL_SHIELD_GOOGLE_CLIENT_ID is not set in this terminal.");
+  console.error("DETAIL=Set both EMAIL_SHIELD_GOOGLE_CLIENT_ID and EMAIL_SHIELD_GOOGLE_CLIENT_SECRET in this terminal.");
   process.exit(2);
 }
 
@@ -73,6 +74,7 @@ const verifier = randomBase64Url(64);
 const challenge = createHash("sha256").update(verifier, "ascii").digest("base64url");
 const state = randomBase64Url(32);
 const nonce = randomBase64Url(32);
+let callbackConsumed = false;
 
 const server = createServer();
 server.listen(0, "127.0.0.1", () => {
@@ -99,7 +101,7 @@ server.listen(0, "127.0.0.1", () => {
   console.log("RESULT=READY");
   console.log("Open this URL in your browser, approve access, then return to this terminal:");
   console.log(authUrl.toString());
-  console.log("The diagnostic never prints or stores the authorization code, PKCE verifier, tokens, email, or Client ID.");
+  console.log("The diagnostic never prints or stores the authorization code, PKCE verifier, tokens, email, Client ID, or Client Secret.");
 });
 
 const timeout = setTimeout(() => {
@@ -132,6 +134,19 @@ server.on("request", async (request, response) => {
     return;
   }
 
+  // Browsers may request /favicon.ico after rendering the callback page. Only
+  // the exact root path is an OAuth response and is eligible for state/code use.
+  if (callback.pathname !== "/") {
+    response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
+    response.end("Not found.");
+    return;
+  }
+  if (callbackConsumed) {
+    response.writeHead(409, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
+    response.end("Diagnostic callback was already used.");
+    return;
+  }
+
   const returnedState = callback.searchParams.get("state") ?? "";
   if (!returnedState || !constantTimeEqual(returnedState, state)) {
     console.error("RESULT=STATE_MISMATCH");
@@ -141,6 +156,7 @@ server.on("request", async (request, response) => {
     finish(server, 2);
     return;
   }
+  callbackConsumed = true;
 
   const providerError = callback.searchParams.get("error");
   const code = callback.searchParams.get("code") ?? "";
@@ -164,6 +180,7 @@ server.on("request", async (request, response) => {
   const redirectUri = `http://${expectedHost}`;
   const body = new URLSearchParams({
     client_id: clientId,
+    client_secret: clientSecret,
     code,
     code_verifier: verifier,
     grant_type: "authorization_code",
