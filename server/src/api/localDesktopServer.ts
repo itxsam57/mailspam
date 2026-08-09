@@ -7,6 +7,7 @@ import { createServer } from "./server.js";
 import { localSecurity, type LocalSecurityManager } from "./localSecurity.js";
 import { createScanStreamHandler } from "./scanStream.js";
 import { sessionStore } from "./sessionStore.js";
+import { registerPolicyManagementRoutes } from "./policyManagement.js";
 import { communityNetwork, type CommunityNetwork } from "../community/network.js";
 import { GoogleOAuthFlowManager, GOOGLE_GMAIL_MODIFY_SCOPE } from "../oauth/googleOAuthFlow.js";
 import { MicrosoftOAuthFlowManager } from "../oauth/microsoftOAuthFlow.js";
@@ -74,7 +75,7 @@ export function createLocalDesktopServer(options: {
       .replace(/<script>(\s*const API\s*=)/, `<script nonce="${nonce}">$1`)
       .replace(
         "</body>",
-        '<script src="/scan-monitor.js"></script><script src="/unsubscribe-monitor.js"></script><script src="/gmail-oauth.js"></script><script src="/outlook-oauth.js"></script><script src="/account-disconnect.js"></script></body>',
+        '<script src="/scan-monitor.js"></script><script src="/unsubscribe-monitor.js"></script><script src="/gmail-oauth.js"></script><script src="/outlook-oauth.js"></script><script src="/account-disconnect.js"></script><script src="/policy-management.js"></script></body>',
       );
 
     res.setHeader("Referrer-Policy", "same-origin");
@@ -222,6 +223,8 @@ export function createLocalDesktopServer(options: {
       res.status(500).json({ error: `Domain unblock was not saved: ${error instanceof Error ? error.message : String(error)}` });
     }
   });
+
+  registerPolicyManagementRoutes(app);
 
   app.use("/api/dev", security.requireProtectedRead());
   app.use("/api/dev", (req: Request, res: Response, next) => {
