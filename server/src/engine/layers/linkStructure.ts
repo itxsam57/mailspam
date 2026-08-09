@@ -9,8 +9,9 @@ import type { LayerResult } from "../verdict.js";
 /**
  * Layer 4 — Link structure.
  * Local URL parsing only: shortening services, punycode, raw IP hosts,
- * unusual ports, literal displayed-URL deception, and sensitive action links
- * that leave an authenticated sender's organization. No brand list is used.
+ * unusual ports, literal displayed-URL deception, HTML interaction provenance,
+ * and sensitive action links that leave an authenticated sender's organization.
+ * No brand list is used.
  */
 const SHORTENERS = new Set([
   "bit.ly", "tinyurl.com", "t.co", "goo.gl", "ow.ly", "is.gd", "buff.ly",
@@ -121,7 +122,7 @@ export function linkStructureLayer(envelope: CanonicalEnvelope): LayerResult {
 
     // Mail, phone, content-id and fragment references were filtered above.
     // Other non-web schemes remain visible as low-weight evidence rather than
-     // being mislabeled as malformed URLs or silently ignored.
+    // being mislabeled as malformed URLs or silently ignored.
     if (url.protocol !== "http:" && url.protocol !== "https:") {
       addUniqueEvidence(evidence, seen, `NON_WEB_LINK_SCHEME:${url.protocol}`, {
         layer: "link_structure",
@@ -134,10 +135,23 @@ export function linkStructureLayer(envelope: CanonicalEnvelope): LayerResult {
     }
 
     const host = url.hostname.toLowerCase();
-    const linkIsSensitive = sensitiveActionText(link.visibleText);
+    const linkIsSensitive = link.interaction === "form_action"
+      || link.interaction === "automatic_redirect"
+      || sensitiveActionText(link.visibleText);
+
+    if (link.interaction === "automatic_redirect") {
+      addUniqueEvidence(evidence, seen, `AUTOMATIC_HTML_REDIRECT:${host}`, {
+        layer: "link_structure",
+        code: "AUTOMATIC_HTML_REDIRECT",
+        description: `HTML requests an automatic redirect to "${host}" without a normal user-selected link.`,
+        scoreContribution: 1,
+        source: "local",
+      });
+    }
+
     if (SHORTENERS.has(host) && (senderIdentities.length === 0 || linkIsSensitive)) {
       addUniqueEvidence(evidence, seen, `URL_SHORTENER:${host}`, {
-        layer: "link_structture",
+        layer: "link_structure",
         code: "URL_SHORTENER",
         description: `Link uses shortening service "${host}", which hides the real destination.`,
         scoreContribution: 1,
