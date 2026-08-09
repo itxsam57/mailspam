@@ -120,15 +120,15 @@ describe("attachment type integrity", () => {
     }));
   });
 
-  it("flags bidirectional filename controls even when the final parsed extension looks harmless", () => {
+  it("flags bidi controls without allowing them to reorder the evidence warning", () => {
     const result = attachmentQrLayer(envelope([
       attachment("invoice\u202Eexe.pdf", "application/pdf", "pdf"),
     ]));
+    const bidiEvidence = result.evidence.find((item) => item.code === "BIDI_FILENAME_DISGUISE");
 
-    expect(result.evidence).toContainEqual(expect.objectContaining({
-      code: "BIDI_FILENAME_DISGUISE",
-      scoreContribution: 4,
-    }));
+    expect(bidiEvidence).toEqual(expect.objectContaining({ scoreContribution: 4 }));
+    expect(bidiEvidence?.description).not.toContain("\u202E");
+    expect(bidiEvidence?.description).toContain("invoiceexe.pdf");
   });
 
   it("keeps an ordinary PDF attachment free of type-integrity evidence", () => {
