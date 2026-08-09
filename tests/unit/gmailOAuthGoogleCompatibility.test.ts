@@ -122,7 +122,7 @@ describe("Google OAuth provider compatibility", () => {
     process.env.EMAIL_SHIELD_GOOGLE_CLIENT_SECRET = "process-client-secret-private";
     let expectedNonce = "";
     let exchangeSecret: string | undefined;
-    let committedConfig: AdapterConfig | null = null;
+    let committedClientSecret: string | undefined;
     const runtime: GoogleOAuthRuntime = {
       async exchangeAuthorizationCode(input) {
         exchangeSecret = input.clientSecret;
@@ -142,7 +142,10 @@ describe("Google OAuth provider compatibility", () => {
       },
     };
     const store = fakeSessionStore(async (_provider, _label, config, validate) => {
-      committedConfig = config as AdapterConfig;
+      const runtimeConfig = config as AdapterConfig;
+      if (runtimeConfig.provider === "gmail" && runtimeConfig.mode === "live") {
+        committedClientSecret = runtimeConfig.credentials.clientSecret;
+      }
       await validate();
       return mockSession();
     });
@@ -161,10 +164,7 @@ describe("Google OAuth provider compatibility", () => {
     const body = await response.text();
     expect(response.status).toBe(200);
     expect(exchangeSecret).toBe("process-client-secret-private");
-    expect(committedConfig?.provider).toBe("gmail");
-    if (committedConfig?.provider === "gmail" && committedConfig.mode === "live") {
-      expect(committedConfig.credentials.clientSecret).toBe("process-client-secret-private");
-    }
+    expect(committedClientSecret).toBe("process-client-secret-private");
     expect(body).not.toContain("process-client-secret-private");
     expect(manager.status(started.flowId)).toMatchObject({ status: "complete", provider: "gmail" });
   });
