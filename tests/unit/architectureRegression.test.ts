@@ -59,7 +59,9 @@ describe("transport architecture regressions", () => {
     expect(sessions).toContain("persistPersonalPolicy(session");
     expect(server).toContain("personalPolicy: session.personalPolicy.snapshot()");
     expect(server).toContain("mutateAndPersistPersonalPolicy");
-    expect(server).toContain("persisted: true");
+    expect(server).toContain("persisted: sessionStore.personalPolicyPersistent()");
+    expect(server).toContain("persistent: sessionStore.personalPolicyPersistent()");
+    expect(server).not.toContain("persisted: true");
     expect(persistence).toContain('const ALGORITHM = "aes-256-gcm"');
     expect(persistence).toContain('join(homedir(), ".email-shield")');
     expect(persistence).toContain("personal-policies.enc.json");
