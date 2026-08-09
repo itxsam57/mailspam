@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
 
@@ -38,10 +38,37 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
+      - name: Install Linux Secret Service test dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libsecret-tools gnome-keyring dbus-x11
+
+      - name: Run full engineering gate with Linux Secret Service
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          ENGINEERING_AUDIT: '1'
+        run: |
+          dbus-run-session -- bash -lc '
+            set -euo pipefail
+            export EMAIL_SHIELD_TEST_SECRET_SERVICE=1
+            printf "%s" "email-shield-ci-keyring" | gnome-keyring-daemon --unlock --components=secrets >/tmp/email-shield-keyring-env
+            while IFS= read -r line; do
+              case "$line" in
+                GNOME_KEYRING_CONTROL=*|SSH_AUTH_SOCK=*) export "$line" ;;
+              esac
+            done </tmp/email-shield-keyring-env
+            rm -f /tmp/email-shield-keyring-env
+            npm run gate
+          '
+
       - name: Run full applicable engineering gate
+        if: runner.os != 'Linux'
         run: npm run gate
         env:
-          ENGINEERING_AUDIT: ${{ runner.os == 'Linux' && '1' || '0' }}
+          ENGINEERING_AUDIT: '0'
 
       - name: Upload verification and browser handoff
         if: always()
