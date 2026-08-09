@@ -66,6 +66,21 @@ describe("RFC5322.From authentication alignment", () => {
     expect(authenticatedSenderIdentityDomains(message)).toEqual(["cobalt-bank.example"]);
   });
 
+  it("treats explicit DMARC failure as authoritative even if a raw SPF/DKIM property appears aligned", () => {
+    const message = envelope({
+      authentication: {
+        spf: "pass",
+        dkim: "pass",
+        dmarc: "fail",
+        arc: "none",
+        rawHeader: "mx.receiver.example; spf=pass smtp.mailfrom=bounce@mailer.cobalt-bank.example; dkim=pass header.d=mailer.cobalt-bank.example; dmarc=fail header.from=cobalt-bank.example",
+      },
+    });
+
+    expect(authenticationPassed(message)).toBe(false);
+    expect(alignedAuthenticationDomains(message)).toEqual([]);
+  });
+
   it("does not authenticate the visible From domain from an unrelated SPF pass", () => {
     const message = envelope({
       authentication: {
