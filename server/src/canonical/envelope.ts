@@ -64,6 +64,16 @@ export interface ThreadContext {
   threadContinuityBroken: boolean;
   replyToChangedMidThread: boolean;
   /**
+   * Worker-only bounded RFC threading identifiers extracted during MIME
+   * normalization. Relationship-history annotation MUST consume and delete
+   * this field before scoring or browser serialization. These raw identifiers
+   * are never persisted.
+   */
+  pendingThreadReferences?: {
+    inReplyTo: string | null;
+    references: string[];
+  };
+  /**
    * Ephemeral, account-local scan evidence. True only after the same normalized
    * sender address has already appeared earlier in the current scan. It is
    * never persisted, uploaded, or used as a sender allowlist.

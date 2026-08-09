@@ -12,6 +12,9 @@ import type {
 import { analyzeQrImages, isSupportedQrImageMimeType } from "./qrDecode.js";
 
 const TEXT_PREVIEW_MAX_CHARS = 4000;
+const MAX_THREAD_REFERENCE_IDS = 20;
+const MAX_THREAD_MESSAGE_ID_CHARS = 998;
+const MAX_THREAD_REFERENCE_HEADER_CHARS = 32 * 1024;
 
 function firstAddress(addr: AddressObject | AddressObject[] | undefined): FromField | null {
   if (!addr) return null;
@@ -65,6 +68,39 @@ export function parseAuthResultsHeader(raw: unknown): AuthenticationSignals {
     arc: extract("arc") as AuthenticationSignals["arc"],
     rawHeader: headerText,
   };
+}
+
+/**
+ * RFC thread identifiers are accepted only in their explicit <msg-id> form.
+ * The input tail, ID count and per-ID length are bounded so a hostile
+ * References header cannot become an unbounded Worker/history input. The tail
+ * is intentional: RFC reply chains append the direct parent last. Raw values
+ * are transient and are HMAC-compared/deleted before scoring.
+ */
+export function extractThreadMessageIds(raw: unknown): string[] {
+  const headerText = normalizeHeaderText(raw);
+  if (!headerText) return [];
+  const boundedText = headerText.length > MAX_THREAD_REFERENCE_HEADER_CHARS
+    ? headerText.slice(-MAX_THREAD_REFERENCE_HEADER_CHARS)
+    : headerText;
+  const pattern = new RegExp(`<[^<>\\r\\n]{1,${MAX_THREAD_MESSAGE_ID_CHARS - 2}}>`, "g");
+  const matches = boundedText.match(pattern) ?? [];
+  const newestUnique: string[] = [];
+  const seen = new Set<string>();
+  for (let index = matches.length - 1; index >= 0 && newestUnique.length < MAX_THREAD_REFERENCE_IDS; index -= 1) {
+    const normalized = matches[index]!.trim();
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    newestUnique.push(normalized);
+  }
+  return newestUnique.reverse();
+}
+
+function pendingThreadReferences(mail: ParsedMail): CanonicalEnvelope["threadContext"]["pendingThreadReferences"] {
+  const inReplyTo = extractThreadMessageIds(mail.headers.get("in-reply-to")).at(-1) ?? null;
+  const references = extractThreadMessageIds(mail.headers.get("references"));
+  return inReplyTo || references.length > 0 ? { inReplyTo, references } : undefined;
 }
 
 function urlCandidate(raw: string): string {
@@ -193,6 +229,11 @@ export async function normalizeRawMessage(raw: string | Buffer, opts: NormalizeO
   const listId = listHeader?.id?.name ?? normalizeHeaderText(mail.headers.get("list-id")) ?? null;
   const listUnsubscribe = listHeader?.unsubscribe?.url ?? normalizeHeaderText(mail.headers.get("list-unsubscribe")) ?? null;
   const listUnsubscribePost = listHeader?.["unsubscribe-post"]?.name ?? normalizeHeaderText(mail.headers.get("list-unsubscribe-post")) ?? null;
+  const threadContext: CanonicalEnvelope["threadContext"] = opts.threadContext
+    ? { ...opts.threadContext }
+    : { isFirstContact: true, threadContinuityBroken: false, replyToChangedMidThread: false };
+  const pendingReferences = pendingThreadReferences(mail);
+  if (pendingReferences) threadContext.pendingThreadReferences = pendingReferences;
 
   return {
     provider: opts.provider,
@@ -218,7 +259,7 @@ export async function normalizeRawMessage(raw: string | Buffer, opts: NormalizeO
     links,
     attachments,
     listHeaders: { listId, listUnsubscribe, listUnsubscribePost },
-    threadContext: opts.threadContext ?? { isFirstContact: true, threadContinuityBroken: false, replyToChangedMidThread: false },
+    threadContext,
     parseStatus,
     parseNotes,
     diagnostics: {
