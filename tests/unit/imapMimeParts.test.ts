@@ -91,7 +91,7 @@ describe("IMAP MIME part selection", () => {
     expect(result.htmlPart).toBeNull();
   });
 
-  it("does not treat an inline image as a downloadable attachment", () => {
+  it("keeps an inline image out of readable-body selection while retaining it as an attachment candidate", () => {
     const result = inspectBodyStructure({
       type: "multipart/related",
       childNodes: [
@@ -101,7 +101,17 @@ describe("IMAP MIME part selection", () => {
     });
 
     expect(result.htmlPart).toBe("1");
-    expect(result.attachments).toEqual([]);
+    expect(result.attachments).toEqual([
+      expect.objectContaining({
+        name: "unnamed",
+        mimeType: "image/png",
+        sizeBytes: 2000,
+        sha256: null,
+      }),
+    ]);
+    expect(result.hashableAttachments).toEqual([
+      expect.objectContaining({ part: "2", attachmentIndex: 0, mimeType: "image/png" }),
+    ]);
   });
 
   it("rebuilds a bounded readable message without retaining multipart headers", async () => {
