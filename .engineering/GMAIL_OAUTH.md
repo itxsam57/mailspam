@@ -15,7 +15,9 @@ The implementation follows Google's installed desktop application model:
 - no manual copy/paste/OOB flow;
 - no required desktop `client_secret`;
 - one-time callback consumption before asynchronous token exchange;
-- callback listener closed after the first valid-state response or expiry.
+- callback listener closed after the first valid-state response or expiry;
+- exact loopback Host, `GET` method and root callback path enforcement;
+- bounded provider token-response handling.
 
 ## Google application configuration
 
@@ -58,12 +60,28 @@ The email address is display metadata only and is never used as the unique Googl
 On a platform with an available native credential vault:
 
 1. Google returns the refresh token only to the local loopback/token-exchange process.
-2. The token is validated by a real Gmail provider connection before a long-lived Email Shield account session is committed.
-3. The refresh token is stored behind a deterministic opaque `oauth-refresh-token` vault reference derived from client ID + verified Google `sub`.
-4. The long-lived session stores only that handle.
-5. Scans/actions resolve the token only when the Gmail provider adapter connects.
+2. The verified Google `sub` establishes stable account identity.
+3. Real Gmail provider validation and secure credential/session commit execute inside the same serialized account-lifecycle transaction.
+4. The refresh token is stored behind a deterministic opaque `oauth-refresh-token` vault reference derived from client ID + verified Google `sub`.
+5. The long-lived session stores only that handle.
+6. Scans/actions resolve the token only when the Gmail provider adapter connects.
 
-On platforms whose native vault backend has not yet been implemented, the current compatibility boundary remains process-memory-only storage; Email Shield does not substitute plaintext persistent storage.
+Serializing validation and commit with disconnect/revocation prevents a race where an old session could revoke the Google grant after a new connection validates but before the new token is committed.
+
+On platforms whose native vault backend has not yet been implemented, the current compatibility boundary remains process-memory-only storage; Email Shield does not substitute plaintext persistent storage. Guided Gmail disconnect still performs provider-side revocation from the secure in-memory handle before that handle is released.
+
+## Provider-side revocation and Disconnect
+
+A deliberate Gmail Disconnect is a credential-lifecycle operation, not just a UI removal.
+
+- Multiple Email Shield sessions for the same verified Google account share the same account identity.
+- Removing one duplicate session does not revoke the Google authorization while another same-account session remains.
+- The final same-account session asks Google's OAuth revocation endpoint to revoke the protected refresh token.
+- Only after revocation is confirmed, or Google reports the token is already invalid, may Email Shield delete the local vault credential and remove the final session.
+- If provider revocation cannot be confirmed, the account remains retryable and the local credential is not silently deleted.
+- If local native-vault deletion fails after provider revocation, Email Shield reports failure rather than claiming a fully successful cleanup.
+
+The dashboard exposes a protected **Disconnect** action. Successful cleanup reloads the local dashboard so stale selected-account/action state does not survive removal.
 
 ## Browser privacy boundary
 
@@ -82,6 +100,27 @@ The dashboard must never receive:
 - access token;
 - ID token;
 - Windows Credential Manager target contents.
+
+The callback result page likewise exposes only a generic success/failure message. Provider error bodies and secret-bearing lower-layer failures are not surfaced into browser-visible diagnostics.
+
+## Automated acceptance boundary
+
+The engineering gate locks:
+
+- PKCE verifier/challenge derivation;
+- state and nonce handling;
+- callback Host/method/path restrictions;
+- callback replay rejection before token exchange;
+- verified stable `sub` identity;
+- refresh-token rotation without policy-identity rotation;
+- vault-backed and memory-only custody behavior;
+- provider validation + commit serialization against concurrent disconnect;
+- final-session-only provider revocation;
+- revocation failure truthfulness;
+- absence of OAuth secrets from public callback/status surfaces;
+- all prior Gmail fixture, provider, scan/action and Milestone 1 regression suites.
+
+Real Google authorization and a real Gmail Quick Scan remain owner-controlled acceptance because CI must never receive live mailbox credentials.
 
 ## Explicitly not claimed by this package
 
