@@ -3,7 +3,11 @@ import { SessionStore } from "../../server/src/api/sessionStore.js";
 import { InMemoryPolicyRepository } from "../../server/src/api/policyPersistence.js";
 import type { AdapterConfig } from "../../server/src/api/adapterConfig.js";
 import type { CredentialReference, CredentialVault, CredentialVaultCapabilities } from "../../server/src/security/credentialVault.js";
-import type { ProviderCredentialRevoker } from "../../server/src/security/providerCredentialRevocation.js";
+import {
+  providerCredentialRevoker,
+  type ProviderCredentialRevoker,
+} from "../../server/src/security/providerCredentialRevocation.js";
+import type { SecureAdapterConfig } from "../../server/src/security/secureAdapterConfig.js";
 import {
   GoogleOAuthRevocationError,
   revokeGoogleOAuthToken,
@@ -13,17 +17,20 @@ class TestVault implements CredentialVault {
   readonly values = new Map<string, string>();
   readonly deletes: CredentialReference[] = [];
 
+  constructor(private readonly available = true) {}
+
   capabilities(): CredentialVaultCapabilities {
     return {
-      backend: "test-native",
-      available: true,
-      persistent: true,
-      userBound: true,
+      backend: this.available ? "test-native" : "unsupported:test",
+      available: this.available,
+      persistent: this.available,
+      userBound: this.available,
       hardwareBacked: false,
       applicationBound: false,
     };
   }
   async write(reference: CredentialReference, secret: string): Promise<void> {
+    if (!this.available) throw new Error("Persistent vault write must not be used on this platform.");
     this.values.set(`${reference.kind}:${reference.id}`, secret);
   }
   async read(reference: CredentialReference): Promise<string | null> {
@@ -45,6 +52,13 @@ function guidedGmail(refreshToken = "google-refresh-token"): AdapterConfig {
       accountSubject: "stable-google-subject",
     },
   };
+}
+
+async function secureRefreshToken(config: SecureAdapterConfig, vault: CredentialVault): Promise<string> {
+  if (config.mode !== "live" || config.provider !== "gmail") throw new Error("Expected guided Gmail config");
+  const handle = config.credentials.refreshToken;
+  if (handle.storage === "memory") return handle.value;
+  return (await vault.read(handle.reference)) ?? "";
 }
 
 afterEach(() => {
@@ -95,19 +109,22 @@ describe("Google OAuth revocation", () => {
 });
 
 describe("guided Gmail final-session cleanup", () => {
-  it("revokes only when the final same-account vault reference is removed", async () => {
+  it("revokes only when the final same-account vault session is removed", async () => {
     const vault = new TestVault();
     const revoked: string[] = [];
     const revoker: ProviderCredentialRevoker = {
-      requiresRevocation(config, reference) {
-        return config.mode === "live" && config.provider === "gmail" && reference.kind === "oauth-refresh-token";
+      requiresRevocation(config) {
+        return config.mode === "live" && config.provider === "gmail" && Boolean(config.credentials.accountSubject);
       },
-      async revoke(_config, _reference, secret) { revoked.push(secret); },
+      async revoke(config, credentialVault) {
+        revoked.push(await secureRefreshToken(config, credentialVault));
+      },
     };
     const store = new SessionStore(new InMemoryPolicyRepository(), vault, revoker);
     const first = await store.createSecured("gmail", "first", guidedGmail("token-one"));
     const second = await store.createSecured("gmail", "second", guidedGmail("token-two"));
 
+    expect(first.policyAccountKey).toBe(second.policyAccountKey);
     expect(first.vaultReferences[0]).toEqual(second.vaultReferences[0]);
     await store.remove(first.id);
     expect(revoked).toEqual([]);
@@ -118,6 +135,24 @@ describe("guided Gmail final-session cleanup", () => {
     expect(revoked).toEqual(["token-two"]);
     expect(vault.deletes).toHaveLength(1);
     expect(vault.values.size).toBe(0);
+  });
+
+  it("revokes a guided Gmail memory-only session when no persistent native vault exists", async () => {
+    const token = "memory-only-google-refresh";
+    const vault = new TestVault(false);
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      expect(String(init?.body)).toBe(`token=${encodeURIComponent(token)}`);
+      return new Response(null, { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const store = new SessionStore(new InMemoryPolicyRepository(), vault, providerCredentialRevoker);
+    const session = await store.createSecured("gmail", "person@example.com", guidedGmail(token));
+
+    expect(session.vaultReferences).toHaveLength(0);
+    expect(JSON.stringify(session.config)).toContain("memory");
+    await store.remove(session.id);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(session.config)).not.toContain(token);
   });
 
   it("keeps the final account and vault credential retryable when provider revocation cannot be confirmed", async () => {
@@ -133,6 +168,48 @@ describe("guided Gmail final-session cleanup", () => {
     expect(store.get(session.id)).toBe(session);
     expect(vault.deletes).toHaveLength(0);
     expect(vault.values.size).toBe(1);
+  });
+
+  it("serializes reconnect validation+commit ahead of final-account revocation", async () => {
+    const vault = new TestVault();
+    let revokeCalls = 0;
+    const revoker: ProviderCredentialRevoker = {
+      requiresRevocation(config) {
+        return config.mode === "live" && config.provider === "gmail" && Boolean(config.credentials.accountSubject);
+      },
+      async revoke() { revokeCalls += 1; },
+    };
+    const store = new SessionStore(new InMemoryPolicyRepository(), vault, revoker);
+    const first = await store.createSecured("gmail", "old", guidedGmail("old-token"));
+
+    let validationStarted!: () => void;
+    let releaseValidation!: () => void;
+    const validationStartedPromise = new Promise<void>((resolve) => { validationStarted = resolve; });
+    const validationPause = new Promise<void>((resolve) => { releaseValidation = resolve; });
+    const creating = store.createSecuredValidated(
+      "gmail",
+      "new",
+      guidedGmail("new-token"),
+      async () => {
+        validationStarted();
+        await validationPause;
+      },
+    );
+
+    await validationStartedPromise;
+    const removing = store.remove(first.id);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(revokeCalls).toBe(0);
+    expect(store.get(first.id)).toBeUndefined(); // closing sessions are hidden while removal waits
+
+    releaseValidation();
+    const second = await creating;
+    await removing;
+
+    expect(revokeCalls).toBe(0);
+    expect(store.get(second.id)).toBe(second);
+    expect((await store.materializeConfig(second) as Extract<AdapterConfig, { provider: "gmail" }>).credentials.refreshToken)
+      .toBe("new-token");
   });
 
   it("does not invoke provider revocation for non-OAuth app-password credentials", async () => {
