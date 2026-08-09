@@ -62,13 +62,18 @@ function snapshotFor(
   sender: string,
   senderProfile: RelationshipProfile,
   indexKey = Buffer.alloc(32, 12).toString("base64"),
+  seenMessageKeys: string[] = [],
 ): RelationshipHistoryWorkerSnapshot {
   const senderKey = relationshipIdentityKey(indexKey, "sender", sender);
   return {
     indexKey,
     records: { [senderKey]: senderProfile },
-    seenMessageKeys: new Set(),
+    seenMessageKeys: new Set(seenMessageKeys),
   };
+}
+
+function messageKey(indexKey: string, provider: CanonicalEnvelope["provider"], messageId: string): string {
+  return relationshipIdentityKey(indexKey, "message", `${provider}\0${messageId}`);
 }
 
 describe("durable relationship context", () => {
@@ -108,6 +113,110 @@ describe("durable relationship context", () => {
 
     expect(current.threadContext.replyToChangedFromRelationshipHistory).toBe(true);
     expect(result.evidence.some((item) => item.code === "RELATIONSHIP_REPLY_TO_CHANGE" && item.scoreContribution > 0)).toBe(true);
+  });
+
+  it("upgrades a stable Reply-To change to the specific mid-thread signal when a local parent is known", () => {
+    const indexKey = Buffer.alloc(32, 21).toString("base64");
+    const historicalReplyTo = relationshipIdentityKey(indexKey, "reply-to", "reply@known.example");
+    const parentId = "<parent@example.com>";
+    const current = envelope({
+      replyTo: { displayName: null, address: "redirect@different.example", domain: "different.example" },
+      threadContext: {
+        isFirstContact: true,
+        threadContinuityBroken: false,
+        replyToChangedMidThread: false,
+        pendingThreadReferences: {
+          inReplyTo: parentId,
+          references: ["<root@example.com>", parentId],
+        },
+      },
+    });
+    const snapshot = snapshotFor(
+      "known@example.com",
+      profile({ replyToCounts: { [historicalReplyTo]: 3 } }),
+      indexKey,
+      [messageKey(indexKey, "imap", parentId)],
+    );
+
+    annotateRelationshipHistory(current, snapshot);
+    const result = relationshipContextLayer(current);
+
+    expect(current.threadContext.pendingThreadReferences).toBeUndefined();
+    expect(current.threadContext.replyToChangedMidThread).toBe(true);
+    expect(current.threadContext.replyToChangedFromRelationshipHistory).toBe(false);
+    expect(result.evidence.some((item) => item.code === "REPLY_TO_CHANGED_MID_THREAD" && item.scoreContribution === 4)).toBe(true);
+    expect(result.evidence.some((item) => item.code === "RELATIONSHIP_REPLY_TO_CHANGE")).toBe(false);
+  });
+
+  it("marks a proven local parent/reference-chain contradiction without guessing from a bare Re subject", () => {
+    const indexKey = Buffer.alloc(32, 22).toString("base64");
+    const parentId = "<known-parent@example.com>";
+    const current = envelope({
+      subject: "Re: routine account update",
+      threadContext: {
+        isFirstContact: true,
+        threadContinuityBroken: false,
+        replyToChangedMidThread: false,
+        pendingThreadReferences: {
+          inReplyTo: parentId,
+          references: ["<different-parent@example.com>"],
+        },
+      },
+    });
+    const snapshot = snapshotFor(
+      "known@example.com",
+      profile(),
+      indexKey,
+      [messageKey(indexKey, "imap", parentId)],
+    );
+
+    annotateRelationshipHistory(current, snapshot);
+    const result = relationshipContextLayer(current);
+
+    expect(current.threadContext.pendingThreadReferences).toBeUndefined();
+    expect(current.threadContext.threadContinuityBroken).toBe(true);
+    expect(result.evidence.some((item) => item.code === "THREAD_CONTINUITY_BROKEN" && item.scoreContribution === 3)).toBe(true);
+  });
+
+  it("does not manufacture continuity risk when an RFC parent is not already known locally", () => {
+    const current = envelope({
+      subject: "Re: routine account update",
+      threadContext: {
+        isFirstContact: true,
+        threadContinuityBroken: false,
+        replyToChangedMidThread: false,
+        pendingThreadReferences: {
+          inReplyTo: "<unknown-parent@example.com>",
+          references: ["<another-unknown@example.com>"],
+        },
+      },
+    });
+
+    annotateRelationshipHistory(current, snapshotFor("known@example.com", profile()));
+
+    expect(current.threadContext.pendingThreadReferences).toBeUndefined();
+    expect(current.threadContext.threadContinuityBroken).toBe(false);
+    expect(current.threadContext.replyToChangedMidThread).toBe(false);
+  });
+
+  it("deletes transient raw thread identifiers even when relationship history is unavailable", () => {
+    const current = envelope({
+      threadContext: {
+        isFirstContact: true,
+        threadContinuityBroken: false,
+        replyToChangedMidThread: false,
+        pendingThreadReferences: {
+          inReplyTo: "<private-parent@example.com>",
+          references: ["<private-root@example.com>"],
+        },
+      },
+    });
+
+    annotateRelationshipHistory(current, undefined);
+
+    expect(current.threadContext.pendingThreadReferences).toBeUndefined();
+    expect(JSON.stringify(current)).not.toContain("private-parent@example.com");
+    expect(JSON.stringify(current)).not.toContain("private-root@example.com");
   });
 
   it("adds risk for a sender whose prior local history is predominantly suspicious", () => {
