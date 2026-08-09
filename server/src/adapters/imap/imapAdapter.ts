@@ -8,12 +8,20 @@ import type {
 } from "../../canonical/adapter.js";
 import type { CanonicalEnvelope, NormalizedFolder, Provider } from "../../canonical/envelope.js";
 import { normalizeRawMessage } from "../../util/mimeNormalize.js";
+import {
+  analyzeQrImages,
+  MAX_QR_IMAGE_BYTES,
+  MAX_QR_IMAGES_PER_MESSAGE,
+  type QrImageInput,
+} from "../../util/qrDecode.js";
 import { normalizeImapFolder, providerFolderPath } from "./folderNames.js";
 import {
   boundedTextPartWasTruncated,
   buildSyntheticReadableMessage,
+  decodeFetchedQrImagePart,
   decodeFetchedTextPart,
   inspectBodyStructure,
+  type QrImagePart,
   type ReadablePartSelection,
   type ReadableTextPart,
 } from "./mimeParts.js";
@@ -29,12 +37,14 @@ export interface ImapCredentials {
 const MAX_ENCODED_TEXT_PART_BYTES = 48 * 1024;
 const MAX_DECODED_TEXT_CHARS = 24 * 1024;
 const MIN_BOUNDED_VISIBLE_CHARS = 500;
+const MAX_ENCODED_QR_PART_BYTES = Math.ceil(MAX_QR_IMAGE_BYTES * 1.5) + 4096;
 const CONNECT_TIMEOUT_MS = 25_000;
 const FOLDER_TIMEOUT_MS = 20_000;
 const LOCK_TIMEOUT_MS = 20_000;
 const SEARCH_TIMEOUT_MS = 20_000;
 const METADATA_TIMEOUT_MS = 30_000;
 const TEXT_PART_TIMEOUT_MS = 15_000;
+const QR_PART_TIMEOUT_MS = 20_000;
 const MOVE_TIMEOUT_MS = 30_000;
 const SOCKET_IDLE_TIMEOUT_MS = 45_000;
 
@@ -85,6 +95,12 @@ export interface BoundedReadableBodies {
   html: string | null;
   truncated: boolean;
   notes: string[];
+}
+
+interface BoundedQrImages {
+  images: QrImageInput[];
+  supportedCount: number;
+  incompleteReasons: string[];
 }
 
 function uniqueReadableParts(selection: ReadablePartSelection): ReadableTextPart[] {
@@ -183,6 +199,74 @@ export async function fetchBoundedReadableBodies(
   }
 
   return result;
+}
+
+function qrPartFetchable(part: QrImagePart): boolean {
+  return part.sizeBytes === null || part.sizeBytes <= MAX_ENCODED_QR_PART_BYTES;
+}
+
+/** Fetch only a bounded number of PNG/JPEG MIME parts for local QR inspection. */
+export async function fetchBoundedQrImages(
+  client: ImapTextFetchClient,
+  uid: number,
+  selection: ReadablePartSelection,
+  signal: AbortSignal,
+): Promise<BoundedQrImages> {
+  const supportedCount = selection.qrImages.length;
+  const incompleteReasons: string[] = [];
+  const selected = selection.qrImages.slice(0, MAX_QR_IMAGES_PER_MESSAGE);
+  if (supportedCount > MAX_QR_IMAGES_PER_MESSAGE) {
+    incompleteReasons.push(`Only the first ${MAX_QR_IMAGES_PER_MESSAGE} supported images were inspected for QR codes.`);
+  }
+
+  const fetchable = selected.filter((part) => {
+    if (qrPartFetchable(part)) return true;
+    incompleteReasons.push(`QR-capable image "${part.name}" exceeded the bounded IMAP image fetch limit.`);
+    return false;
+  });
+  if (!fetchable.length) return { images: [], supportedCount, incompleteReasons };
+
+  const response = await withImapDeadline(
+    client.fetchOne(
+      uid,
+      {
+        bodyParts: fetchable.map((part) => ({
+          key: part.part,
+          start: 0,
+          maxLength: MAX_ENCODED_QR_PART_BYTES,
+        })),
+      },
+      { uid: true, binary: false },
+    ),
+    signal,
+    `bounded QR image fetch for UID ${uid}`,
+    QR_PART_TIMEOUT_MS,
+  );
+
+  if (!response || !(response.bodyParts instanceof Map)) {
+    incompleteReasons.push("The provider did not return the requested QR-capable image parts.");
+    return { images: [], supportedCount, incompleteReasons };
+  }
+
+  const images: QrImageInput[] = [];
+  for (const part of fetchable) {
+    const rawPart = bodyPartBuffer(response.bodyParts, part.part);
+    if (!rawPart) {
+      incompleteReasons.push(`QR-capable image "${part.name}" was not returned by the provider.`);
+      continue;
+    }
+    if (rawPart.length >= MAX_ENCODED_QR_PART_BYTES) {
+      incompleteReasons.push(`QR-capable image "${part.name}" reached the bounded IMAP fetch limit.`);
+      continue;
+    }
+    try {
+      const content = await decodeFetchedQrImagePart(rawPart, part);
+      images.push({ name: part.name, mimeType: part.mimeType, content });
+    } catch {
+      incompleteReasons.push(`QR-capable image "${part.name}" could not be decoded from its MIME transfer encoding.`);
+    }
+  }
+  return { images, supportedCount, incompleteReasons };
 }
 
 function fallbackHeaders(uid: number): Buffer {
@@ -301,6 +385,14 @@ export class ImapAdapter implements EmailAdapter {
           bodies.notes.push(`Readable MIME content could not be downloaded: ${error instanceof Error ? error.message : String(error)}`);
         }
 
+        let qrImages: BoundedQrImages = { images: [], supportedCount: selection.qrImages.length, incompleteReasons: [] };
+        try {
+          qrImages = await fetchBoundedQrImages(client as unknown as ImapTextFetchClient, uid, selection, signal);
+        } catch (error) {
+          if (signal.aborted || error instanceof ImapCommandTimeoutError) throw error;
+          qrImages.incompleteReasons.push(`QR-capable image content could not be downloaded: ${error instanceof Error ? error.message : String(error)}`);
+        }
+
         const syntheticRaw = buildSyntheticReadableMessage({
           headers,
           plainBody: bodies.plain,
@@ -315,6 +407,17 @@ export class ImapAdapter implements EmailAdapter {
         });
         envelope.attachments = selection.attachments;
         envelope.diagnostics.sizeBytes = Number(message?.size ?? syntheticRaw.length);
+
+        const qrAnalysis = analyzeQrImages(qrImages.images);
+        envelope.links.push(...qrAnalysis.links);
+        const qrIncompleteReasons = [...qrImages.incompleteReasons, ...qrAnalysis.incompleteReasons];
+        envelope.diagnostics.qrInspection = {
+          supportedImages: qrImages.supportedCount,
+          decodedUrlCount: qrAnalysis.links.length,
+          incomplete: qrIncompleteReasons.length > 0,
+          incompleteReasons: qrIncompleteReasons,
+        };
+        envelope.parseNotes.push(...qrIncompleteReasons);
 
         const hasReadableBody = Boolean(bodies.plain?.trim() || bodies.html?.trim());
         const readableText = `${envelope.textPreview ?? ""} ${envelope.htmlSignals?.extractedText ?? ""}`.trim();
