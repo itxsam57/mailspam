@@ -64,6 +64,30 @@ describe("bounded IMAP attachment hash acquisition", () => {
     expect(result.incompleteReasons).toEqual([]);
   });
 
+  it("keeps a named inline text file out of readable-body selection and in attachment hashing", () => {
+    const selection = inspectBodyStructure({
+      type: "multipart/mixed",
+      childNodes: [
+        { part: "1", type: "text/plain", size: 40 },
+        {
+          part: "2",
+          type: "text/plain",
+          size: 24,
+          disposition: "inline",
+          dispositionParameters: { filename: "inline-note.txt" },
+        },
+      ],
+    });
+
+    expect(selection.plain?.part).toBe("1");
+    expect(selection.attachments).toEqual([
+      expect.objectContaining({ name: "inline-note.txt", mimeType: "text/plain" }),
+    ]);
+    expect(selection.hashableAttachments).toEqual([
+      expect.objectContaining({ part: "2", attachmentIndex: 0, name: "inline-note.txt" }),
+    ]);
+  });
+
   it("rejects a short provider response instead of hashing an attachment prefix", async () => {
     const prefix = Buffer.from("partial", "utf8");
     const encodedPrefix = Buffer.from(prefix.toString("base64"), "ascii");
