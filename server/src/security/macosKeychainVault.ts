@@ -44,6 +44,12 @@ function decodeSecret(encoded: string): string {
   return secret;
 }
 
+function interactiveWriteCommand(target: string, encodedSecret: string): string {
+  // target is produced by credentialTargetName() and encodedSecret is Base64;
+  // both are whitespace-free and safe for SecurityTool's own split_line parser.
+  return `add-generic-password -a ${target} -s ${SERVICE} -U -w ${encodedSecret}\n`;
+}
+
 export class SecurityCliMacOSKeychainBridge implements MacOSKeychainBridge {
   async invoke(request: MacOSKeychainBridgeRequest): Promise<MacOSKeychainBridgeResponse> {
     if (process.platform !== "darwin") {
@@ -57,17 +63,12 @@ export class SecurityCliMacOSKeychainBridge implements MacOSKeychainBridge {
       const encoded = encodeSecret(request.secret);
       const result = await runNativeCredentialCommand({
         executable: SECURITY_PATH,
-        args: [
-          "add-generic-password",
-          "-a", request.target,
-          "-s", SERVICE,
-          "-D", "Email Shield protected credential",
-          "-U",
-          // Keep -w last so /usr/bin/security reads the password from its
-          // prompt input rather than from the process command line.
-          "-w",
-        ],
-        stdin: `${encoded}\n`,
+        // Apple SecurityTool's `-w`-without-value path uses getpass() on the
+        // terminal, not stdin. Interactive mode (`security -i`) reads commands
+        // from stdin when stdin is not a TTY and returns the executed command's
+        // result. Supplying the Base64-wrapped secret there keeps it out of argv.
+        args: ["-i"],
+        stdin: interactiveWriteCommand(request.target, encoded),
         backendLabel: "macOS Keychain",
       });
       if (result.exitCode !== 0) {
