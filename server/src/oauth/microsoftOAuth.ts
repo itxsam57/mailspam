@@ -14,6 +14,10 @@ export const MICROSOFT_REQUIRED_SCOPES = [
   MICROSOFT_USER_READ_SCOPE,
   MICROSOFT_MAIL_READWRITE_SCOPE,
 ] as const;
+const MICROSOFT_ACCESS_TOKEN_SCOPES = [
+  MICROSOFT_USER_READ_SCOPE,
+  MICROSOFT_MAIL_READWRITE_SCOPE,
+] as const;
 
 export interface MicrosoftTokenResult {
   accessToken: string;
@@ -80,15 +84,18 @@ function parsePayload(raw: string): Record<string, unknown> {
 }
 
 function grantedScopes(payload: Record<string, unknown>): string[] {
+  // Microsoft's scope response is optional. When omitted, the access token is
+  // for the scopes requested in the authorization leg. offline_access is not an
+  // access-token scope and is proven by the presence of a refresh token instead.
   return typeof payload.scope === "string"
     ? payload.scope.split(/\s+/).filter(Boolean)
-    : [...MICROSOFT_REQUIRED_SCOPES];
+    : [...MICROSOFT_ACCESS_TOKEN_SCOPES];
 }
 
-function validateRequiredScopes(scopes: readonly string[]): void {
-  for (const required of MICROSOFT_REQUIRED_SCOPES) {
+function validateAccessTokenScopes(scopes: readonly string[]): void {
+  for (const required of MICROSOFT_ACCESS_TOKEN_SCOPES) {
     if (!microsoftScopeGranted(scopes, required)) {
-      throw new Error(`Required Microsoft scope was not granted: ${required}`);
+      throw new Error(`Required Microsoft access scope was not granted: ${required}`);
     }
   }
 }
@@ -130,7 +137,7 @@ export async function exchangeMicrosoftAuthorizationCode(input: {
   const scopes = grantedScopes(payload);
   if (!accessToken) throw new Error("Microsoft did not return an access token.");
   if (!refreshToken) throw new Error("Microsoft did not return a refresh token. Confirm offline_access is allowed for the public client.");
-  validateRequiredScopes(scopes);
+  validateAccessTokenScopes(scopes);
   return { accessToken, refreshToken, grantedScopes: scopes };
 }
 
@@ -159,16 +166,13 @@ export async function refreshMicrosoftAccessToken(input: {
     : input.refreshToken;
   const scopes = grantedScopes(payload);
   if (!accessToken) throw new Error("Microsoft did not return an access token during refresh.");
-  validateRequiredScopes(scopes);
+  validateAccessTokenScopes(scopes);
   return { accessToken, refreshToken: replacement, grantedScopes: scopes };
 }
 
 async function graphGet(accessToken: string, path: string): Promise<Response> {
   return fetch(`${MICROSOFT_GRAPH_BASE}${path}`, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: "application/json",
-    },
+    headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
     redirect: "error",
     signal: AbortSignal.timeout(20_000),
   });
@@ -189,9 +193,7 @@ export async function validateMicrosoftMailbox(accessToken: string): Promise<Mic
   const inboxResponse = await graphGet(accessToken, "/me/mailFolders/inbox?$select=id");
   if (!inboxResponse.ok) throw new Error(`Microsoft Graph mailbox validation failed: ${inboxResponse.status}`);
   const inbox = parsePayload(await readBoundedText(inboxResponse));
-  if (typeof inbox.id !== "string" || !inbox.id.trim()) {
-    throw new Error("Microsoft Graph did not return the Inbox folder.");
-  }
+  if (typeof inbox.id !== "string" || !inbox.id.trim()) throw new Error("Microsoft Graph did not return the Inbox folder.");
 
   return { accountId, label };
 }
