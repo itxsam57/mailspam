@@ -14,6 +14,7 @@ import { analyzeQrImages, isSupportedQrImageMimeType } from "./qrDecode.js";
 const TEXT_PREVIEW_MAX_CHARS = 4000;
 const MAX_THREAD_REFERENCE_IDS = 20;
 const MAX_THREAD_MESSAGE_ID_CHARS = 998;
+const MAX_THREAD_REFERENCE_HEADER_CHARS = 32 * 1024;
 
 function firstAddress(addr: AddressObject | AddressObject[] | undefined): FromField | null {
   if (!addr) return null;
@@ -71,26 +72,29 @@ export function parseAuthResultsHeader(raw: unknown): AuthenticationSignals {
 
 /**
  * RFC thread identifiers are accepted only in their explicit <msg-id> form.
- * The count and per-ID length are bounded so a hostile References header
- * cannot become an unbounded Worker/history input. Raw values are transient:
- * relationship annotation HMAC-compares and deletes them before scoring.
+ * The input tail, ID count and per-ID length are bounded so a hostile
+ * References header cannot become an unbounded Worker/history input. The tail
+ * is intentional: RFC reply chains append the direct parent last. Raw values
+ * are transient and are HMAC-compared/deleted before scoring.
  */
 export function extractThreadMessageIds(raw: unknown): string[] {
   const headerText = normalizeHeaderText(raw);
   if (!headerText) return [];
+  const boundedText = headerText.length > MAX_THREAD_REFERENCE_HEADER_CHARS
+    ? headerText.slice(-MAX_THREAD_REFERENCE_HEADER_CHARS)
+    : headerText;
   const pattern = new RegExp(`<[^<>\\r\\n]{1,${MAX_THREAD_MESSAGE_ID_CHARS - 2}}>`, "g");
-  const matches = headerText.match(pattern) ?? [];
-  const unique: string[] = [];
+  const matches = boundedText.match(pattern) ?? [];
+  const newestUnique: string[] = [];
   const seen = new Set<string>();
-  for (const match of matches) {
-    const normalized = match.trim();
+  for (let index = matches.length - 1; index >= 0 && newestUnique.length < MAX_THREAD_REFERENCE_IDS; index -= 1) {
+    const normalized = matches[index]!.trim();
     const key = normalized.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    unique.push(normalized);
-    if (unique.length >= MAX_THREAD_REFERENCE_IDS) break;
+    newestUnique.push(normalized);
   }
-  return unique;
+  return newestUnique.reverse();
 }
 
 function pendingThreadReferences(mail: ParsedMail): CanonicalEnvelope["threadContext"]["pendingThreadReferences"] {
