@@ -71,10 +71,6 @@ export function createLocalDesktopServer(options: {
         '<script src="/scan-monitor.js"></script><script src="/unsubscribe-monitor.js"></script><script src="/gmail-oauth.js"></script></body>',
       );
 
-    // EventSource cannot attach the protected-read CSRF header. Its scan GET is
-    // authenticated by the HttpOnly local session and a same-origin Referer.
-    // Keep cross-origin referrers suppressed while allowing that browser-native
-    // same-origin proof to reach requireScanSource().
     res.setHeader("Referrer-Policy", "same-origin");
     res.setHeader(
       "Content-Security-Policy",
@@ -148,6 +144,23 @@ export function createLocalDesktopServer(options: {
     res.setHeader("Cache-Control", "no-store");
     const status = googleOAuth.status(req.params.flowId!);
     res.status(status.status === "error" && status.error.startsWith("Unknown") ? 404 : 200).json(status);
+  });
+
+  // Handle account removal at the protected desktop boundary so remote OAuth
+  // revocation/native-vault failures are returned as a truthful visible error.
+  // This route precedes the inner compatibility route and therefore owns the
+  // production desktop disconnect lifecycle.
+  app.delete("/api/accounts/:id", async (req: Request, res: Response) => {
+    const id = req.params.id!;
+    if (!sessionStore.get(id)) return res.status(404).json({ error: "Unknown account" });
+    try {
+      await sessionStore.remove(id);
+      res.status(204).send();
+    } catch (error) {
+      res.status(502).json({
+        error: `Account disconnect could not be completed: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
   });
 
   app.get("/api/accounts/:id/scan/:type", createScanStreamHandler({ community }));
