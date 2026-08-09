@@ -42,6 +42,8 @@ export interface LinkInfo {
   brandDomainMismatch: boolean | null;
   /** Body/HTML link vs a URL decoded locally from a bounded QR-capable image. */
   source?: "body" | "qr";
+  /** How body HTML invokes this destination; QR/plain links are ordinary navigation. */
+  interaction?: "navigation" | "form_action" | "automatic_redirect";
 }
 
 export interface AttachmentInfo {
