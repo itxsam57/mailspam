@@ -63,7 +63,7 @@ describe("macOS Keychain vault", () => {
     }
   });
 
-  it("keeps write secrets off the macOS security command line", () => {
+  it("keeps write secrets off the macOS process command line", () => {
     const source = readFileSync(
       new URL("../../server/src/security/macosKeychainVault.ts", import.meta.url),
       "utf8",
@@ -73,10 +73,10 @@ describe("macOS Keychain vault", () => {
       "utf8",
     );
 
-    expect(source).toContain('"add-generic-password"');
-    expect(source).toContain('"-U",');
-    expect(source).toContain('"-w",');
-    expect(source).toContain('stdin: `${encoded}\\n`');
+    expect(source).toContain('args: ["-i"]');
+    expect(source).toContain("stdin: interactiveWriteCommand(request.target, encoded)");
+    expect(source).toContain("add-generic-password -a ${target} -s ${SERVICE} -U -w ${encodedSecret}");
+    expect(source).not.toContain('args: ["add-generic-password"');
     expect(source).not.toContain('"-w", encoded');
     expect(source).not.toContain('"-w", request.secret');
     expect(runner).toContain('shell: false');
