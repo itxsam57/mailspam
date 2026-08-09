@@ -33,8 +33,9 @@ export type SecureAdapterConfig =
       mode: "live";
       credentials: {
         clientId: string;
-        clientSecret: SecretHandle;
+        clientSecret?: SecretHandle;
         refreshToken: SecretHandle;
+        accountSubject?: string;
       };
     }
   | {
@@ -86,7 +87,10 @@ type GenericImapAppPasswordConfig = {
 
 type AppPasswordRuntimeConfig = HostedAppPasswordConfig | GenericImapAppPasswordConfig;
 
+type GmailRuntimeConfig = Extract<AdapterConfig, { provider: "gmail"; mode: "live" }>;
+
 const APP_PASSWORD_REFERENCE_NAMESPACE = "email-shield-app-password-account-v1\0";
+const GMAIL_REFRESH_REFERENCE_NAMESPACE = "email-shield-gmail-refresh-account-v1\0";
 
 function memorySecret(value: string): MemorySecretHandle {
   return { storage: "memory", value };
@@ -119,11 +123,35 @@ export function appPasswordCredentialReference(config: AppPasswordRuntimeConfig)
 }
 
 /**
- * Synchronous memory-only protection used by fixtures, tests, and platforms
- * without an implemented native persistent vault. It never writes a secret to
- * disk. OAuth secrets intentionally remain memory-only until the guided OAuth
- * work establishes a stable provider account identity independent of token
- * rotation.
+ * Guided Gmail OAuth uses Google's stable OpenID Connect `sub` as account
+ * identity. Refresh-token rotation therefore changes the secret value without
+ * changing the native-vault reference or the user's personal-policy identity.
+ */
+export function gmailRefreshTokenCredentialReference(
+  clientId: string,
+  accountSubject: string,
+): CredentialReference {
+  const normalizedClientId = clientId.trim();
+  const normalizedSubject = accountSubject.trim();
+  if (!normalizedClientId || !normalizedSubject) {
+    throw new Error("A stable Gmail OAuth client and account subject are required.");
+  }
+  const id = createHash("sha256")
+    .update(GMAIL_REFRESH_REFERENCE_NAMESPACE, "utf8")
+    .update(normalizedClientId, "utf8")
+    .update("\0", "utf8")
+    .update(normalizedSubject, "utf8")
+    .digest("hex");
+  return {
+    id: `gmail-refresh-${id}`,
+    kind: "oauth-refresh-token",
+  };
+}
+
+/**
+ * Synchronous memory-only protection used by fixtures, tests, legacy developer
+ * credentials, and platforms without an implemented native persistent vault.
+ * It never writes a secret to disk.
  */
 export function secureAdapterConfigInMemory(config: AdapterConfig): SecuredAdapterConfigResult {
   if (config.mode === "fixture") {
@@ -143,8 +171,11 @@ export function secureAdapterConfigInMemory(config: AdapterConfig): SecuredAdapt
           mode: "live",
           credentials: {
             clientId: config.credentials.clientId,
-            clientSecret: memorySecret(config.credentials.clientSecret),
+            clientSecret: config.credentials.clientSecret
+              ? memorySecret(config.credentials.clientSecret)
+              : undefined,
             refreshToken: memorySecret(config.credentials.refreshToken),
+            accountSubject: config.credentials.accountSubject,
           },
         },
         vaultReferences: [],
@@ -194,11 +225,41 @@ export function secureAdapterConfigInMemory(config: AdapterConfig): SecuredAdapt
   }
 }
 
+async function secureGuidedGmail(
+  config: GmailRuntimeConfig,
+  vault: CredentialVault,
+): Promise<SecuredAdapterConfigResult> {
+  const accountSubject = config.credentials.accountSubject?.trim();
+  if (!accountSubject) return secureAdapterConfigInMemory(config);
+
+  const reference = gmailRefreshTokenCredentialReference(
+    config.credentials.clientId,
+    accountSubject,
+  );
+  await vault.write(reference, config.credentials.refreshToken);
+  return {
+    config: {
+      provider: "gmail",
+      mode: "live",
+      credentials: {
+        clientId: config.credentials.clientId,
+        clientSecret: config.credentials.clientSecret
+          ? memorySecret(config.credentials.clientSecret)
+          : undefined,
+        refreshToken: { storage: "vault", reference },
+        accountSubject,
+      },
+    },
+    vaultReferences: [reference],
+  };
+}
+
 /**
- * Protect app-password credentials with the native vault when one is available.
- * There is deliberately no persistence fallback: an unavailable native backend
- * means the secret remains memory-only for the current process, while a backend
- * that claims availability but fails a write causes the connection to fail.
+ * Protect provider credentials with the native vault when one is available.
+ * There is deliberately no plaintext persistence fallback. Guided Gmail OAuth
+ * is eligible only after a verified stable `sub` is present; legacy Gmail
+ * developer credentials remain memory-only rather than deriving identity from
+ * a refresh token.
  */
 export async function secureAdapterConfig(
   config: AdapterConfig,
@@ -209,6 +270,8 @@ export async function secureAdapterConfig(
   }
 
   switch (config.provider) {
+    case "gmail":
+      return secureGuidedGmail(config, vault);
     case "icloud":
     case "yahoo": {
       const reference = appPasswordCredentialReference(config);
@@ -245,7 +308,6 @@ export async function secureAdapterConfig(
         vaultReferences: [reference],
       };
     }
-    case "gmail":
     case "outlook":
       return secureAdapterConfigInMemory(config);
   }
@@ -267,7 +329,7 @@ async function materializeSecret(handle: SecretHandle, vault: CredentialVault): 
 /**
  * Raw provider secrets exist only in this short-lived runtime configuration,
  * immediately before an adapter/worker operation. The secure account session
- * itself stores handles instead of raw app-password strings.
+ * itself stores handles instead of raw persistent secrets.
  */
 export async function materializeAdapterConfig(
   config: SecureAdapterConfig,
@@ -285,8 +347,11 @@ export async function materializeAdapterConfig(
     case "gmail": {
       const credentials: GmailOAuthCredentials = {
         clientId: config.credentials.clientId,
-        clientSecret: await materializeSecret(config.credentials.clientSecret, vault),
+        clientSecret: config.credentials.clientSecret
+          ? await materializeSecret(config.credentials.clientSecret, vault)
+          : undefined,
         refreshToken: await materializeSecret(config.credentials.refreshToken, vault),
+        accountSubject: config.credentials.accountSubject,
       };
       return { provider: "gmail", mode: "live", credentials };
     }
@@ -324,12 +389,15 @@ export async function materializeAdapterConfig(
 
 export function releaseMemorySecrets(config: SecureAdapterConfig): void {
   if (config.mode !== "live") return;
-  const release = (handle: SecretHandle) => {
-    if (handle.storage === "memory") handle.value = "";
+  const release = (handle: SecretHandle | undefined) => {
+    if (handle?.storage === "memory") handle.value = "";
   };
 
   switch (config.provider) {
     case "gmail":
+      release(config.credentials.clientSecret);
+      release(config.credentials.refreshToken);
+      break;
     case "outlook":
       release(config.credentials.clientSecret);
       release(config.credentials.refreshToken);
