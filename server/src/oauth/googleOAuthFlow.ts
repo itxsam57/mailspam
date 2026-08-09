@@ -33,6 +33,7 @@ export interface GoogleOAuthTokenResult {
 export interface GoogleOAuthRuntime {
   exchangeAuthorizationCode(input: {
     clientId: string;
+    clientSecret?: string;
     code: string;
     codeVerifier: string;
     redirectUri: string;
@@ -177,12 +178,18 @@ async function readBoundedText(response: Response, maximumBytes: number): Promis
 export class DefaultGoogleOAuthRuntime implements GoogleOAuthRuntime {
   async exchangeAuthorizationCode(input: {
     clientId: string;
+    clientSecret?: string;
     code: string;
     codeVerifier: string;
     redirectUri: string;
   }): Promise<GoogleOAuthTokenResult> {
+    const clientSecret = input.clientSecret?.trim() ?? "";
+    if (!clientSecret) {
+      throw new Error("Google OAuth client secret is not configured.");
+    }
     const body = new URLSearchParams({
       client_id: input.clientId,
+      client_secret: clientSecret,
       code: input.code,
       code_verifier: input.codeVerifier,
       grant_type: "authorization_code",
@@ -252,6 +259,7 @@ export class GoogleOAuthFlowManager {
   constructor(
     private readonly options: {
       clientId: string;
+      clientSecret?: string;
       sessionStore: SessionStore;
       runtime?: GoogleOAuthRuntime;
       flowTtlMs?: number;
@@ -433,6 +441,7 @@ export class GoogleOAuthFlowManager {
       try {
         tokens = await runtime.exchangeAuthorizationCode({
           clientId: this.options.clientId.trim(),
+          clientSecret: this.options.clientSecret?.trim() || undefined,
           code,
           codeVerifier: flow.codeVerifier,
           redirectUri: flow.redirectUri,
@@ -440,7 +449,7 @@ export class GoogleOAuthFlowManager {
       } catch {
         throw new GoogleOAuthStageError(
           "ES-GOOGLE-01",
-          "Google token exchange could not be completed (ES-GOOGLE-01). Confirm the Desktop OAuth client belongs to this project and try again.",
+          "Google token exchange could not be completed (ES-GOOGLE-01). Confirm the matching Desktop OAuth client credentials and try again.",
         );
       }
 
@@ -460,11 +469,13 @@ export class GoogleOAuthFlowManager {
         );
       }
 
+      const clientSecret = this.options.clientSecret?.trim() || undefined;
       const config: AdapterConfig = {
         provider: "gmail",
         mode: "live",
         credentials: {
           clientId: this.options.clientId.trim(),
+          clientSecret,
           refreshToken: tokens.refreshToken,
           accountSubject: identity.sub,
         },
