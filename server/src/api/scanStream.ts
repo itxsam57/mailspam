@@ -3,6 +3,7 @@ import type { Request, RequestHandler, Response } from "express";
 import { Worker } from "node:worker_threads";
 import { sessionStore } from "./sessionStore.js";
 import { defaultScanStateRepository } from "./defaultScanStateRepository.js";
+import { defaultRelationshipHistoryRepository } from "./defaultRelationshipHistoryRepository.js";
 import {
   emptyScanCounters,
   type ScanHistoryRecord,
@@ -79,8 +80,15 @@ export function requestActiveScanStop(sessionId: string): boolean {
   return true;
 }
 
-export function publicScanProgress(progress: ScanProgress): Omit<ScanProgress, "cursor" | "checkpoint"> {
-  const { cursor: _cursor, checkpoint: _checkpoint, ...publicProgress } = progress;
+export function publicScanProgress(
+  progress: ScanProgress,
+): Omit<ScanProgress, "cursor" | "checkpoint" | "relationshipObservations"> {
+  const {
+    cursor: _cursor,
+    checkpoint: _checkpoint,
+    relationshipObservations: _relationshipObservations,
+    ...publicProgress
+  } = progress;
   return publicProgress;
 }
 
@@ -213,11 +221,13 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
       record = createNewRecord(type);
     }
 
+    let relationshipHistory;
     try {
+      relationshipHistory = defaultRelationshipHistoryRepository.workerSnapshot(session.policyAccountKey);
       defaultScanStateRepository.save(session.policyAccountKey, record);
     } catch (error) {
       res.status(500).json({
-        error: `Protected scan checkpoint could not be initialized: ${error instanceof Error ? error.message : String(error)}`,
+        error: `Protected local scan state could not be initialized: ${error instanceof Error ? error.message : String(error)}`,
       });
       return;
     }
@@ -238,6 +248,7 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
       scanId: record.scanId,
       resumed: resume,
       historyPersistent: defaultScanStateRepository.persistent,
+      relationshipHistoryPersistent: defaultRelationshipHistoryRepository.persistent,
     });
 
     const threatFeedEntries = snapshotVerifiedFeedAndRefresh(community);
@@ -268,6 +279,7 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
           resume: resumeInput,
           personalPolicy: session.personalPolicy.snapshot(),
           threatFeedEntries,
+          relationshipHistory,
         },
       });
     } catch (error) {
@@ -363,6 +375,19 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
         clock.progressSeen = true;
         clock.lastProgressAt = Date.now();
         const progress = message.progress as ScanProgress;
+
+        // Relationship history commits before the resumable cursor advances.
+        // Message-fingerprint dedupe makes replay safe if the cursor write then
+        // fails and the same provider page is processed again on resume.
+        try {
+          defaultRelationshipHistoryRepository.merge(
+            session.policyAccountKey,
+            progress.relationshipObservations ?? [],
+          );
+        } catch {
+          terminateWithError("Protected relationship history could not be saved. The scan was stopped before advancing its resumable checkpoint.");
+          return;
+        }
 
         record.counters = { ...progress.counters };
         record.checkpoint = {
