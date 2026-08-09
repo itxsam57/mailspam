@@ -153,12 +153,15 @@ describe("architecture boundary", () => {
   it("keeps brand mappings out of MIME and local identity code", () => {
     const root = join(process.cwd(), "..");
     const mime = readFileSync(join(root, "server/src/util/mimeNormalize.ts"), "utf8");
+    const htmlInteractions = readFileSync(join(root, "server/src/util/htmlInteraction.ts"), "utf8");
     const identity = readFileSync(join(root, "server/src/engine/layers/identityImpersonation.ts"), "utf8");
     const links = readFileSync(join(root, "server/src/engine/layers/linkStructure.ts"), "utf8");
 
     expect(mime).not.toContain("OFFICIAL_BRAND_DOMAINS");
     expect(mime).not.toContain("claimedBrandFromText");
-    expect(mime).toContain("claimedBrand: null");
+    expect(htmlInteractions).not.toContain("OFFICIAL_BRAND_DOMAINS");
+    expect(htmlInteractions).not.toContain("claimedBrandFromText");
+    expect(htmlInteractions).toContain("claimedBrand: null");
     expect(identity).toContain("Object.freeze({})");
     expect(identity).not.toContain('paypal: [');
     expect(identity).not.toContain('redotpay: [');
