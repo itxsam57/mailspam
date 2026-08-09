@@ -64,6 +64,42 @@ describe("bounded IMAP attachment hash acquisition", () => {
     expect(result.incompleteReasons).toEqual([]);
   });
 
+  it("rejects a short provider response instead of hashing an attachment prefix", async () => {
+    const prefix = Buffer.from("partial", "utf8");
+    const encodedPrefix = Buffer.from(prefix.toString("base64"), "ascii");
+    const selection = inspectBodyStructure({
+      part: "2",
+      type: "application/octet-stream",
+      size: 64,
+      encoding: "base64",
+      disposition: "attachment",
+      dispositionParameters: { filename: "truncated.bin" },
+    });
+    const client = {
+      fetchOne: vi.fn(async (
+        _uid: string | number,
+        query: Record<string, unknown>,
+        _options?: Record<string, unknown>,
+      ) => {
+        const parts = requestedBodyParts(query);
+        return { bodyParts: new Map<string, Buffer>([[parts[0]!.key, encodedPrefix]]) };
+      }),
+    };
+
+    const result = await fetchBoundedAttachmentHashes(
+      client,
+      45,
+      selection,
+      [],
+      new AbortController().signal,
+    );
+
+    expect(client.fetchOne).toHaveBeenCalledTimes(1);
+    expect(result.hashesByAttachmentIndex.size).toBe(0);
+    expect(result.incompleteReasons.join(" ")).toContain("could not be decoded completely");
+    expect([...result.hashesByAttachmentIndex.values()]).not.toContain(sha256(prefix));
+  });
+
   it("does not fetch an attachment whose declared size exceeds the local hash bound", async () => {
     const selection = inspectBodyStructure({
       part: "1",
