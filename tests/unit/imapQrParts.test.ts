@@ -18,33 +18,12 @@ describe("bounded IMAP QR parts", () => {
       type: "multipart/mixed",
       childNodes: [
         { part: "1", type: "text/plain", size: 100 },
-        {
-          part: "2",
-          type: "image/png",
-          size: 824,
-          encoding: "base64",
-          disposition: "inline",
-          parameters: { name: "inline-qr.png" },
-        },
-        {
-          part: "3",
-          type: "image/jpeg",
-          size: 4000,
-          encoding: "base64",
-          disposition: "attachment",
-          dispositionParameters: { filename: "photo.jpg" },
-        },
-        {
-          part: "4",
-          type: "application/pdf",
-          size: 5000,
-          disposition: "attachment",
-          dispositionParameters: { filename: "invoice.pdf" },
-        },
+        { part: "2", type: "image/png", size: 824, encoding: "base64", disposition: "inline", parameters: { name: "inline-qr.png" } },
+        { part: "3", type: "image/jpeg", size: 4000, encoding: "base64", disposition: "attachment", dispositionParameters: { filename: "photo.jpg" } },
+        { part: "4", type: "application/pdf", size: 5000, disposition: "attachment", dispositionParameters: { filename: "invoice.pdf" } },
         { part: "5", type: "image/gif", size: 500, disposition: "inline" },
       ],
     });
-
     expect(selection.qrImages).toEqual([
       expect.objectContaining({ part: "2", name: "inline-qr.png", mimeType: "image/png", transferEncoding: "base64" }),
       expect.objectContaining({ part: "3", name: "photo.jpg", mimeType: "image/jpeg", transferEncoding: "base64" }),
@@ -54,16 +33,9 @@ describe("bounded IMAP QR parts", () => {
   });
 
   it("decodes MIME transfer encoding and yields exact image bytes", async () => {
-    const decoded = await decodeFetchedQrImagePart(
-      Buffer.from(QR_PNG.toString("base64"), "ascii"),
-      {
-        part: "2",
-        name: "qr.png",
-        mimeType: "image/png",
-        sizeBytes: QR_PNG.length,
-        transferEncoding: "base64",
-      },
-    );
+    const decoded = await decodeFetchedQrImagePart(Buffer.from(QR_PNG.toString("base64"), "ascii"), {
+      part: "2", name: "qr.png", mimeType: "image/png", sizeBytes: QR_PNG.length, transferEncoding: "base64",
+    });
     expect(decoded.equals(QR_PNG)).toBe(true);
     expect(analyzeQrImages([{ name: "qr.png", mimeType: "image/png", content: decoded }]).links[0]?.normalizedUrl).toBe(QR_URL);
   });
@@ -73,35 +45,20 @@ describe("bounded IMAP QR parts", () => {
       type: "multipart/mixed",
       childNodes: [
         { part: "1", type: "text/plain", size: 100 },
-        {
-          part: "2",
-          type: "image/png",
-          size: QR_PNG.length,
-          encoding: "base64",
-          disposition: "attachment",
-          dispositionParameters: { filename: "qr.png" },
-        },
-        {
-          part: "3",
-          type: "application/pdf",
-          size: 1000,
-          disposition: "attachment",
-          dispositionParameters: { filename: "invoice.pdf" },
-        },
+        { part: "2", type: "image/png", size: QR_PNG.length, encoding: "base64", disposition: "attachment", dispositionParameters: { filename: "qr.png" } },
+        { part: "3", type: "application/pdf", size: 1000, disposition: "attachment", dispositionParameters: { filename: "invoice.pdf" } },
       ],
     });
     const encoded = Buffer.from(QR_PNG.toString("base64"), "ascii");
-    const fetchOne = vi.fn(async (_uid: number, query: any) => {
+    const fetchOne = vi.fn(async (_range: string | number, query: Record<string, unknown>) => {
       expect(query).toHaveProperty("bodyParts");
       expect(query).not.toHaveProperty("source");
       expect(query).not.toHaveProperty("bodyStructure");
-      expect(query.bodyParts).toEqual([
-        expect.objectContaining({ key: "2", start: 0 }),
-      ]);
-      expect(JSON.stringify(query)).not.toContain("3");
+      const requested = query.bodyParts as Array<{ key: string; start: number; maxLength: number }>;
+      expect(requested).toEqual([expect.objectContaining({ key: "2", start: 0 })]);
+      expect(requested.map((part) => part.key)).not.toContain("3");
       return { bodyParts: new Map([["2", encoded]]) };
     });
-
     const result = await fetchBoundedQrImages({ fetchOne }, 77, selection, new AbortController().signal);
     expect(fetchOne).toHaveBeenCalledTimes(1);
     expect(result.supportedCount).toBe(1);
@@ -113,15 +70,7 @@ describe("bounded IMAP QR parts", () => {
   it("skips declared oversized supported images without downloading their body", async () => {
     const selection = inspectBodyStructure({
       type: "multipart/mixed",
-      childNodes: [
-        {
-          part: "2",
-          type: "image/png",
-          size: 10_000_000,
-          disposition: "attachment",
-          dispositionParameters: { filename: "huge.png" },
-        },
-      ],
+      childNodes: [{ part: "2", type: "image/png", size: 10_000_000, disposition: "attachment", dispositionParameters: { filename: "huge.png" } }],
     });
     const fetchOne = vi.fn();
     const result = await fetchBoundedQrImages({ fetchOne }, 88, selection, new AbortController().signal);
