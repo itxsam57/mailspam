@@ -8,7 +8,9 @@ import type { SessionStore } from "../api/sessionStore.js";
 const GOOGLE_AUTHORIZE_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 export const GOOGLE_GMAIL_MODIFY_SCOPE = "https://www.googleapis.com/auth/gmail.modify";
-const GOOGLE_REQUIRED_SCOPES = ["openid", "email", GOOGLE_GMAIL_MODIFY_SCOPE] as const;
+const GOOGLE_OIDC_EMAIL_SCOPE = "email";
+const GOOGLE_USERINFO_EMAIL_SCOPE = "https://www.googleapis.com/auth/userinfo.email";
+const GOOGLE_REQUIRED_SCOPES = ["openid", GOOGLE_OIDC_EMAIL_SCOPE, GOOGLE_GMAIL_MODIFY_SCOPE] as const;
 const FLOW_TTL_MS = 5 * 60 * 1_000;
 const TERMINAL_RETENTION_MS = 5 * 60 * 1_000;
 const MAX_ACTIVE_FLOWS = 4;
@@ -46,6 +48,22 @@ export type GoogleOAuthPublicStatus =
   | { status: "complete"; accountId: string; provider: "gmail"; label: string }
   | { status: "error"; error: string };
 
+type GoogleOAuthFailureStage =
+  | "ES-GOOGLE-01"
+  | "ES-GOOGLE-02"
+  | "ES-GOOGLE-03"
+  | "ES-GOOGLE-04";
+
+class GoogleOAuthStageError extends Error {
+  constructor(
+    readonly stage: GoogleOAuthFailureStage,
+    readonly publicMessage: string,
+  ) {
+    super(stage);
+    this.name = "GoogleOAuthStageError";
+  }
+}
+
 interface PendingFlow {
   id: string;
   state: string;
@@ -68,6 +86,15 @@ export function createPkcePair(): { verifier: string; challenge: string } {
   const verifier = base64UrlRandom(64);
   const challenge = createHash("sha256").update(verifier, "ascii").digest("base64url");
   return { verifier, challenge };
+}
+
+/** Google may canonicalize the OIDC `email` scope to userinfo.email in grants. */
+export function googleScopeGranted(grantedScopes: readonly string[], requiredScope: string): boolean {
+  if (requiredScope === GOOGLE_OIDC_EMAIL_SCOPE) {
+    return grantedScopes.includes(GOOGLE_OIDC_EMAIL_SCOPE) ||
+      grantedScopes.includes(GOOGLE_USERINFO_EMAIL_SCOPE);
+  }
+  return grantedScopes.includes(requiredScope);
 }
 
 export function buildGoogleAuthorizationUrl(input: {
@@ -97,6 +124,7 @@ function constantTimeEqual(left: string, right: string): boolean {
 }
 
 function normalizeError(error: unknown): string {
+  if (error instanceof GoogleOAuthStageError) return error.publicMessage;
   const message = error instanceof Error ? error.message : String(error);
   if (/access[_ -]?denied/i.test(message)) return "Google access was not granted.";
   if (/scope/i.test(message)) return "Google did not grant the permissions Email Shield requires.";
@@ -175,7 +203,7 @@ export class DefaultGoogleOAuthRuntime implements GoogleOAuthRuntime {
     if (!refreshToken) throw new Error("Google did not return a refresh token.");
     if (!idToken) throw new Error("Google did not return an identity token.");
     for (const required of GOOGLE_REQUIRED_SCOPES) {
-      if (!grantedScopes.includes(required)) {
+      if (!googleScopeGranted(grantedScopes, required)) {
         throw new Error(`Required Google scope was not granted: ${required}`);
       }
     }
@@ -396,18 +424,35 @@ export class GoogleOAuthFlowManager {
 
     try {
       const runtime = this.options.runtime ?? new DefaultGoogleOAuthRuntime();
-      const tokens = await runtime.exchangeAuthorizationCode({
-        clientId: this.options.clientId.trim(),
-        code,
-        codeVerifier: flow.codeVerifier,
-        redirectUri: flow.redirectUri,
-      });
-      const identity = await runtime.verifyIdToken({
-        clientId: this.options.clientId.trim(),
-        idToken: tokens.idToken,
-      });
-      if (!identity.nonce || !constantTimeEqual(identity.nonce, flow.nonce)) {
-        throw new Error("Google identity nonce did not match the authorization request.");
+      let tokens: GoogleOAuthTokenResult;
+      try {
+        tokens = await runtime.exchangeAuthorizationCode({
+          clientId: this.options.clientId.trim(),
+          code,
+          codeVerifier: flow.codeVerifier,
+          redirectUri: flow.redirectUri,
+        });
+      } catch {
+        throw new GoogleOAuthStageError(
+          "ES-GOOGLE-01",
+          "Google token exchange could not be completed (ES-GOOGLE-01). Confirm the Desktop OAuth client belongs to this project and try again.",
+        );
+      }
+
+      let identity: GoogleOAuthIdentity;
+      try {
+        identity = await runtime.verifyIdToken({
+          clientId: this.options.clientId.trim(),
+          idToken: tokens.idToken,
+        });
+        if (!identity.nonce || !constantTimeEqual(identity.nonce, flow.nonce)) {
+          throw new Error("nonce mismatch");
+        }
+      } catch {
+        throw new GoogleOAuthStageError(
+          "ES-GOOGLE-02",
+          "Google identity verification could not be completed (ES-GOOGLE-02). Start a fresh Google connection.",
+        );
       }
 
       const config: AdapterConfig = {
@@ -421,12 +466,31 @@ export class GoogleOAuthFlowManager {
       };
       const label = identity.emailVerified && identity.email ? identity.email : "Gmail";
       const validateProvider = this.options.validateProvider ?? validateGmailProvider;
-      const session = await this.options.sessionStore.createSecuredValidated(
-        "gmail",
-        label,
-        config,
-        () => validateProvider(config),
-      );
+
+      let session;
+      try {
+        session = await this.options.sessionStore.createSecuredValidated(
+          "gmail",
+          label,
+          config,
+          async () => {
+            try {
+              await validateProvider(config);
+            } catch {
+              throw new GoogleOAuthStageError(
+                "ES-GOOGLE-03",
+                "Google signed in, but Gmail API validation failed (ES-GOOGLE-03). Confirm Gmail API is enabled for this OAuth project and gmail.modify was granted.",
+              );
+            }
+          },
+        );
+      } catch (error) {
+        if (error instanceof GoogleOAuthStageError) throw error;
+        throw new GoogleOAuthStageError(
+          "ES-GOOGLE-04",
+          "Google signed in, but Email Shield could not complete protected local credential setup (ES-GOOGLE-04).",
+        );
+      }
 
       flow.status = {
         status: "complete",
