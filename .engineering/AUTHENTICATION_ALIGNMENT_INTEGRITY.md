@@ -6,9 +6,9 @@ Email Shield must distinguish **authentication mechanism success** from **authen
 
 SPF authenticates an SMTP identity (`smtp.mailfrom` or, in limited cases, HELO). DKIM authenticates the signing domain reported as `header.d`. Either mechanism may pass for a domain unrelated to the visible author. A bare `spf=pass` or `dkim=pass` therefore MUST NOT create organizational sender trust, suppress phishing evidence, establish relay-origin trust, or unlock bounded-content Safe eligibility.
 
-DMARC pass is sufficient for this local author-domain alignment decision because DMARC pass requires at least one successful authenticated identifier aligned with RFC5322.From.
+DMARC pass is sufficient for this local author-domain alignment decision because DMARC pass requires at least one successful authenticated identifier aligned with RFC5322.From. An explicit `dmarc=fail` is authoritative negative evidence for this decision and MUST NOT be overridden by locally reinterpreting an apparently aligned SPF/DKIM property.
 
-When DMARC is unavailable or non-pass, Email Shield may recover alignment only from the already-present canonical `authentication.rawHeader`:
+Only when DMARC is unavailable or reports `none` may Email Shield recover author alignment from the already-present canonical `authentication.rawHeader`:
 
 - `spf=pass` is author-aligned only when the `smtp.mailfrom` identity in that same result segment shares the From organizational domain;
 - `dkim=pass` is author-aligned only when the `header.d` identity in that same result segment shares the From organizational domain;
@@ -38,13 +38,14 @@ RFC 8601 also requires Authentication-Results consumers to understand which upst
 Automated tests must prove at minimum:
 
 1. DMARC pass authenticates the From organizational domain.
-2. Unrelated SPF MAIL FROM pass does not authenticate From.
-3. Unrelated DKIM `header.d` pass does not authenticate From.
-4. Aligned SPF/DKIM identities remain usable when DMARC status is unavailable.
-5. A passing result cannot borrow an aligned identity from another failed result.
-6. Unrelated mechanism success cannot suppress credential-phishing evidence.
-7. Unrelated mechanism success cannot unlock bounded-partial Safe.
-8. Legitimate aligned authentication still preserves the bounded-content Safe path.
-9. No network, persistence, browser, provider-permission or community-report expansion is introduced.
+2. Explicit DMARC failure cannot be overridden by apparently aligned underlying mechanism metadata.
+3. Unrelated SPF MAIL FROM pass does not authenticate From.
+4. Unrelated DKIM `header.d` pass does not authenticate From.
+5. Aligned SPF/DKIM identities remain usable when DMARC status is unavailable.
+6. A passing result cannot borrow an aligned identity from another failed result.
+7. Unrelated mechanism success cannot suppress credential-phishing evidence.
+8. Unrelated mechanism success cannot unlock bounded-partial Safe.
+9. Legitimate aligned authentication still preserves the bounded-content Safe path.
+10. No network, persistence, browser, provider-permission or community-report expansion is introduced.
 
 Primary standards basis: RFC 7489 Section 3.1 (Identifier Alignment) and RFC 8601 Authentication-Results properties for SPF `smtp.mailfrom` and DKIM `header.d`.
