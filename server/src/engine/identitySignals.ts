@@ -14,10 +14,63 @@ const SHARED_MAILBOX_DOMAINS = new Set([
 ]);
 
 const DOMAIN_RE = /(?:^|[^a-z0-9-])((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63})(?=$|[^a-z0-9-])/gi;
+const PASS_RESULT_RE = /(?:^|;)\s*(spf|dkim)\s*=\s*pass\b([^;]*)/gi;
 
+function authenticationProperty(segment: string, property: "smtp.mailfrom" | "header.d"): string | null {
+  const escaped = property.replace(".", "\\.");
+  const match = segment.match(new RegExp(`(?:^|\\s)${escaped}\\s*=\\s*(?:\"([^\"]+)\"|([^\\s();]+))`, "i"));
+  return (match?.[1] ?? match?.[2] ?? "").trim() || null;
+}
+
+function authenticationIdentityDomain(raw: string | null): string | null {
+  if (!raw) return null;
+  const value = raw.trim().replace(/^<|>$/g, "").replace(/^\[|\]$/g, "");
+  if (!value || value === "<>") return null;
+  const domain = value.includes("@") ? value.slice(value.lastIndexOf("@") + 1) : value;
+  const normalized = normalizeDomainName(domain.replace(/[>,]+$/g, ""));
+  return /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}$/i.test(normalized)
+    ? normalized
+    : null;
+}
+
+/**
+ * RFC 7489 author-domain authentication requires alignment with RFC5322.From.
+ * A bare SPF or DKIM pass is not sufficient: SPF authenticates smtp.mailfrom
+ * (or HELO) and DKIM authenticates header.d, either of which may be unrelated
+ * to the visible author. RFC 8601 carries those identities in
+ * Authentication-Results, so we reuse the already-local canonical rawHeader
+ * rather than adding DNS or provider calls.
+ */
+export function alignedAuthenticationDomains(envelope: CanonicalEnvelope): string[] {
+  if (!envelope.from.domain) return [];
+  const fromDomain = normalizeDomainName(envelope.from.domain);
+  if (!fromDomain) return [];
+
+  if (envelope.authentication.dmarc === "pass") {
+    return [organizationalDomain(fromDomain)];
+  }
+
+  const rawHeader = envelope.authentication.rawHeader;
+  if (!rawHeader) return [];
+
+  const aligned = new Set<string>();
+  PASS_RESULT_RE.lastIndex = 0;
+  let result: RegExpExecArray | null;
+  while ((result = PASS_RESULT_RE.exec(rawHeader))) {
+    const method = result[1]!.toLowerCase();
+    const segment = result[2] ?? "";
+    const property = method === "spf" ? "smtp.mailfrom" : "header.d";
+    const identity = authenticationIdentityDomain(authenticationProperty(segment, property));
+    if (identity && sameOrganizationalDomain(fromDomain, identity)) {
+      aligned.add(organizationalDomain(identity));
+    }
+  }
+  return [...aligned];
+}
+
+/** True only when authentication proves an identity aligned to RFC5322.From. */
 export function authenticationPassed(envelope: CanonicalEnvelope): boolean {
-  const auth = envelope.authentication;
-  return auth.dmarc === "pass" || auth.dkim === "pass" || auth.spf === "pass";
+  return alignedAuthenticationDomains(envelope).length > 0;
 }
 
 export function isSharedMailboxDomain(domain: string): boolean {
