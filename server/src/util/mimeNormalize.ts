@@ -9,6 +9,7 @@ import type {
   Provider,
   ParseStatus,
 } from "../canonical/envelope.js";
+import { attachmentSha256 } from "./attachmentHash.js";
 import { analyzeQrImages, isSupportedQrImageMimeType } from "./qrDecode.js";
 
 const TEXT_PREVIEW_MAX_CHARS = 4000;
@@ -169,15 +170,29 @@ function extractAttachments(mail: ParsedMail): AttachmentInfo[] {
     const extension = parts.length > 1 ? parts[parts.length - 1]!.toLowerCase() : null;
     const knownDocLike = new Set(["pdf", "doc", "docx", "xls", "xlsx", "jpg", "jpeg", "png", "txt"]);
     const suspiciousNamePattern = parts.length >= 3 && knownDocLike.has(parts[parts.length - 2]!.toLowerCase());
+    const content = attachment.content ? Buffer.from(attachment.content) : null;
     return {
       name,
       mimeType: attachment.contentType ?? "application/octet-stream",
-      sizeBytes: attachment.size ?? (attachment.content ? attachment.content.length : 0),
+      sizeBytes: attachment.size ?? content?.length ?? 0,
       extension,
-      sha256: null,
+      sha256: content ? attachmentSha256(content) : null,
       suspiciousNamePattern,
     };
   });
+}
+
+function attachmentHashInspection(attachments: AttachmentInfo[]): NonNullable<CanonicalEnvelope["diagnostics"]["attachmentHashInspection"]> {
+  const hashed = attachments.filter((attachment) => attachment.sha256 !== null).length;
+  const incomplete = hashed !== attachments.length;
+  return {
+    attachments: attachments.length,
+    hashed,
+    incomplete,
+    incompleteReasons: incomplete
+      ? ["One or more complete decoded attachment bodies were unavailable for local exact-hash inspection."]
+      : [],
+  };
 }
 
 export interface NormalizeOptions {
@@ -273,6 +288,7 @@ export async function normalizeRawMessage(raw: string | Buffer, opts: NormalizeO
         incomplete: qrAnalysis.incomplete,
         incompleteReasons: [...qrAnalysis.incompleteReasons],
       },
+      attachmentHashInspection: attachmentHashInspection(attachments),
     },
   };
 }
@@ -304,6 +320,7 @@ function malformedEnvelope(opts: NormalizeOptions, reason: string): CanonicalEnv
       encoding: "unknown",
       contentCoverage: "insufficient",
       qrInspection: { supportedImages: 0, decodedUrlCount: 0, incomplete: false, incompleteReasons: [] },
+      attachmentHashInspection: { attachments: 0, hashed: 0, incomplete: false, incompleteReasons: [] },
     },
   };
 }
