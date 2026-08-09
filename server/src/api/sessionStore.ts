@@ -6,6 +6,10 @@ import { InMemoryPersonalPolicyStore } from "../engine/layers/personalRules.js";
 import type { CredentialReference, CredentialVault } from "../security/credentialVault.js";
 import { createCredentialVault } from "../security/credentialVaultFactory.js";
 import {
+  providerCredentialRevoker,
+  type ProviderCredentialRevoker,
+} from "../security/providerCredentialRevocation.js";
+import {
   materializeAdapterConfig,
   releaseMemorySecrets,
   secureAdapterConfig,
@@ -80,13 +84,9 @@ export class SessionStore {
   constructor(
     private readonly policyRepository: PersonalPolicyRepository = new EncryptedFilePolicyRepository(),
     private readonly credentialVault: CredentialVault = createCredentialVault(),
+    private readonly credentialRevoker: ProviderCredentialRevoker = providerCredentialRevoker,
   ) {}
 
-  /**
-   * Memory-only session creation retained for deterministic tests and platforms
-   * without an implemented native persistent vault. Raw AdapterConfig secrets
-   * are immediately converted into handles and are not stored as session.config.
-   */
   create(provider: string, label: string, config: AdapterConfig): AccountSession {
     const secured = secureAdapterConfigInMemory(config);
     return this.createFromSecured(provider, label, secured.config, policyAccountKey(config), secured.vaultReferences);
@@ -98,31 +98,52 @@ export class SessionStore {
    * back to plaintext or long-lived raw AdapterConfig storage.
    */
   async createSecured(provider: string, label: string, config: AdapterConfig): Promise<AccountSession> {
+    return this.withVaultLifecycle(() => this.createSecuredWithinLifecycle(provider, label, config));
+  }
+
+  /**
+   * Provider validation that must not race with a final-account revocation uses
+   * the same serialized lifecycle transaction as vault write/session creation.
+   * Guided Gmail OAuth uses this path so a concurrent Disconnect cannot revoke
+   * the grant after validation but before the refresh token is committed.
+   */
+  async createSecuredValidated(
+    provider: string,
+    label: string,
+    config: AdapterConfig,
+    validateProvider: () => Promise<void>,
+  ): Promise<AccountSession> {
     return this.withVaultLifecycle(async () => {
-      const accountKey = policyAccountKey(config);
-      const secured = await secureAdapterConfig(config, this.credentialVault);
-      try {
-        return this.createFromSecured(provider, label, secured.config, accountKey, secured.vaultReferences);
-      } catch (error) {
-        // If session initialization fails after a new vault write, clean only
-        // references not already owned by another active session. Never delete
-        // a shared credential out from underneath a working session.
-        try {
-          for (const reference of secured.vaultReferences) {
-            if ((this.vaultReferenceCounts.get(credentialReferenceKey(reference)) ?? 0) === 0) {
-              await this.credentialVault.delete(reference);
-            }
-          }
-        } catch {
-          throw new Error("Account session initialization failed and protected credential cleanup also failed.");
-        }
-        throw error;
-      }
+      await validateProvider();
+      return this.createSecuredWithinLifecycle(provider, label, config);
     });
   }
 
   async materializeConfig(session: AccountSession): Promise<AdapterConfig> {
     return materializeAdapterConfig(session.config, this.credentialVault);
+  }
+
+  private async createSecuredWithinLifecycle(
+    provider: string,
+    label: string,
+    config: AdapterConfig,
+  ): Promise<AccountSession> {
+    const accountKey = policyAccountKey(config);
+    const secured = await secureAdapterConfig(config, this.credentialVault);
+    try {
+      return this.createFromSecured(provider, label, secured.config, accountKey, secured.vaultReferences);
+    } catch (error) {
+      try {
+        for (const reference of secured.vaultReferences) {
+          if ((this.vaultReferenceCounts.get(credentialReferenceKey(reference)) ?? 0) === 0) {
+            await this.credentialVault.delete(reference);
+          }
+        }
+      } catch {
+        throw new Error("Account session initialization failed and protected credential cleanup also failed.");
+      }
+      throw error;
+    }
   }
 
   private async withVaultLifecycle<T>(operation: () => Promise<T>): Promise<T> {
@@ -306,9 +327,14 @@ export class SessionStore {
       }
 
       await this.withVaultLifecycle(async () => {
-        // Delete native credentials before reporting the last session removed.
-        // If the OS refuses deletion, the catch below restores visibility so
-        // the user can retry instead of receiving a false cleanup success.
+        const finalProviderAccountSession = ![...this.sessions.values()].some(
+          (other) => other.id !== session.id && other.policyAccountKey === session.policyAccountKey,
+        );
+
+        if (finalProviderAccountSession && this.credentialRevoker.requiresRevocation(session.config)) {
+          await this.credentialRevoker.revoke(session.config, this.credentialVault);
+        }
+
         for (const reference of session.vaultReferences) {
           const key = credentialReferenceKey(reference);
           if ((this.vaultReferenceCounts.get(key) ?? 0) === 1) {
