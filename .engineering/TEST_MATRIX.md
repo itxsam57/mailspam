@@ -41,6 +41,7 @@ This matrix is project-specific. A check is installed only when it protects an e
 | A-33 | App-password session custody | Long-lived iCloud/Yahoo/generic-IMAP sessions keep raw app passwords out of session config on Windows, resolve vault handles only at provider connect, preserve policy identity across password rotation, reference-count shared credentials, serialize reconnect/remove lifecycle, fail account creation on native write failure, keep last session on native delete failure, and use memory-only nonpersistent handles where no native backend exists | `secureSessionCredentials.test.ts`, strict type/build, existing Worker/server regression suites | Windows + Ubuntu | Blocking |
 | A-34 | Guided Gmail OAuth | Desktop Authorization Code + PKCE S256, high-entropy state/nonce, exact random-port `127.0.0.1` callback Host/path/method, callback replay rejection, bounded token responses, verified Google ID-token nonce, stable `sub` policy identity, native-vault/memory-only refresh-token custody, validation+commit serialization, final-account provider revocation, revocation-failure truthfulness and browser token/code privacy | `gmailOAuthSecurity.test.ts`, `gmailOAuthRevocation.test.ts`, `npm run check:web`, strict type/build | Windows + Ubuntu | Blocking |
 | A-35 | Guided Outlook OAuth | Microsoft public desktop Authorization Code + PKCE S256, exact `offline_access`/`User.Read`/`Mail.ReadWrite` scopes, no guided client secret, random localhost callback with IPv4 loopback listener, state/replay protection, Graph `/me.id` stable identity, native-vault refresh-token custody, same-reference token rotation, account-mismatch rejection, rotation-write fail-closed behavior and browser token/code privacy | `microsoftOAuthSecurity.test.ts`, `outlookRefreshRotation.test.ts`, `npm run check:web`, strict type/build | Windows + Ubuntu | Blocking |
+| A-36 | Personal-policy encryption-key custody | No new raw `personal-policy.key`; Windows legacy-key migration authenticates the encrypted database, writes/reads back the same `local-encryption-key` through Credential Manager, deletes the legacy key only after verification, fails closed on missing/conflicting/unreadable key state, and keeps fresh unsupported platforms memory-only without inventing plaintext persistence | `policyKeyVaultMigration.test.ts`, `policyKeyWindowsNative.test.ts`, `policyPersistence.test.ts`, strict type/build | Windows + Ubuntu contract; Windows native migration | Blocking |
 
 ## Final visible browser test — owner only
 
@@ -62,7 +63,7 @@ After a green gate, the generated handoff contains only subjective/visible check
 14. guided Gmail live connect, Quick Scan, Disconnect, reconnect and post-reconnect Quick Scan remain accepted and must not regress;
 15. guided Outlook opens Microsoft consent as a public desktop client, returns to Email Shield without exposing code/tokens, adds the Outlook account, completes Quick Scan, Disconnect removes the local protected credential, and reconnect + Quick Scan succeeds with stable policy identity despite refresh-token replacement.
 
-The local session, CSRF, nonce, Host, redaction, bounded scan deadlines, selected-part MIME decoding, warning/confirmed aggregation, cryptographic feed verification, cross-provider report contract, credential-vault contract, app-password session ownership lifecycle, Gmail OAuth lifecycle, and Microsoft PKCE/stable-identity/token-rotation contracts are automated. Real provider authorization and mailbox acceptance remain owner-controlled because CI receives no live mailbox credentials.
+The local session, CSRF, nonce, Host, redaction, bounded scan deadlines, selected-part MIME decoding, warning/confirmed aggregation, cryptographic feed verification, cross-provider report contract, credential-vault contract, app-password session ownership lifecycle, Gmail OAuth lifecycle, Microsoft PKCE/stable-identity/token-rotation contracts, and Windows personal-policy encryption-key migration/custody are automated. Real provider authorization and mailbox acceptance remain owner-controlled because CI receives no live mailbox credentials.
 
 ## Not applicable
 
@@ -76,7 +77,7 @@ The local session, CSRF, nonce, Host, redaction, bounded scan deadlines, selecte
 | Visual snapshots | Owner performs final visible acceptance. |
 | Real provider destructive CI | CI must never receive mailbox credentials or modify live mail. |
 | Gateway/DDoS testing | Requires the actual production reverse proxy/API gateway. |
-| macOS/Linux native credential-store testing | Keychain and Secret Service backends are not implemented yet; unsupported platforms use current-process memory-only credentials rather than a plaintext persistence substitute. |
+| macOS/Linux native credential-store testing | Keychain and Secret Service backends are not implemented yet. Existing legacy policy-key files may remain temporarily for compatibility; fresh unsupported-platform policy state is memory-only and no new plaintext key is created. |
 
 ## Change-impact rule
 
