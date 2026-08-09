@@ -99,6 +99,7 @@ describe("account-scoped personal policy", () => {
 
   it("rolls back a mutation when encrypted persistence fails", () => {
     const failingRepository: PersonalPolicyRepository = {
+      persistent: true,
       load: () => ({
         blockedSenders: ["original@example.com"],
         blockedDomains: [],
