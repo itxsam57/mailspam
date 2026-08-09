@@ -70,16 +70,17 @@ function attachmentInfo(node: ImapBodyNode): AttachmentInfo | null {
   const type = (node.type ?? "application/octet-stream").toLowerCase();
   const topType = type.split("/")[0];
   const disposition = (node.disposition ?? "").toLowerCase();
+  const explicitName =
+    parameterText(node.dispositionParameters?.filename) ??
+    parameterText(node.parameters?.name);
   const isAttachment =
     disposition === "attachment" ||
-    (topType !== "text" && topType !== "multipart" && disposition !== "inline");
+    (disposition === "inline" && Boolean(explicitName)) ||
+    (topType !== "text" && topType !== "multipart");
 
   if (!isAttachment) return null;
 
-  const name =
-    parameterText(node.dispositionParameters?.filename) ??
-    parameterText(node.parameters?.name) ??
-    "unnamed";
+  const name = explicitName ?? "unnamed";
   const pieces = name.split(".");
   const extension = pieces.length > 1 ? pieces[pieces.length - 1]!.toLowerCase() : null;
   const documentLike = new Set(["pdf", "doc", "docx", "xls", "xlsx", "jpg", "jpeg", "png", "txt"]);
