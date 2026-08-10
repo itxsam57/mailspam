@@ -1,11 +1,12 @@
 import { generateKeyPairSync } from "node:crypto";
 import {
+  chmodSync,
   existsSync,
-  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -206,6 +207,25 @@ describe("encrypted community disaster recovery", () => {
     } finally {
       value.fill(0);
     }
+  });
+
+  it("rejects a group/world-readable passphrase file on POSIX", () => {
+    if (process.platform === "win32") return;
+    const directory = tempPath("community-passphrase-mode");
+    const file = join(directory, "passphrase.txt");
+    writeFileSync(file, PASSPHRASE, { mode: 0o600 });
+    chmodSync(file, 0o644);
+    expect(() => readCommunityBackupPassphraseFile(file)).toThrow("group or other users");
+  });
+
+  it("rejects a symlinked passphrase file on POSIX", () => {
+    if (process.platform === "win32") return;
+    const directory = tempPath("community-passphrase-symlink");
+    const target = join(directory, "actual-secret.txt");
+    const link = join(directory, "passphrase.txt");
+    writeFileSync(target, PASSPHRASE, { mode: 0o600 });
+    symlinkSync(target, link);
+    expect(() => readCommunityBackupPassphraseFile(link)).toThrow("opened safely");
   });
 
   it("rejects short backup passphrases", () => {
