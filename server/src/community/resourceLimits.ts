@@ -8,3 +8,14 @@ export const MAX_COMMUNITY_IDENTITY_ALIASES = 32;
 export const MAX_COMMUNITY_IDENTITY_DOMAINS = 32;
 export const MAX_COMMUNITY_IDENTITY_TEXT_CHARS = 256;
 export const MAX_COMMUNITY_DOMAIN_CHARS = 253;
+
+// The portable recovery contract is also the production persistence ceiling:
+// runtime storage must not successfully grow into a state the built-in backup
+// tooling is guaranteed to reject.
+export const MAX_COMMUNITY_AUTHORITATIVE_SOURCE_BYTES = 192 * 1024 * 1024;
+export const MAX_COMMUNITY_SIGNING_KEY_FILE_BYTES = 64 * 1024;
+export const COMMUNITY_STORAGE_KEY_BYTES = 32;
+export const MAX_COMMUNITY_AGGREGATE_DATABASE_BYTES =
+  MAX_COMMUNITY_AUTHORITATIVE_SOURCE_BYTES -
+  (2 * MAX_COMMUNITY_SIGNING_KEY_FILE_BYTES) -
+  COMMUNITY_STORAGE_KEY_BYTES;

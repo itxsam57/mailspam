@@ -27,6 +27,7 @@ import {
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { EncryptedCommunityAggregateStore } from "./aggregateStore.js";
+import { MAX_COMMUNITY_AUTHORITATIVE_SOURCE_BYTES, MAX_COMMUNITY_SIGNING_KEY_FILE_BYTES } from "./resourceLimits.js";
 import { CommunityFeedSigner } from "./signing.js";
 import {
   COMMUNITY_REPORT_DATABASE_FILE,
@@ -45,8 +46,7 @@ const SCRYPT_P = 1;
 const SCRYPT_MAXMEM = 64 * 1024 * 1024;
 const MAX_PASSPHRASE_FILE_BYTES = 4 * 1024;
 const MIN_PASSPHRASE_BYTES = 16;
-const MAX_SIGNING_KEY_FILE_BYTES = 64 * 1024;
-export const MAX_COMMUNITY_BACKUP_SOURCE_BYTES = 192 * 1024 * 1024;
+export const MAX_COMMUNITY_BACKUP_SOURCE_BYTES = MAX_COMMUNITY_AUTHORITATIVE_SOURCE_BYTES;
 export const MAX_COMMUNITY_BACKUP_FILE_BYTES = 384 * 1024 * 1024;
 
 const BACKUP_FILE_MODES: Readonly<Record<string, number>> = Object.freeze({
@@ -144,6 +144,9 @@ function signingKeyId(publicPem: string): string {
 }
 
 function validateSigningKeyPair(keys: CommunitySigningKeys): string {
+  if (Buffer.byteLength(keys.privatePem, "utf8") > MAX_COMMUNITY_SIGNING_KEY_FILE_BYTES || Buffer.byteLength(keys.publicPem, "utf8") > MAX_COMMUNITY_SIGNING_KEY_FILE_BYTES) {
+    throw new Error("Community signing key material exceeds the recovery size limit.");
+  }
   const privateKey = createPrivateKey(keys.privatePem);
   const publicKey = createPublicKey(keys.publicPem);
   if (privateKey.asymmetricKeyType !== "ed25519" || publicKey.asymmetricKeyType !== "ed25519") {
@@ -200,8 +203,8 @@ function loadSigningKeys(
   if (hasPrivate !== hasPublic) throw new Error("Community signing key storage is incomplete.");
   if (!hasPrivate) throw new Error("Community signing key pair is missing; initialize the service or provide configured signing keys.");
 
-  const privateBytes = safeReadFile(privatePath, "Community signing private key", MAX_SIGNING_KEY_FILE_BYTES);
-  const publicBytes = safeReadFile(publicPath, "Community signing public key", MAX_SIGNING_KEY_FILE_BYTES);
+  const privateBytes = safeReadFile(privatePath, "Community signing private key", MAX_COMMUNITY_SIGNING_KEY_FILE_BYTES);
+  const publicBytes = safeReadFile(publicPath, "Community signing public key", MAX_COMMUNITY_SIGNING_KEY_FILE_BYTES);
   try {
     const keys = {
       privatePem: privateBytes.toString("utf8"),
@@ -627,8 +630,8 @@ export function verifyCommunitySigningRotationPackage(directory: string): Commun
     !Array.isArray(root.sequence) || JSON.stringify(root.sequence) !== JSON.stringify(expectedSequence)
   ) throw new Error("Community signing rotation manifest is invalid.");
 
-  const privateBytes = safeReadFile(privatePath, "Community rotation next private key", MAX_SIGNING_KEY_FILE_BYTES);
-  const publicBytes = safeReadFile(publicPath, "Community rotation next public key", MAX_SIGNING_KEY_FILE_BYTES);
+  const privateBytes = safeReadFile(privatePath, "Community rotation next private key", MAX_COMMUNITY_SIGNING_KEY_FILE_BYTES);
+  const publicBytes = safeReadFile(publicPath, "Community rotation next public key", MAX_COMMUNITY_SIGNING_KEY_FILE_BYTES);
   try {
     const nextKeys = {
       privatePem: privateBytes.toString("utf8"),
