@@ -85,6 +85,22 @@ describe("community service readiness integrity", () => {
     });
   });
 
+  it("caches successful readiness briefly instead of rebuilding and signing on every probe", async () => {
+    const network = new CommunityNetwork({ dataDirectory: temporaryDirectory(), serverEnabled: true });
+    const originalSignedFeed = network.signedFeed.bind(network);
+    let signCalls = 0;
+    network.signedFeed = () => {
+      signCalls++;
+      return originalSignedFeed();
+    };
+    const base = await start(network);
+
+    expect((await fetch(`${base}/health`)).status).toBe(200);
+    expect((await fetch(`${base}/health`)).status).toBe(200);
+    expect((await fetch(`${base}/health`)).status).toBe(200);
+    expect(signCalls).toBe(1);
+  });
+
   it("fails closed when authoritative aggregate state becomes unreadable after startup", async () => {
     const directory = temporaryDirectory();
     const network = new CommunityNetwork({ dataDirectory: directory, serverEnabled: true });
