@@ -4,7 +4,7 @@ import type {
   FolderDescriptor,
   SpamReportResult,
 } from "../../canonical/adapter.js";
-import type { Provider, NormalizedFolder } from "../../canonical/envelope.js";
+import type { AuthenticationSignals, Provider, NormalizedFolder } from "../../canonical/envelope.js";
 import { normalizeRawMessage } from "../../util/mimeNormalize.js";
 
 export interface FixtureMessage {
@@ -12,6 +12,8 @@ export interface FixtureMessage {
   rawEml: string;
   folder: NormalizedFolder;
   providerFolderName: string;
+  /** Explicit test-only provenance for simulated provider Authentication-Results. */
+  authenticationTrust?: AuthenticationSignals["providerTrust"];
 }
 
 export type FixtureFolderOverrides = Record<
@@ -91,15 +93,15 @@ export class FixtureAdapter implements EmailAdapter {
     const envelopes = [];
     for (const m of slice) {
       if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-      envelopes.push(
-        await normalizeRawMessage(m.rawEml, {
-          provider: this.provider,
-          accountProof: `fixture-account-proof-${this.provider}`,
-          providerFolderName: folder.providerFolderName,
-          normalizedFolder: folder.normalized,
-          providerNativeId: m.id,
-        })
-      );
+      const envelope = await normalizeRawMessage(m.rawEml, {
+        provider: this.provider,
+        accountProof: `fixture-account-proof-${this.provider}`,
+        providerFolderName: folder.providerFolderName,
+        normalizedFolder: folder.normalized,
+        providerNativeId: m.id,
+      });
+      envelope.authentication.providerTrust = m.authenticationTrust ?? "unknown";
+      envelopes.push(envelope);
     }
 
     const nextIndex = start + slice.length;
