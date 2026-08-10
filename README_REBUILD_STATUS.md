@@ -92,6 +92,19 @@ Manual visible acceptance items in the regression register also remain manual un
 
 All canonical repository-buildable Milestone 2 rows are now implemented and regression locked: scalable community ingestion, monotonic signed-feed rollback protection, bounded cached destination analysis, privacy-safe application metrics/diagnostics and the Windows-first portable release foundation/cross-platform plan. Milestone 2 is still not formally closed because the listed owner/live deployment, provider, controlled-egress, monitoring, gateway and signing ceremony gates remain external acceptance, not code-test substitutes.
 
+## Milestone 3 — CONTINUOUS PROTECTION IN PROGRESS
+
+The first Milestone 3 production brick is implemented and regression locked:
+
+- account-scoped scheduled background protection with separate native-vault-backed encrypted schedule persistence;
+- 30-minute-to-24-hour quota bounds, one global background Worker, manual-scan priority and five-minute conflict deferral;
+- bounded read-only Quick Scans (20 messages, or 10 for live IMAP-family providers), progress stalls and a four-minute deadline;
+- bounded failure backoff, restart recovery, protected pause/resume/status APIs and disconnect cleanup;
+- visible selected-account status using safe text rendering, locale-aware timestamps and an accessible live-status region;
+- a compiled production Worker smoke proving the real background run updates protected scan history without automatic mailbox actions, reports or Analyze Links.
+
+Native Windows/macOS background-task acceptance and Android/iOS shells remain later Milestone 3 work; the current desktop scheduler is not represented as a mobile continuous daemon.
+
 ## Run
 
 ```bash

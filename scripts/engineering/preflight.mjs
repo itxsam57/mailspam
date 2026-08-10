@@ -43,6 +43,7 @@ const requiredFiles = [
   ".engineering/REGRESSION_REGISTER.md",
   ".engineering/COMMUNITY_DEPLOYMENT.md",
   "scripts/engineering/smoke-community.mjs",
+  "scripts/engineering/smoke-background-protection.mjs",
   "scripts/release/build-portable.mjs",
   "scripts/release/portable-package-lib.mjs",
   "scripts/release/verify-portable.mjs",
@@ -64,7 +65,7 @@ requireCondition(serverPackage.type === "module", "Server workspace must remain 
 
 for (const script of [
   "preflight", "typecheck", "build", "test:unit", "test:integration",
-  "check:web", "smoke:server", "smoke:community", "audit:inventory", "audit:prod",
+  "check:web", "smoke:server", "smoke:community", "smoke:background", "audit:inventory", "audit:prod",
   "package:portable", "verify:package", "package:verify",
   "gate", "verify", "dev", "dev:community", "start", "start:community",
 ]) {
@@ -77,7 +78,7 @@ for (const script of ["dev", "dev:community", "start", "start:community", "typec
 const tracked = git(["ls-files"]).split(/\r?\n/).filter(Boolean);
 const forbiddenTracked = tracked.filter((path) =>
   /(^|\/)\.env($|\.)/.test(path) && !path.endsWith(".env.example") ||
-  /(^|\/)(personal-policy\.key|personal-policies\.enc\.json)$/.test(path) ||
+  /(^|\/)(personal-policy\.key|personal-policies\.enc\.json|scan-state\.enc\.json|relationship-history\.enc\.json|background-protection\.enc\.json|community-feed-rollback\.enc\.json)$/.test(path) ||
   /(^|\/)(community-(?:storage|reporter)\.key|community-(?:reports|outbox)\.enc\.json|community-feed-(?:private|public)\.pem|community-feed-cache\.json)$/.test(path) ||
   /(^|\/)(node_modules|dist|coverage|artifacts\/(?:engineering|release))(\/|$)/.test(path)
 );

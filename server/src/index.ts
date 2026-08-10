@@ -1,7 +1,10 @@
 import { initializeDefaultPersonalPolicyRepository } from "./api/defaultPolicyRepository.js";
 import { initializeDefaultScanStateRepository } from "./api/defaultScanStateRepository.js";
 import { initializeDefaultRelationshipHistoryRepository } from "./api/defaultRelationshipHistoryRepository.js";
+import { initializeDefaultBackgroundProtectionRepository } from "./api/defaultBackgroundProtectionRepository.js";
+import { createBackgroundProtectionCoordinator } from "./api/backgroundProtection.js";
 import { createLocalDesktopServer } from "./api/localDesktopServer.js";
+import { communityNetwork } from "./community/network.js";
 
 const PORT = Number(process.env.PORT ?? 4173);
 const HOST = process.env.HOST ?? "127.0.0.1";
@@ -16,8 +19,11 @@ if (!["127.0.0.1", "localhost", "::1"].includes(HOST)) {
 await initializeDefaultPersonalPolicyRepository();
 await initializeDefaultScanStateRepository();
 await initializeDefaultRelationshipHistoryRepository();
+await initializeDefaultBackgroundProtectionRepository();
 
-const app = createLocalDesktopServer();
+const backgroundProtection = createBackgroundProtectionCoordinator(communityNetwork);
+backgroundProtection.start();
+const app = createLocalDesktopServer({ backgroundProtection });
 app.listen(PORT, HOST, () => {
   console.log(`Email Shield listening on http://${HOST}:${PORT}`);
 });

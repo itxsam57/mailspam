@@ -44,6 +44,7 @@ describe("portable release packaging architecture", () => {
     expect(verifier).toContain('spawn(runtime, ["--version"]');
     expect(verifier).toContain("Portable package did not become ready");
     expect(verifier).toContain("development-only dependencies");
+    expect(verifier).toContain("background-protection\\.enc\\.json");
     expect(gate).toContain('"portable-package"');
     expect(gate).toContain('"package:verify"');
   });

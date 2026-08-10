@@ -29,6 +29,7 @@ The complete owner-controlled Milestone 2 plan is `docs/MILESTONE_2_LIVE_ACCEPTA
 15. **Policy export/import** — export contains policy data only; merge/replace affects only the selected account.
 16. **Scan history/resume** — refresh during a longer scan, stop/resume an eligible scan and verify completed scans do not remain falsely resumable.
 17. **Account isolation** — connect at least two fixture accounts and verify results/policies/actions do not cross-link.
+18. **Background protection** — for two fixture accounts, enable different intervals, verify each selected account shows only its own status, a manual scan visibly takes priority, Pause is immediate, and Disconnect removes that account without changing the other schedule.
 18. **QR/HTML/attachment presentation** — controlled fixture evidence remains readable; malformed/oversized inspection cases do not freeze the UI or falsely appear Safe.
 19. **Unsubscribe presentation** — manual web/mailto remains available where appropriate; RFC 8058 one-click is not offered merely from a One-Click declaration without the required trusted DKIM proof.
 20. **Final state** — refresh once; no permanent blank page, uncaught visible error, broken layout or stale-session loop.

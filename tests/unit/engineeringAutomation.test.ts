@@ -38,6 +38,7 @@ describe("AI Engineering Automation Kit installation", () => {
       "test:integration": expect.any(String),
       "check:web": expect.any(String),
       "smoke:server": expect.any(String),
+      "smoke:background": expect.any(String),
       "audit:inventory": expect.any(String),
       "audit:prod": expect.any(String),
     });
@@ -102,6 +103,7 @@ describe("AI Engineering Automation Kit installation", () => {
     expect(smoke).toContain("/api/dev/test-suite");
     expect(smoke).toContain("event: scan-complete");
     expect(smoke).toContain("falseNegatives.length === 0");
+    expect(read("scripts/engineering/run-gate.mjs")).toContain('"background-smoke"');
 
     expect(handoff).toContain("The owner continues only after");
     expect(handoff).toContain("docs/MILESTONE_2_LIVE_ACCEPTANCE.md");

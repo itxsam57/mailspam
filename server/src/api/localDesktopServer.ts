@@ -26,6 +26,10 @@ import {
   normalizeSenderDomain,
 } from "../workflows/blockAndCleanup.js";
 import type { DestinationAnalysisCoordinator } from "../workflows/analyzeLinks.js";
+import {
+  createBackgroundProtectionCoordinator,
+  type BackgroundProtectionCoordinator,
+} from "./backgroundProtection.js";
 
 function escapeAttribute(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({
@@ -61,10 +65,12 @@ export function createLocalDesktopServer(options: {
   googleOAuth?: GoogleOAuthFlowManager;
   microsoftOAuth?: MicrosoftOAuthFlowManager;
   destinationAnalyzer?: DestinationAnalysisCoordinator;
+  backgroundProtection?: BackgroundProtectionCoordinator;
 } = {}) {
   const app = express();
   const security = options.security ?? localSecurity;
   const community = options.community ?? communityNetwork;
+  const backgroundProtection = options.backgroundProtection ?? createBackgroundProtectionCoordinator(community);
   const googleOAuth = options.googleOAuth ?? new GoogleOAuthFlowManager({
     clientId: process.env.EMAIL_SHIELD_GOOGLE_CLIENT_ID?.trim() ?? "",
     sessionStore,
@@ -96,7 +102,7 @@ export function createLocalDesktopServer(options: {
       .replace(/<script>(\s*const API\s*=)/, `<script nonce="${nonce}">$1`)
       .replace(
         "</body>",
-        '<script src="/scan-monitor.js"></script><script src="/scan-history.js"></script><script src="/unsubscribe-monitor.js"></script><script src="/gmail-oauth.js"></script><script src="/outlook-oauth.js"></script><script src="/account-disconnect.js"></script><script src="/policy-management.js"></script></body>',
+        '<script src="/scan-monitor.js"></script><script src="/scan-history.js"></script><script src="/background-protection.js"></script><script src="/unsubscribe-monitor.js"></script><script src="/gmail-oauth.js"></script><script src="/outlook-oauth.js"></script><script src="/account-disconnect.js"></script><script src="/policy-management.js"></script></body>',
       );
 
     res.setHeader("Referrer-Policy", "same-origin");
@@ -207,11 +213,42 @@ export function createLocalDesktopServer(options: {
     if (session.activeScanWorker) requestActiveScanStop(id);
     try {
       await sessionStore.remove(id);
+      backgroundProtection.remove(session.policyAccountKey);
       res.status(204).send();
     } catch (error) {
       res.status(502).json({
         error: `Account disconnect could not be completed: ${error instanceof Error ? error.message : String(error)}`,
       });
+    }
+  });
+
+  app.get("/api/accounts/:id/background-protection", (req: Request, res: Response) => {
+    const session = sessionStore.get(req.params.id!);
+    if (!session) return res.status(404).json({ error: "Unknown account" });
+    try {
+      res.setHeader("Cache-Control", "no-store");
+      res.json(backgroundProtection.status(session.policyAccountKey));
+    } catch (error) {
+      res.status(500).json({ error: `Background protection status could not be read: ${error instanceof Error ? error.message : String(error)}` });
+    }
+  });
+
+  app.post("/api/accounts/:id/background-protection", (req: Request, res: Response) => {
+    const session = sessionStore.get(req.params.id!);
+    if (!session) return res.status(404).json({ error: "Unknown account" });
+    const body = req.body as Record<string, unknown>;
+    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some((key) => !["enabled", "intervalMinutes"].includes(key))) {
+      return res.status(400).json({ error: "Background protection settings are invalid." });
+    }
+    if (typeof body.enabled !== "boolean" || !Number.isSafeInteger(body.intervalMinutes)) {
+      return res.status(400).json({ error: "Background protection requires an enabled state and whole-minute interval." });
+    }
+    try {
+      backgroundProtection.configure(session.policyAccountKey, body.enabled, Number(body.intervalMinutes));
+      res.setHeader("Cache-Control", "no-store");
+      res.json(backgroundProtection.status(session.policyAccountKey));
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
     }
   });
 

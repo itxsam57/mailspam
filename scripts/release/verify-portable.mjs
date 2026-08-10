@@ -30,7 +30,7 @@ if (actualArtifactBytes !== manifest.artifactBytes || actualArtifactBytes > MAX_
   throw new Error("Portable package size verification failed.");
 }
 const forbidden = actualFiles.filter((entry) =>
-  /(^|\/)(?:\.env(?:\..*)?|personal-policies\.enc\.json|community-.*\.(?:key|pem)|credentials?\.json|tokens?\.json)$/i.test(entry.path),
+  /(^|\/)(?:\.env(?:\..*)?|personal-policies\.enc\.json|scan-state\.enc\.json|relationship-history\.enc\.json|background-protection\.enc\.json|community-feed-rollback\.enc\.json|community-.*\.(?:key|pem)|credentials?\.json|tokens?\.json)$/i.test(entry.path),
 );
 if (forbidden.length) throw new Error(`Portable package contains forbidden state/secret paths: ${forbidden.map((entry) => entry.path).join(", ")}`);
 if (actualFiles.some((entry) => /node_modules\/(?:vitest|typescript|tsx|@types)(?:\/|$)/.test(entry.path))) {

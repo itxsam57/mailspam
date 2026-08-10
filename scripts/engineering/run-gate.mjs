@@ -34,6 +34,7 @@ const steps = [
   npmStep("web", "Browser source, privacy and wiring checks", "check:web"),
   npmStep("desktop-smoke", "Compiled desktop server and API smoke", "smoke:server"),
   npmStep("community-smoke", "Compiled dedicated community service smoke", "smoke:community"),
+  npmStep("background-smoke", "Compiled scheduled background protection smoke", "smoke:background"),
   npmStep("portable-package", "Reproducible portable package and bundled-runtime smoke", "package:verify"),
 ];
 
