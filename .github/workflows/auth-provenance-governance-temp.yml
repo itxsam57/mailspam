@@ -1,0 +1,82 @@
+name: Authentication provenance governance temporary
+on:
+  push:
+    branches:
+      - m2-authentication-results-provenance
+permissions:
+  contents: write
+jobs:
+  edit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m2-authentication-results-provenance
+      - shell: python
+        run: |
+          from pathlib import Path
+
+          matrix = Path('.engineering/TEST_MATRIX.md')
+          text = matrix.read_text()
+          if '| A-56 |' not in text:
+              lines = text.splitlines()
+              for i, line in enumerate(lines):
+                  if line.startswith('| A-55 | Community storage-key read integrity |'):
+                      lines.insert(i + 1, '| A-56 | Authentication-Results provenance integrity | SPF/DKIM/DMARC/ARC values are actionable only when canonical `providerTrust` is explicitly `trusted`; missing/unknown/suspicious provenance cannot grant authenticated identity, relay trust, authentication-derived Safe/message/link suppression or relationship-auth history, and cannot manufacture transport-auth failure evidence or relationship downgrade; untrusted transport authentication is incomplete rather than positive/negative fact; live raw-MIME Gmail/Outlook/IMAP-family paths remain non-authoritative until a documented provider-specific producer boundary is proven; fixture trust is explicit per message and generated-corpus consumers use one manifest provenance field; ARC/API/mailbox access/guessed authserv IDs cannot bypass the boundary | `authenticationResultsProvenance.test.ts`, authentication-alignment/identity/relationship/HTML/corpus/dev-suite regressions, strict type/build, full corpus/Worker/server/browser gate | Windows + macOS + Ubuntu | Blocking |')
+                      break
+              else:
+                  raise SystemExit('A-55 insertion point missing')
+              text = '\n'.join(lines) + '\n'
+          old = 'community aggregate storage-key read-integrity behavior, and Analyze Links DNS-pinning/SSRF/redirect/resource-boundary behavior are automated.'
+          new = 'community aggregate storage-key read-integrity behavior, Authentication-Results provenance/fail-closed trust behavior, and Analyze Links DNS-pinning/SSRF/redirect/resource-boundary behavior are automated.'
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif new not in text:
+              raise SystemExit('matrix automated paragraph missing')
+          matrix.write_text(text)
+
+          register = Path('.engineering/REGRESSION_REGISTER.md')
+          text = register.read_text()
+          if '| REG-066 |' not in text:
+              lines = text.splitlines()
+              for i, line in enumerate(lines):
+                  if line.startswith('| REG-065 |'):
+                      lines.insert(i + 1, '| REG-066 | LOCKED | Authentication-Results must never become an application fact from MIME presence or authenticated mailbox/API acquisition alone. All positive and negative SPF/DKIM/DMARC use is gated by the shared `authenticationResultsTrusted()` predicate; only explicit canonical `providerTrust: "trusted"` is actionable. Missing/unknown/suspicious provenance yields no author/organizational/relay authentication, no auth-derived Safe/message/link suppression, no authenticated relationship observation or downgrade, and no transport-auth threat evidence; the transport layer reports the inspection incomplete. ARC never substitutes for sender authentication. Live raw-MIME Gmail/Outlook/IMAP-family adapters remain non-authoritative unless a future provider-specific acquisition contract proves the exact receiver-controlled producer boundary; guessed authserv IDs are forbidden. Generated fixture provenance is owned by the corpus manifest and consumed identically by integration, demo and compiled developer-suite paths. | `authenticationResultsProvenance.test.ts`, alignment/identity/relationship/corpus/server-smoke regressions, strict type/build, full Windows/macOS/Ubuntu engineering gate |')
+                      break
+              else:
+                  raise SystemExit('REG-065 insertion point missing')
+              text = '\n'.join(lines) + '\n'
+          if '| GAP-025 |' not in text:
+              lines = text.splitlines()
+              for i, line in enumerate(lines):
+                  if line.startswith('| GAP-024 |'):
+                      lines.insert(i + 1, '| GAP-025 | RESOLVED | Authentication-Results producer/provenance trust boundary | The normalizer previously parsed raw MIME Authentication-Results and downstream identity, transport-auth and relationship consumers treated those values as facts without proving a trusted receiving-system producer, allowing forged pass values to manufacture trust and forged fail values to manufacture suspicion. Added one explicit canonical provenance gate shared by every positive/negative authentication consumer; unproven live Gmail/Outlook/IMAP-family results now fail closed as non-authoritative/incomplete, while controlled fixtures encode trust per generated manifest entry. This resolves the unsafe inference by refusing unproven results; it does not claim that live provider authserv IDs are known or validated. GAP-002 remains open for controlled real-Outlook owner acceptance and any future provider-specific trusted producer enablement requires its own proof. |')
+                      break
+              else:
+                  raise SystemExit('GAP-024 insertion point missing')
+              text = '\n'.join(lines) + '\n'
+          register.write_text(text)
+
+          readme = Path('README_REBUILD_STATUS.md')
+          text = readme.read_text()
+          bullet = '- Authentication-Results provenance integrity: raw MIME SPF/DKIM/DMARC/ARC results are now non-authoritative unless the acquisition boundary explicitly marks their producer trusted; unproven pass cannot manufacture identity/Safe/history and unproven fail cannot manufacture threat evidence/downgrade, while synthetic corpus provenance is explicit and shared across all fixture consumers.'
+          if bullet not in text:
+              lines = text.splitlines()
+              for i, line in enumerate(lines):
+                  if line.startswith('- community aggregate storage-key read integrity:'):
+                      if line.endswith('.'):
+                          lines[i] = line[:-1] + ';'
+                      lines.insert(i + 1, bullet)
+                      break
+              else:
+                  raise SystemExit('README insertion point missing')
+              text = '\n'.join(lines) + '\n'
+          readme.write_text(text)
+      - shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .engineering/TEST_MATRIX.md .engineering/REGRESSION_REGISTER.md README_REBUILD_STATUS.md
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Lock Authentication-Results provenance governance"
+          git push origin HEAD:m2-authentication-results-provenance
