@@ -1,0 +1,120 @@
+name: Temporary community report validation hardening
+
+on:
+  push:
+    branches: [m2-community-public-error-integrity]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[community-report-validation]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m2-community-public-error-integrity
+      - name: Harden runtime report validation
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('server/src/community/aggregateStore.ts')
+          text = path.read_text(encoding='utf-8')
+
+          anchor = 'const HUMAN_REPORT_BASE_WEIGHT = 5;\n'
+          constants = '''const HUMAN_REPORT_BASE_WEIGHT = 5;\nconst REPORT_VERDICTS = new Set(["safe", "unknown", "review", "high_risk", "confirmed_threat"]);\nconst REPORT_INDICATOR_TYPES = new Set(["sender", "reply_to_domain", "url_domain", "attachment_hash", "campaign"]);\n'''
+          if 'const REPORT_VERDICTS' not in text:
+              if anchor not in text: raise SystemExit('constant anchor missing')
+              text = text.replace(anchor, constants, 1)
+
+          start = text.index('function validateSubmission(input: CommunityReportSubmission): CommunityReportSubmission {')
+          end = text.index('\n}\n\nexport class EncryptedCommunityAggregateStore', start) + 2
+          replacement = '''function validateSubmission(input: CommunityReportSubmission): CommunityReportSubmission {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new CommunityReportValidationError("Community report body is invalid.");
+  }
+  if (input.schemaVersion !== 1) throw new CommunityReportValidationError("Unsupported community report schema.");
+  if (typeof input.reporterProof !== "string" || !/^[a-f0-9]{64}$/.test(input.reporterProof)) {
+    throw new CommunityReportValidationError("Reporter proof is invalid.");
+  }
+  if (typeof input.campaignFingerprint !== "string" || !/^[a-f0-9]{64}$/.test(input.campaignFingerprint)) {
+    throw new CommunityReportValidationError("Campaign fingerprint is invalid.");
+  }
+  if (typeof input.reportedAt !== "string" || input.reportedAt.length > 64) {
+    throw new CommunityReportValidationError("Report timestamp is invalid.");
+  }
+  const reportedAt = Date.parse(input.reportedAt);
+  const now = Date.now();
+  if (!Number.isFinite(reportedAt)) throw new CommunityReportValidationError("Report timestamp is invalid.");
+  if (reportedAt > now + MAX_FUTURE_SKEW_MS || reportedAt < now - MAX_REPORT_AGE_MS) {
+    throw new CommunityReportValidationError("Report timestamp is outside the accepted submission window.");
+  }
+  if (typeof input.verdict !== "string" || !REPORT_VERDICTS.has(input.verdict)) {
+    throw new CommunityReportValidationError("Community report verdict is invalid.");
+  }
+  if (typeof input.evidenceScore !== "number" || !Number.isFinite(input.evidenceScore)) {
+    throw new CommunityReportValidationError("Community report evidence score is invalid.");
+  }
+  if (input.evidenceCodes !== undefined && !Array.isArray(input.evidenceCodes)) {
+    throw new CommunityReportValidationError("Community report evidence codes are invalid.");
+  }
+  if ((input.evidenceCodes?.length ?? 0) > 64) {
+    throw new CommunityReportValidationError("Community report evidence codes are invalid.");
+  }
+  if (!Array.isArray(input.indicators) || input.indicators.length === 0 || input.indicators.length > MAX_INDICATORS_PER_REPORT) {
+    throw new CommunityReportValidationError("Community report indicators are invalid.");
+  }
+
+  const indicators: CommunityIndicator[] = [];
+  const seen = new Set<string>();
+  for (const indicator of input.indicators) {
+    if (!indicator || typeof indicator !== "object" || Array.isArray(indicator)) {
+      throw new CommunityReportValidationError("Community report indicator is invalid.");
+    }
+    if (typeof indicator.type !== "string" || !REPORT_INDICATOR_TYPES.has(indicator.type) || typeof indicator.value !== "string") {
+      throw new CommunityReportValidationError("Community report indicator is invalid.");
+    }
+    const value = indicator.value.trim().toLowerCase();
+    if (!value || value.length > 512) throw new CommunityReportValidationError("Community report indicator is invalid.");
+    if (indicator.type === "campaign" && value !== input.campaignFingerprint) {
+      throw new CommunityReportValidationError("Community report campaign indicator is inconsistent.");
+    }
+    const key = `${indicator.type}\\0${value}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    indicators.push({ type: indicator.type as CommunityIndicator["type"], value });
+  }
+  if (!indicators.some((item) => item.type === "campaign" && item.value === input.campaignFingerprint)) {
+    indicators.unshift({ type: "campaign", value: input.campaignFingerprint });
+  }
+
+  const evidenceCodes = input.evidenceCodes ?? [];
+  if (!evidenceCodes.every((code): code is string => typeof code === "string" && /^[A-Z0-9_]{2,80}$/.test(code))) {
+    throw new CommunityReportValidationError("Community report evidence codes are invalid.");
+  }
+
+  return {
+    schemaVersion: 1,
+    reporterProof: input.reporterProof,
+    campaignFingerprint: input.campaignFingerprint,
+    reportedAt: new Date(reportedAt).toISOString(),
+    verdict: input.verdict,
+    evidenceScore: clampScore(input.evidenceScore),
+    evidenceCodes: [...new Set(evidenceCodes)],
+    indicators,
+  };
+}'''
+          text = text[:start] + replacement + text[end:]
+          path.write_text(text, encoding='utf-8')
+      - name: Commit validation hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add server/src/community/aggregateStore.ts
+          git diff --cached --exit-code && exit 1 || true
+          git commit -m "Harden community report runtime validation [community-report-validation]"
+          git push origin HEAD:m2-community-public-error-integrity
