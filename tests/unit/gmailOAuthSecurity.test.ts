@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AdapterConfig } from "../../server/src/api/adapterConfig.js";
 import type { AccountSession, SessionStore } from "../../server/src/api/sessionStore.js";
 import { policyAccountKey } from "../../server/src/api/policyPersistence.js";
@@ -45,8 +45,16 @@ class TestVault implements CredentialVault {
 }
 
 const managers: GoogleOAuthFlowManager[] = [];
+const originalGoogleClientSecret = process.env.EMAIL_SHIELD_GOOGLE_CLIENT_SECRET;
+
+beforeEach(() => {
+  delete process.env.EMAIL_SHIELD_GOOGLE_CLIENT_SECRET;
+});
+
 afterEach(() => {
   for (const manager of managers.splice(0)) manager.close();
+  if (originalGoogleClientSecret === undefined) delete process.env.EMAIL_SHIELD_GOOGLE_CLIENT_SECRET;
+  else process.env.EMAIL_SHIELD_GOOGLE_CLIENT_SECRET = originalGoogleClientSecret;
 });
 
 function unusedSessionStore(): SessionStore {
