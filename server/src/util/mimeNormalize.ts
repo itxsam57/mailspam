@@ -14,7 +14,10 @@ import {
   MAX_ATTACHMENT_HASHES_PER_MESSAGE,
 } from "./attachmentHash.js";
 import { analyzeHtmlInteractions, MAX_HTML_INTERACTION_CHARS } from "./htmlInteraction.js";
-import { extractOneClickDkimSignatures } from "./dkimSignatureMetadata.js";
+import {
+  extractOneClickDkimSignatures,
+  extractRfc8058RawListHeaders,
+} from "./rfc8058Metadata.js";
 import { analyzeQrImages, isSupportedQrImageMimeType } from "./qrDecode.js";
 
 const TEXT_PREVIEW_MAX_CHARS = 4000;
@@ -208,9 +211,16 @@ export async function normalizeRawMessage(raw: string | Buffer, opts: NormalizeO
   const listHeader = mail.headers.get("list") as
     | { id?: { name?: string }; unsubscribe?: { url?: string }; ["unsubscribe-post"]?: { name?: string } }
     | undefined;
+  const rawListHeaders = extractRfc8058RawListHeaders(raw);
   const listId = listHeader?.id?.name ?? normalizeHeaderText(mail.headers.get("list-id")) ?? null;
-  const listUnsubscribe = listHeader?.unsubscribe?.url ?? normalizeHeaderText(mail.headers.get("list-unsubscribe")) ?? null;
-  const listUnsubscribePost = listHeader?.["unsubscribe-post"]?.name ?? normalizeHeaderText(mail.headers.get("list-unsubscribe-post")) ?? null;
+  const listUnsubscribe = rawListHeaders.listUnsubscribe
+    ?? normalizeHeaderText(mail.headers.get("list-unsubscribe"))
+    ?? listHeader?.unsubscribe?.url
+    ?? null;
+  const listUnsubscribePost = rawListHeaders.listUnsubscribePost
+    ?? normalizeHeaderText(mail.headers.get("list-unsubscribe-post"))
+    ?? listHeader?.["unsubscribe-post"]?.name
+    ?? null;
   const threadContext: CanonicalEnvelope["threadContext"] = opts.threadContext
     ? { ...opts.threadContext }
     : { isFirstContact: true, threadContinuityBroken: false, replyToChangedMidThread: false };
@@ -244,6 +254,7 @@ export async function normalizeRawMessage(raw: string | Buffer, opts: NormalizeO
       listId,
       listUnsubscribe,
       listUnsubscribePost,
+      oneClickHeaderSetUnambiguous: rawListHeaders.oneClickHeaderSetUnambiguous,
       oneClickDkimSignatures: extractOneClickDkimSignatures(raw),
     },
     threadContext,
