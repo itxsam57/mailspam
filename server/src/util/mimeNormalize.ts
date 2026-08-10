@@ -14,6 +14,7 @@ import {
   MAX_ATTACHMENT_HASHES_PER_MESSAGE,
 } from "./attachmentHash.js";
 import { analyzeHtmlInteractions, MAX_HTML_INTERACTION_CHARS } from "./htmlInteraction.js";
+import { extractOneClickDkimCoverage } from "./dkimSignatureMetadata.js";
 import { analyzeQrImages, isSupportedQrImageMimeType } from "./qrDecode.js";
 
 const TEXT_PREVIEW_MAX_CHARS = 4000;
@@ -239,7 +240,12 @@ export async function normalizeRawMessage(raw: string | Buffer, opts: NormalizeO
       : null,
     links,
     attachments,
-    listHeaders: { listId, listUnsubscribe, listUnsubscribePost },
+    listHeaders: {
+      listId,
+      listUnsubscribe,
+      listUnsubscribePost,
+      oneClickDkimCoverage: extractOneClickDkimCoverage(raw),
+    },
     threadContext,
     parseStatus,
     parseNotes,
