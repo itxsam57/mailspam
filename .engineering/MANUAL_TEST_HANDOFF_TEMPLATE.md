@@ -1,79 +1,73 @@
-# Email Shield — Manual Browser Test Handoff
+# Email Shield — Manual / Live Test Handoff
 
 This source-controlled template is used by `npm run gate` to create `artifacts/engineering/MANUAL_TEST_HANDOFF.md`.
 
 ## Handoff rule
 
-The owner performs only the visible checks listed below after the generated report says **READY**. Build, typecheck, unit/API, integration, corpus, Worker, cryptographic, local-session, CSRF, replay, browser-source, smoke and dependency checks belong to automation.
+The owner continues only after the generated verification report says **PASSED**. Build, strict typecheck, unit/API/regression tests, five-provider corpus, Worker runtime, cryptographic validation, local-session/CSRF/replay tests, browser-source checks, compiled smoke and dependency audits belong to automation and must not be manually re-created as a substitute for the gate.
 
-For each visible check record PASS/FAIL, browser/viewport and the exact visible failure. Never include credentials, mailbox contents, local session values or private provider identifiers.
+For every owner check record only PASS/FAIL, the check ID, browser/OS when relevant and the exact visible failure. Never include credentials, app passwords, OAuth codes/tokens, mailbox bodies, local session values, private provider message IDs, private URL query strings or signing private keys.
 
-## Visible checks
+The complete owner-controlled Milestone 2 plan is `docs/MILESTONE_2_LIVE_ACCEPTANCE.md`. The checklist below is the visible/browser portion generated with each gate.
+
+## Visible fixture checks
 
 1. **Initial render** — open `http://127.0.0.1:4173`; confirm one stable render without blank/frozen state, overlap, browser security warning or permanent loading.
-2. **Responsive layout** — inspect desktop and narrow/mobile width; all text, counters, tables, cards and actions remain readable and reachable.
-3. **Five-provider fixtures** — connect Gmail, iCloud, Outlook, Yahoo and Generic IMAP in Fixture mode; each completes Quick Scan visibly.
-4. **Scan presentation** — run Quick, Full Mailbox and Spam/Junk fixture scans; progress/counters/Safe audit/cards do not duplicate or remain stale.
-5. **Stop behavior** — stop a Full scan during progress and start another scan without refresh.
-6. **Protected local session** — perform normal fixture connection, scan and message actions. Confirm the dashboard does not show a CSRF, nonce, unauthorized-session or cross-origin error during ordinary use.
-7. **Refresh behavior** — refresh the dashboard once. Confirm it reconnects to a valid local session and ordinary fixture actions still work without exposing or asking for any local session secret.
-8. **Process-restart behavior** — with the dashboard open, stop and restart `npm run dev`, then attempt a harmless action in the old tab. Confirm it shows a clear reload/session-expired message rather than silently succeeding. Reload the page and confirm normal operation returns.
-9. **Action replay feedback** — execute one controlled fixture message action successfully, then rapidly click or revisit its control. Confirm the used control is disabled or the app requires a rescan; the action must not visibly execute twice.
-10. **Action separation** — verify cards and Safe rows clearly distinguish:
-    - `Report Scam to Email Shield`
-    - `Move to Spam/Junk`
-    - `Mark this message Safe`
-    - `Trust sender`
-    - unsubscribe when available.
-11. **Report Scam privacy text** — on a controlled fixture message, press Report Scam and verify the dialog says:
-    - matching campaigns are protected locally;
-    - only privacy-reduced indicators are shared;
-    - body, subject, mailbox address, contacts, credentials, provider ID and raw private URLs are not uploaded;
-    - one report cannot globally block a sender.
-12. **Optional sender block** — continue the controlled Report Scam flow. Verify a second, separate choice asks whether to block the exact sender and warns against blocking shared delivery platforms. Choose Cancel unless deliberately testing with a direct fixture sender.
-13. **Local shield result** — accept Report Scam, do not move the message. Confirm visible success says the campaign is protected locally and shows candidate/queued/warning/confirmed community state truthfully.
-14. **Immediate memory** — rescan the same fixture mailbox. Confirm the matching campaign becomes Confirmed Threat with `LOCALLY_REPORTED_SCAM_CAMPAIGN`; the message remains in its folder because shared reporting alone does not move/delete it.
-15. **Provider movement remains separate** — on another controlled fixture message, choose Move to Spam/Junk. Confirm exactly one selected message disappears from Inbox and appears in Spam/Junk after rescan; no shared-report success is claimed.
-16. **Safe correction** — from Safe messages, report one controlled false-Safe fixture campaign. Rescan and verify immediate local campaign protection without exposing body/provider identifiers.
-17. **Adult campaign presentation** — explicit first-contact adult-site solicitation with external redirect/unrelated Reply-To is High Risk; ordinary ambiguous social introductions are not all promoted automatically.
-18. **Account isolation** — connect two fixture accounts, switch between them and confirm results/actions do not cross-link. A locally reported campaign applies only to the reporting account until signed community thresholds publish it.
-19. **Rapid interaction** — safely click scan/account/action controls rapidly; duplicate work is prevented/reported and the UI does not freeze.
-20. **Controlled live iCloud** — reconnect when an app-specific password is available and run the listed non-destructive scan. Credentials remain hidden. Perform Report Scam only on a message intentionally selected; it must not move mail unless Move to Spam/Junk is separately chosen.
-21. **Final state** — refresh once; no permanent blank page, uncaught visible error, broken layout or stale-session loop.
+2. **Responsive layout** — desktop and narrow/mobile width keep text, counters, policy tables, cards and actions readable/reachable.
+3. **Five-provider fixtures** — connect Gmail, Outlook, iCloud, Yahoo and Generic IMAP in Fixture mode; each completes Quick Scan visibly.
+4. **Scan presentation** — run Quick, Full Mailbox and Spam/Junk fixture scans; progress/counters/Safe audit/cards do not duplicate or stay stale.
+5. **Stop/restart** — stop a Full scan during progress and start another scan without a refresh.
+6. **Protected local session** — normal connection, scans and actions produce no visible CSRF/nonce/unauthorized-session errors.
+7. **Refresh behavior** — refresh once; the UI obtains a valid local session without exposing/asking for a session secret.
+8. **Process restart** — leave the tab open, restart `npm run dev`, attempt one harmless stale-tab action and verify a clear reload/session-expired requirement rather than silent success; reload and continue.
+9. **Action replay** — after one successful controlled fixture action, repeated/rapid reuse must require a rescan or visibly reject the stale action instead of executing twice.
+10. **Action separation** — Report Scam, Move to Spam/Junk, Mark Safe, Trust sender, Trash where offered and unsubscribe remain distinct controls.
+11. **Report Scam privacy** — the confirmation describes account-local protection, privacy-reduced sharing, independent community thresholds and a separate optional exact-sender block; it must not claim body/subject/mailbox/credential/provider-ID/raw private URL upload.
+12. **Immediate campaign memory** — report a controlled fixture campaign without moving it, rescan and verify local Confirmed Threat protection while the provider folder is unchanged.
+13. **Provider movement** — use a different controlled fixture message; Move to Spam/Junk changes exactly the intended message and does not imply shared reporting.
+14. **Policy centre** — selected-account search/filter, single/bulk revoke, category clear/reset and policy counts/rows remain synchronized.
+15. **Policy export/import** — export contains policy data only; merge/replace affects only the selected account.
+16. **Scan history/resume** — refresh during a longer scan, stop/resume an eligible scan and verify completed scans do not remain falsely resumable.
+17. **Account isolation** — connect at least two fixture accounts and verify results/policies/actions do not cross-link.
+18. **QR/HTML/attachment presentation** — controlled fixture evidence remains readable; malformed/oversized inspection cases do not freeze the UI or falsely appear Safe.
+19. **Unsubscribe presentation** — manual web/mailto remains available where appropriate; RFC 8058 one-click is not offered merely from a One-Click declaration without the required trusted DKIM proof.
+20. **Final state** — refresh once; no permanent blank page, uncaught visible error, broken layout or stale-session loop.
 
-## Automated—not owner browser work
+## Live provider checks
 
-Automation proves:
+Follow the detailed IDs in `docs/MILESTONE_2_LIVE_ACCEPTANCE.md`.
 
-- process-local HttpOnly session creation and restart invalidation;
-- CSRF protection for account/developer reads;
-- exact same-origin and one-time nonce requirements for mutations;
-- nonce replay and successful opaque-action replay rejection;
-- loopback-only binding, forwarded-header rejection and DNS-rebinding Host rejection;
-- restrictive CSP, anti-framing and browser capability headers;
-- credential, OAuth-code, bearer and JWT-like error redaction;
-- privacy-reduced payload contents;
-- all-five-provider report-context parity;
-- one-reporter deduplication;
-- 3-reporter warning and 5-reporter confirmed thresholds;
-- per-indicator support thresholds;
-- encrypted report/outbox/policy storage;
-- Ed25519 signing, trust, tamper and expiry rejection;
-- central API disabled by default and correct when explicitly enabled;
-- failed network report queuing and retry path;
-- signed feed enforcement in scan workers.
+- **iCloud / Yahoo / Generic IMAP:** provider-approved app passwords, bounded Quick scan, controlled exact provider action and reconnect when accounts are available.
+- **Gmail:** guided loopback OAuth, Quick scan, controlled exact provider action, Disconnect/revocation, reconnect and stable account-policy identity. Production OAuth publication remains GAP-001 until accepted.
+- **Outlook:** Microsoft public desktop/mobile registration with `http://localhost`, no guided-flow client secret, scopes `offline_access`, `User.Read`, `Mail.ReadWrite`, loopback PKCE connect, Quick scan, controlled exact provider action, Disconnect, reconnect and stable Graph-account policy identity. This is the owner acceptance required by GAP-002.
 
-## Excluded deployment acceptance
+## Live network/deployment checks
 
-These are registered deployment/product gaps, not browser failures:
+These cannot be proven by the desktop CI gate:
 
-- public DNS/TLS and hosting of the community service;
-- reverse-proxy/API-gateway rate limiting, DDoS and reporter-reputation controls;
-- operational monitoring, backup/restore and executed production key rotation;
-- guided Gmail/Outlook OAuth;
-- operating-system credential-vault and provider refresh-token custody;
-- signed-executable/process binding beyond the implemented local browser/API boundary;
-- production QR decoding;
-- destructive bulk mailbox operations.
+- controlled public Analyze Links infrastructure acceptance — GAP-005;
+- production community DNS/TLS, monitoring, persistent storage, encrypted backup/restore drill and signing-key rotation ceremony — GAP-004;
+- gateway reporter reputation/enrollment, edge rate limiting and volumetric/DDoS controls — GAP-008.
 
-The repository implements the self-hostable community client/server protocol and the process-local desktop API boundary. A public operating network and long-lived OAuth-token custody require the separate controls in later milestones.
+Do not mark these complete from a local fixture or unit test.
+
+## Automated — not owner browser work
+
+Automation covers the implementation contracts including:
+
+- process-local HttpOnly sessions, protected reads, same-origin one-time mutations, replay rejection, loopback/Host/forwarded-header isolation and response redaction;
+- all five provider adapters and canonical scan/action/report parity;
+- Gmail/Microsoft PKCE, stable identity, token rotation/revocation and native-vault custody contracts;
+- Windows Credential Manager, macOS Keychain and Linux Secret Service round trips;
+- encrypted personal policy, scan state, relationship history, community state/outbox and descriptor-bound local-file integrity;
+- relationship/thread privacy and non-authorizing behavior;
+- bounded local QR, HTML interaction, attachment MIME/hash and link-structure analysis;
+- Authentication-Results provenance, author-domain alignment and Public Suffix List boundaries;
+- RFC 8058 DKIM/list-header authorization;
+- Analyze Links DNS validation/socket pinning/redirect/resource limits;
+- community thresholding, encrypted storage, signed-feed validation, recovery/readiness/public-error/resource boundaries;
+- dependency inventory and production dependency blocking policy on Windows, macOS and Ubuntu/Linux.
+
+## Status rule
+
+A green Engineering Gate means **ready for owner/live acceptance**, not that GAP-001/002/004/005/008 are automatically closed. Milestone 2 becomes formally closed only after the applicable owner/deployment evidence in `docs/MILESTONE_2_LIVE_ACCEPTANCE.md` is PASS and no reproducible defect remains unresolved.
