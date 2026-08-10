@@ -9,8 +9,6 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
-  readFileSync,
-  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -19,12 +17,15 @@ import { join } from "node:path";
 import type { PersonalPolicySnapshot } from "../engine/layers/personalRules.js";
 import type { CredentialReference, CredentialVault } from "../security/credentialVault.js";
 import { createCredentialVault } from "../security/credentialVaultFactory.js";
+import { encryptedJsonEnvelopeByteCeiling, readBoundedRegularFile, readBoundedUtf8File, replaceFileFromTemporaryPath } from "../util/localFileIntegrity.js";
 import type { AdapterConfig } from "./adapterConfig.js";
 
 const DATABASE_VERSION = 1;
 const ALGORITHM = "aes-256-gcm";
 const AAD = Buffer.from("email-shield-personal-policy-v1", "utf8");
 const MAX_RULES_PER_LIST = 10_000;
+const MAX_POLICY_PLAINTEXT_BYTES = 64 * 1024 * 1024;
+const MAX_POLICY_ENCRYPTED_FILE_BYTES = encryptedJsonEnvelopeByteCeiling(MAX_POLICY_PLAINTEXT_BYTES);
 const POLICY_KEY_BYTES = 32;
 const POLICY_KEY_REFERENCE: CredentialReference = {
   id: "personal-policy-encryption-key-v1",
@@ -168,7 +169,10 @@ export class EncryptedFilePolicyRepository implements PersonalPolicyRepository {
     if (!existsSync(this.databasePath)) return { version: DATABASE_VERSION, policies: {} };
 
     try {
-      const envelope = JSON.parse(readFileSync(this.databasePath, "utf8")) as Partial<EncryptedPolicyEnvelope>;
+      const envelope = JSON.parse(readBoundedUtf8File(this.databasePath, {
+        description: "Encrypted personal-policy database",
+        maxBytes: MAX_POLICY_ENCRYPTED_FILE_BYTES,
+      })) as Partial<EncryptedPolicyEnvelope>;
       if (
         envelope.version !== DATABASE_VERSION ||
         envelope.algorithm !== ALGORITHM ||
@@ -185,6 +189,9 @@ export class EncryptedFilePolicyRepository implements PersonalPolicyRepository {
         decipher.final(),
       ]).toString("utf8");
 
+      if (Buffer.byteLength(plaintext, "utf8") > MAX_POLICY_PLAINTEXT_BYTES) {
+        throw new Error("Personal-policy database exceeds the local size limit.");
+      }
       const parsed = JSON.parse(plaintext) as Partial<PolicyDatabase>;
       if (parsed.version !== DATABASE_VERSION || !parsed.policies || typeof parsed.policies !== "object") {
         throw new Error("Unsupported personal policy database format.");
@@ -202,11 +209,15 @@ export class EncryptedFilePolicyRepository implements PersonalPolicyRepository {
 
   private writeDatabase(database: PolicyDatabase): void {
     this.ensureDirectory();
+    const plaintext = JSON.stringify(database);
+    if (Buffer.byteLength(plaintext, "utf8") > MAX_POLICY_PLAINTEXT_BYTES) {
+      throw new Error("Personal-policy database exceeds the local size limit.");
+    }
     const iv = randomBytes(12);
     const cipher = createCipheriv(ALGORITHM, this.encryptionKey, iv);
     cipher.setAAD(AAD);
     const ciphertext = Buffer.concat([
-      cipher.update(JSON.stringify(database), "utf8"),
+      cipher.update(plaintext, "utf8"),
       cipher.final(),
     ]);
     const envelope: EncryptedPolicyEnvelope = {
@@ -216,24 +227,28 @@ export class EncryptedFilePolicyRepository implements PersonalPolicyRepository {
       authTag: cipher.getAuthTag().toString("base64"),
       ciphertext: ciphertext.toString("base64"),
     };
-    const temporaryPath = `${this.databasePath}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
-    writeFileSync(temporaryPath, JSON.stringify(envelope), { mode: 0o600 });
-    try {
-      renameSync(temporaryPath, this.databasePath);
-    } catch {
-      rmSync(this.databasePath, { force: true });
-      renameSync(temporaryPath, this.databasePath);
+    const serialized = JSON.stringify(envelope);
+    if (Buffer.byteLength(serialized, "utf8") > MAX_POLICY_ENCRYPTED_FILE_BYTES) {
+      throw new Error("Encrypted personal-policy database exceeds the local size limit.");
     }
+    const temporaryPath = `${this.databasePath}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+    writeFileSync(temporaryPath, serialized, { mode: 0o600 });
+    replaceFileFromTemporaryPath(temporaryPath, this.databasePath);
     try { chmodSync(this.databasePath, 0o600); } catch {}
   }
 }
 
 function readLegacyPolicyKey(path: string): Buffer {
-  const key = readFileSync(path);
-  if (key.length !== POLICY_KEY_BYTES) {
+  try {
+    return readBoundedRegularFile(path, {
+      description: "Legacy personal-policy encryption key",
+      maxBytes: POLICY_KEY_BYTES,
+      exactBytes: POLICY_KEY_BYTES,
+      requireOwnerOnly: true,
+    });
+  } catch {
     throw new Error("Legacy personal-policy encryption key is invalid; migration was not attempted.");
   }
-  return key;
 }
 
 function encodePolicyKey(key: Buffer): string {

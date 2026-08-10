@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdtempSync, readFileSync, rmSync, symlinkSync, truncateSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdtempSync, readFileSync, rmSync, symlinkSync, truncateSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -77,6 +77,15 @@ describe("community storage encryption-key read integrity", () => {
       .toThrow("Community storage encryption key is invalid");
   });
 
+  it.runIf(process.platform !== "win32")("refuses a POSIX storage key readable by group or other users", () => {
+    const directory = temporaryDirectory();
+    const keyPath = initializeStore(directory);
+    chmodSync(keyPath, 0o644);
+
+    expect(() => new EncryptedCommunityAggregateStore(directory).stats())
+      .toThrow("Community storage encryption key is invalid");
+  });
+
   it.runIf(process.platform !== "win32")("refuses a POSIX symlink in place of the storage key", () => {
     const directory = temporaryDirectory();
     const keyPath = initializeStore(directory);
@@ -87,27 +96,35 @@ describe("community storage encryption-key read integrity", () => {
     expect(lstatSync(keyPath).isSymbolicLink()).toBe(true);
 
     expect(() => new EncryptedCommunityAggregateStore(directory).stats())
-      .toThrow("Community storage encryption key could not be opened safely");
+      .toThrow("Community storage encryption key is invalid");
   });
 
-  it("locks same-descriptor size validation before key-byte allocation and keeps the wx race contract", () => {
-    const source = readFileSync(join(process.cwd(), "src/community/aggregateStore.ts"), "utf8");
-    const generated = source.indexOf("const generated = randomBytes(COMMUNITY_STORAGE_KEY_BYTES)");
-    const exclusiveCreate = source.indexOf('writeFileSync(this.keyPath, generated, { mode: 0o600, flag: "wx" })');
-    const raceHandling = source.indexOf('code !== "EEXIST"');
-    const open = source.indexOf("openSync(this.keyPath, constants.O_RDONLY | noFollow)");
-    const stat = source.indexOf("fstatSync(descriptor)", open);
-    const exactSize = source.indexOf("stat.size !== COMMUNITY_STORAGE_KEY_BYTES", stat);
-    const read = source.indexOf("readFileSync(descriptor)", exactSize);
-    const zeroGenerated = source.indexOf("generated.fill(0)", generated);
+  it("locks the shared descriptor-bound reader before key-byte allocation and keeps the wx race contract", () => {
+    const aggregateSource = readFileSync(join(process.cwd(), "src/community/aggregateStore.ts"), "utf8");
+    const readerSource = readFileSync(join(process.cwd(), "src/util/localFileIntegrity.ts"), "utf8");
+    const generated = aggregateSource.indexOf("const generated = randomBytes(COMMUNITY_STORAGE_KEY_BYTES)");
+    const exclusiveCreate = aggregateSource.indexOf('writeFileSync(this.keyPath, generated, { mode: 0o600, flag: "wx" })');
+    const raceHandling = aggregateSource.indexOf('code !== "EEXIST"');
+    const zeroGenerated = aggregateSource.indexOf("generated.fill(0)", generated);
+    const boundedRead = aggregateSource.indexOf("readBoundedRegularFile(this.keyPath", zeroGenerated);
+
+    const open = readerSource.indexOf("openSync(path, constants.O_RDONLY | noFollow)");
+    const stat = readerSource.indexOf("const initial = fstatSync(descriptor)", open);
+    const allocation = readerSource.indexOf("Buffer.allocUnsafe(initial.size)", stat);
+    const exactRead = readerSource.indexOf("readSync(descriptor, content", allocation);
+    const overflowProbe = readerSource.indexOf("readSync(descriptor, overflowProbe", exactRead);
+    const finalStat = readerSource.indexOf("const final = fstatSync(descriptor)", overflowProbe);
 
     expect(generated).toBeGreaterThan(0);
     expect(exclusiveCreate).toBeGreaterThan(generated);
     expect(raceHandling).toBeGreaterThan(exclusiveCreate);
     expect(zeroGenerated).toBeGreaterThan(raceHandling);
-    expect(open).toBeGreaterThan(zeroGenerated);
+    expect(boundedRead).toBeGreaterThan(zeroGenerated);
+    expect(open).toBeGreaterThan(0);
     expect(stat).toBeGreaterThan(open);
-    expect(exactSize).toBeGreaterThan(stat);
-    expect(read).toBeGreaterThan(exactSize);
+    expect(allocation).toBeGreaterThan(stat);
+    expect(exactRead).toBeGreaterThan(allocation);
+    expect(overflowProbe).toBeGreaterThan(exactRead);
+    expect(finalStat).toBeGreaterThan(overflowProbe);
   });
 });

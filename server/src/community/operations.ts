@@ -12,20 +12,15 @@ import {
 } from "node:crypto";
 import {
   chmodSync,
-  closeSync,
-  constants,
   existsSync,
-  fstatSync,
   mkdirSync,
   mkdtempSync,
-  openSync,
-  readFileSync,
   renameSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { readBoundedRegularFile, readBoundedUtf8File } from "../util/localFileIntegrity.js";
 import { EncryptedCommunityAggregateStore } from "./aggregateStore.js";
 import { MAX_COMMUNITY_AUTHORITATIVE_SOURCE_BYTES, MAX_COMMUNITY_SIGNING_KEY_FILE_BYTES } from "./resourceLimits.js";
 import { CommunityFeedSigner } from "./signing.js";
@@ -46,6 +41,7 @@ const SCRYPT_P = 1;
 const SCRYPT_MAXMEM = 64 * 1024 * 1024;
 const MAX_PASSPHRASE_FILE_BYTES = 4 * 1024;
 const MIN_PASSPHRASE_BYTES = 16;
+const MAX_ROTATION_MANIFEST_BYTES = (2 * MAX_COMMUNITY_SIGNING_KEY_FILE_BYTES) + (64 * 1024);
 export const MAX_COMMUNITY_BACKUP_SOURCE_BYTES = MAX_COMMUNITY_AUTHORITATIVE_SOURCE_BYTES;
 export const MAX_COMMUNITY_BACKUP_FILE_BYTES = 384 * 1024 * 1024;
 
@@ -160,37 +156,6 @@ function validateSigningKeyPair(keys: CommunitySigningKeys): string {
   return signingKeyId(keys.publicPem);
 }
 
-function safeReadFile(
-  path: string,
-  description: string,
-  maxBytes: number,
-  requireOwnerOnly = false,
-): Buffer {
-  const noFollow = process.platform === "win32" ? 0 : constants.O_NOFOLLOW;
-  let descriptor: number;
-  try {
-    descriptor = openSync(path, constants.O_RDONLY | noFollow);
-  } catch {
-    throw new Error(`${description} could not be opened safely.`);
-  }
-  try {
-    const stat = fstatSync(descriptor);
-    if (!stat.isFile()) throw new Error(`${description} must be a regular file.`);
-    if (requireOwnerOnly && process.platform !== "win32" && (stat.mode & 0o077) !== 0) {
-      throw new Error(`${description} must not be accessible by group or other users.`);
-    }
-    if (stat.size < 0 || stat.size > maxBytes) throw new Error(`${description} exceeds its recovery size limit.`);
-    const content = readFileSync(descriptor);
-    if (content.length > maxBytes) {
-      content.fill(0);
-      throw new Error(`${description} exceeded its recovery size limit while being read.`);
-    }
-    return content;
-  } finally {
-    closeSync(descriptor);
-  }
-}
-
 function loadSigningKeys(
   dataDirectory: string,
   configured?: CommunitySigningKeys,
@@ -203,8 +168,8 @@ function loadSigningKeys(
   if (hasPrivate !== hasPublic) throw new Error("Community signing key storage is incomplete.");
   if (!hasPrivate) throw new Error("Community signing key pair is missing; initialize the service or provide configured signing keys.");
 
-  const privateBytes = safeReadFile(privatePath, "Community signing private key", MAX_COMMUNITY_SIGNING_KEY_FILE_BYTES);
-  const publicBytes = safeReadFile(publicPath, "Community signing public key", MAX_COMMUNITY_SIGNING_KEY_FILE_BYTES);
+  const privateBytes = readBoundedRegularFile(privatePath, { description: "Community signing private key", maxBytes: MAX_COMMUNITY_SIGNING_KEY_FILE_BYTES, requireOwnerOnly: true });
+  const publicBytes = readBoundedRegularFile(publicPath, { description: "Community signing public key", maxBytes: MAX_COMMUNITY_SIGNING_KEY_FILE_BYTES });
   try {
     const keys = {
       privatePem: privateBytes.toString("utf8"),
@@ -372,9 +337,9 @@ export function createEncryptedCommunityBackup(options: {
   let sourceBytes = privateBytes.length + publicBytes.length;
   try {
     if (hasStorageKey) {
-      const storageKey = safeReadFile(storageKeyPath, "Community aggregate storage key", remainingBytes);
+      const storageKey = readBoundedRegularFile(storageKeyPath, { description: "Community aggregate storage key", maxBytes: remainingBytes, requireOwnerOnly: true });
       remainingBytes -= storageKey.length;
-      const database = safeReadFile(databasePath, "Community aggregate database", remainingBytes);
+      const database = readBoundedRegularFile(databasePath, { description: "Community aggregate database", maxBytes: remainingBytes });
       try {
         sourceBytes += storageKey.length + database.length;
         files.push(encodeBackupFile(COMMUNITY_REPORT_KEY_FILE, storageKey));
@@ -433,11 +398,11 @@ function decryptBackup(
   passphraseInput: string | Buffer,
 ): { payload: CommunityBackupPayload; files: Map<string, Buffer> } {
   if (!existsSync(backupPath)) throw new Error("Community backup file does not exist.");
-  const stat = statSync(backupPath);
-  if (!stat.isFile() || stat.size === 0 || stat.size > MAX_COMMUNITY_BACKUP_FILE_BYTES) {
-    throw new Error("Community backup file exceeds the recovery size limit.");
-  }
-  const root = record(parseJson<unknown>(readFileSync(backupPath, "utf8"), "Community backup envelope"));
+  const root = record(parseJson<unknown>(readBoundedUtf8File(backupPath, {
+    description: "Community backup file",
+    minBytes: 1,
+    maxBytes: MAX_COMMUNITY_BACKUP_FILE_BYTES,
+  }), "Community backup envelope"));
   if (!root || !onlyKeys(root, ["version", "kdf", "cipher", "ciphertext"]) || root.version !== BACKUP_VERSION) {
     throw new Error("Community backup envelope is invalid.");
   }
@@ -517,7 +482,7 @@ export function restoreEncryptedCommunityBackup(options: {
 
 export function readCommunityBackupPassphraseFile(path: string): Buffer {
   if (!existsSync(path)) throw new Error("Community backup passphrase file does not exist.");
-  const raw = safeReadFile(path, "Community backup passphrase file", MAX_PASSPHRASE_FILE_BYTES, true);
+  const raw = readBoundedRegularFile(path, { description: "Community backup passphrase file", maxBytes: MAX_PASSPHRASE_FILE_BYTES, requireOwnerOnly: true });
   if (raw.length === 0) {
     raw.fill(0);
     throw new Error("Community backup passphrase file must not be empty.");
@@ -607,9 +572,13 @@ export function verifyCommunitySigningRotationPackage(directory: string): Commun
   const privatePath = join(directory, "next-private.pem");
   const publicPath = join(directory, "next-public.pem");
   for (const path of [manifestPath, privatePath, publicPath]) {
-    if (!existsSync(path) || !statSync(path).isFile()) throw new Error("Community signing rotation package is incomplete.");
+    if (!existsSync(path)) throw new Error("Community signing rotation package is incomplete.");
   }
-  const root = record(parseJson<unknown>(readFileSync(manifestPath, "utf8"), "Community rotation manifest"));
+  const root = record(parseJson<unknown>(readBoundedUtf8File(manifestPath, {
+    description: "Community rotation manifest",
+    minBytes: 1,
+    maxBytes: MAX_ROTATION_MANIFEST_BYTES,
+  }), "Community rotation manifest"));
   if (!root || !onlyKeys(root, [
     "version", "createdAt", "currentKeyId", "nextKeyId", "currentPublicKey", "nextPublicKey", "sequence",
   ])) throw new Error("Community signing rotation manifest is invalid.");
@@ -630,8 +599,8 @@ export function verifyCommunitySigningRotationPackage(directory: string): Commun
     !Array.isArray(root.sequence) || JSON.stringify(root.sequence) !== JSON.stringify(expectedSequence)
   ) throw new Error("Community signing rotation manifest is invalid.");
 
-  const privateBytes = safeReadFile(privatePath, "Community rotation next private key", MAX_COMMUNITY_SIGNING_KEY_FILE_BYTES);
-  const publicBytes = safeReadFile(publicPath, "Community rotation next public key", MAX_COMMUNITY_SIGNING_KEY_FILE_BYTES);
+  const privateBytes = readBoundedRegularFile(privatePath, { description: "Community rotation next private key", maxBytes: MAX_COMMUNITY_SIGNING_KEY_FILE_BYTES, requireOwnerOnly: true });
+  const publicBytes = readBoundedRegularFile(publicPath, { description: "Community rotation next public key", maxBytes: MAX_COMMUNITY_SIGNING_KEY_FILE_BYTES });
   try {
     const nextKeys = {
       privatePem: privateBytes.toString("utf8"),

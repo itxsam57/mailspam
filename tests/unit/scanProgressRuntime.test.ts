@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { FixtureAdapter, type FixtureMessage } from "../../server/src/adapters/fixtures/fixtureAdapter.js";
 import { InMemoryPersonalPolicyStore } from "../../server/src/engine/layers/personalRules.js";
@@ -97,4 +99,12 @@ describe("bounded scan progress runtime", () => {
       120_000,
     )).toContain("stopped returning message batches");
   });
+  it("surfaces protected scan-history finalization failures instead of silently discarding them", () => {
+    const source = readFileSync(join(process.cwd(), "src/api/scanStream.ts"), "utf8");
+    expect(source).not.toMatch(/defaultScanStateRepository\.save\(session\.policyAccountKey, record\); \} catch \{\}/);
+    expect(source).toContain("historySaved: historyFinalized");
+    expect(source).toContain("Protected scan status could not be finalized; restart Email Shield before attempting resume.");
+    expect(source).toContain("durableCheckpointAvailable");
+  });
+
 });

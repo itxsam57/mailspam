@@ -10,11 +10,11 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
-  readFileSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
 import type { SignedFeedEntry } from "../engine/layers/globalIntelligence.js";
+import { readBoundedUtf8File } from "../util/localFileIntegrity.js";
 import {
   MAX_COMMUNITY_DOMAIN_CHARS,
   MAX_COMMUNITY_FEED_ENTRIES,
@@ -24,6 +24,7 @@ import {
   MAX_COMMUNITY_IDENTITY_ALIASES,
   MAX_COMMUNITY_IDENTITY_DOMAINS,
   MAX_COMMUNITY_IDENTITY_TEXT_CHARS,
+  MAX_COMMUNITY_SIGNING_KEY_FILE_BYTES,
 } from "./resourceLimits.js";
 import type { CommunityFeedPayload, SignedCommunityFeed } from "./types.js";
 
@@ -83,8 +84,15 @@ interface StoredSigningKeyPair {
 
 function readStoredKeyPair(privatePath: string, publicPath: string): StoredSigningKeyPair {
   const pair = {
-    privatePem: readFileSync(privatePath, "utf8"),
-    publicPem: readFileSync(publicPath, "utf8"),
+    privatePem: readBoundedUtf8File(privatePath, {
+      description: "Community signing private key",
+      maxBytes: MAX_COMMUNITY_SIGNING_KEY_FILE_BYTES,
+      requireOwnerOnly: true,
+    }),
+    publicPem: readBoundedUtf8File(publicPath, {
+      description: "Community signing public key",
+      maxBytes: MAX_COMMUNITY_SIGNING_KEY_FILE_BYTES,
+    }),
   };
   validateKeyPair(pair.privatePem, pair.publicPem);
   return pair;
