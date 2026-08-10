@@ -1,6 +1,7 @@
 import express from "express";
 import type { Request, Response } from "express";
 import { communityNetwork, type CommunityNetwork } from "./network.js";
+import { MAX_COMMUNITY_REPORT_REQUEST_BYTES } from "./resourceLimits.js";
 import type { CommunityReportSubmission } from "./types.js";
 
 /**
@@ -13,7 +14,7 @@ export function createCommunityServiceServer(
 ) {
   const app = express();
   app.disable("x-powered-by");
-  app.use(express.json({ limit: "64kb" }));
+  app.use(express.json({ limit: MAX_COMMUNITY_REPORT_REQUEST_BYTES }));
 
   app.get("/health", (_req: Request, res: Response) => {
     res.json({

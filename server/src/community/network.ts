@@ -1,11 +1,19 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import type { SignedFeedEntry, ThreatFeedCache } from "../engine/layers/globalIntelligence.js";
 import { EncryptedCommunityAggregateStore } from "./aggregateStore.js";
 import { EncryptedCommunityOutbox } from "./outbox.js";
 import { CommunityReporterIdentity } from "./reporterIdentity.js";
-import { CommunityFeedSigner, verifyCommunityFeed } from "./signing.js";
+import {
+  MAX_COMMUNITY_FEED_RESPONSE_BYTES,
+  MAX_COMMUNITY_RECEIPT_RESPONSE_BYTES,
+} from "./resourceLimits.js";
+import {
+  CommunityFeedResourceLimitError,
+  CommunityFeedSigner,
+  verifyCommunityFeed,
+} from "./signing.js";
 import type {
   CommunityReportContext,
   CommunityReportReceipt,
@@ -42,7 +50,43 @@ function normalizeRemoteUrl(value: string | undefined | null): string | null {
   return parsed.toString().replace(/\/$/, "");
 }
 
-async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
+async function readBoundedJson(response: Response, maxBytes: number): Promise<unknown> {
+  const declaredLength = response.headers.get("content-length");
+  if (declaredLength !== null) {
+    const parsedLength = Number(declaredLength);
+    if (Number.isFinite(parsedLength) && parsedLength > maxBytes) {
+      throw new Error("Community service response exceeded the bounded JSON limit.");
+    }
+  }
+
+  if (!response.body) return {};
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel("Community response limit exceeded.");
+        throw new Error("Community service response exceeded the bounded JSON limit.");
+      }
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (totalBytes === 0) return {};
+  try {
+    return JSON.parse(Buffer.concat(chunks, totalBytes).toString("utf8"));
+  } catch {
+    throw new Error("Community service returned invalid JSON.");
+  }
+}
+
+async function fetchJson(url: string, init: RequestInit | undefined, maxResponseBytes: number): Promise<unknown> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REMOTE_TIMEOUT_MS);
   try {
@@ -56,7 +100,7 @@ async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
         ...(init?.headers ?? {}),
       },
     });
-    const data = await response.json().catch(() => ({}));
+    const data = await readBoundedJson(response, maxResponseBytes);
     if (!response.ok) {
       const message = typeof (data as { error?: unknown }).error === "string"
         ? (data as { error: string }).error
@@ -148,7 +192,7 @@ export class CommunityNetwork implements ThreatFeedCache {
 
     if (!this.remoteUrl) {
       const receipt = this.aggregateStore.accept(report);
-      this.rebuildEmbeddedFeed();
+      this.rebuildAfterAcceptedReport();
       return { ...receipt, delivery: "embedded_local" };
     }
 
@@ -156,7 +200,7 @@ export class CommunityNetwork implements ThreatFeedCache {
       const data = await fetchJson(`${this.remoteUrl}/api/community/v1/report`, {
         method: "POST",
         body: JSON.stringify(report),
-      });
+      }, MAX_COMMUNITY_RECEIPT_RESPONSE_BYTES);
       if (!isReceipt(data)) throw new Error("Community service returned an invalid report receipt.");
       this.outbox.remove(report.reporterProof, report.campaignFingerprint);
       await this.refreshFeed();
@@ -180,7 +224,7 @@ export class CommunityNetwork implements ThreatFeedCache {
   acceptExternalReport(report: CommunityReportSubmission): CommunityReportReceipt {
     if (!this.serverEnabled) throw new Error("Community aggregation service is disabled on this instance.");
     const receipt = this.aggregateStore.accept(report);
-    this.rebuildEmbeddedFeed();
+    this.rebuildAfterAcceptedReport();
     return receipt;
   }
 
@@ -217,9 +261,13 @@ export class CommunityNetwork implements ThreatFeedCache {
     }
 
     try {
-      const document = await fetchJson(`${this.remoteUrl}/api/community/v1/feed`) as SignedCommunityFeed;
+      const document = await fetchJson(
+        `${this.remoteUrl}/api/community/v1/feed`,
+        undefined,
+        MAX_COMMUNITY_FEED_RESPONSE_BYTES,
+      ) as SignedCommunityFeed;
       const payload = verifyCommunityFeed(document, this.trustedPublicKeys);
-      if (!payload) throw new Error("Community feed signature or freshness validation failed.");
+      if (!payload) throw new Error("Community feed signature, freshness, or resource validation failed.");
       this.cachedDocument = document;
       this.verifiedEntries = payload.entries;
       writeFileSync(this.feedCachePath, JSON.stringify(document), { mode: 0o600 });
@@ -244,7 +292,7 @@ export class CommunityNetwork implements ThreatFeedCache {
         const data = await fetchJson(`${this.remoteUrl}/api/community/v1/report`, {
           method: "POST",
           body: JSON.stringify(report),
-        });
+        }, MAX_COMMUNITY_RECEIPT_RESPONSE_BYTES);
         if (!isReceipt(data)) throw new Error("Invalid community report receipt.");
         this.outbox.remove(report.reporterProof, report.campaignFingerprint);
       } catch {
@@ -253,17 +301,32 @@ export class CommunityNetwork implements ThreatFeedCache {
     }
   }
 
+  private rebuildAfterAcceptedReport(): void {
+    try {
+      this.rebuildEmbeddedFeed();
+    } catch (error) {
+      if (!(error instanceof CommunityFeedResourceLimitError)) throw error;
+      const cached = this.cachedDocument
+        ? verifyCommunityFeed(this.cachedDocument, [this.signer.publicPem])
+        : null;
+      this.verifiedEntries = cached?.entries ?? null;
+      this.refreshError = `Community feed publication deferred: ${error.message}`;
+    }
+  }
+
   private rebuildEmbeddedFeed(): void {
     const document = this.signer.sign(this.aggregateStore.buildFeedPayload());
     const payload = verifyCommunityFeed(document, [this.signer.publicPem]);
     this.cachedDocument = document;
     this.verifiedEntries = payload?.entries ?? null;
+    this.refreshError = null;
     writeFileSync(this.feedCachePath, JSON.stringify(document), { mode: 0o600 });
   }
 
   private loadCachedFeed(): void {
     if (!existsSync(this.feedCachePath)) return;
     try {
+      if (statSync(this.feedCachePath).size > MAX_COMMUNITY_FEED_RESPONSE_BYTES) return;
       const document = JSON.parse(readFileSync(this.feedCachePath, "utf8")) as SignedCommunityFeed;
       const payload = verifyCommunityFeed(document, this.trustedPublicKeys);
       if (payload) {

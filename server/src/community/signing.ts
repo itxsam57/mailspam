@@ -14,7 +14,35 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import type { SignedFeedEntry } from "../engine/layers/globalIntelligence.js";
+import {
+  MAX_COMMUNITY_DOMAIN_CHARS,
+  MAX_COMMUNITY_FEED_ENTRIES,
+  MAX_COMMUNITY_FEED_ENTRY_VALUE_CHARS,
+  MAX_COMMUNITY_FEED_RESPONSE_BYTES,
+  MAX_COMMUNITY_FEED_RULE_ID_CHARS,
+  MAX_COMMUNITY_IDENTITY_ALIASES,
+  MAX_COMMUNITY_IDENTITY_DOMAINS,
+  MAX_COMMUNITY_IDENTITY_TEXT_CHARS,
+} from "./resourceLimits.js";
 import type { CommunityFeedPayload, SignedCommunityFeed } from "./types.js";
+
+const THREAT_ENTRY_TYPES = new Set([
+  "sender",
+  "domain",
+  "url",
+  "reply_to_domain",
+  "url_domain",
+  "attachment_hash",
+  "campaign",
+]);
+
+export class CommunityFeedResourceLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CommunityFeedResourceLimitError";
+  }
+}
 
 function canonicalize(value: unknown): string {
   if (value === null || typeof value !== "object") {
@@ -42,6 +70,97 @@ function validateKeyPair(privatePem: string, publicPem: string): void {
   const signature = sign(null, challenge, createPrivateKey(privatePem));
   if (!verify(null, challenge, createPublicKey(publicPem), signature)) {
     throw new Error("Configured community signing private and public keys do not match.");
+  }
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function onlyKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
+  const accepted = new Set(allowed);
+  return Object.keys(value).every((key) => accepted.has(key));
+}
+
+function boundedText(value: unknown, maxChars: number): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= maxChars;
+}
+
+function optionalFeedTimestamp(value: unknown): value is string | undefined {
+  return value === undefined || (
+    typeof value === "string" &&
+    value.length <= 64 &&
+    Number.isFinite(Date.parse(value))
+  );
+}
+
+function validateThreatEntry(item: Record<string, unknown>): item is SignedFeedEntry & Record<string, unknown> {
+  if (!onlyKeys(item, [
+    "type", "value", "confirmedThreat", "ruleId", "independentReports", "firstSeen", "lastSeen",
+  ])) return false;
+  if (typeof item.type !== "string" || !THREAT_ENTRY_TYPES.has(item.type)) return false;
+  if (!boundedText(item.value, MAX_COMMUNITY_FEED_ENTRY_VALUE_CHARS)) return false;
+  if (typeof item.confirmedThreat !== "boolean") return false;
+  if (!boundedText(item.ruleId, MAX_COMMUNITY_FEED_RULE_ID_CHARS)) return false;
+  if (item.independentReports !== undefined && (
+    !Number.isInteger(item.independentReports) ||
+    (item.independentReports as number) < 1 ||
+    (item.independentReports as number) > 1_000_000
+  )) return false;
+  if (!optionalFeedTimestamp(item.firstSeen) || !optionalFeedTimestamp(item.lastSeen)) return false;
+  if (
+    typeof item.firstSeen === "string" &&
+    typeof item.lastSeen === "string" &&
+    Date.parse(item.firstSeen) > Date.parse(item.lastSeen)
+  ) return false;
+  return true;
+}
+
+function validateIdentityEntry(item: Record<string, unknown>): item is SignedFeedEntry & Record<string, unknown> {
+  if (!onlyKeys(item, ["type", "value", "aliases", "domains", "confirmedThreat", "ruleId"])) return false;
+  if (item.type !== "identity" || item.confirmedThreat !== false) return false;
+  if (!boundedText(item.value, MAX_COMMUNITY_IDENTITY_TEXT_CHARS)) return false;
+  if (!boundedText(item.ruleId, MAX_COMMUNITY_FEED_RULE_ID_CHARS)) return false;
+  if (!Array.isArray(item.aliases) || item.aliases.length > MAX_COMMUNITY_IDENTITY_ALIASES) return false;
+  if (!item.aliases.every((alias) => boundedText(alias, MAX_COMMUNITY_IDENTITY_TEXT_CHARS))) return false;
+  if (!Array.isArray(item.domains) || item.domains.length === 0 || item.domains.length > MAX_COMMUNITY_IDENTITY_DOMAINS) return false;
+  if (!item.domains.every((domain) => boundedText(domain, MAX_COMMUNITY_DOMAIN_CHARS) && !/\s/.test(domain))) return false;
+  return true;
+}
+
+function validateFeedEntry(value: unknown): value is SignedFeedEntry {
+  const item = record(value);
+  if (!item) return false;
+  return item.type === "identity" ? validateIdentityEntry(item) : validateThreatEntry(item);
+}
+
+function validateFeedPayload(value: unknown): { payload: CommunityFeedPayload | null; reason: string | null } {
+  const payload = record(value);
+  if (!payload || !onlyKeys(payload, ["version", "generatedAt", "expiresAt", "entries"])) {
+    return { payload: null, reason: "invalid_payload_shape" };
+  }
+  if (payload.version !== 1 || typeof payload.generatedAt !== "string" || typeof payload.expiresAt !== "string" || !Array.isArray(payload.entries)) {
+    return { payload: null, reason: "invalid_payload_shape" };
+  }
+  if (payload.generatedAt.length > 64 || payload.expiresAt.length > 64) {
+    return { payload: null, reason: "invalid_timestamps" };
+  }
+  if (payload.entries.length > MAX_COMMUNITY_FEED_ENTRIES) {
+    return { payload: null, reason: "too_many_entries" };
+  }
+  if (!payload.entries.every(validateFeedEntry)) {
+    return { payload: null, reason: "invalid_entry" };
+  }
+  return { payload: payload as unknown as CommunityFeedPayload, reason: null };
+}
+
+function documentWithinByteLimit(document: SignedCommunityFeed): boolean {
+  try {
+    return Buffer.byteLength(JSON.stringify(document), "utf8") <= MAX_COMMUNITY_FEED_RESPONSE_BYTES;
+  } catch {
+    return false;
   }
 }
 
@@ -81,20 +200,31 @@ export class CommunityFeedSigner {
   }
 
   sign(payload: CommunityFeedPayload): SignedCommunityFeed {
-    const bytes = signingBytes(payload);
+    const validation = validateFeedPayload(payload);
+    if (!validation.payload) {
+      if (validation.reason === "too_many_entries") {
+        throw new CommunityFeedResourceLimitError("Community feed exceeded the bounded entry-count limit.");
+      }
+      throw new Error(`Community feed payload is invalid (${validation.reason}).`);
+    }
+    const bytes = signingBytes(validation.payload);
     const signature = sign(null, bytes, createPrivateKey(this.privatePem));
     if (!verify(null, bytes, createPublicKey(this.publicPem), signature)) {
       throw new Error("Community feed could not be self-verified after signing.");
     }
-    return {
+    const document: SignedCommunityFeed = {
       version: 1,
-      payload: structuredClone(payload),
+      payload: structuredClone(validation.payload),
       signature: {
         algorithm: "Ed25519",
         keyId: this.keyId,
         value: signature.toString("base64"),
       },
     };
+    if (!documentWithinByteLimit(document)) {
+      throw new CommunityFeedResourceLimitError("Community feed exceeded the bounded signed-document size limit.");
+    }
+    return document;
   }
 }
 
@@ -108,10 +238,14 @@ export function inspectCommunityFeed(
   trustedPublicKeys: string[],
   now = new Date(),
 ): CommunityFeedVerificationResult {
-  if (document.version !== 1) return { payload: null, reason: "unsupported_document_version" };
-  if (document.signature?.algorithm !== "Ed25519") return { payload: null, reason: "unsupported_signature_algorithm" };
-  const payload = document.payload;
-  if (payload?.version !== 1 || !Array.isArray(payload.entries)) return { payload: null, reason: "invalid_payload_shape" };
+  const root = record(document);
+  if (!root || !onlyKeys(root, ["version", "payload", "signature"]) || root.version !== 1) {
+    return { payload: null, reason: "unsupported_document_version" };
+  }
+
+  const payloadValidation = validateFeedPayload(root.payload);
+  if (!payloadValidation.payload) return payloadValidation;
+  const payload = payloadValidation.payload;
   const generatedAt = Date.parse(payload.generatedAt);
   const expiresAt = Date.parse(payload.expiresAt);
   if (!Number.isFinite(generatedAt) || !Number.isFinite(expiresAt)) return { payload: null, reason: "invalid_timestamps" };
@@ -119,8 +253,16 @@ export function inspectCommunityFeed(
   if (expiresAt <= now.getTime()) return { payload: null, reason: "expired" };
   if (expiresAt <= generatedAt) return { payload: null, reason: "invalid_validity_window" };
   if (expiresAt - generatedAt > 48 * 60 * 60_000) return { payload: null, reason: "validity_window_too_long" };
-  if (!/^[a-f0-9]{24}$/.test(document.signature.keyId)) return { payload: null, reason: "invalid_key_id" };
-  if (typeof document.signature.value !== "string" || document.signature.value.length < 40) {
+
+  const signatureRecord = record(root.signature);
+  if (!signatureRecord || !onlyKeys(signatureRecord, ["algorithm", "keyId", "value"])) {
+    return { payload: null, reason: "invalid_signature_encoding" };
+  }
+  if (signatureRecord.algorithm !== "Ed25519") return { payload: null, reason: "unsupported_signature_algorithm" };
+  if (typeof signatureRecord.keyId !== "string" || !/^[a-f0-9]{24}$/.test(signatureRecord.keyId)) {
+    return { payload: null, reason: "invalid_key_id" };
+  }
+  if (typeof signatureRecord.value !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/.test(signatureRecord.value)) {
     return { payload: null, reason: "invalid_signature_encoding" };
   }
 
@@ -128,15 +270,19 @@ export function inspectCommunityFeed(
   let signature: Buffer;
   try {
     bytes = signingBytes(payload);
-    signature = Buffer.from(document.signature.value, "base64");
+    signature = Buffer.from(signatureRecord.value, "base64");
   } catch {
     return { payload: null, reason: "serialization_failure" };
   }
+  if (signature.length !== 64 || signature.toString("base64") !== signatureRecord.value) {
+    return { payload: null, reason: "invalid_signature_encoding" };
+  }
+  if (!documentWithinByteLimit(document)) return { payload: null, reason: "document_too_large" };
 
   let matchingTrustedKey = false;
   for (const publicPem of trustedPublicKeys) {
     try {
-      if (keyId(publicPem) !== document.signature.keyId) continue;
+      if (keyId(publicPem) !== signatureRecord.keyId) continue;
       matchingTrustedKey = true;
       if (verify(null, bytes, createPublicKey(publicPem), signature)) {
         return { payload, reason: null };
