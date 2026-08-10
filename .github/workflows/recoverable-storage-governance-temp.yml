@@ -1,0 +1,81 @@
+name: Recoverable storage governance temporary
+on:
+  push:
+    branches:
+      - m2-community-recoverable-storage-bound
+permissions:
+  contents: write
+jobs:
+  edit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m2-community-recoverable-storage-bound
+      - shell: python
+        run: |
+          from pathlib import Path
+
+          matrix = Path('.engineering/TEST_MATRIX.md')
+          text = matrix.read_text()
+          if '| A-54 |' not in text:
+              lines = text.splitlines()
+              for i, line in enumerate(lines):
+                  if line.startswith('| A-53 | Encrypted community aggregate-state integrity |'):
+                      lines.insert(i + 1, '| A-54 | Recoverable community aggregate storage boundary | The live encrypted aggregate database must remain inside the already-accepted portable recovery source budget: one shared 192 MiB authoritative-source ceiling reserves a 32-byte storage key plus two bounded 64 KiB signing keys and derives the aggregate-file ceiling; recovery aliases that shared source constant and configured signing PEMs obey the same key budget; aggregate reads use same-descriptor regular-file/size checks before content allocation; writes predict exact v1 envelope size before encryption and recheck serialized size before temp-file persistence so an over-bound report cannot replace the last recoverable database; no lower campaign quota, provider/mailbox permission or deployment claim is added | `communityRecoverableStorageBoundary.test.ts`, community recovery/aggregate-state/readiness/reporting regressions, strict type/build, full corpus/Worker/server/browser gate | Windows + macOS + Ubuntu | Blocking |')
+                      break
+              else:
+                  raise SystemExit('A-53 insertion point missing')
+              text = '\n'.join(lines) + '\n'
+          old = 'encrypted community aggregate nested-state integrity behavior, and Analyze Links DNS-pinning/SSRF/redirect/resource-boundary behavior are automated.'
+          new = 'encrypted community aggregate nested-state integrity behavior, recoverable community aggregate storage-boundary behavior, and Analyze Links DNS-pinning/SSRF/redirect/resource-boundary behavior are automated.'
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif new not in text:
+              raise SystemExit('matrix automated paragraph missing')
+          matrix.write_text(text)
+
+          register = Path('.engineering/REGRESSION_REGISTER.md')
+          text = register.read_text()
+          if '| REG-064 |' not in text:
+              lines = text.splitlines()
+              for i, line in enumerate(lines):
+                  if line.startswith('| REG-063 |'):
+                      lines.insert(i + 1, '| REG-064 | LOCKED | Live community aggregate persistence must never outgrow the built-in portable-recovery contract. The 192 MiB authoritative-source ceiling and 64 KiB signing-key ceiling are shared runtime/recovery constants; the aggregate-file ceiling reserves the exact 32-byte storage key plus two signing-key budgets. Aggregate database reads must reject an oversized/non-regular opened file before content allocation, with same-descriptor reading and no-follow where supported. Writes must reject a predicted over-bound encrypted v1 envelope before encryption/temp-file persistence and recheck the final serialized envelope before atomic replacement. Configured signing PEMs must obey the same recovery key budget. Existing `MAX_CAMPAIGNS` and aggregation semantics remain unchanged. | `communityRecoverableStorageBoundary.test.ts`, recovery/aggregate-state/readiness/reporting regressions, strict type/build, full Windows/macOS/Ubuntu engineering gate |')
+                      break
+              else:
+                  raise SystemExit('REG-063 insertion point missing')
+              text = '\n'.join(lines) + '\n'
+          if '| GAP-023 |' not in text:
+              lines = text.splitlines()
+              for i, line in enumerate(lines):
+                  if line.startswith('| GAP-022 |'):
+                      lines.insert(i + 1, '| GAP-023 | RESOLVED | Runtime aggregate/recovery size-contract mismatch | Disaster-recovery export already refused authoritative source sets above 192 MiB while the live aggregate database had no corresponding read/write ceiling, so production could grow into an officially un-backupable state and oversized files were read before size validation. Moved the recovery/source and signing-key budgets into shared resource limits, derived the live aggregate database ceiling from that same source budget, added same-descriptor pre-allocation aggregate reads, pre-encryption/final-serialized write checks, and configured-key size parity. GAP-004 remains open until a real deployed backup/restore drill proves actual production storage and cutover. |')
+                      break
+              else:
+                  raise SystemExit('GAP-022 insertion point missing')
+              text = '\n'.join(lines) + '\n'
+          register.write_text(text)
+
+          readme = Path('README_REBUILD_STATUS.md')
+          text = readme.read_text()
+          bullet = '- recoverable community aggregate storage boundary: live encrypted aggregate reads/writes now share the existing 192 MiB disaster-recovery source budget, reserve bounded storage/signing-key space, reject oversized database files before allocation and fail before encrypting/persisting a report that would make the authoritative state un-backupable.'
+          if bullet not in text:
+              lines = text.splitlines()
+              for i, line in enumerate(lines):
+                  if line.startswith('- encrypted community aggregate-state integrity:'):
+                      if line.endswith('.'):
+                          lines[i] = line[:-1] + ';'
+                      lines.insert(i + 1, bullet)
+                      break
+              else:
+                  raise SystemExit('README insertion point missing')
+              text = '\n'.join(lines) + '\n'
+          readme.write_text(text)
+      - shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .engineering/TEST_MATRIX.md .engineering/REGRESSION_REGISTER.md README_REBUILD_STATUS.md
+          git commit -m "Lock recoverable storage boundary governance"
+          git push origin HEAD:m2-community-recoverable-storage-bound
