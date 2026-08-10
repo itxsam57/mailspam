@@ -1,0 +1,51 @@
+name: RFC8058 regression contract temporary
+on:
+  push:
+    branches:
+      - m2-rfc8058-one-click-integrity
+permissions:
+  contents: write
+jobs:
+  edit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m2-rfc8058-one-click-integrity
+      - shell: python
+        run: |
+          from pathlib import Path
+          p = Path('tests/unit/inboxUnsubscribeClassification.test.ts')
+          s = p.read_text()
+          old = '''  it("prefers RFC 8058 one-click when declared", () => {
+    const capability = unsubscribeCapability(envelope({
+      listHeaders: {
+        listId: "list.example",
+        listUnsubscribe: "<mailto:leave@example.com>, <https://example.com/unsubscribe?id=1>",
+        listUnsubscribePost: "List-Unsubscribe=One-Click",
+      },
+    }));
+    expect(capability).toMatchObject({ available: true, method: "one_click_post", source: "list_header" });
+  });'''
+          new = '''  it("does not offer one-click from declaration alone without DKIM authorization", () => {
+    const capability = unsubscribeCapability(envelope({
+      listHeaders: {
+        listId: "list.example",
+        listUnsubscribe: "<mailto:leave@example.com>, <https://example.com/unsubscribe?id=1>",
+        listUnsubscribePost: "List-Unsubscribe=One-Click",
+      },
+    }));
+    expect(capability).toMatchObject({ available: true, method: "link_only", source: "list_header" });
+  });'''
+          if old not in s:
+              if new in s:
+                  raise SystemExit(0)
+              raise SystemExit('unsubscribe regression anchor missing')
+          p.write_text(s.replace(old, new, 1))
+      - shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add tests/unit/inboxUnsubscribeClassification.test.ts
+          git commit -m "Align unsubscribe regression with DKIM authorization"
+          git push origin HEAD:m2-rfc8058-one-click-integrity
