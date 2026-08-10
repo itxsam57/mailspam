@@ -73,6 +73,7 @@ The following engineering bricks are implemented and regression-locked on the cu
 - scalable durable community ingestion: encrypted append-only report journaling plus bounded atomic snapshot compaction removes whole-database work from each request, 10,000 independent reporters are exercised through the production validation/dedupe/signing path, committed journal records survive restart, incomplete crash tails are removed safely, backup/restore includes the journal, and reporter-derived state expires after a fixed 90-day retention period;
 - signed-feed rollback integrity: clients persist an encrypted monotonic generation/digest checkpoint, reject older signed generations and same-generation equivocation across restart/cache paths, permit identical trusted-key overlap and retain only the newest still-fresh verified feed after rejection;
 - scalable explicit destination analysis: one process-wide four-slot coordinator bounds the wait queue, coalesces identical in-flight work, uses an HMAC-keyed fixed-expiry 512-entry in-memory LRU cache with no URLs or bodies in cached values, exposes aggregate-only counters, fails overload closed and passes a 10,000-client shared-destination burst without outbound duplication while preserving the existing DNS-pinned egress boundary;
+- privacy-safe community operations: fixed-cardinality request/report/abuse/readiness/aggregate metrics, a disabled-by-default strong-bearer-protected Prometheus endpoint and fixed-schema JSON-line diagnostics expose no reporter, campaign, destination, mailbox, credential, token, request-body or exception values while leaving deployed monitoring and gateway DDoS/reputation acceptance external;
 
 The exact current security and behavior claims are defined by `.engineering/REGRESSION_REGISTER.md`, `.engineering/TEST_MATRIX.md` and the feature-specific security contracts under `.engineering/`.
 
@@ -88,7 +89,7 @@ The current register intentionally keeps these deployment/live-acceptance items 
 
 Manual visible acceptance items in the regression register also remain manual until the owner performs them. A green engineering gate does not convert those live/deployment claims into completed work.
 
-The remaining canonical buildable Milestone 2 rows are the wider privacy-safe operational metrics boundary and Windows-first packaging/release preparation. Scalable community ingestion, monotonic signed-feed rollback protection and bounded cached destination-analysis coordination are implemented and regression locked. These are code requirements, not live-test substitutes.
+The remaining canonical buildable Milestone 2 row is Windows-first packaging/release preparation. Scalable community ingestion, monotonic signed-feed rollback protection, bounded cached destination-analysis coordination and the privacy-safe application metrics/diagnostics boundary are implemented and regression locked. Deployed monitoring and gateway reputation/volumetric defence remain external acceptance, not code-test substitutes.
 
 ## Run
 

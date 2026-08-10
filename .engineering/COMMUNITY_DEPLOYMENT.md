@@ -48,6 +48,7 @@ Set:
 ```text
 EMAIL_SHIELD_COMMUNITY_SERVER=1
 EMAIL_SHIELD_DATA_DIR=/secure/persistent/email-shield
+EMAIL_SHIELD_COMMUNITY_METRICS_TOKEN=<secret-manager token of at least 32 bytes>
 HOST=127.0.0.1
 PORT=4174
 ```
@@ -77,9 +78,12 @@ POST /api/community/v1/report
 GET  /api/community/v1/feed
 GET  /api/community/v1/public-key
 GET  /api/community/v1/status
+GET  /metrics  (disabled unless a metrics token is configured; bearer protected)
 ```
 
 The dedicated process refuses to start unless `EMAIL_SHIELD_COMMUNITY_SERVER=1`.
+
+`/metrics` exports fixed-label Prometheus counters/gauges and requires the exact bearer token configured through `EMAIL_SHIELD_COMMUNITY_METRICS_TOKEN`. Store that token in the deployment secret manager and restrict the route to the monitoring network at the reverse proxy. The endpoint is absent when the token is not configured. Its application privacy/cardinality contract is `.engineering/COMMUNITY_OPERATIONAL_METRICS.md`.
 
 ## Client configuration
 
@@ -102,6 +106,7 @@ Put the dedicated community service behind a reverse proxy or API gateway with:
 - bot, enrollment, reputation and denial-of-service controls;
 - structured security logging that never records report bodies or secrets;
 - health, latency and error monitoring;
+- authenticated scraping of `/metrics` with alerts for readiness, 5xx, rate-limit, capacity and storage-availability signals;
 - encrypted persistent volume and tested backups;
 - restricted outbound networking;
 - process isolation and least-privilege filesystem permissions.
@@ -150,5 +155,6 @@ Before public use:
 8. Stop the service during a client report and confirm encrypted outbox queuing and later flush.
 9. Verify local-only clients label their scope truthfully.
 10. Complete external TLS, gateway rate-limit, enrollment/reputation, monitoring, backup and restore tests.
+11. Confirm unauthenticated `/metrics` access fails, authenticated output has only fixed labels, and the monitoring pipeline stores no bearer token, reporter/campaign value or request body.
 
 Repository CI completes item 1 and application-level forms of items 3–9. Public DNS/TLS, gateway controls and operational monitoring require the actual deployment environment.

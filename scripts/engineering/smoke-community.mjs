@@ -9,6 +9,7 @@ import { pathToFileURL } from "node:url";
 const root = process.cwd();
 const host = "127.0.0.1";
 const dataDir = mkdtempSync(join(tmpdir(), "email-shield-community-smoke-"));
+const metricsToken = "community-smoke-metrics-token-32-bytes-minimum";
 let child;
 let stdout = "";
 let stderr = "";
@@ -92,6 +93,7 @@ try {
       EMAIL_SHIELD_COMMUNITY_PRIVATE_KEY: "",
       EMAIL_SHIELD_COMMUNITY_PUBLIC_KEY: "",
       EMAIL_SHIELD_COMMUNITY_PUBLIC_KEYS: "",
+      EMAIL_SHIELD_COMMUNITY_METRICS_TOKEN: metricsToken,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -136,6 +138,20 @@ try {
     body: JSON.stringify(report("three")),
   }), "Duplicate community report");
   assert(duplicate.duplicate === true && duplicate.independentReporters === 3, "Duplicate reporter was counted more than once.");
+
+  const unauthorizedMetrics = await fetch(`${baseUrl}/metrics`);
+  assert(unauthorizedMetrics.status === 401, "Community metrics accepted an unauthenticated scrape.");
+  const metricsResponse = await fetch(`${baseUrl}/metrics`, {
+    headers: { Authorization: `Bearer ${metricsToken}` },
+  });
+  const metrics = await metricsResponse.text();
+  assert(metricsResponse.ok, `Authenticated community metrics failed with HTTP ${metricsResponse.status}.`);
+  assert(metricsResponse.headers.get("cache-control") === "no-store", "Community metrics response was cacheable.");
+  assert(metrics.includes('email_shield_community_reports_total{outcome="accepted"} 3'), "Community accepted-report metric was incorrect.");
+  assert(metrics.includes('email_shield_community_reports_total{outcome="duplicate"} 1'), "Community duplicate-report metric was incorrect.");
+  for (const forbidden of [metricsToken, reporterProof("one"), "redirect-smoke.example"]) {
+    assert(!metrics.includes(forbidden), "Community metrics exposed a protected source value.");
+  }
 
   const feedDocument = await json(await fetch(`${baseUrl}/api/community/v1/feed`), "Signed community feed");
   const signingModuleUrl = pathToFileURL(resolve(root, "server/dist/community/signing.js")).href;
