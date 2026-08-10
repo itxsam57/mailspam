@@ -86,7 +86,7 @@ The current register intentionally keeps these deployment/live-acceptance items 
 
 Manual visible acceptance items in the regression register also remain manual until the owner performs them. A green engineering gate does not convert those live/deployment claims into completed work.
 
-The remaining canonical buildable Milestone 2 rows are monotonic signed-feed rollback protection, a bounded cached destination-analysis coordinator, privacy-safe operational metrics and Windows-first packaging/release preparation. These are code requirements, not live-test substitutes.
+The remaining canonical buildable Milestone 2 rows are a bounded cached destination-analysis coordinator, privacy-safe operational metrics and Windows-first packaging/release preparation. Monotonic signed-feed rollback protection is implemented and regression locked. These are code requirements, not live-test substitutes.
 
 ## Run
 

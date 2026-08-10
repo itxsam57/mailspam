@@ -25,7 +25,7 @@ The current code retains the canonical provider contract, Gmail/iCloud/Outlook/Y
 | Privacy-preserving report ingestion and mailbox deduplication | IMPLEMENTED | Reporter HMAC proof, strict report schema, encrypted aggregate state and independent-reporter dedupe are locked. |
 | Campaign fingerprinting and cross-provider correlation | IMPLEMENTED | Canonical report construction covers campaign, sender, Reply-To domain, destination domain and bounded attachment hashes through one provider-neutral path. |
 | Brigade-resistant warning/confirmed thresholds | IMPLEMENTED | Independent-reporter and weighted evidence thresholds are locked; production edge/Sybil controls remain external. |
-| Signed feed publishing, rotation, rollback protection and offline cache | PARTIAL | Ed25519 signing, bounded verification, multi-key overlap preparation and verified cache exist. Monotonic anti-rollback client state and completed production rotation remain missing/external. |
+| Signed feed publishing, rotation, rollback protection and offline cache | IMPLEMENTED/EXTERNAL | Ed25519 signing, bounded verification, encrypted monotonic generation/digest acceptance, trusted multi-key overlap, verified offline cache and rotation preparation are implemented. The production key-rotation ceremony remains external. |
 | Scalable isolated destination-analysis workers, cache and strict egress | PARTIAL | The explicit local Analyze Links path has DNS validation, socket pinning, redirect revalidation and resource limits. A bounded worker coordinator, shared expiry cache, retention enforcement and capacity proof are missing. |
 | Rate limiting, abuse controls, health, metrics and structured diagnostics | PARTIAL | Per-reporter daily limits, generic public errors and proof-based readiness exist. Privacy-safe metrics, production edge rate/reputation/DDoS controls and deployed monitoring remain missing/external. |
 | Disaster recovery | PARTIAL | Encrypted backup, restore-to-new-path validation and signing overlap tooling exist. The production restore/rotation ceremony remains external. |
@@ -55,14 +55,13 @@ Milestone 2 must not be called closed until the missing buildable rows are imple
 ## Implementation order
 
 1. Milestone 2 scalable durable community ingestion, retention and 10,000-client proof.
-2. Milestone 2 monotonic signed-feed rollback protection.
-3. Milestone 2 isolated destination-analysis coordinator, bounded cache and capacity proof.
-4. Milestone 2 privacy-safe metrics and operational boundary; keep gateway/DNS/TLS acceptance external.
-5. Milestone 3 scheduled background protection and complete account-scoped control surface.
-6. Milestone 3 portable shared-core/platform contract and client/release architecture.
-7. Milestone 3 reproducible signed release manifests, updater/rollback and platform packaging automation.
-8. Milestone 3 accessibility/localization/safety education.
-9. Milestone 3 operational dashboard, regression-vault intake, provider compatibility and release gates.
-10. Milestone 3 public security/privacy/incident/deployment/cost documentation and final acceptance reconciliation.
+2. Milestone 2 isolated destination-analysis coordinator, bounded cache and capacity proof.
+3. Milestone 2 privacy-safe metrics and operational boundary; keep gateway/DNS/TLS acceptance external.
+4. Milestone 3 scheduled background protection and complete account-scoped control surface.
+5. Milestone 3 portable shared-core/platform contract and client/release architecture.
+6. Milestone 3 reproducible signed release manifests, updater/rollback and platform packaging automation.
+7. Milestone 3 accessibility/localization/safety education.
+8. Milestone 3 operational dashboard, regression-vault intake, provider compatibility and release gates.
+9. Milestone 3 public security/privacy/incident/deployment/cost documentation and final acceptance reconciliation.
 
 Every brick requires a focused regression suite followed by the unchanged complete Engineering Gate. External acceptance is never converted into a code PASS by simulation.

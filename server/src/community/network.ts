@@ -7,6 +7,7 @@ import { EncryptedCommunityAggregateStore } from "./aggregateStore.js";
 import { CommunityServiceDisabledError } from "./errors.js";
 import { EncryptedCommunityOutbox } from "./outbox.js";
 import { CommunityReporterIdentity } from "./reporterIdentity.js";
+import { CommunityFeedRollbackGuard } from "./feedRollbackGuard.js";
 import {
   MAX_COMMUNITY_FEED_RESPONSE_BYTES,
   MAX_COMMUNITY_RECEIPT_RESPONSE_BYTES,
@@ -134,6 +135,7 @@ export class CommunityNetwork implements ThreatFeedCache {
   private readonly reporterIdentity: CommunityReporterIdentity;
   private readonly outbox: EncryptedCommunityOutbox;
   private readonly signer: CommunityFeedSigner;
+  private readonly rollbackGuard: CommunityFeedRollbackGuard;
   private readonly trustedPublicKeys: string[];
   private readonly feedCachePath: string;
   private verifiedEntries: SignedFeedEntry[] | null = [];
@@ -159,6 +161,7 @@ export class CommunityNetwork implements ThreatFeedCache {
       process.env.EMAIL_SHIELD_COMMUNITY_PRIVATE_KEY?.replace(/\\n/g, "\n"),
       process.env.EMAIL_SHIELD_COMMUNITY_PUBLIC_KEY?.replace(/\\n/g, "\n"),
     );
+    this.rollbackGuard = new CommunityFeedRollbackGuard(this.dataDirectory);
     this.trustedPublicKeys = options.trustedPublicKeys ?? [
       ...configuredPublicKeys(),
       ...(this.remoteUrl ? [] : [this.signer.publicPem]),
@@ -270,6 +273,7 @@ export class CommunityNetwork implements ThreatFeedCache {
       ) as SignedCommunityFeed;
       const payload = verifyCommunityFeed(document, this.trustedPublicKeys);
       if (!payload) throw new Error("Community feed signature, freshness, or resource validation failed.");
+      this.rollbackGuard.accept(document, payload);
       this.cachedDocument = document;
       this.verifiedEntries = payload.entries;
       writeFileSync(this.feedCachePath, JSON.stringify(document), { mode: 0o600 });
@@ -334,6 +338,7 @@ export class CommunityNetwork implements ThreatFeedCache {
       })) as SignedCommunityFeed;
       const payload = verifyCommunityFeed(document, this.trustedPublicKeys);
       if (payload) {
+        this.rollbackGuard.accept(document, payload);
         this.cachedDocument = document;
         this.verifiedEntries = payload.entries;
       }

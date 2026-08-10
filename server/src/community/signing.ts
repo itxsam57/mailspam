@@ -64,6 +64,10 @@ function signingBytes(payload: CommunityFeedPayload): Buffer {
   return Buffer.from(canonicalize(payload), "utf8");
 }
 
+export function communityFeedPayloadDigest(payload: CommunityFeedPayload): string {
+  return createHash("sha256").update(signingBytes(payload)).digest("hex");
+}
+
 function keyId(publicPem: string): string {
   const der = createPublicKey(publicPem).export({ type: "spki", format: "der" });
   return createHash("sha256").update(der).digest("hex").slice(0, 24);
