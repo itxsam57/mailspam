@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { normalizeRawMessage } from "../../server/src/util/mimeNormalize.js";
-import { extractOneClickDkimSignatures } from "../../server/src/util/dkimSignatureMetadata.js";
+import { extractOneClickDkimSignatures } from "../../server/src/util/rfc8058Metadata.js";
 import { trustedPassingDkimIdentities } from "../../server/src/engine/identitySignals.js";
 import { unsubscribeCapability } from "../../server/src/workflows/unsubscribe.js";
 
@@ -50,6 +50,7 @@ describe("RFC 8058 one-click authorization integrity", () => {
   it("offers one-click only for a trusted passing DKIM identity whose exact signature covers both list headers", async () => {
     const envelope = await normalized(rawMessage());
 
+    expect(envelope.listHeaders.oneClickHeaderSetUnambiguous).toBe(true);
     expect(envelope.listHeaders.oneClickDkimSignatures).toEqual([
       { domain: "mailer.example.test", selector: "mail2026", coversRequiredHeaders: true },
     ]);
@@ -138,8 +139,22 @@ describe("RFC 8058 one-click authorization integrity", () => {
 
     expect(envelope.listHeaders.listUnsubscribe).toContain("mailto:unsubscribe@example.test");
     expect(envelope.listHeaders.listUnsubscribe).toContain("https://example.test/unsubscribe?id=123");
+    expect(envelope.listHeaders.oneClickHeaderSetUnambiguous).toBe(true);
     expect(capability.method).toBe("one_click_post");
     expect(capability.target).toBe("https://example.test/unsubscribe?id=123");
+  });
+
+  it("preserves manual targets but refuses automatic one-click when raw list headers are duplicated", async () => {
+    const raw = rawMessage().replace(
+      "List-Unsubscribe: <https://example.test/unsubscribe?id=123>",
+      "List-Unsubscribe: <mailto:unsubscribe@example.test>\r\nList-Unsubscribe: <https://example.test/unsubscribe?id=123>",
+    );
+    const envelope = await normalized(raw);
+
+    expect(envelope.listHeaders.listUnsubscribe).toContain("mailto:unsubscribe@example.test");
+    expect(envelope.listHeaders.listUnsubscribe).toContain("https://example.test/unsubscribe?id=123");
+    expect(envelope.listHeaders.oneClickHeaderSetUnambiguous).toBe(false);
+    expect(unsubscribeCapability(envelope)).toMatchObject({ method: "link_only", source: "list_header" });
   });
 
   it("retains only bounded domain/selector/coverage metadata, never signature values or the full h list", () => {
@@ -173,6 +188,7 @@ describe("RFC 8058 one-click authorization integrity", () => {
     expect(serverSource).toContain("listUnsubscribe: null");
     expect(serverSource).toContain("listUnsubscribePost: null");
     expect(serverSource).not.toMatch(/result\.envelope\.listHeaders\s*=\s*\{[^}]*oneClickDkimSignatures/s);
+    expect(serverSource).not.toMatch(/result\.envelope\.listHeaders\s*=\s*\{[^}]*oneClickHeaderSetUnambiguous/s);
   });
 
   it("keeps the existing browser confirmation requirement before a one-click request is sent", () => {
