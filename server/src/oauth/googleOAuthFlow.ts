@@ -1,7 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { google } from "googleapis";
+import { OAuth2Client } from "google-auth-library";
 import { createAdapter, type AdapterConfig } from "../api/adapterConfig.js";
 import type { SessionStore } from "../api/sessionStore.js";
 
@@ -222,7 +222,7 @@ export class DefaultGoogleOAuthRuntime implements GoogleOAuthRuntime {
   }
 
   async verifyIdToken(input: { clientId: string; idToken: string }): Promise<GoogleOAuthIdentity> {
-    const verifier = new google.auth.OAuth2(input.clientId);
+    const verifier = new OAuth2Client(input.clientId);
     const ticket = await verifier.verifyIdToken({ idToken: input.idToken, audience: input.clientId });
     const payload = ticket.getPayload();
     const sub = payload?.sub?.trim() ?? "";

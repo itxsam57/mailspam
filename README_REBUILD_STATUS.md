@@ -74,6 +74,7 @@ The following engineering bricks are implemented and regression-locked on the cu
 - signed-feed rollback integrity: clients persist an encrypted monotonic generation/digest checkpoint, reject older signed generations and same-generation equivocation across restart/cache paths, permit identical trusted-key overlap and retain only the newest still-fresh verified feed after rejection;
 - scalable explicit destination analysis: one process-wide four-slot coordinator bounds the wait queue, coalesces identical in-flight work, uses an HMAC-keyed fixed-expiry 512-entry in-memory LRU cache with no URLs or bodies in cached values, exposes aggregate-only counters, fails overload closed and passes a 10,000-client shared-destination burst without outbound duplication while preserving the existing DNS-pinned egress boundary;
 - privacy-safe community operations: fixed-cardinality request/report/abuse/readiness/aggregate metrics, a disabled-by-default strong-bearer-protected Prometheus endpoint and fixed-schema JSON-line diagnostics expose no reporter, campaign, destination, mailbox, credential, token, request-body or exception values while leaving deployed monitoring and gateway DDoS/reputation acceptance external;
+- reproducible portable release foundation: every Windows/macOS/Linux gate builds a host-targeted self-contained directory with the exact Node 22 runtime, compiled app/web, lockfile-derived production-only dependencies, normalized modes/mtimes, a complete SHA-256 manifest/release ID and bundled-runtime loopback smoke; the shared-core/platform plan fixes the macOS/Android/iOS boundary without claiming signed installers, updates or mobile clients;
 
 The exact current security and behavior claims are defined by `.engineering/REGRESSION_REGISTER.md`, `.engineering/TEST_MATRIX.md` and the feature-specific security contracts under `.engineering/`.
 
@@ -89,13 +90,14 @@ The current register intentionally keeps these deployment/live-acceptance items 
 
 Manual visible acceptance items in the regression register also remain manual until the owner performs them. A green engineering gate does not convert those live/deployment claims into completed work.
 
-The remaining canonical buildable Milestone 2 row is Windows-first packaging/release preparation. Scalable community ingestion, monotonic signed-feed rollback protection, bounded cached destination-analysis coordination and the privacy-safe application metrics/diagnostics boundary are implemented and regression locked. Deployed monitoring and gateway reputation/volumetric defence remain external acceptance, not code-test substitutes.
+All canonical repository-buildable Milestone 2 rows are now implemented and regression locked: scalable community ingestion, monotonic signed-feed rollback protection, bounded cached destination analysis, privacy-safe application metrics/diagnostics and the Windows-first portable release foundation/cross-platform plan. Milestone 2 is still not formally closed because the listed owner/live deployment, provider, controlled-egress, monitoring, gateway and signing ceremony gates remain external acceptance, not code-test substitutes.
 
 ## Run
 
 ```bash
 npm install
 npm run gate
+npm run package:verify
 npm run dev
 ```
 

@@ -1,4 +1,5 @@
-import { google, type gmail_v1 } from "googleapis";
+import { gmail, type gmail_v1 } from "@googleapis/gmail";
+import { OAuth2Client } from "google-auth-library";
 import { createHash } from "node:crypto";
 import type {
   EmailAdapter,
@@ -53,12 +54,12 @@ export class GmailAdapter implements EmailAdapter {
 
   async connect(signal: AbortSignal): Promise<void> {
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-    const auth = new google.auth.OAuth2(
+    const auth = new OAuth2Client(
       this.credentials.clientId,
       this.credentials.clientSecret || undefined,
     );
     auth.setCredentials({ refresh_token: this.credentials.refreshToken });
-    this.gmail = google.gmail({ version: "v1", auth });
+    this.gmail = gmail({ version: "v1", auth });
 
     const profile = await this.gmail.users.getProfile({ userId: "me" });
     this.accountProof = createHash("sha256").update(profile.data.emailAddress ?? "unknown").digest("hex");
