@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { normalizeRawMessage } from "../../server/src/util/mimeNormalize.js";
-import { extractOneClickDkimCoverage } from "../../server/src/util/dkimSignatureMetadata.js";
+import { extractOneClickDkimSignatures } from "../../server/src/util/dkimSignatureMetadata.js";
 import { trustedPassingDkimIdentities } from "../../server/src/engine/identitySignals.js";
 import { unsubscribeCapability } from "../../server/src/workflows/unsubscribe.js";
 
@@ -50,8 +50,8 @@ describe("RFC 8058 one-click authorization integrity", () => {
   it("offers one-click only for a trusted passing DKIM identity whose exact signature covers both list headers", async () => {
     const envelope = await normalized(rawMessage());
 
-    expect(envelope.listHeaders.oneClickDkimCoverage).toEqual([
-      { domain: "mailer.example.test", selector: "mail2026" },
+    expect(envelope.listHeaders.oneClickDkimSignatures).toEqual([
+      { domain: "mailer.example.test", selector: "mail2026", coversRequiredHeaders: true },
     ]);
     expect(trustedPassingDkimIdentities(envelope)).toEqual([
       { domain: "mailer.example.test", selector: "mail2026" },
@@ -69,7 +69,9 @@ describe("RFC 8058 one-click authorization integrity", () => {
       dkim: ["v=1; d=mailer.example.test; s=mail2026; h=From:To:Subject:List-Unsubscribe; bh=x; b=y"],
     }));
 
-    expect(envelope.listHeaders.oneClickDkimCoverage).toEqual([]);
+    expect(envelope.listHeaders.oneClickDkimSignatures).toEqual([
+      { domain: "mailer.example.test", selector: "mail2026", coversRequiredHeaders: false },
+    ]);
     expect(unsubscribeCapability(envelope).method).toBe("link_only");
   });
 
@@ -86,7 +88,7 @@ describe("RFC 8058 one-click authorization integrity", () => {
     expect(unsubscribeCapability(envelope).method).toBe("link_only");
   });
 
-  it("downgrades to manual when the passing DKIM domain does not match the covering signature", async () => {
+  it("downgrades to manual when the passing DKIM domain does not match the raw signature", async () => {
     const envelope = await normalized(rawMessage({
       auth: "mx.receiver.example; dkim=pass header.d=other.example.test header.s=mail2026",
     }));
@@ -105,7 +107,19 @@ describe("RFC 8058 one-click authorization integrity", () => {
     const signature = "v=1; d=mailer.example.test; s=mail2026; h=From:List-Unsubscribe:List-Unsubscribe-Post; bh=x; b=y";
     const envelope = await normalized(rawMessage({ dkim: [signature, signature] }));
 
-    expect(envelope.listHeaders.oneClickDkimCoverage).toHaveLength(2);
+    expect(envelope.listHeaders.oneClickDkimSignatures).toHaveLength(2);
+    expect(unsubscribeCapability(envelope).method).toBe("link_only");
+  });
+
+  it("fails closed when one same-identity signature covers the headers and another does not", async () => {
+    const covering = "v=1; d=mailer.example.test; s=mail2026; h=From:List-Unsubscribe:List-Unsubscribe-Post; bh=x; b=covered";
+    const nonCovering = "v=1; d=mailer.example.test; s=mail2026; h=From:Subject; bh=x; b=other";
+    const envelope = await normalized(rawMessage({ dkim: [covering, nonCovering] }));
+
+    expect(envelope.listHeaders.oneClickDkimSignatures).toEqual([
+      { domain: "mailer.example.test", selector: "mail2026", coversRequiredHeaders: true },
+      { domain: "mailer.example.test", selector: "mail2026", coversRequiredHeaders: false },
+    ]);
     expect(unsubscribeCapability(envelope).method).toBe("link_only");
   });
 
@@ -128,14 +142,14 @@ describe("RFC 8058 one-click authorization integrity", () => {
     expect(capability.target).toBe("https://example.test/unsubscribe?id=123");
   });
 
-  it("retains only bounded domain/selector coverage metadata, never signature values or the full h list", () => {
+  it("retains only bounded domain/selector/coverage metadata, never signature values or the full h list", () => {
     const raw = rawMessage({
       dkim: ["v=1; d=mailer.example.test; s=mail2026; h=From:To:Subject:List-Unsubscribe:List-Unsubscribe-Post:X-Private-Header; bh=verysecretbodyhash; b=verysecretsignature"],
     });
-    const metadata = extractOneClickDkimCoverage(raw);
+    const metadata = extractOneClickDkimSignatures(raw);
     const serialized = JSON.stringify(metadata);
 
-    expect(metadata).toEqual([{ domain: "mailer.example.test", selector: "mail2026" }]);
+    expect(metadata).toEqual([{ domain: "mailer.example.test", selector: "mail2026", coversRequiredHeaders: true }]);
     expect(serialized).not.toContain("verysecret");
     expect(serialized).not.toContain("X-Private-Header");
     expect(serialized).not.toContain("bh=");
@@ -150,15 +164,15 @@ describe("RFC 8058 one-click authorization integrity", () => {
       "",
       "body",
     ].join("\r\n");
-    expect(extractOneClickDkimCoverage(oversized)).toEqual([]);
+    expect(extractOneClickDkimSignatures(oversized)).toEqual([]);
   });
 
-  it("does not expose internal DKIM coverage metadata when the API strips list action headers for browser output", () => {
+  it("does not expose internal DKIM correlation metadata when the API strips list action headers for browser output", () => {
     const serverSource = readFileSync(join(import.meta.dirname, "../../server/src/api/server.ts"), "utf8");
     expect(serverSource).toContain("result.envelope.listHeaders = {");
     expect(serverSource).toContain("listUnsubscribe: null");
     expect(serverSource).toContain("listUnsubscribePost: null");
-    expect(serverSource).not.toMatch(/result\.envelope\.listHeaders\s*=\s*\{[^}]*oneClickDkimCoverage/s);
+    expect(serverSource).not.toMatch(/result\.envelope\.listHeaders\s*=\s*\{[^}]*oneClickDkimSignatures/s);
   });
 
   it("keeps the existing browser confirmation requirement before a one-click request is sent", () => {
