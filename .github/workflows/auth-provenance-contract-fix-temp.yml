@@ -1,0 +1,109 @@
+name: Authentication provenance contract fix temporary
+on:
+  push:
+    branches:
+      - m2-authentication-results-provenance
+permissions:
+  contents: write
+jobs:
+  edit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m2-authentication-results-provenance
+      - shell: python
+        run: |
+          from pathlib import Path
+          import json, re
+
+          # Legacy regression suites in this list intentionally exercise already-
+          # authenticated provider outcomes. Make that precondition explicit; the
+          # dedicated provenance suite owns missing/unknown/suspicious cases.
+          trusted_tests = [
+              'tests/unit/inboxUnsubscribeClassification.test.ts',
+              'tests/unit/relationshipContextHistory.test.ts',
+              'tests/unit/generalizedNormalMailContext.test.ts',
+              'tests/unit/htmlInteractionNormalization.test.ts',
+              'tests/unit/generalizedIdentityArchitecture.test.ts',
+              'tests/unit/linkEvidenceSafeAudit.test.ts',
+              'tests/unit/publicSuffixDomainBoundary.test.ts',
+              'tests/unit/officialIdentityTrust.test.ts',
+          ]
+          for name in trusted_tests:
+              p = Path(name)
+              s = p.read_text()
+              s = re.sub(
+                  r'authentication:\s*\{(?!\s*providerTrust\s*:)',
+                  'authentication: { providerTrust: "trusted",',
+                  s,
+              )
+              p.write_text(s)
+
+          # Fix the alignment helper introduced in the first provenance commit:
+          # keep only the final merged authentication property.
+          p = Path('tests/unit/authenticationAlignmentIntegrity.test.ts')
+          s = p.read_text()
+          duplicate = '    authentication,\n    textPreview:'
+          if duplicate not in s:
+              raise SystemExit('alignment duplicate property anchor missing')
+          s = s.replace(duplicate, '    textPreview:', 1)
+          p.write_text(s)
+
+          # The corpus builder itself writes the synthetic receiver's
+          # Authentication-Results header. Encode that provenance in the manifest
+          # instead of teaching individual consumers to guess it.
+          p = Path('fixtures/build-corpus.ts')
+          s = p.read_text()
+          old_type = 'const manifest: Array<{ category: string; kind: "malicious" | "legit"; file: string; variant: string }> = [];'
+          new_type = 'const manifest: Array<{ category: string; kind: "malicious" | "legit"; file: string; variant: string; authenticationTrust: "trusted" | "unknown" }> = [];'
+          if old_type not in s and new_type not in s:
+              raise SystemExit('corpus manifest type anchor missing')
+          s = s.replace(old_type, new_type, 1)
+          old_push = '      manifest.push({ category: fixture.category, kind, file: join(fixture.category, filename), variant });'
+          new_push = '      manifest.push({ category: fixture.category, kind, file: join(fixture.category, filename), variant, authenticationTrust: spec.authResults ? "trusted" : "unknown" });'
+          if old_push not in s and new_push not in s:
+              raise SystemExit('corpus manifest push anchor missing')
+          s = s.replace(old_push, new_push, 1)
+          p.write_text(s)
+
+          manifest_path = Path('fixtures/scam-corpus/manifest.json')
+          manifest = json.loads(manifest_path.read_text())
+          for entry in manifest:
+              entry['authenticationTrust'] = 'trusted'
+          manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
+
+          # Both demo and integration loaders consume the same explicit manifest
+          # provenance. No kind/category/provider inference is allowed here.
+          p = Path('server/src/adapters/fixtures/demoMailbox.ts')
+          s = p.read_text()
+          s = s.replace(
+              'interface ManifestEntry { category: string; kind: "malicious" | "legit"; file: string; variant: string }',
+              'interface ManifestEntry { category: string; kind: "malicious" | "legit"; file: string; variant: string; authenticationTrust: "trusted" | "unknown" }',
+              1,
+          )
+          s = s.replace('        authenticationTrust: "trusted",', '        authenticationTrust: entry.authenticationTrust,')
+          s = s.replace('      authenticationTrust: "trusted",', '      authenticationTrust: entry.authenticationTrust,')
+          p.write_text(s)
+
+          p = Path('tests/integration/corpusScan.test.ts')
+          s = p.read_text()
+          s = s.replace(
+              'type ManifestEntry = { category: string; kind: "malicious" | "legit"; file: string; variant: string };',
+              'type ManifestEntry = { category: string; kind: "malicious" | "legit"; file: string; variant: string; authenticationTrust: "trusted" | "unknown" };',
+              1,
+          )
+          anchor = '      providerFolderName: "INBOX",\n'
+          insertion = anchor + '      authenticationTrust: m.authenticationTrust,\n'
+          if 'authenticationTrust: m.authenticationTrust' not in s:
+              if anchor not in s:
+                  raise SystemExit('corpus loader anchor missing')
+              s = s.replace(anchor, insertion, 1)
+          p.write_text(s)
+      - shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add fixtures/build-corpus.ts fixtures/scam-corpus/manifest.json server/src/adapters/fixtures/demoMailbox.ts tests/integration/corpusScan.test.ts tests/unit/authenticationAlignmentIntegrity.test.ts tests/unit/inboxUnsubscribeClassification.test.ts tests/unit/relationshipContextHistory.test.ts tests/unit/generalizedNormalMailContext.test.ts tests/unit/htmlInteractionNormalization.test.ts tests/unit/generalizedIdentityArchitecture.test.ts tests/unit/linkEvidenceSafeAudit.test.ts tests/unit/publicSuffixDomainBoundary.test.ts tests/unit/officialIdentityTrust.test.ts
+          git commit -m "Make trusted authentication provenance explicit in fixtures and regressions"
+          git push origin HEAD:m2-authentication-results-provenance
