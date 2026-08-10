@@ -64,21 +64,26 @@ function normalizeSelector(raw: string | undefined): string | null {
  * when it does not cover the required headers, so duplicate domain+selector
  * identities cannot be hidden by filtering. Cryptographic validity is supplied
  * separately by a trusted Authentication-Results `dkim=pass`.
+ *
+ * If the raw header section, signature count, or an individual DKIM signature
+ * exceeds its inspection bound, the function returns no candidates at all.
+ * Manual unsubscribe can still be offered; automatic POST must not rely on a
+ * partially inspected signature set.
  */
 export function extractOneClickDkimSignatures(raw: string | Buffer): NonNullable<ListHeaders["oneClickDkimSignatures"]> {
   const section = boundedRawHeaderSection(raw);
   if (!section) return [];
 
-  const signatures: NonNullable<ListHeaders["oneClickDkimSignatures"]> = [];
-  let seenSignatures = 0;
-  for (const header of unfoldHeaders(section)) {
-    const match = header.match(/^DKIM-Signature\s*:\s*([\s\S]*)$/i);
-    if (!match) continue;
-    seenSignatures += 1;
-    if (seenSignatures > MAX_DKIM_SIGNATURE_HEADERS) break;
+  const signatureHeaders = unfoldHeaders(section).filter((header) => /^DKIM-Signature\s*:/i.test(header));
+  if (signatureHeaders.length > MAX_DKIM_SIGNATURE_HEADERS) return [];
 
+  const signatures: NonNullable<ListHeaders["oneClickDkimSignatures"]> = [];
+  for (const header of signatureHeaders) {
+    const match = header.match(/^DKIM-Signature\s*:\s*([\s\S]*)$/i);
+    if (!match) return [];
     const value = match[1] ?? "";
-    if (!value || value.length > MAX_UNFOLDED_DKIM_SIGNATURE_CHARS) continue;
+    if (!value || value.length > MAX_UNFOLDED_DKIM_SIGNATURE_CHARS) return [];
+
     const tags = parseTagList(value);
     const domain = normalizeDomainName(tags.get("d") ?? "");
     const selector = normalizeSelector(tags.get("s"));
