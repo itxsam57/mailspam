@@ -46,6 +46,8 @@ The production boundary is fixed to:
 - `text/html` and `text/plain` as inspectable body types;
 - identity content encoding only.
 
+The process-wide coordinator in `.engineering/DESTINATION_ANALYSIS_COORDINATOR.md` additionally limits active acquisitions to 4, waiting work to 256 distinct destinations and the in-memory classification cache to 512 fixed-expiry entries. Queue exhaustion fails closed and identical in-flight destinations are coalesced before egress.
+
 A declared body larger than the cap, a streaming overflow, compressed content that was not explicitly requested/decoded, request failure or deadline expiry fails closed. Unsupported/binary content is not downloaded and is never classified as benign merely because Email Shield declined to inspect it.
 
 ## Classification boundary
@@ -59,6 +61,10 @@ Failure to acquire or safely inspect a destination produces an error/unknown out
 `hardenedFetch` is wired only at the explicit Analyze Links API composition root. Quick, Full and Spam/Junk scan workflows and the scan Worker must not import or invoke the deep-link network resolver.
 
 This separation is regression locked so adding a new scan path cannot silently turn Email Shield into an automatic link crawler.
+
+## Coordinator privacy
+
+Fetched bodies are transient and never enter the shared cache. Cache keys are process-random HMACs; cache values contain neither requested/final URLs nor page content. Successful classifications expire after five minutes, acquisition errors after fifteen seconds, and reads never extend retention. Only aggregate queue/cache counters are observable.
 
 ## Automated evidence
 
@@ -77,8 +83,10 @@ The blocking suite covers:
 - absence of global `fetch()` in the production resolver;
 - absence of Analyze Links network access from automatic scan paths;
 - production API wiring to the hardened resolver.
+- bounded concurrency, queue admission and fail-closed overload;
+- in-flight coalescing, fixed TTL, LRU bounds and a 10,000-client shared-destination burst.
 
-Primary tests: `hardenedFetchDnsPin.test.ts` and `analyzeLinksNetworkArchitecture.test.ts`.
+Primary tests: `destinationAnalysisCoordinator.test.ts`, `hardenedFetchDnsPin.test.ts` and `analyzeLinksNetworkArchitecture.test.ts`.
 
 ## Remaining live gap
 

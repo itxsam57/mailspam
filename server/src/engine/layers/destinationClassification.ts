@@ -99,7 +99,9 @@ export async function classifyDestination(
   else if (/support agent|call now|your computer is infected/.test(lower)) classification = "fake_support";
   else if (/enable notifications|allow notifications/.test(lower)) classification = "notification_trap";
 
-  return { url, classification, hasForm, hasPasswordField, detail: `Classified from final destination ${result.finalUrl}.` };
+  // Do not copy a complete destination (which may contain path/query secrets)
+  // into coordinator caches or operational telemetry.
+  return { url, classification, hasForm, hasPasswordField, detail: "Classified from the resolved destination." };
 }
 
 function isBlockedTarget(url: URL): boolean {

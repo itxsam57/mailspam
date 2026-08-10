@@ -17,17 +17,24 @@ import {
   normalizeManualUnsubscribeTarget,
   normalizeOneClickTarget,
 } from "../workflows/unsubscribe.js";
-import { analyzeLinks } from "../workflows/analyzeLinks.js";
-import { hardenedFetch } from "../util/hardenedFetch.js";
+import {
+  analyzeLinks,
+  destinationAnalysisCoordinator,
+  type DestinationAnalysisCoordinator,
+} from "../workflows/analyzeLinks.js";
 import type { Provider } from "../canonical/envelope.js";
 import type { ScanActionContext } from "../workflows/scanWorkflows.js";
 import { runDeveloperTestSuite } from "../devtools/testSuiteRunner.js";
 import { communityNetwork, type CommunityNetwork } from "../community/network.js";
 import type { CommunityReportSubmission } from "../community/types.js";
 
-export function createServer(options: { community?: CommunityNetwork } = {}) {
+export function createServer(options: {
+  community?: CommunityNetwork;
+  destinationAnalyzer?: DestinationAnalysisCoordinator;
+} = {}) {
   const app = express();
   const community = options.community ?? communityNetwork;
+  const destinationAnalyzer = options.destinationAnalyzer ?? destinationAnalysisCoordinator;
   app.use(express.json({ limit: "64kb" }));
 
   const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -561,7 +568,7 @@ export function createServer(options: { community?: CommunityNetwork } = {}) {
     const session = sessionStore.get(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
     const { envelope } = req.body as { envelope: import("../canonical/envelope.js").CanonicalEnvelope };
-    const result = await analyzeLinks(envelope, hardenedFetch);
+    const result = await analyzeLinks(envelope, destinationAnalyzer);
     res.json(result);
   });
 

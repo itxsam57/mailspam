@@ -32,10 +32,12 @@ describe("Analyze Links network architecture", () => {
 
   it("wires the production API to hardenedFetch and fails uninspectable content closed", () => {
     const server = source("src/api/server.ts");
+    const analyze = source("src/workflows/analyzeLinks.ts");
     const classifier = source("src/engine/layers/destinationClassification.ts");
 
-    expect(server).toContain('import { hardenedFetch } from "../util/hardenedFetch.js"');
-    expect(server).toContain("analyzeLinks(envelope, hardenedFetch)");
+    expect(analyze).toContain('import { hardenedFetch, type HardenedFetchResult } from "../util/hardenedFetch.js"');
+    expect(analyze).toContain("fetchImpl: hardenedFetch");
+    expect(server).toContain("analyzeLinks(envelope, destinationAnalyzer)");
     expect(classifier).toContain("it was not treated as benign");
   });
 });

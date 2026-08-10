@@ -25,6 +25,7 @@ import {
   normalizeSenderAddress,
   normalizeSenderDomain,
 } from "../workflows/blockAndCleanup.js";
+import type { DestinationAnalysisCoordinator } from "../workflows/analyzeLinks.js";
 
 function escapeAttribute(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({
@@ -59,6 +60,7 @@ export function createLocalDesktopServer(options: {
   security?: LocalSecurityManager;
   googleOAuth?: GoogleOAuthFlowManager;
   microsoftOAuth?: MicrosoftOAuthFlowManager;
+  destinationAnalyzer?: DestinationAnalysisCoordinator;
 } = {}) {
   const app = express();
   const security = options.security ?? localSecurity;
@@ -71,7 +73,7 @@ export function createLocalDesktopServer(options: {
     clientId: process.env.EMAIL_SHIELD_MICROSOFT_CLIENT_ID?.trim() ?? "",
     sessionStore,
   });
-  const inner = createServer({ community });
+  const inner = createServer({ community, destinationAnalyzer: options.destinationAnalyzer });
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const webDir = join(__dirname, "../../../web");
   const dashboardTemplate = readFileSync(join(webDir, "index.html"), "utf8");
