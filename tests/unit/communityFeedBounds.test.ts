@@ -1,5 +1,5 @@
 import type { AddressInfo } from "node:net";
-import { createServer, type Server } from "node:http";
+import { createServer, type RequestListener, type Server } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -59,9 +59,7 @@ function dummyDocument(payload: CommunityFeedPayload): SignedCommunityFeed {
   };
 }
 
-async function startServer(
-  handler: Parameters<typeof createServer>[0],
-): Promise<string> {
+async function startServer(handler: RequestListener): Promise<string> {
   const server = createServer(handler);
   servers.push(server);
   server.listen(0, "127.0.0.1");
