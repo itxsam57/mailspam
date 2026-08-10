@@ -157,7 +157,12 @@ function validateSigningKeyPair(keys: CommunitySigningKeys): string {
   return signingKeyId(keys.publicPem);
 }
 
-function safeReadFile(path: string, description: string, maxBytes: number): Buffer {
+function safeReadFile(
+  path: string,
+  description: string,
+  maxBytes: number,
+  requireOwnerOnly = false,
+): Buffer {
   const noFollow = process.platform === "win32" ? 0 : constants.O_NOFOLLOW;
   let descriptor: number;
   try {
@@ -168,6 +173,9 @@ function safeReadFile(path: string, description: string, maxBytes: number): Buff
   try {
     const stat = fstatSync(descriptor);
     if (!stat.isFile()) throw new Error(`${description} must be a regular file.`);
+    if (requireOwnerOnly && process.platform !== "win32" && (stat.mode & 0o077) !== 0) {
+      throw new Error(`${description} must not be accessible by group or other users.`);
+    }
     if (stat.size < 0 || stat.size > maxBytes) throw new Error(`${description} exceeds its recovery size limit.`);
     const content = readFileSync(descriptor);
     if (content.length > maxBytes) {
@@ -506,14 +514,11 @@ export function restoreEncryptedCommunityBackup(options: {
 
 export function readCommunityBackupPassphraseFile(path: string): Buffer {
   if (!existsSync(path)) throw new Error("Community backup passphrase file does not exist.");
-  const stat = statSync(path);
-  if (!stat.isFile() || stat.size === 0 || stat.size > MAX_PASSPHRASE_FILE_BYTES) {
-    throw new Error("Community backup passphrase file must be a small regular file.");
+  const raw = safeReadFile(path, "Community backup passphrase file", MAX_PASSPHRASE_FILE_BYTES, true);
+  if (raw.length === 0) {
+    raw.fill(0);
+    throw new Error("Community backup passphrase file must not be empty.");
   }
-  if (process.platform !== "win32" && (stat.mode & 0o077) !== 0) {
-    throw new Error("Community backup passphrase file must not be accessible by group or other users.");
-  }
-  const raw = safeReadFile(path, "Community backup passphrase file", MAX_PASSPHRASE_FILE_BYTES);
   let end = raw.length;
   while (end > 0 && (raw[end - 1] === 0x0a || raw[end - 1] === 0x0d)) end--;
   const trimmed = Buffer.from(raw.subarray(0, end));
