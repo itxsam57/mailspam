@@ -46,7 +46,7 @@ function canonicalTimestamp(value: unknown): value is string {
 
 function parseIndicatorKey(key: string): CommunityIndicator | null {
   const separator = key.indexOf("\0");
-  if (separator <= 0 || separator !== key.lastIndexOf("\0")) return null;
+  if (separator <= 0) return null;
   const type = key.slice(0, separator);
   const value = key.slice(separator + 1);
   if (!INDICATOR_TYPES.has(type) || !value || value.length > MAX_INDICATOR_VALUE_CHARS) return null;
