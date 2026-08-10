@@ -120,7 +120,7 @@ describe("organizational domain identity", () => {
 });
 
 describe("provider-neutral unsubscribe availability", () => {
-  it("prefers RFC 8058 one-click when declared", () => {
+  it("does not offer one-click from declaration alone without DKIM authorization", () => {
     const capability = unsubscribeCapability(envelope({
       listHeaders: {
         listId: "list.example",
@@ -128,7 +128,7 @@ describe("provider-neutral unsubscribe availability", () => {
         listUnsubscribePost: "List-Unsubscribe=One-Click",
       },
     }));
-    expect(capability).toMatchObject({ available: true, method: "one_click_post", source: "list_header" });
+    expect(capability).toMatchObject({ available: true, method: "link_only", source: "list_header" });
   });
 
   it("exposes ordinary header links instead of hiding them", () => {
