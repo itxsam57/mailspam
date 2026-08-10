@@ -5,6 +5,10 @@ import type { SignedFeedEntry, ThreatFeedCache } from "../engine/layers/globalIn
 import { EncryptedCommunityAggregateStore } from "./aggregateStore.js";
 import { EncryptedCommunityOutbox } from "./outbox.js";
 import { CommunityReporterIdentity } from "./reporterIdentity.js";
+import {
+  MAX_COMMUNITY_FEED_RESPONSE_BYTES,
+  MAX_COMMUNITY_RECEIPT_RESPONSE_BYTES,
+} from "./resourceLimits.js";
 import { CommunityFeedSigner, verifyCommunityFeed } from "./signing.js";
 import type {
   CommunityReportContext,
@@ -15,8 +19,6 @@ import type {
 
 const REMOTE_TIMEOUT_MS = 10_000;
 const MAX_FLUSH_PER_REFRESH = 25;
-export const MAX_COMMUNITY_RECEIPT_RESPONSE_BYTES = 32 * 1024;
-export const MAX_COMMUNITY_FEED_RESPONSE_BYTES = 4 * 1024 * 1024;
 const DEFAULT_DATA_DIRECTORY = process.env.EMAIL_SHIELD_DATA_DIR?.trim() || join(homedir(), ".email-shield");
 
 function configuredPublicKeys(): string[] {
