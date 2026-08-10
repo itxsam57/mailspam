@@ -10,7 +10,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const CORPUS_DIR = join(__dirname, "../../../fixtures/scam-corpus");
 const PROVIDERS: Provider[] = ["gmail", "icloud", "outlook", "yahoo", "imap"];
 
-interface ManifestEntry { category: string; kind: "malicious" | "legit"; file: string; variant: string }
+interface ManifestEntry {
+  category: string;
+  kind: "malicious" | "legit";
+  file: string;
+  variant: string;
+  authenticationTrust: "trusted" | "unknown";
+}
 
 export interface DevTestReport {
   generatedAt: string;
@@ -27,8 +33,8 @@ export interface DevTestReport {
     legitTotal: number;
   }>;
   crossProviderParityFailures: Array<{ category: string; provider: string; verdict: string }>;
-  falsePositives: Array<{ category: string; provider: string; variant: string }>; // legit scored non-safe
-  falseNegatives: Array<{ category: string; provider: string; variant: string }>; // malicious scored safe
+  falsePositives: Array<{ category: string; provider: string; variant: string }>;
+  falseNegatives: Array<{ category: string; provider: string; variant: string }>;
 }
 
 /**
@@ -37,6 +43,9 @@ export interface DevTestReport {
  * panel — runs the entire scam corpus through all 5 provider fixture
  * adapters and the real detection pipeline (same code path production
  * scans use, not a separate test-only shortcut).
+ *
+ * Authentication provenance is consumed from the generated corpus manifest;
+ * this runner must never infer trust from provider, category, or verdict kind.
  */
 export async function runDeveloperTestSuite(): Promise<DevTestReport> {
   const manifest: ManifestEntry[] = JSON.parse(readFileSync(join(CORPUS_DIR, "manifest.json"), "utf-8"));
@@ -51,6 +60,7 @@ export async function runDeveloperTestSuite(): Promise<DevTestReport> {
       rawEml: readFileSync(join(CORPUS_DIR, m.file), "utf-8"),
       folder: "inbox",
       providerFolderName: "INBOX",
+      authenticationTrust: m.authenticationTrust,
     }));
     const adapter = new FixtureAdapter(provider, messages);
     const ac = new AbortController();
