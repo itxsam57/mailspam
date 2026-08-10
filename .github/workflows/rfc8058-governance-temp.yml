@@ -1,0 +1,81 @@
+name: RFC8058 governance temporary
+on:
+  push:
+    branches:
+      - m2-rfc8058-one-click-integrity
+permissions:
+  contents: write
+jobs:
+  edit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m2-rfc8058-one-click-integrity
+      - shell: python
+        run: |
+          from pathlib import Path
+
+          matrix = Path('.engineering/TEST_MATRIX.md')
+          text = matrix.read_text()
+          if '| A-57 |' not in text:
+              lines = text.splitlines()
+              for i, line in enumerate(lines):
+                  if line.startswith('| A-56 | Authentication-Results provenance integrity |'):
+                      lines.insert(i + 1, '| A-57 | RFC 8058 one-click unsubscribe integrity | Automatic one-click POST requires exactly one bounded raw `List-Unsubscribe` field and one `List-Unsubscribe-Post` field, an HTTPS target plus One-Click declaration, REG-066 trusted `dkim=pass` with exact `header.d`+`header.s`, exactly one matching raw DKIM signature candidate, and `h=` coverage of both required list headers; raw multi-target List-Unsubscribe values must be preserved losslessly; duplicate/mismatched/missing DKIM or list headers, ARC-only success, untrusted provenance, signature/header ambiguity, or DKIM/header resource-limit exhaustion must fall back to manual unsubscribe and never POST; browser confirmation plus the existing public-address-pinned credential-free HTTPS POST remain mandatory | `rfc8058OneClickIntegrity.test.ts`, `rfc8058DkimResourceBounds.test.ts`, unsubscribe/MIME/auth regressions, strict type/build, full corpus/Worker/server/browser gate | Windows + macOS + Ubuntu | Blocking |')
+                      break
+              else:
+                  raise SystemExit('A-56 insertion point missing')
+              text = '\n'.join(lines) + '\n'
+          old = 'Authentication-Results provenance/fail-closed trust behavior, and Analyze Links DNS-pinning/SSRF/redirect/resource-boundary behavior are automated.'
+          new = 'Authentication-Results provenance/fail-closed trust behavior, RFC 8058 one-click DKIM/list-header authorization behavior, and Analyze Links DNS-pinning/SSRF/redirect/resource-boundary behavior are automated.'
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif new not in text:
+              raise SystemExit('automated matrix paragraph missing')
+          matrix.write_text(text)
+
+          register = Path('.engineering/REGRESSION_REGISTER.md')
+          text = register.read_text()
+          if '| REG-067 |' not in text:
+              lines = text.splitlines()
+              for i, line in enumerate(lines):
+                  if line.startswith('| REG-066 |'):
+                      lines.insert(i + 1, '| REG-067 | LOCKED | RFC 8058 automatic one-click unsubscribe is an authenticated network action, not a header-declaration feature. Authorization requires one unambiguous bounded raw List-Unsubscribe/List-Unsubscribe-Post field set, One-Click declaration plus HTTPS target, REG-066 trusted passing DKIM with both `header.d` and `header.s`, and exactly one same-domain+selector raw DKIM signature whose `h=` covers both list headers. All raw List-Unsubscribe URIs must be preserved losslessly for manual fallback. Duplicate or mixed same-identity signatures, duplicate list fields, missing/mismatched selector/domain/coverage, ARC-only success, untrusted provenance, >16 DKIM signatures, >16 KiB DKIM signature or >128 KiB unterminated raw-header inspection must disable automatic POST rather than trust a partial view. Internal DKIM correlation metadata stays server/Worker-only; explicit browser confirmation and the existing credential-free DNS-pinned public HTTPS POST boundary remain mandatory. | `rfc8058OneClickIntegrity.test.ts`, `rfc8058DkimResourceBounds.test.ts`, unsubscribe/MIME/auth regressions, strict type/build, full Windows/macOS/Ubuntu engineering gate |')
+                      break
+              else:
+                  raise SystemExit('REG-066 insertion point missing')
+              text = '\n'.join(lines) + '\n'
+          if '| GAP-026 |' not in text:
+              lines = text.splitlines()
+              for i, line in enumerate(lines):
+                  if line.startswith('| GAP-025 |'):
+                      lines.insert(i + 1, '| GAP-026 | RESOLVED | RFC 8058 one-click unsubscribe authorization path | Email Shield previously offered automatic POST from the One-Click declaration plus HTTPS target alone and canonical list parsing could discard alternate List-Unsubscribe URIs. Added bounded raw lossless list-header normalization, exact REG-066 trusted DKIM `d=`+`s=` correlation, both-header `h=` coverage proof, raw list/signature ambiguity rejection and resource-limit fail-closed behavior. Missing or ambiguous proof now preserves manual link/mailto options but cannot trigger an automatic POST. Existing user confirmation, public-address-pinned credential-free HTTPS transport and no-redirect-success semantics remain unchanged. This code-only resolution does not establish live provider Authentication-Results trust or close GAP-002. |')
+                      break
+              else:
+                  raise SystemExit('GAP-025 insertion point missing')
+              text = '\n'.join(lines) + '\n'
+          register.write_text(text)
+
+          readme = Path('README_REBUILD_STATUS.md')
+          text = readme.read_text()
+          bullet = '- RFC 8058 one-click unsubscribe integrity: automatic POST now requires lossless/unambiguous raw list headers plus exact REG-066 trusted DKIM domain+selector correlation and signed coverage of both required headers; ambiguity or resource-limit exhaustion falls back to the existing manual unsubscribe path while user confirmation and hardened pinned-public HTTPS transport remain unchanged.'
+          if bullet not in text:
+              lines = text.splitlines()
+              for i, line in enumerate(lines):
+                  if line.startswith('- Authentication-Results provenance integrity:'):
+                      if line.endswith('.'):
+                          lines[i] = line[:-1] + ';'
+                      lines.insert(i + 1, bullet)
+                      break
+              else:
+                  raise SystemExit('README insertion point missing')
+              text = '\n'.join(lines) + '\n'
+          readme.write_text(text)
+      - shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .engineering/TEST_MATRIX.md .engineering/REGRESSION_REGISTER.md README_REBUILD_STATUS.md
+          git commit -m "Lock RFC8058 one-click integrity governance"
+          git push origin HEAD:m2-rfc8058-one-click-integrity
