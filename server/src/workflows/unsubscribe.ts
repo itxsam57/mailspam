@@ -3,6 +3,7 @@ import { request } from "node:https";
 import type { IncomingMessage } from "node:http";
 import { isIP } from "node:net";
 import type { CanonicalEnvelope } from "../canonical/envelope.js";
+import { trustedPassingDkimIdentities } from "../engine/identitySignals.js";
 
 export type UnsubscribeMethod = "one_click_post" | "mailto" | "link_only" | "none";
 
@@ -42,10 +43,23 @@ function normalizedFooterTarget(envelope: CanonicalEnvelope): string | null {
   return null;
 }
 
+function oneClickDkimAuthorized(envelope: CanonicalEnvelope): boolean {
+  const coverage = envelope.listHeaders.oneClickDkimCoverage ?? [];
+  if (coverage.length === 0) return false;
+
+  for (const identity of trustedPassingDkimIdentities(envelope)) {
+    const matches = coverage.filter((item) => item.domain === identity.domain && item.selector === identity.selector);
+    if (matches.length === 1) return true;
+  }
+  return false;
+}
+
 /**
- * Every canonical provider uses this same capability resolver. RFC 8058 is
- * preferred, but normal List-Unsubscribe links, mailto actions, and explicit
- * footer unsubscribe links are also exposed to the user.
+ * Every canonical provider uses this same capability resolver. RFC 8058
+ * one-click POST is offered only when a trusted passing DKIM identity maps
+ * unambiguously to a raw DKIM signature that signs both required list headers.
+ * Otherwise the same message falls back to a manual List-Unsubscribe/footer
+ * option rather than performing an automatic network action.
  */
 export function unsubscribeCapability(envelope: CanonicalEnvelope): UnsubscribeCapability {
   const targets = headerTargets(envelope.listHeaders.listUnsubscribe);
@@ -54,7 +68,7 @@ export function unsubscribeCapability(envelope: CanonicalEnvelope): UnsubscribeC
   );
 
   const httpsTarget = targets.find((target) => /^https:\/\//i.test(target));
-  if (oneClickDeclared && httpsTarget) {
+  if (oneClickDeclared && httpsTarget && oneClickDkimAuthorized(envelope)) {
     return { available: true, method: "one_click_post", target: httpsTarget, source: "list_header" };
   }
 
