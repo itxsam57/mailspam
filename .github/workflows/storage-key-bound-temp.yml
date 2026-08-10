@@ -1,0 +1,58 @@
+name: Storage key bound temporary
+on:
+  push:
+    branches:
+      - m2-community-recoverable-storage-bound
+permissions:
+  contents: write
+jobs:
+  edit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m2-community-recoverable-storage-bound
+      - shell: python
+        run: |
+          from pathlib import Path
+          p = Path("server/src/community/aggregateStore.ts")
+          s = p.read_text()
+          old = '''    const key = readFileSync(this.keyPath);
+    if (key.length !== COMMUNITY_STORAGE_KEY_BYTES) throw new Error("Community storage encryption key is invalid.");
+    try { chmodSync(this.keyPath, 0o600); } catch {}
+    this.keyCache = key;
+    return key;'''
+          new = '''    const noFollow = process.platform === "win32" ? 0 : constants.O_NOFOLLOW;
+    let descriptor: number;
+    try {
+      descriptor = openSync(this.keyPath, constants.O_RDONLY | noFollow);
+    } catch {
+      throw new Error("Community storage encryption key could not be opened safely.");
+    }
+    let key: Buffer;
+    try {
+      const stat = fstatSync(descriptor);
+      if (!stat.isFile() || stat.size !== COMMUNITY_STORAGE_KEY_BYTES) {
+        throw new Error("Community storage encryption key is invalid.");
+      }
+      key = readFileSync(descriptor);
+      if (key.length !== COMMUNITY_STORAGE_KEY_BYTES) {
+        key.fill(0);
+        throw new Error("Community storage encryption key changed while being read.");
+      }
+    } finally {
+      closeSync(descriptor);
+    }
+    try { chmodSync(this.keyPath, 0o600); } catch {}
+    this.keyCache = key;
+    return key;'''
+          if old not in s:
+              raise SystemExit("key block missing")
+          p.write_text(s.replace(old, new, 1))
+      - shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add server/src/community/aggregateStore.ts
+          git commit -m "Bound community storage key reads"
+          git push origin HEAD:m2-community-recoverable-storage-bound
