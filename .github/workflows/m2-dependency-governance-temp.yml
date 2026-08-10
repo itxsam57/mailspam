@@ -1,0 +1,57 @@
+name: M2 dependency governance temporary
+on:
+  push:
+    branches:
+      - m2-dependency-security-closure
+permissions:
+  contents: write
+jobs:
+  edit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m2-dependency-security-closure
+      - shell: python
+        run: |
+          from pathlib import Path
+          m=Path('.engineering/TEST_MATRIX.md'); t=m.read_text()
+          if '| A-59 |' not in t:
+            ls=t.splitlines()
+            for i,l in enumerate(ls):
+              if l.startswith('| A-58 |'):
+                ls.insert(i+1,'| A-59 | Dependency security closure | Reviewed security-sensitive dependency upgrades must preserve strict type/build, Gmail/Outlook OAuth/vault semantics, the full corpus/Worker/browser/server/community gate and all three desktop platforms; the generated lockfile is authoritative and must not be manually rewritten; the accepted Milestone 2 graph has zero installed npm advisories, while future high/critical production advisories remain blocking | dependency inventory, OAuth/vault regressions, strict type/build, full Engineering Gate | Windows + macOS + Ubuntu | Blocking |'); break
+            else: raise SystemExit('A-58 missing')
+            m.write_text('\n'.join(ls)+'\n')
+          r=Path('.engineering/REGRESSION_REGISTER.md'); t=r.read_text()
+          if '| REG-069 |' not in t:
+            ls=t.splitlines()
+            for i,l in enumerate(ls):
+              if l.startswith('| REG-068 |'):
+                ls.insert(i+1,'| REG-069 | LOCKED | Dependency remediation must be reviewed rather than force-applied: the accepted Milestone 2 baseline uses Vitest ^4.1.10, @azure/msal-node ^5.5.0 and googleapis ^174.0.1 with the npm-generated lock graph; OAuth/public-client/token-rotation/vault behavior and the full three-platform gate must remain unchanged; the accepted all-installed audit is zero advisories. Future advisories are new evidence and must not be hidden by weakening audit policy or hand-editing the lockfile. | dependency inventory, OAuth/vault regressions, strict type/build, full Windows/macOS/Ubuntu Engineering Gate |'); break
+            else: raise SystemExit('REG-068 missing')
+            t='\n'.join(ls)+'\n'
+          if '| GAP-028 |' not in t:
+            ls=t.splitlines()
+            for i,l in enumerate(ls):
+              if l.startswith('| GAP-027 |'):
+                ls.insert(i+1,'| GAP-028 | RESOLVED | Final Milestone 2 dependency advisory backlog | Final closure audit found 11 installed advisories (including critical/high development-chain findings and moderate Microsoft/Google production-chain findings). Reviewed major upgrades were accepted only after focused Gmail/Outlook/vault compatibility tests and the complete three-platform Engineering Gate; the resulting installed dependency inventory is zero advisories. |'); break
+            else: raise SystemExit('GAP-027 missing')
+            t='\n'.join(ls)+'\n'
+          r.write_text(t)
+          s=Path('README_REBUILD_STATUS.md'); t=s.read_text()
+          b='- dependency security closure: reviewed Vitest/Microsoft/Google dependency upgrades preserve the existing OAuth/vault/runtime contracts and reduce the accepted installed npm advisory inventory to zero without force-fixing or hand-editing the lockfile;'
+          if b not in t:
+            ls=t.splitlines()
+            for i,l in enumerate(ls):
+              if l.startswith('- local persistence descriptor/read/commit integrity:'):
+                ls.insert(i+1,b); break
+            else: raise SystemExit('persistence bullet missing')
+            s.write_text('\n'.join(ls)+'\n')
+      - shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .engineering/TEST_MATRIX.md .engineering/REGRESSION_REGISTER.md README_REBUILD_STATUS.md
+          git commit -m "Lock dependency security closure governance"
+          git push origin HEAD:m2-dependency-security-closure
