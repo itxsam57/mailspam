@@ -12,9 +12,13 @@ import {
 } from "node:crypto";
 import {
   chmodSync,
+  closeSync,
+  constants,
   existsSync,
+  fstatSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -41,7 +45,8 @@ const SCRYPT_P = 1;
 const SCRYPT_MAXMEM = 64 * 1024 * 1024;
 const MAX_PASSPHRASE_FILE_BYTES = 4 * 1024;
 const MIN_PASSPHRASE_BYTES = 16;
-export const MAX_COMMUNITY_BACKUP_SOURCE_BYTES = 256 * 1024 * 1024;
+const MAX_SIGNING_KEY_FILE_BYTES = 64 * 1024;
+export const MAX_COMMUNITY_BACKUP_SOURCE_BYTES = 192 * 1024 * 1024;
 export const MAX_COMMUNITY_BACKUP_FILE_BYTES = 384 * 1024 * 1024;
 
 const BACKUP_FILE_MODES: Readonly<Record<string, number>> = Object.freeze({
@@ -152,6 +157,29 @@ function validateSigningKeyPair(keys: CommunitySigningKeys): string {
   return signingKeyId(keys.publicPem);
 }
 
+function safeReadFile(path: string, description: string, maxBytes: number): Buffer {
+  const noFollow = process.platform === "win32" ? 0 : constants.O_NOFOLLOW;
+  let descriptor: number;
+  try {
+    descriptor = openSync(path, constants.O_RDONLY | noFollow);
+  } catch {
+    throw new Error(`${description} could not be opened safely.`);
+  }
+  try {
+    const stat = fstatSync(descriptor);
+    if (!stat.isFile()) throw new Error(`${description} must be a regular file.`);
+    if (stat.size < 0 || stat.size > maxBytes) throw new Error(`${description} exceeds its recovery size limit.`);
+    const content = readFileSync(descriptor);
+    if (content.length > maxBytes) {
+      content.fill(0);
+      throw new Error(`${description} exceeded its recovery size limit while being read.`);
+    }
+    return content;
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
 function loadSigningKeys(
   dataDirectory: string,
   configured?: CommunitySigningKeys,
@@ -163,11 +191,19 @@ function loadSigningKeys(
   const hasPublic = existsSync(publicPath);
   if (hasPrivate !== hasPublic) throw new Error("Community signing key storage is incomplete.");
   if (!hasPrivate) throw new Error("Community signing key pair is missing; initialize the service or provide configured signing keys.");
-  const keys = {
-    privatePem: readFileSync(privatePath, "utf8"),
-    publicPem: readFileSync(publicPath, "utf8"),
-  };
-  return { keys, keyId: validateSigningKeyPair(keys) };
+
+  const privateBytes = safeReadFile(privatePath, "Community signing private key", MAX_SIGNING_KEY_FILE_BYTES);
+  const publicBytes = safeReadFile(publicPath, "Community signing public key", MAX_SIGNING_KEY_FILE_BYTES);
+  try {
+    const keys = {
+      privatePem: privateBytes.toString("utf8"),
+      publicPem: publicBytes.toString("utf8"),
+    };
+    return { keys, keyId: validateSigningKeyPair(keys) };
+  } finally {
+    privateBytes.fill(0);
+    publicBytes.fill(0);
+  }
 }
 
 function passphraseBuffer(passphrase: string | Buffer): Buffer {
@@ -202,6 +238,7 @@ function canonicalBase64(value: unknown, expectedBytes?: number): Buffer {
   }
   const decoded = Buffer.from(value, "base64");
   if (decoded.toString("base64") !== value || (expectedBytes !== undefined && decoded.length !== expectedBytes)) {
+    decoded.fill(0);
     throw new Error("Community backup contains non-canonical cryptographic encoding.");
   }
   return decoded;
@@ -279,12 +316,6 @@ function validatePayload(value: unknown): { payload: CommunityBackupPayload; fil
   }
 }
 
-function readRegularFile(path: string, name: string): Buffer {
-  const stat = statSync(path);
-  if (!stat.isFile()) throw new Error(`Community authoritative file ${name} is not a regular file.`);
-  return readFileSync(path);
-}
-
 function validateRecoveryDirectory(dataDirectory: string): { signingKeyId: string; aggregateStoragePresent: boolean } {
   const signer = new CommunityFeedSigner(dataDirectory);
   const hasStorageKey = existsSync(join(dataDirectory, COMMUNITY_REPORT_KEY_FILE));
@@ -320,19 +351,21 @@ export function createEncryptedCommunityBackup(options: {
 
   const privateBytes = Buffer.from(signing.keys.privatePem, "utf8");
   const publicBytes = Buffer.from(signing.keys.publicPem, "utf8");
-  const aggregateBytes = hasStorageKey ? statSync(storageKeyPath).size + statSync(databasePath).size : 0;
-  const sourceBytes = aggregateBytes + privateBytes.length + publicBytes.length;
-  if (sourceBytes > MAX_COMMUNITY_BACKUP_SOURCE_BYTES) {
+  let remainingBytes = MAX_COMMUNITY_BACKUP_SOURCE_BYTES - privateBytes.length - publicBytes.length;
+  if (remainingBytes < 0) {
     privateBytes.fill(0);
-    throw new Error("Community authoritative data exceeds the portable backup size limit.");
+    throw new Error("Community signing keys exceed the portable backup size limit.");
   }
 
   const files: BackupFile[] = [];
+  let sourceBytes = privateBytes.length + publicBytes.length;
   try {
     if (hasStorageKey) {
-      const storageKey = readRegularFile(storageKeyPath, COMMUNITY_REPORT_KEY_FILE);
-      const database = readRegularFile(databasePath, COMMUNITY_REPORT_DATABASE_FILE);
+      const storageKey = safeReadFile(storageKeyPath, "Community aggregate storage key", remainingBytes);
+      remainingBytes -= storageKey.length;
+      const database = safeReadFile(databasePath, "Community aggregate database", remainingBytes);
       try {
+        sourceBytes += storageKey.length + database.length;
         files.push(encodeBackupFile(COMMUNITY_REPORT_KEY_FILE, storageKey));
         files.push(encodeBackupFile(COMMUNITY_REPORT_DATABASE_FILE, database));
       } finally {
@@ -477,7 +510,10 @@ export function readCommunityBackupPassphraseFile(path: string): Buffer {
   if (!stat.isFile() || stat.size === 0 || stat.size > MAX_PASSPHRASE_FILE_BYTES) {
     throw new Error("Community backup passphrase file must be a small regular file.");
   }
-  const raw = readFileSync(path);
+  if (process.platform !== "win32" && (stat.mode & 0o077) !== 0) {
+    throw new Error("Community backup passphrase file must not be accessible by group or other users.");
+  }
+  const raw = safeReadFile(path, "Community backup passphrase file", MAX_PASSPHRASE_FILE_BYTES);
   let end = raw.length;
   while (end > 0 && (raw[end - 1] === 0x0a || raw[end - 1] === 0x0d)) end--;
   const trimmed = Buffer.from(raw.subarray(0, end));
@@ -586,13 +622,20 @@ export function verifyCommunitySigningRotationPackage(directory: string): Commun
     !Array.isArray(root.sequence) || JSON.stringify(root.sequence) !== JSON.stringify(expectedSequence)
   ) throw new Error("Community signing rotation manifest is invalid.");
 
-  const nextKeys = {
-    privatePem: readFileSync(privatePath, "utf8"),
-    publicPem: readFileSync(publicPath, "utf8"),
-  };
-  const nextKeyId = validateSigningKeyPair(nextKeys);
-  if (nextKeyId !== root.nextKeyId || nextKeys.publicPem !== root.nextPublicKey) {
-    throw new Error("Community signing rotation next-key material does not match its manifest.");
+  const privateBytes = safeReadFile(privatePath, "Community rotation next private key", MAX_SIGNING_KEY_FILE_BYTES);
+  const publicBytes = safeReadFile(publicPath, "Community rotation next public key", MAX_SIGNING_KEY_FILE_BYTES);
+  try {
+    const nextKeys = {
+      privatePem: privateBytes.toString("utf8"),
+      publicPem: publicBytes.toString("utf8"),
+    };
+    const nextKeyId = validateSigningKeyPair(nextKeys);
+    if (nextKeyId !== root.nextKeyId || nextKeys.publicPem !== root.nextPublicKey) {
+      throw new Error("Community signing rotation next-key material does not match its manifest.");
+    }
+  } finally {
+    privateBytes.fill(0);
+    publicBytes.fill(0);
   }
   if (signingKeyId(root.currentPublicKey) !== root.currentKeyId) {
     throw new Error("Community signing rotation current public key does not match its manifest.");
