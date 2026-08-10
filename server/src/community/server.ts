@@ -5,6 +5,9 @@ import { MAX_COMMUNITY_REPORT_REQUEST_BYTES } from "./resourceLimits.js";
 import { verifyCommunityFeed } from "./signing.js";
 import type { CommunityReportSubmission } from "./types.js";
 
+const READY_PROBE_CACHE_MS = 15_000;
+const FAILED_PROBE_CACHE_MS = 2_000;
+
 export interface CommunityServiceReadiness {
   ready: boolean;
   signedFeedAvailable: boolean;
@@ -39,15 +42,27 @@ export function createCommunityServiceServer(
   network: CommunityNetwork = communityNetwork,
 ) {
   const app = express();
+  let readinessCache: { expiresAt: number; value: CommunityServiceReadiness } | null = null;
+  const readiness = (): CommunityServiceReadiness => {
+    const now = Date.now();
+    if (readinessCache && now < readinessCache.expiresAt) return readinessCache.value;
+    const value = inspectCommunityServiceReadiness(network);
+    readinessCache = {
+      value,
+      expiresAt: now + (value.ready ? READY_PROBE_CACHE_MS : FAILED_PROBE_CACHE_MS),
+    };
+    return value;
+  };
+
   app.disable("x-powered-by");
   app.use(express.json({ limit: MAX_COMMUNITY_REPORT_REQUEST_BYTES }));
 
   app.get("/health", (_req: Request, res: Response) => {
-    const readiness = inspectCommunityServiceReadiness(network);
+    const state = readiness();
     res.setHeader("Cache-Control", "no-store");
-    res.status(readiness.ready ? 200 : 503).json({
+    res.status(state.ready ? 200 : 503).json({
       service: "email-shield-community",
-      ...readiness,
+      ...state,
     });
   });
 
