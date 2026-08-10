@@ -1,0 +1,1491 @@
+{
+  "formatVersion": 1,
+  "portableCoreSchemaVersion": 1,
+  "generatedBy": "scripts/engineering/core-conformance-vectors.mjs",
+  "vectors": [
+    {
+      "id": "provider-gmail-credential-phishing",
+      "request": {
+        "schemaVersion": 1,
+        "envelope": {
+          "provider": "gmail",
+          "accountProof": "fixture-account-proof-gmail",
+          "messageId": "<tx3vh9aqifh@fixture.test>",
+          "providerNativeId": "provider-gmail-credential-phishing-message",
+          "folder": "inbox",
+          "providerFolderName": "INBOX",
+          "from": {
+            "displayName": "Account Services",
+            "address": "no-reply@accounts-verify-secure.com",
+            "domain": "accounts-verify-secure.com"
+          },
+          "replyTo": null,
+          "subject": "Unusual sign-in activity detected — verify your account",
+          "date": "2026-08-02T12:04:13.000Z",
+          "authentication": {
+            "spf": "fail",
+            "dkim": "fail",
+            "dmarc": "fail",
+            "arc": "unknown",
+            "rawHeader": "mx.example.test; spf=fail; dkim=fail; dmarc=fail",
+            "providerTrust": "trusted"
+          },
+          "textPreview": "We noticed unusual sign-in activity on your account. Your account will be suspended within 24 hours. Please confirm your identity and enter your password and one-time passcode here: http://accounts-verify-secure.com/login",
+          "htmlSignals": null,
+          "links": [
+            {
+              "visibleText": "http://accounts-verify-secure.com/login",
+              "rawUrl": "http://accounts-verify-secure.com/login",
+              "normalizedUrl": "http://accounts-verify-secure.com/login",
+              "claimedBrand": null,
+              "brandDomainMismatch": null,
+              "source": "body",
+              "interaction": "navigation"
+            }
+          ],
+          "attachments": [],
+          "listHeaders": {
+            "listId": null,
+            "listUnsubscribe": null,
+            "listUnsubscribePost": null,
+            "oneClickHeaderSetUnambiguous": false,
+            "oneClickDkimSignatures": []
+          },
+          "threadContext": {
+            "isFirstContact": true,
+            "threadContinuityBroken": false,
+            "replyToChangedMidThread": false
+          },
+          "parseStatus": "complete",
+          "parseNotes": [],
+          "diagnostics": {
+            "fetchedAt": "2026-08-11T00:00:00.000Z",
+            "sizeBytes": 602,
+            "encoding": "plain",
+            "contentCoverage": "complete",
+            "qrInspection": {
+              "supportedImages": 0,
+              "decodedUrlCount": 0,
+              "incomplete": false,
+              "incompleteReasons": []
+            },
+            "attachmentHashInspection": {
+              "attachments": 0,
+              "hashed": 0,
+              "incomplete": false,
+              "incompleteReasons": []
+            }
+          }
+        },
+        "personalPolicy": {
+          "blockedSenders": [],
+          "blockedDomains": [],
+          "trustedSenders": [],
+          "approvedExceptions": [],
+          "unsubscribedActions": [],
+          "reportedCampaigns": []
+        },
+        "intelligence": {
+          "state": "verified",
+          "entries": []
+        }
+      },
+      "expectedResponse": {
+        "schemaVersion": 1,
+        "verdict": "high_risk",
+        "score": 8,
+        "confirmedByRule": false,
+        "action": "allow_one_click_block",
+        "evidence": [
+          {
+            "layer": "transport_auth",
+            "code": "DMARC_FAIL",
+            "description": "Message failed DMARC alignment for the claimed sending domain.",
+            "scoreContribution": 3,
+            "source": "local"
+          },
+          {
+            "layer": "transport_auth",
+            "code": "SPF_DKIM_BOTH_FAIL",
+            "description": "Both SPF and DKIM failed; sender authenticity could not be verified.",
+            "scoreContribution": 2,
+            "source": "local"
+          },
+          {
+            "layer": "message_intent",
+            "code": "CREDENTIAL_PHISH_INTENT",
+            "description": "Message asks for credentials/OTP under time or suspension pressure.",
+            "scoreContribution": 3,
+            "source": "local"
+          },
+          {
+            "layer": "relationship_context",
+            "code": "FIRST_CONTACT",
+            "description": "No conservative established sender relationship exists in local history.",
+            "scoreContribution": 0,
+            "source": "local"
+          }
+        ],
+        "layerResults": [
+          {
+            "layer": "transport_auth",
+            "applicable": true,
+            "evidence": [
+              {
+                "layer": "transport_auth",
+                "code": "DMARC_FAIL",
+                "description": "Message failed DMARC alignment for the claimed sending domain.",
+                "scoreContribution": 3,
+                "source": "local"
+              },
+              {
+                "layer": "transport_auth",
+                "code": "SPF_DKIM_BOTH_FAIL",
+                "description": "Both SPF and DKIM failed; sender authenticity could not be verified.",
+                "scoreContribution": 2,
+                "source": "local"
+              }
+            ],
+            "incomplete": false
+          },
+          {
+            "layer": "identity_impersonation",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "message_intent",
+            "applicable": true,
+            "evidence": [
+              {
+                "layer": "message_intent",
+                "code": "CREDENTIAL_PHISH_INTENT",
+                "description": "Message asks for credentials/OTP under time or suspension pressure.",
+                "scoreContribution": 3,
+                "source": "local"
+              }
+            ],
+            "incomplete": false,
+            "blocksSafeVerdict": false
+          },
+          {
+            "layer": "link_structure",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "destination_classification",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": true,
+            "incompleteReason": "Destination analysis only runs via the explicit Analyze Links action, not during scans."
+          },
+          {
+            "layer": "attachment_qr",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false,
+            "blocksSafeVerdict": false
+          },
+          {
+            "layer": "html_interaction",
+            "applicable": false,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "relationship_context",
+            "applicable": true,
+            "evidence": [
+              {
+                "layer": "relationship_context",
+                "code": "FIRST_CONTACT",
+                "description": "No conservative established sender relationship exists in local history.",
+                "scoreContribution": 0,
+                "source": "local"
+              }
+            ],
+            "incomplete": false
+          },
+          {
+            "layer": "personal_rules",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "global_intelligence",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false,
+            "blocksSafeVerdict": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider-icloud-credential-phishing",
+      "request": {
+        "schemaVersion": 1,
+        "envelope": {
+          "provider": "icloud",
+          "accountProof": "fixture-account-proof-icloud",
+          "messageId": "<tx3vh9aqifh@fixture.test>",
+          "providerNativeId": "provider-icloud-credential-phishing-message",
+          "folder": "inbox",
+          "providerFolderName": "INBOX",
+          "from": {
+            "displayName": "Account Services",
+            "address": "no-reply@accounts-verify-secure.com",
+            "domain": "accounts-verify-secure.com"
+          },
+          "replyTo": null,
+          "subject": "Unusual sign-in activity detected — verify your account",
+          "date": "2026-08-02T12:04:13.000Z",
+          "authentication": {
+            "spf": "fail",
+            "dkim": "fail",
+            "dmarc": "fail",
+            "arc": "unknown",
+            "rawHeader": "mx.example.test; spf=fail; dkim=fail; dmarc=fail",
+            "providerTrust": "trusted"
+          },
+          "textPreview": "We noticed unusual sign-in activity on your account. Your account will be suspended within 24 hours. Please confirm your identity and enter your password and one-time passcode here: http://accounts-verify-secure.com/login",
+          "htmlSignals": null,
+          "links": [
+            {
+              "visibleText": "http://accounts-verify-secure.com/login",
+              "rawUrl": "http://accounts-verify-secure.com/login",
+              "normalizedUrl": "http://accounts-verify-secure.com/login",
+              "claimedBrand": null,
+              "brandDomainMismatch": null,
+              "source": "body",
+              "interaction": "navigation"
+            }
+          ],
+          "attachments": [],
+          "listHeaders": {
+            "listId": null,
+            "listUnsubscribe": null,
+            "listUnsubscribePost": null,
+            "oneClickHeaderSetUnambiguous": false,
+            "oneClickDkimSignatures": []
+          },
+          "threadContext": {
+            "isFirstContact": true,
+            "threadContinuityBroken": false,
+            "replyToChangedMidThread": false
+          },
+          "parseStatus": "complete",
+          "parseNotes": [],
+          "diagnostics": {
+            "fetchedAt": "2026-08-11T00:00:00.000Z",
+            "sizeBytes": 602,
+            "encoding": "plain",
+            "contentCoverage": "complete",
+            "qrInspection": {
+              "supportedImages": 0,
+              "decodedUrlCount": 0,
+              "incomplete": false,
+              "incompleteReasons": []
+            },
+            "attachmentHashInspection": {
+              "attachments": 0,
+              "hashed": 0,
+              "incomplete": false,
+              "incompleteReasons": []
+            }
+          }
+        },
+        "personalPolicy": {
+          "blockedSenders": [],
+          "blockedDomains": [],
+          "trustedSenders": [],
+          "approvedExceptions": [],
+          "unsubscribedActions": [],
+          "reportedCampaigns": []
+        },
+        "intelligence": {
+          "state": "verified",
+          "entries": []
+        }
+      },
+      "expectedResponse": {
+        "schemaVersion": 1,
+        "verdict": "high_risk",
+        "score": 8,
+        "confirmedByRule": false,
+        "action": "allow_one_click_block",
+        "evidence": [
+          {
+            "layer": "transport_auth",
+            "code": "DMARC_FAIL",
+            "description": "Message failed DMARC alignment for the claimed sending domain.",
+            "scoreContribution": 3,
+            "source": "local"
+          },
+          {
+            "layer": "transport_auth",
+            "code": "SPF_DKIM_BOTH_FAIL",
+            "description": "Both SPF and DKIM failed; sender authenticity could not be verified.",
+            "scoreContribution": 2,
+            "source": "local"
+          },
+          {
+            "layer": "message_intent",
+            "code": "CREDENTIAL_PHISH_INTENT",
+            "description": "Message asks for credentials/OTP under time or suspension pressure.",
+            "scoreContribution": 3,
+            "source": "local"
+          },
+          {
+            "layer": "relationship_context",
+            "code": "FIRST_CONTACT",
+            "description": "No conservative established sender relationship exists in local history.",
+            "scoreContribution": 0,
+            "source": "local"
+          }
+        ],
+        "layerResults": [
+          {
+            "layer": "transport_auth",
+            "applicable": true,
+            "evidence": [
+              {
+                "layer": "transport_auth",
+                "code": "DMARC_FAIL",
+                "description": "Message failed DMARC alignment for the claimed sending domain.",
+                "scoreContribution": 3,
+                "source": "local"
+              },
+              {
+                "layer": "transport_auth",
+                "code": "SPF_DKIM_BOTH_FAIL",
+                "description": "Both SPF and DKIM failed; sender authenticity could not be verified.",
+                "scoreContribution": 2,
+                "source": "local"
+              }
+            ],
+            "incomplete": false
+          },
+          {
+            "layer": "identity_impersonation",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "message_intent",
+            "applicable": true,
+            "evidence": [
+              {
+                "layer": "message_intent",
+                "code": "CREDENTIAL_PHISH_INTENT",
+                "description": "Message asks for credentials/OTP under time or suspension pressure.",
+                "scoreContribution": 3,
+                "source": "local"
+              }
+            ],
+            "incomplete": false,
+            "blocksSafeVerdict": false
+          },
+          {
+            "layer": "link_structure",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "destination_classification",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": true,
+            "incompleteReason": "Destination analysis only runs via the explicit Analyze Links action, not during scans."
+          },
+          {
+            "layer": "attachment_qr",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false,
+            "blocksSafeVerdict": false
+          },
+          {
+            "layer": "html_interaction",
+            "applicable": false,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "relationship_context",
+            "applicable": true,
+            "evidence": [
+              {
+                "layer": "relationship_context",
+                "code": "FIRST_CONTACT",
+                "description": "No conservative established sender relationship exists in local history.",
+                "scoreContribution": 0,
+                "source": "local"
+              }
+            ],
+            "incomplete": false
+          },
+          {
+            "layer": "personal_rules",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "global_intelligence",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false,
+            "blocksSafeVerdict": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider-outlook-credential-phishing",
+      "request": {
+        "schemaVersion": 1,
+        "envelope": {
+          "provider": "outlook",
+          "accountProof": "fixture-account-proof-outlook",
+          "messageId": "<tx3vh9aqifh@fixture.test>",
+          "providerNativeId": "provider-outlook-credential-phishing-message",
+          "folder": "inbox",
+          "providerFolderName": "INBOX",
+          "from": {
+            "displayName": "Account Services",
+            "address": "no-reply@accounts-verify-secure.com",
+            "domain": "accounts-verify-secure.com"
+          },
+          "replyTo": null,
+          "subject": "Unusual sign-in activity detected — verify your account",
+          "date": "2026-08-02T12:04:13.000Z",
+          "authentication": {
+            "spf": "fail",
+            "dkim": "fail",
+            "dmarc": "fail",
+            "arc": "unknown",
+            "rawHeader": "mx.example.test; spf=fail; dkim=fail; dmarc=fail",
+            "providerTrust": "trusted"
+          },
+          "textPreview": "We noticed unusual sign-in activity on your account. Your account will be suspended within 24 hours. Please confirm your identity and enter your password and one-time passcode here: http://accounts-verify-secure.com/login",
+          "htmlSignals": null,
+          "links": [
+            {
+              "visibleText": "http://accounts-verify-secure.com/login",
+              "rawUrl": "http://accounts-verify-secure.com/login",
+              "normalizedUrl": "http://accounts-verify-secure.com/login",
+              "claimedBrand": null,
+              "brandDomainMismatch": null,
+              "source": "body",
+              "interaction": "navigation"
+            }
+          ],
+          "attachments": [],
+          "listHeaders": {
+            "listId": null,
+            "listUnsubscribe": null,
+            "listUnsubscribePost": null,
+            "oneClickHeaderSetUnambiguous": false,
+            "oneClickDkimSignatures": []
+          },
+          "threadContext": {
+            "isFirstContact": true,
+            "threadContinuityBroken": false,
+            "replyToChangedMidThread": false
+          },
+          "parseStatus": "complete",
+          "parseNotes": [],
+          "diagnostics": {
+            "fetchedAt": "2026-08-11T00:00:00.000Z",
+            "sizeBytes": 602,
+            "encoding": "plain",
+            "contentCoverage": "complete",
+            "qrInspection": {
+              "supportedImages": 0,
+              "decodedUrlCount": 0,
+              "incomplete": false,
+              "incompleteReasons": []
+            },
+            "attachmentHashInspection": {
+              "attachments": 0,
+              "hashed": 0,
+              "incomplete": false,
+              "incompleteReasons": []
+            }
+          }
+        },
+        "personalPolicy": {
+          "blockedSenders": [],
+          "blockedDomains": [],
+          "trustedSenders": [],
+          "approvedExceptions": [],
+          "unsubscribedActions": [],
+          "reportedCampaigns": []
+        },
+        "intelligence": {
+          "state": "verified",
+          "entries": []
+        }
+      },
+      "expectedResponse": {
+        "schemaVersion": 1,
+        "verdict": "high_risk",
+        "score": 8,
+        "confirmedByRule": false,
+        "action": "allow_one_click_block",
+        "evidence": [
+          {
+            "layer": "transport_auth",
+            "code": "DMARC_FAIL",
+            "description": "Message failed DMARC alignment for the claimed sending domain.",
+            "scoreContribution": 3,
+            "source": "local"
+          },
+          {
+            "layer": "transport_auth",
+            "code": "SPF_DKIM_BOTH_FAIL",
+            "description": "Both SPF and DKIM failed; sender authenticity could not be verified.",
+            "scoreContribution": 2,
+            "source": "local"
+          },
+          {
+            "layer": "message_intent",
+            "code": "CREDENTIAL_PHISH_INTENT",
+            "description": "Message asks for credentials/OTP under time or suspension pressure.",
+            "scoreContribution": 3,
+            "source": "local"
+          },
+          {
+            "layer": "relationship_context",
+            "code": "FIRST_CONTACT",
+            "description": "No conservative established sender relationship exists in local history.",
+            "scoreContribution": 0,
+            "source": "local"
+          }
+        ],
+        "layerResults": [
+          {
+            "layer": "transport_auth",
+            "applicable": true,
+            "evidence": [
+              {
+                "layer": "transport_auth",
+                "code": "DMARC_FAIL",
+                "description": "Message failed DMARC alignment for the claimed sending domain.",
+                "scoreContribution": 3,
+                "source": "local"
+              },
+              {
+                "layer": "transport_auth",
+                "code": "SPF_DKIM_BOTH_FAIL",
+                "description": "Both SPF and DKIM failed; sender authenticity could not be verified.",
+                "scoreContribution": 2,
+                "source": "local"
+              }
+            ],
+            "incomplete": false
+          },
+          {
+            "layer": "identity_impersonation",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "message_intent",
+            "applicable": true,
+            "evidence": [
+              {
+                "layer": "message_intent",
+                "code": "CREDENTIAL_PHISH_INTENT",
+                "description": "Message asks for credentials/OTP under time or suspension pressure.",
+                "scoreContribution": 3,
+                "source": "local"
+              }
+            ],
+            "incomplete": false,
+            "blocksSafeVerdict": false
+          },
+          {
+            "layer": "link_structure",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "destination_classification",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": true,
+            "incompleteReason": "Destination analysis only runs via the explicit Analyze Links action, not during scans."
+          },
+          {
+            "layer": "attachment_qr",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false,
+            "blocksSafeVerdict": false
+          },
+          {
+            "layer": "html_interaction",
+            "applicable": false,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "relationship_context",
+            "applicable": true,
+            "evidence": [
+              {
+                "layer": "relationship_context",
+                "code": "FIRST_CONTACT",
+                "description": "No conservative established sender relationship exists in local history.",
+                "scoreContribution": 0,
+                "source": "local"
+              }
+            ],
+            "incomplete": false
+          },
+          {
+            "layer": "personal_rules",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "global_intelligence",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false,
+            "blocksSafeVerdict": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider-yahoo-credential-phishing",
+      "request": {
+        "schemaVersion": 1,
+        "envelope": {
+          "provider": "yahoo",
+          "accountProof": "fixture-account-proof-yahoo",
+          "messageId": "<tx3vh9aqifh@fixture.test>",
+          "providerNativeId": "provider-yahoo-credential-phishing-message",
+          "folder": "inbox",
+          "providerFolderName": "INBOX",
+          "from": {
+            "displayName": "Account Services",
+            "address": "no-reply@accounts-verify-secure.com",
+            "domain": "accounts-verify-secure.com"
+          },
+          "replyTo": null,
+          "subject": "Unusual sign-in activity detected — verify your account",
+          "date": "2026-08-02T12:04:13.000Z",
+          "authentication": {
+            "spf": "fail",
+            "dkim": "fail",
+            "dmarc": "fail",
+            "arc": "unknown",
+            "rawHeader": "mx.example.test; spf=fail; dkim=fail; dmarc=fail",
+            "providerTrust": "trusted"
+          },
+          "textPreview": "We noticed unusual sign-in activity on your account. Your account will be suspended within 24 hours. Please confirm your identity and enter your password and one-time passcode here: http://accounts-verify-secure.com/login",
+          "htmlSignals": null,
+          "links": [
+            {
+              "visibleText": "http://accounts-verify-secure.com/login",
+              "rawUrl": "http://accounts-verify-secure.com/login",
+              "normalizedUrl": "http://accounts-verify-secure.com/login",
+              "claimedBrand": null,
+              "brandDomainMismatch": null,
+              "source": "body",
+              "interaction": "navigation"
+            }
+          ],
+          "attachments": [],
+          "listHeaders": {
+            "listId": null,
+            "listUnsubscribe": null,
+            "listUnsubscribePost": null,
+            "oneClickHeaderSetUnambiguous": false,
+            "oneClickDkimSignatures": []
+          },
+          "threadContext": {
+            "isFirstContact": true,
+            "threadContinuityBroken": false,
+            "replyToChangedMidThread": false
+          },
+          "parseStatus": "complete",
+          "parseNotes": [],
+          "diagnostics": {
+            "fetchedAt": "2026-08-11T00:00:00.000Z",
+            "sizeBytes": 602,
+            "encoding": "plain",
+            "contentCoverage": "complete",
+            "qrInspection": {
+              "supportedImages": 0,
+              "decodedUrlCount": 0,
+              "incomplete": false,
+              "incompleteReasons": []
+            },
+            "attachmentHashInspection": {
+              "attachments": 0,
+              "hashed": 0,
+              "incomplete": false,
+              "incompleteReasons": []
+            }
+          }
+        },
+        "personalPolicy": {
+          "blockedSenders": [],
+          "blockedDomains": [],
+          "trustedSenders": [],
+          "approvedExceptions": [],
+          "unsubscribedActions": [],
+          "reportedCampaigns": []
+        },
+        "intelligence": {
+          "state": "verified",
+          "entries": []
+        }
+      },
+      "expectedResponse": {
+        "schemaVersion": 1,
+        "verdict": "high_risk",
+        "score": 8,
+        "confirmedByRule": false,
+        "action": "allow_one_click_block",
+        "evidence": [
+          {
+            "layer": "transport_auth",
+            "code": "DMARC_FAIL",
+            "description": "Message failed DMARC alignment for the claimed sending domain.",
+            "scoreContribution": 3,
+            "source": "local"
+          },
+          {
+            "layer": "transport_auth",
+            "code": "SPF_DKIM_BOTH_FAIL",
+            "description": "Both SPF and DKIM failed; sender authenticity could not be verified.",
+            "scoreContribution": 2,
+            "source": "local"
+          },
+          {
+            "layer": "message_intent",
+            "code": "CREDENTIAL_PHISH_INTENT",
+            "description": "Message asks for credentials/OTP under time or suspension pressure.",
+            "scoreContribution": 3,
+            "source": "local"
+          },
+          {
+            "layer": "relationship_context",
+            "code": "FIRST_CONTACT",
+            "description": "No conservative established sender relationship exists in local history.",
+            "scoreContribution": 0,
+            "source": "local"
+          }
+        ],
+        "layerResults": [
+          {
+            "layer": "transport_auth",
+            "applicable": true,
+            "evidence": [
+              {
+                "layer": "transport_auth",
+                "code": "DMARC_FAIL",
+                "description": "Message failed DMARC alignment for the claimed sending domain.",
+                "scoreContribution": 3,
+                "source": "local"
+              },
+              {
+                "layer": "transport_auth",
+                "code": "SPF_DKIM_BOTH_FAIL",
+                "description": "Both SPF and DKIM failed; sender authenticity could not be verified.",
+                "scoreContribution": 2,
+                "source": "local"
+              }
+            ],
+            "incomplete": false
+          },
+          {
+            "layer": "identity_impersonation",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "message_intent",
+            "applicable": true,
+            "evidence": [
+              {
+                "layer": "message_intent",
+                "code": "CREDENTIAL_PHISH_INTENT",
+                "description": "Message asks for credentials/OTP under time or suspension pressure.",
+                "scoreContribution": 3,
+                "source": "local"
+              }
+            ],
+            "incomplete": false,
+            "blocksSafeVerdict": false
+          },
+          {
+            "layer": "link_structure",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "destination_classification",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": true,
+            "incompleteReason": "Destination analysis only runs via the explicit Analyze Links action, not during scans."
+          },
+          {
+            "layer": "attachment_qr",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false,
+            "blocksSafeVerdict": false
+          },
+          {
+            "layer": "html_interaction",
+            "applicable": false,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "relationship_context",
+            "applicable": true,
+            "evidence": [
+              {
+                "layer": "relationship_context",
+                "code": "FIRST_CONTACT",
+                "description": "No conservative established sender relationship exists in local history.",
+                "scoreContribution": 0,
+                "source": "local"
+              }
+            ],
+            "incomplete": false
+          },
+          {
+            "layer": "personal_rules",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "global_intelligence",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false,
+            "blocksSafeVerdict": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider-imap-credential-phishing",
+      "request": {
+        "schemaVersion": 1,
+        "envelope": {
+          "provider": "imap",
+          "accountProof": "fixture-account-proof-imap",
+          "messageId": "<tx3vh9aqifh@fixture.test>",
+          "providerNativeId": "provider-imap-credential-phishing-message",
+          "folder": "inbox",
+          "providerFolderName": "INBOX",
+          "from": {
+            "displayName": "Account Services",
+            "address": "no-reply@accounts-verify-secure.com",
+            "domain": "accounts-verify-secure.com"
+          },
+          "replyTo": null,
+          "subject": "Unusual sign-in activity detected — verify your account",
+          "date": "2026-08-02T12:04:13.000Z",
+          "authentication": {
+            "spf": "fail",
+            "dkim": "fail",
+            "dmarc": "fail",
+            "arc": "unknown",
+            "rawHeader": "mx.example.test; spf=fail; dkim=fail; dmarc=fail",
+            "providerTrust": "trusted"
+          },
+          "textPreview": "We noticed unusual sign-in activity on your account. Your account will be suspended within 24 hours. Please confirm your identity and enter your password and one-time passcode here: http://accounts-verify-secure.com/login",
+          "htmlSignals": null,
+          "links": [
+            {
+              "visibleText": "http://accounts-verify-secure.com/login",
+              "rawUrl": "http://accounts-verify-secure.com/login",
+              "normalizedUrl": "http://accounts-verify-secure.com/login",
+              "claimedBrand": null,
+              "brandDomainMismatch": null,
+              "source": "body",
+              "interaction": "navigation"
+            }
+          ],
+          "attachments": [],
+          "listHeaders": {
+            "listId": null,
+            "listUnsubscribe": null,
+            "listUnsubscribePost": null,
+            "oneClickHeaderSetUnambiguous": false,
+            "oneClickDkimSignatures": []
+          },
+          "threadContext": {
+            "isFirstContact": true,
+            "threadContinuityBroken": false,
+            "replyToChangedMidThread": false
+          },
+          "parseStatus": "complete",
+          "parseNotes": [],
+          "diagnostics": {
+            "fetchedAt": "2026-08-11T00:00:00.000Z",
+            "sizeBytes": 602,
+            "encoding": "plain",
+            "contentCoverage": "complete",
+            "qrInspection": {
+              "supportedImages": 0,
+              "decodedUrlCount": 0,
+              "incomplete": false,
+              "incompleteReasons": []
+            },
+            "attachmentHashInspection": {
+              "attachments": 0,
+              "hashed": 0,
+              "incomplete": false,
+              "incompleteReasons": []
+            }
+          }
+        },
+        "personalPolicy": {
+          "blockedSenders": [],
+          "blockedDomains": [],
+          "trustedSenders": [],
+          "approvedExceptions": [],
+          "unsubscribedActions": [],
+          "reportedCampaigns": []
+        },
+        "intelligence": {
+          "state": "verified",
+          "entries": []
+        }
+      },
+      "expectedResponse": {
+        "schemaVersion": 1,
+        "verdict": "high_risk",
+        "score": 8,
+        "confirmedByRule": false,
+        "action": "allow_one_click_block",
+        "evidence": [
+          {
+            "layer": "transport_auth",
+            "code": "DMARC_FAIL",
+            "description": "Message failed DMARC alignment for the claimed sending domain.",
+            "scoreContribution": 3,
+            "source": "local"
+          },
+          {
+            "layer": "transport_auth",
+            "code": "SPF_DKIM_BOTH_FAIL",
+            "description": "Both SPF and DKIM failed; sender authenticity could not be verified.",
+            "scoreContribution": 2,
+            "source": "local"
+          },
+          {
+            "layer": "message_intent",
+            "code": "CREDENTIAL_PHISH_INTENT",
+            "description": "Message asks for credentials/OTP under time or suspension pressure.",
+            "scoreContribution": 3,
+            "source": "local"
+          },
+          {
+            "layer": "relationship_context",
+            "code": "FIRST_CONTACT",
+            "description": "No conservative established sender relationship exists in local history.",
+            "scoreContribution": 0,
+            "source": "local"
+          }
+        ],
+        "layerResults": [
+          {
+            "layer": "transport_auth",
+            "applicable": true,
+            "evidence": [
+              {
+                "layer": "transport_auth",
+                "code": "DMARC_FAIL",
+                "description": "Message failed DMARC alignment for the claimed sending domain.",
+                "scoreContribution": 3,
+                "source": "local"
+              },
+              {
+                "layer": "transport_auth",
+                "code": "SPF_DKIM_BOTH_FAIL",
+                "description": "Both SPF and DKIM failed; sender authenticity could not be verified.",
+                "scoreContribution": 2,
+                "source": "local"
+              }
+            ],
+            "incomplete": false
+          },
+          {
+            "layer": "identity_impersonation",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "message_intent",
+            "applicable": true,
+            "evidence": [
+              {
+                "layer": "message_intent",
+                "code": "CREDENTIAL_PHISH_INTENT",
+                "description": "Message asks for credentials/OTP under time or suspension pressure.",
+                "scoreContribution": 3,
+                "source": "local"
+              }
+            ],
+            "incomplete": false,
+            "blocksSafeVerdict": false
+          },
+          {
+            "layer": "link_structure",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "destination_classification",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": true,
+            "incompleteReason": "Destination analysis only runs via the explicit Analyze Links action, not during scans."
+          },
+          {
+            "layer": "attachment_qr",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false,
+            "blocksSafeVerdict": false
+          },
+          {
+            "layer": "html_interaction",
+            "applicable": false,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "relationship_context",
+            "applicable": true,
+            "evidence": [
+              {
+                "layer": "relationship_context",
+                "code": "FIRST_CONTACT",
+                "description": "No conservative established sender relationship exists in local history.",
+                "scoreContribution": 0,
+                "source": "local"
+              }
+            ],
+            "incomplete": false
+          },
+          {
+            "layer": "personal_rules",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "global_intelligence",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false,
+            "blocksSafeVerdict": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "adversarial-verified-feed-unavailable",
+      "request": {
+        "schemaVersion": 1,
+        "envelope": {
+          "provider": "gmail",
+          "accountProof": "fixture-account-proof-gmail",
+          "messageId": "<hrq18gjujyv@fixture.test>",
+          "providerNativeId": "adversarial-verified-feed-unavailable-message",
+          "folder": "inbox",
+          "providerFolderName": "INBOX",
+          "from": {
+            "displayName": "PayPal",
+            "address": "service@paypal.com",
+            "domain": "paypal.com"
+          },
+          "replyTo": null,
+          "subject": "Your receipt for a payment to Example Store",
+          "date": "2026-08-02T12:04:13.000Z",
+          "authentication": {
+            "spf": "pass",
+            "dkim": "pass",
+            "dmarc": "pass",
+            "arc": "unknown",
+            "rawHeader": "mx.example.test; spf=pass smtp.mailfrom=paypal.com; dkim=pass; dmarc=pass",
+            "providerTrust": "trusted"
+          },
+          "textPreview": "You sent a payment of $42.00 USD to Example Store. This is your receipt. View details at https://paypal.com/activity",
+          "htmlSignals": null,
+          "links": [
+            {
+              "visibleText": "https://paypal.com/activity",
+              "rawUrl": "https://paypal.com/activity",
+              "normalizedUrl": "https://paypal.com/activity",
+              "claimedBrand": null,
+              "brandDomainMismatch": null,
+              "source": "body",
+              "interaction": "navigation"
+            }
+          ],
+          "attachments": [],
+          "listHeaders": {
+            "listId": null,
+            "listUnsubscribe": null,
+            "listUnsubscribePost": null,
+            "oneClickHeaderSetUnambiguous": false,
+            "oneClickDkimSignatures": []
+          },
+          "threadContext": {
+            "isFirstContact": true,
+            "threadContinuityBroken": false,
+            "replyToChangedMidThread": false
+          },
+          "parseStatus": "complete",
+          "parseNotes": [],
+          "diagnostics": {
+            "fetchedAt": "2026-08-11T00:00:00.000Z",
+            "sizeBytes": 481,
+            "encoding": "plain",
+            "contentCoverage": "complete",
+            "qrInspection": {
+              "supportedImages": 0,
+              "decodedUrlCount": 0,
+              "incomplete": false,
+              "incompleteReasons": []
+            },
+            "attachmentHashInspection": {
+              "attachments": 0,
+              "hashed": 0,
+              "incomplete": false,
+              "incompleteReasons": []
+            }
+          }
+        },
+        "personalPolicy": {
+          "blockedSenders": [],
+          "blockedDomains": [],
+          "trustedSenders": [],
+          "approvedExceptions": [],
+          "unsubscribedActions": [],
+          "reportedCampaigns": []
+        },
+        "intelligence": {
+          "state": "unavailable",
+          "entries": null
+        }
+      },
+      "expectedResponse": {
+        "schemaVersion": 1,
+        "verdict": "unknown",
+        "score": 0,
+        "confirmedByRule": false,
+        "action": "none",
+        "evidence": [
+          {
+            "layer": "relationship_context",
+            "code": "FIRST_CONTACT",
+            "description": "No conservative established sender relationship exists in local history.",
+            "scoreContribution": 0,
+            "source": "local"
+          }
+        ],
+        "layerResults": [
+          {
+            "layer": "transport_auth",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "identity_impersonation",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "message_intent",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false,
+            "blocksSafeVerdict": false
+          },
+          {
+            "layer": "link_structure",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "destination_classification",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": true,
+            "incompleteReason": "Destination analysis only runs via the explicit Analyze Links action, not during scans."
+          },
+          {
+            "layer": "attachment_qr",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false,
+            "blocksSafeVerdict": false
+          },
+          {
+            "layer": "html_interaction",
+            "applicable": false,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "relationship_context",
+            "applicable": true,
+            "evidence": [
+              {
+                "layer": "relationship_context",
+                "code": "FIRST_CONTACT",
+                "description": "No conservative established sender relationship exists in local history.",
+                "scoreContribution": 0,
+                "source": "local"
+              }
+            ],
+            "incomplete": false
+          },
+          {
+            "layer": "personal_rules",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "global_intelligence",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": true,
+            "incompleteReason": "Signed intelligence failed verification or freshness checks; treated as unavailable, never as clean.",
+            "blocksSafeVerdict": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "adversarial-personal-block-precedence",
+      "request": {
+        "schemaVersion": 1,
+        "envelope": {
+          "provider": "outlook",
+          "accountProof": "fixture-account-proof-outlook",
+          "messageId": "<hrq18gjujyv@fixture.test>",
+          "providerNativeId": "adversarial-personal-block-precedence-message",
+          "folder": "inbox",
+          "providerFolderName": "INBOX",
+          "from": {
+            "displayName": "PayPal",
+            "address": "service@paypal.com",
+            "domain": "paypal.com"
+          },
+          "replyTo": null,
+          "subject": "Your receipt for a payment to Example Store",
+          "date": "2026-08-02T12:04:13.000Z",
+          "authentication": {
+            "spf": "pass",
+            "dkim": "pass",
+            "dmarc": "pass",
+            "arc": "unknown",
+            "rawHeader": "mx.example.test; spf=pass smtp.mailfrom=paypal.com; dkim=pass; dmarc=pass",
+            "providerTrust": "trusted"
+          },
+          "textPreview": "You sent a payment of $42.00 USD to Example Store. This is your receipt. View details at https://paypal.com/activity",
+          "htmlSignals": null,
+          "links": [
+            {
+              "visibleText": "https://paypal.com/activity",
+              "rawUrl": "https://paypal.com/activity",
+              "normalizedUrl": "https://paypal.com/activity",
+              "claimedBrand": null,
+              "brandDomainMismatch": null,
+              "source": "body",
+              "interaction": "navigation"
+            }
+          ],
+          "attachments": [],
+          "listHeaders": {
+            "listId": null,
+            "listUnsubscribe": null,
+            "listUnsubscribePost": null,
+            "oneClickHeaderSetUnambiguous": false,
+            "oneClickDkimSignatures": []
+          },
+          "threadContext": {
+            "isFirstContact": true,
+            "threadContinuityBroken": false,
+            "replyToChangedMidThread": false
+          },
+          "parseStatus": "complete",
+          "parseNotes": [],
+          "diagnostics": {
+            "fetchedAt": "2026-08-11T00:00:00.000Z",
+            "sizeBytes": 481,
+            "encoding": "plain",
+            "contentCoverage": "complete",
+            "qrInspection": {
+              "supportedImages": 0,
+              "decodedUrlCount": 0,
+              "incomplete": false,
+              "incompleteReasons": []
+            },
+            "attachmentHashInspection": {
+              "attachments": 0,
+              "hashed": 0,
+              "incomplete": false,
+              "incompleteReasons": []
+            }
+          }
+        },
+        "personalPolicy": {
+          "blockedSenders": [],
+          "blockedDomains": [
+            "paypal.com"
+          ],
+          "trustedSenders": [],
+          "approvedExceptions": [],
+          "unsubscribedActions": [],
+          "reportedCampaigns": []
+        },
+        "intelligence": {
+          "state": "verified",
+          "entries": []
+        }
+      },
+      "expectedResponse": {
+        "schemaVersion": 1,
+        "verdict": "confirmed_threat",
+        "score": 10,
+        "confirmedByRule": true,
+        "action": "auto_trash_allowed",
+        "evidence": [
+          {
+            "layer": "relationship_context",
+            "code": "FIRST_CONTACT",
+            "description": "No conservative established sender relationship exists in local history.",
+            "scoreContribution": 0,
+            "source": "local"
+          },
+          {
+            "layer": "personal_rules",
+            "code": "BLOCKED_DOMAIN",
+            "description": "Sender domain matches the user's personal block list.",
+            "scoreContribution": 10,
+            "source": "personal_rule"
+          }
+        ],
+        "layerResults": [
+          {
+            "layer": "transport_auth",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "identity_impersonation",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "message_intent",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false,
+            "blocksSafeVerdict": false
+          },
+          {
+            "layer": "link_structure",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "destination_classification",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": true,
+            "incompleteReason": "Destination analysis only runs via the explicit Analyze Links action, not during scans."
+          },
+          {
+            "layer": "attachment_qr",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false,
+            "blocksSafeVerdict": false
+          },
+          {
+            "layer": "html_interaction",
+            "applicable": false,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
+            "layer": "relationship_context",
+            "applicable": true,
+            "evidence": [
+              {
+                "layer": "relationship_context",
+                "code": "FIRST_CONTACT",
+                "description": "No conservative established sender relationship exists in local history.",
+                "scoreContribution": 0,
+                "source": "local"
+              }
+            ],
+            "incomplete": false
+          },
+          {
+            "layer": "personal_rules",
+            "applicable": true,
+            "evidence": [
+              {
+                "layer": "personal_rules",
+                "code": "BLOCKED_DOMAIN",
+                "description": "Sender domain matches the user's personal block list.",
+                "scoreContribution": 10,
+                "source": "personal_rule"
+              }
+            ],
+            "incomplete": false
+          },
+          {
+            "layer": "global_intelligence",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false,
+            "blocksSafeVerdict": false
+          }
+        ]
+      }
+    }
+  ]
+}

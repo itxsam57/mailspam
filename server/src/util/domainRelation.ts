@@ -1,5 +1,4 @@
-import { isIP } from "node:net";
-import { getDomain } from "tldts";
+import { getDomain, parse } from "tldts";
 
 const REGISTRABLE_DOMAIN_OPTIONS = Object.freeze({
   allowPrivateDomains: true,
@@ -26,7 +25,7 @@ export function normalizeDomainName(domain: string): string {
  */
 export function organizationalDomain(domain: string): string {
   const normalized = normalizeDomainName(domain);
-  if (!normalized || isIP(normalized)) return normalized;
+  if (!normalized || parse(normalized, REGISTRABLE_DOMAIN_OPTIONS).isIp) return normalized;
   if (!normalized.includes(".")) return normalized;
 
   const registrable = getDomain(normalized, REGISTRABLE_DOMAIN_OPTIONS);

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { EmailAdapter, FolderDescriptor } from "../canonical/adapter.js";
 import type { CanonicalEnvelope, ContentCoverage, NormalizedFolder, ParseStatus } from "../canonical/envelope.js";
 import type { Verdict } from "../engine/verdict.js";
-import type { PersonalPolicyStore } from "../engine/layers/personalRules.js";
+import type { InMemoryPersonalPolicyStore } from "../engine/layers/personalRules.js";
 import type { ThreatFeedCache } from "../engine/layers/globalIntelligence.js";
 import {
   annotateRelationshipHistory,
@@ -13,7 +13,8 @@ import {
 } from "../engine/relationshipHistory.js";
 import type { CommunityReportContext } from "../community/types.js";
 import { buildCommunityReportContext } from "../community/fingerprint.js";
-import { scanMessage, type ScanResult } from "../engine/pipeline.js";
+import type { ScanResult } from "../engine/pipeline.js";
+import { scanMessageThroughPortableCore } from "../core/portableCore.js";
 import { messageExceptionKey } from "./messageReview.js";
 import { unsubscribeCapability, type UnsubscribeCapability } from "./unsubscribe.js";
 
@@ -157,9 +158,13 @@ export interface ScanProgress {
 }
 
 export interface ScanDeps {
-  personalPolicy: PersonalPolicyStore;
+  personalPolicy: InMemoryPersonalPolicyStore;
   threatFeed: ThreatFeedCache;
   relationshipHistory?: RelationshipHistoryWorkerSnapshot;
+}
+
+function scanWithPortableCore(envelope: CanonicalEnvelope, deps: ScanDeps): ScanResult {
+  return scanMessageThroughPortableCore(envelope, deps.personalPolicy, deps.threatFeed.getVerifiedEntries());
 }
 
 function isSuspicious(result: ScanResult): boolean {
@@ -259,7 +264,7 @@ export async function* quickScan(
         if (signal.aborted) return;
         annotateSenderRecurrence(envelope, seenSenderHashes);
         annotateRelationshipHistory(envelope, deps.relationshipHistory);
-        const result = scanMessage(envelope, deps);
+        const result = scanWithPortableCore(envelope, deps);
         tally(counters, result);
         diagnosticSummaries.push(diagnosticSummary(result));
         if (isSuspicious(result)) suspiciousCards.push(result);
@@ -346,7 +351,7 @@ export async function* fullMailboxAudit(
           seenMessageHashes.add(identityHash);
           annotateSenderRecurrence(envelope, seenSenderHashes);
           annotateRelationshipHistory(envelope, deps.relationshipHistory);
-          const result = scanMessage(envelope, deps);
+          const result = scanWithPortableCore(envelope, deps);
           tally(counters, result);
           diagnosticSummaries.push(diagnosticSummary(result));
           if (isSuspicious(result)) suspiciousCards.push(result);
@@ -419,7 +424,7 @@ export async function* spamJunkScan(
         if (signal.aborted) return;
         annotateSenderRecurrence(envelope, seenSenderHashes);
         annotateRelationshipHistory(envelope, deps.relationshipHistory);
-        const result = scanMessage(envelope, deps);
+        const result = scanWithPortableCore(envelope, deps);
         tally(counters, result);
         diagnosticSummaries.push(diagnosticSummary(result));
         if (isSuspicious(result)) suspiciousCards.push(result);

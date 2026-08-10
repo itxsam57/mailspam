@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
 import type { CanonicalEnvelope } from "../canonical/envelope.js";
+import { sha256Hex } from "../core/sha256.js";
 
 /**
  * Produces an account-scoped, provider-neutral key for one exact message.
@@ -9,16 +9,13 @@ import type { CanonicalEnvelope } from "../canonical/envelope.js";
  */
 export function messageExceptionKey(envelope: CanonicalEnvelope): string {
   const stableMessageIdentity = envelope.messageId || envelope.providerNativeId;
-  const digest = createHash("sha256")
-    .update("email-shield-message-exception-v1\0", "utf8")
-    .update(envelope.accountProof, "utf8")
-    .update("\0", "utf8")
-    .update(envelope.provider, "utf8")
-    .update("\0", "utf8")
-    .update(stableMessageIdentity, "utf8")
-    .update("\0", "utf8")
-    .update(envelope.from.address?.toLowerCase() ?? "", "utf8")
-    .digest("hex");
+  const digest = sha256Hex([
+    "email-shield-message-exception-v1",
+    envelope.accountProof,
+    envelope.provider,
+    stableMessageIdentity,
+    envelope.from.address?.toLowerCase() ?? "",
+  ].join("\0"));
   return `message:${digest}`;
 }
 

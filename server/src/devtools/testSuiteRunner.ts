@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FixtureAdapter, type FixtureMessage } from "../adapters/fixtures/fixtureAdapter.js";
-import { scanMessage } from "../engine/pipeline.js";
+import { scanMessageThroughPortableCore } from "../core/portableCore.js";
 import { InMemoryPersonalPolicyStore } from "../engine/layers/personalRules.js";
 import type { Provider } from "../canonical/envelope.js";
 
@@ -50,7 +50,6 @@ export interface DevTestReport {
 export async function runDeveloperTestSuite(): Promise<DevTestReport> {
   const manifest: ManifestEntry[] = JSON.parse(readFileSync(join(CORPUS_DIR, "manifest.json"), "utf-8"));
   const policy = new InMemoryPersonalPolicyStore();
-  const deps = { personalPolicy: policy, threatFeed: { getVerifiedEntries: () => [] } };
 
   const outcomes: Array<{ provider: Provider; category: string; kind: "malicious" | "legit"; variant: string; verdict: string }> = [];
 
@@ -69,7 +68,7 @@ export async function runDeveloperTestSuite(): Promise<DevTestReport> {
     const inbox = folders[0]!;
     const page = await adapter.fetchPage(inbox, null, 200, ac.signal);
     for (let i = 0; i < page.envelopes.length; i++) {
-      const result = scanMessage(page.envelopes[i]!, deps);
+      const result = scanMessageThroughPortableCore(page.envelopes[i]!, policy, []);
       const m = manifest[i]!;
       outcomes.push({ provider, category: m.category, kind: m.kind, variant: m.variant, verdict: result.scored.verdict });
     }

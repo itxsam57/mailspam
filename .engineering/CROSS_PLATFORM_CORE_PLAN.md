@@ -1,13 +1,13 @@
 # Email Shield — Shared Protection Core and Platform Plan
 
 Date: 2026-08-11
-Status: Milestone 2 architecture plan; implementation and platform-client acceptance belong to Milestone 3.
+Status: Milestone 3 portable core contract and desktop routing implemented; platform-client/store acceptance remains.
 
 ## Boundary to preserve
 
 The provider-neutral core already begins at `CanonicalEnvelope` and produces deterministic layer evidence, verdict and recommended response policy. Provider adapters, OAuth/IMAP acquisition, native secret custody, scheduling, notifications, UI, destination egress and mailbox mutations stay outside that deterministic decision boundary.
 
-Milestone 3 will make this boundary explicit as a versioned runtime contract:
+Milestone 3 has made this boundary explicit as a versioned runtime contract:
 
 1. a bounded versioned request containing one canonical envelope, an account-scoped personal-policy snapshot and verified signed-feed entries or explicit feed-unavailable state;
 2. a deterministic response containing only scored evidence, verdict, response recommendation and generic incompleteness diagnostics;
@@ -35,9 +35,9 @@ Milestone 3 will make this boundary explicit as a versioned runtime contract:
 
 ## Milestone 3 implementation order
 
-1. Extract and regression-lock the versioned portable core request/response module without changing verdict behavior.
-2. Produce cross-runtime conformance fixtures for all five providers and the adversarial vault.
-3. Move desktop scanning through that contract and prove byte-for-byte verdict parity.
+1. **Implemented:** extract and regression-lock the versioned portable core request/response module without changing verdict behavior.
+2. **Implemented:** produce cross-runtime conformance fixtures for all five providers and adversarial precedence/unavailable-feed cases.
+3. **Implemented:** move desktop scanning through that contract and prove byte-for-byte verdict parity.
 4. Build Windows/macOS shells and release/update lifecycle.
 5. Build Android/iOS shells within background/provider/store constraints.
 6. Run accessibility, localization, multi-account, schedule, update/rollback and platform-store acceptance gates.

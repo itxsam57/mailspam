@@ -44,6 +44,9 @@ const requiredFiles = [
   ".engineering/COMMUNITY_DEPLOYMENT.md",
   "scripts/engineering/smoke-community.mjs",
   "scripts/engineering/smoke-background-protection.mjs",
+  "scripts/engineering/check-portable-core.mjs",
+  "scripts/engineering/core-conformance-vectors.mjs",
+  "fixtures/core-conformance/v1/vectors.json",
   "scripts/release/build-portable.mjs",
   "scripts/release/portable-package-lib.mjs",
   "scripts/release/verify-portable.mjs",
@@ -65,7 +68,7 @@ requireCondition(serverPackage.type === "module", "Server workspace must remain 
 
 for (const script of [
   "preflight", "typecheck", "build", "test:unit", "test:integration",
-  "check:web", "smoke:server", "smoke:community", "smoke:background", "audit:inventory", "audit:prod",
+  "check:web", "check:core", "generate:core-vectors", "check:core-vectors", "smoke:server", "smoke:community", "smoke:background", "audit:inventory", "audit:prod",
   "package:portable", "verify:package", "package:verify",
   "gate", "verify", "dev", "dev:community", "start", "start:community",
 ]) {

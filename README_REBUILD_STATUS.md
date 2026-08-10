@@ -102,6 +102,10 @@ The first Milestone 3 production brick is implemented and regression locked:
 - bounded failure backoff, restart recovery, protected pause/resume/status APIs and disconnect cleanup;
 - visible selected-account status using safe text rendering, locale-aware timestamps and an accessible live-status region;
 - a compiled production Worker smoke proving the real background run updates protected scan history without automatic mailbox actions, reports or Analyze Links.
+- versioned portable protection-core schema v1 with strict 4 MiB/nested runtime bounds, explicit verified-feed-unavailable state and a decision-only response;
+- all desktop Quick/Full/Spam decisions routed through that contract with byte-for-byte parity to the locked pipeline;
+- a transitive build gate forbidding Node/host, I/O, adapter, API, OAuth, vault, Worker and shell dependencies from the core graph, supported by ECMAScript-only SHA-256 and platform-neutral IP/domain parsing;
+- seven deterministic complete JSON request/response vectors covering Gmail, iCloud, Outlook, Yahoo, generic IMAP, unavailable intelligence and personal-block precedence.
 
 Native Windows/macOS background-task acceptance and Android/iOS shells remain later Milestone 3 work; the current desktop scheduler is not represented as a mobile continuous daemon.
 

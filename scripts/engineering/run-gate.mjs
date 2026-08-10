@@ -28,7 +28,9 @@ function npmStep(id, name, script) {
 const steps = [
   npmStep("preflight", "Repository preflight", "preflight"),
   npmStep("typecheck", "Strict TypeScript typecheck", "typecheck"),
+  npmStep("portable-core", "Portable shared-core dependency boundary", "check:core"),
   npmStep("build", "Production build", "build"),
+  npmStep("core-vectors", "Versioned portable-core conformance vectors", "check:core-vectors"),
   npmStep("unit", "Unit, API and regression tests", "test:unit"),
   npmStep("integration", "Integration, corpus and Worker tests", "test:integration"),
   npmStep("web", "Browser source, privacy and wiring checks", "check:web"),

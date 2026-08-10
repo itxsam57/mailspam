@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
 import type { CanonicalEnvelope } from "../canonical/envelope.js";
+import { sha256Hex } from "../core/sha256.js";
 import { isSharedMailboxDomain } from "../engine/identitySignals.js";
 import type { ScoredMessage } from "../engine/verdict.js";
 import { organizationalDomain, sameOrganizationalDomain } from "../util/domainRelation.js";
@@ -10,10 +10,6 @@ const SUBJECT_STOP_WORDS = new Set([
   "about", "after", "again", "from", "have", "hello", "here", "into", "just", "message",
   "notification", "please", "re", "report", "sent", "that", "this", "update", "with", "your",
 ]);
-
-function sha256(value: string): string {
-  return createHash("sha256").update(value, "utf8").digest("hex");
-}
 
 function normalizeDomain(value: string | null | undefined): string | null {
   const normalized = value?.trim().toLowerCase().replace(/^\.+|\.+$/g, "");
@@ -59,7 +55,7 @@ export function campaignFingerprint(envelope: CanonicalEnvelope): string {
     .sort();
   const hasDownstreamIdentity = Boolean(replyDomain || linkDomains.length || attachmentHashes.length);
 
-  return sha256(JSON.stringify({
+  return sha256Hex(JSON.stringify({
     version: 2,
     // Stable downstream infrastructure identifies a campaign more reliably
     // than its disposable delivery sender. Use the sender organization only

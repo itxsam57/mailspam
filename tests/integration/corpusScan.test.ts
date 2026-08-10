@@ -2,9 +2,8 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { FixtureAdapter, type FixtureMessage } from "../../server/src/adapters/fixtures/fixtureAdapter.js";
-import { scanMessage } from "../../server/src/engine/pipeline.js";
+import { scanMessageThroughPortableCore } from "../../server/src/core/portableCore.js";
 import { InMemoryPersonalPolicyStore } from "../../server/src/engine/layers/personalRules.js";
-import type { ThreatFeedCache } from "../../server/src/engine/layers/globalIntelligence.js";
 import type { Provider } from "../../server/src/canonical/envelope.js";
 
 const CORPUS_DIR = join(import.meta.dirname, "../../fixtures/scam-corpus");
@@ -14,9 +13,6 @@ const manifest: ManifestEntry[] = JSON.parse(readFileSync(join(CORPUS_DIR, "mani
 
 const PROVIDERS: Provider[] = ["gmail", "icloud", "outlook", "yahoo", "imap"];
 
-// Empty feed cache: verified-but-empty (not null/unavailable), so tests exercise
-// the "safe" path for legit fixtures without every message forcing "unknown".
-const emptyFeed: ThreatFeedCache = { getVerifiedEntries: () => [] };
 const policy = new InMemoryPersonalPolicyStore();
 
 interface Outcome {
@@ -52,7 +48,9 @@ beforeAll(async () => {
       for (let i = 0; i < page.envelopes.length; i++) {
         const envelope = page.envelopes[i]!;
         const manifestEntry = manifest[i]!; // page size 100 covers all 56 in one page
-        const result = scanMessage(envelope, { personalPolicy: policy, threatFeed: emptyFeed });
+        // A verified-but-empty intelligence snapshot exercises the portable
+        // production contract without forcing every legitimate message unknown.
+        const result = scanMessageThroughPortableCore(envelope, policy, []);
         outcomes.push({
           provider,
           category: manifestEntry.category,
