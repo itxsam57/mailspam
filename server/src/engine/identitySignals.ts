@@ -21,7 +21,12 @@ export function authenticationResultsTrusted(envelope: CanonicalEnvelope): boole
   return envelope.authentication.providerTrust === "trusted";
 }
 
-function authenticationProperty(segment: string, property: "smtp.mailfrom" | "header.d"): string | null {
+export interface TrustedPassingDkimIdentity {
+  domain: string;
+  selector: string;
+}
+
+function authenticationProperty(segment: string, property: "smtp.mailfrom" | "header.d" | "header.s"): string | null {
   const escaped = property.replace(".", "\\.");
   const match = segment.match(new RegExp(`(?:^|\\s)${escaped}\\s*=\\s*(?:\"([^\"]+)\"|([^\\s();]+))`, "i"));
   return (match?.[1] ?? match?.[2] ?? "").trim() || null;
@@ -36,6 +41,28 @@ function authenticationIdentityDomain(raw: string | null): string | null {
   return /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}$/i.test(normalized)
     ? normalized
     : null;
+}
+
+function authenticationSelector(raw: string | null): string | null {
+  const selector = (raw ?? "").trim().toLowerCase();
+  if (!selector || selector.length > 253) return null;
+  return /^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/i.test(selector) ? selector : null;
+}
+
+/** Trusted DKIM pass identities used for exact signature/selector correlation. */
+export function trustedPassingDkimIdentities(envelope: CanonicalEnvelope): TrustedPassingDkimIdentity[] {
+  if (!authenticationResultsTrusted(envelope) || !envelope.authentication.rawHeader) return [];
+  const identities = new Map<string, TrustedPassingDkimIdentity>();
+  const pattern = /(?:^|;)\s*dkim\s*=\s*pass\b([^;]*)/gi;
+  let result: RegExpExecArray | null;
+  while ((result = pattern.exec(envelope.authentication.rawHeader))) {
+    const segment = result[1] ?? "";
+    const domain = authenticationIdentityDomain(authenticationProperty(segment, "header.d"));
+    const selector = authenticationSelector(authenticationProperty(segment, "header.s"));
+    if (!domain || !selector) continue;
+    identities.set(`${domain}\0${selector}`, { domain, selector });
+  }
+  return [...identities.values()];
 }
 
 /**
