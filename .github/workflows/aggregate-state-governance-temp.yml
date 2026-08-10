@@ -1,0 +1,85 @@
+name: Temporary aggregate state governance
+on:
+  push:
+    branches: [m2-community-aggregate-state-integrity]
+permissions:
+  contents: write
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m2-community-aggregate-state-integrity
+      - name: Apply governance
+        shell: python
+        run: |
+          from pathlib import Path
+
+          matrix = Path('.engineering/TEST_MATRIX.md')
+          text = matrix.read_text(encoding='utf-8')
+          if '| A-53 |' not in text:
+              lines = text.splitlines()
+              for i, line in enumerate(lines):
+                  if line.startswith('| A-52 | Public community error integrity |'):
+                      lines.insert(i + 1, '| A-53 | Encrypted community aggregate-state integrity | AES-256-GCM authenticity is followed by strict validation of the exact nested version-1 state emitted by the writer: database/campaign/reporter shapes, canonical 64-hex campaign/reporter identities, canonical ordered timestamps, persisted score/verdict bounds, sorted unique indicator support referencing existing reporters, full canonical campaign support and evidence-code counter bounds must hold before stats/feed/report acceptance/readiness/backup consume state; structurally invalid but correctly authenticated state is preserved and fails closed; existing `MAX_CAMPAIGNS` remains the growth ceiling and no provider/mailbox/deployment expansion is added | `communityAggregateStateIntegrity.test.ts`, community reporting/recovery/readiness regressions, strict type/build, full corpus/Worker/server/browser gate | Windows + macOS + Ubuntu | Blocking |')
+                      break
+              else:
+                  raise SystemExit('A-52 insertion point not found')
+              text = '\n'.join(lines) + '\n'
+          old = 'dedicated public-community error isolation/runtime-report validation behavior, and Analyze Links DNS-pinning/SSRF/redirect/resource-boundary behavior are automated.'
+          new = 'dedicated public-community error isolation/runtime-report validation behavior, encrypted community aggregate nested-state integrity behavior, and Analyze Links DNS-pinning/SSRF/redirect/resource-boundary behavior are automated.'
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif new not in text:
+              raise SystemExit('automated paragraph insertion point not found')
+          matrix.write_text(text, encoding='utf-8')
+
+          register = Path('.engineering/REGRESSION_REGISTER.md')
+          text = register.read_text(encoding='utf-8')
+          if '| REG-063 |' not in text:
+              lines = text.splitlines()
+              for i, line in enumerate(lines):
+                  if line.startswith('| REG-062 |'):
+                      lines.insert(i + 1, '| REG-063 | LOCKED | Authenticated community aggregate ciphertext must not be trusted as valid application state solely because AES-256-GCM verification succeeds. After decryption, the version-1 database must match the exact nested writer invariants: known fields only, existing campaign ceiling, canonical campaign/reporter proofs and ISO interval timestamps, integer persisted scores/supported verdicts, valid normalized indicator keys with sorted unique support drawn only from campaign reporters, complete canonical campaign support, and valid evidence-code counts. Any structurally invalid but cryptographically authentic database is preserved and blocks stats, feed generation, subsequent report acceptance, readiness and recovery backup instead of being normalized or partly consumed. | `communityAggregateStateIntegrity.test.ts`, community reporting/recovery/readiness regressions, strict type/build, full Windows/macOS/Ubuntu engineering gate |')
+                      break
+              else:
+                  raise SystemExit('REG-062 insertion point not found')
+              text = '\n'.join(lines) + '\n'
+          if '| GAP-022 |' not in text:
+              lines = text.splitlines()
+              for i, line in enumerate(lines):
+                  if line.startswith('| GAP-021 |'):
+                      lines.insert(i + 1, '| GAP-022 | RESOLVED | Decrypted community aggregate nested-state validation path | The encrypted aggregate store previously treated successful AES-GCM decryption plus a top-level version/campaigns check as sufficient and then trusted nested campaign/reporter/indicator/evidence JSON as TypeScript. Added a strict post-decryption validator for the exact state emitted by the current writer and wired every store read through it. Regression tests re-encrypt deliberately malformed nested plaintext with the legitimate local key/tag and prove stats/feed/report acceptance and disaster-recovery backup all fail closed. This does not replace GAP-004 deployed restore acceptance or change the existing campaign-growth ceiling. |')
+                      break
+              else:
+                  raise SystemExit('GAP-021 insertion point not found')
+              text = '\n'.join(lines) + '\n'
+          register.write_text(text, encoding='utf-8')
+
+          readme = Path('README_REBUILD_STATUS.md')
+          text = readme.read_text(encoding='utf-8')
+          bullet = '- encrypted community aggregate-state integrity: successful AES-256-GCM decryption is now followed by strict nested writer-state validation for campaign/reporter identities, timestamps, scores/verdicts, indicator support and evidence counters before stats/feed/report/readiness/backup use the state, without lowering the existing campaign ceiling or claiming deployed restore acceptance.'
+          if bullet not in text:
+              lines = text.splitlines()
+              for i, line in enumerate(lines):
+                  if line.startswith('- public community error-surface integrity:'):
+                      if line.endswith('.'):
+                          lines[i] = line[:-1] + ';'
+                      lines.insert(i + 1, bullet)
+                      break
+              else:
+                  raise SystemExit('README public-error bullet insertion point not found')
+              text = '\n'.join(lines) + '\n'
+          readme.write_text(text, encoding='utf-8')
+      - name: Commit if changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .engineering/TEST_MATRIX.md .engineering/REGRESSION_REGISTER.md README_REBUILD_STATUS.md
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Lock aggregate state integrity governance"
+          git push origin HEAD:m2-community-aggregate-state-integrity
