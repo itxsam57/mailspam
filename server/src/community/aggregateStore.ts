@@ -15,6 +15,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import type { SignedFeedEntry } from "../engine/layers/globalIntelligence.js";
+import { CommunityReportCapacityError, CommunityReportRateLimitError, CommunityReportValidationError } from "./errors.js";
 import type {
   CommunityCampaignStatus,
   CommunityFeedPayload,
@@ -134,17 +135,17 @@ function ruleId(campaign: string, indicator: CommunityIndicator): string {
 }
 
 function validateSubmission(input: CommunityReportSubmission): CommunityReportSubmission {
-  if (input.schemaVersion !== 1) throw new Error("Unsupported community report schema.");
-  if (!/^[a-f0-9]{64}$/.test(input.reporterProof)) throw new Error("Reporter proof is invalid.");
-  if (!/^[a-f0-9]{64}$/.test(input.campaignFingerprint)) throw new Error("Campaign fingerprint is invalid.");
+  if (input.schemaVersion !== 1) throw new CommunityReportValidationError("Unsupported community report schema.");
+  if (!/^[a-f0-9]{64}$/.test(input.reporterProof)) throw new CommunityReportValidationError("Reporter proof is invalid.");
+  if (!/^[a-f0-9]{64}$/.test(input.campaignFingerprint)) throw new CommunityReportValidationError("Campaign fingerprint is invalid.");
   const reportedAt = Date.parse(input.reportedAt);
   const now = Date.now();
-  if (!Number.isFinite(reportedAt)) throw new Error("Report timestamp is invalid.");
+  if (!Number.isFinite(reportedAt)) throw new CommunityReportValidationError("Report timestamp is invalid.");
   if (reportedAt > now + MAX_FUTURE_SKEW_MS || reportedAt < now - MAX_REPORT_AGE_MS) {
-    throw new Error("Report timestamp is outside the accepted submission window.");
+    throw new CommunityReportValidationError("Report timestamp is outside the accepted submission window.");
   }
   if (!Array.isArray(input.indicators) || input.indicators.length === 0 || input.indicators.length > MAX_INDICATORS_PER_REPORT) {
-    throw new Error("Community report indicators are invalid.");
+    throw new CommunityReportValidationError("Community report indicators are invalid.");
   }
 
   const indicators: CommunityIndicator[] = [];
@@ -204,10 +205,10 @@ export class EncryptedCommunityAggregateStore {
     const existing = database.campaigns[report.campaignFingerprint];
     const duplicate = Boolean(existing?.reporters[report.reporterProof]);
     if (!duplicate && reportsToday >= MAX_REPORTS_PER_REPORTER_PER_DAY) {
-      throw new Error("Community reporting rate limit reached for this account proof.");
+      throw new CommunityReportRateLimitError();
     }
     if (!existing && Object.keys(database.campaigns).length >= MAX_CAMPAIGNS) {
-      throw new Error("Community reporting store capacity has been reached.");
+      throw new CommunityReportCapacityError();
     }
 
     const campaign: CampaignRecord = existing ?? {

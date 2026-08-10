@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import type { SignedFeedEntry, ThreatFeedCache } from "../engine/layers/globalIntelligence.js";
 import { EncryptedCommunityAggregateStore } from "./aggregateStore.js";
+import { CommunityServiceDisabledError } from "./errors.js";
 import { EncryptedCommunityOutbox } from "./outbox.js";
 import { CommunityReporterIdentity } from "./reporterIdentity.js";
 import {
@@ -222,14 +223,14 @@ export class CommunityNetwork implements ThreatFeedCache {
 
   /** Central-service ingestion endpoint. Enabled only in explicit server mode. */
   acceptExternalReport(report: CommunityReportSubmission): CommunityReportReceipt {
-    if (!this.serverEnabled) throw new Error("Community aggregation service is disabled on this instance.");
+    if (!this.serverEnabled) throw new CommunityServiceDisabledError();
     const receipt = this.aggregateStore.accept(report);
     this.rebuildAfterAcceptedReport();
     return receipt;
   }
 
   signedFeed(): SignedCommunityFeed {
-    if (!this.serverEnabled) throw new Error("Community aggregation service is disabled on this instance.");
+    if (!this.serverEnabled) throw new CommunityServiceDisabledError();
     return this.signer.sign(this.aggregateStore.buildFeedPayload());
   }
 
