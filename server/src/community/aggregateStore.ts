@@ -15,6 +15,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import type { SignedFeedEntry } from "../engine/layers/globalIntelligence.js";
+import { validateStoredCommunityDatabase } from "./aggregateState.js";
 import { CommunityReportCapacityError, CommunityReportRateLimitError, CommunityReportValidationError } from "./errors.js";
 import type {
   CommunityCampaignStatus,
@@ -363,9 +364,7 @@ export class EncryptedCommunityAggregateStore {
         decipher.update(Buffer.from(envelope.ciphertext, "base64")),
         decipher.final(),
       ]).toString("utf8");
-      const parsed = JSON.parse(plaintext) as CommunityDatabase;
-      if (parsed.version !== 1 || !parsed.campaigns || typeof parsed.campaigns !== "object") throw new Error("Invalid database.");
-      return parsed;
+      return validateStoredCommunityDatabase(JSON.parse(plaintext), MAX_CAMPAIGNS);
     } catch (error) {
       throw new Error(`Encrypted community report database could not be read: ${error instanceof Error ? error.message : String(error)}`);
     }
