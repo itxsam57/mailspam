@@ -102,8 +102,13 @@ try {
 
   await waitForReady(baseUrl);
 
-  const health = await json(await fetch(`${baseUrl}/health`), "Community health");
-  assert(health.service === "email-shield-community" && health.ready === true, "Dedicated service health contract was unexpected.");
+  const healthResponse = await fetch(`${baseUrl}/health`);
+  const health = await json(healthResponse, "Community health");
+  assert(
+    health.service === "email-shield-community" && health.ready === true && health.signedFeedAvailable === true,
+    "Dedicated service health contract was unexpected.",
+  );
+  assert(healthResponse.headers.get("cache-control") === "no-store", "Community health response was cacheable.");
   assert((await fetch(baseUrl)).status === 404, "Dedicated community service unexpectedly exposed a homepage.");
   assert((await fetch(`${baseUrl}/api/accounts`)).status === 404, "Dedicated community service unexpectedly exposed mailbox account APIs.");
   assert((await fetch(`${baseUrl}/api/dev/test-suite`)).status === 404, "Dedicated community service unexpectedly exposed desktop developer APIs.");
