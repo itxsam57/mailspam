@@ -36,6 +36,9 @@ const THREAT_ENTRY_TYPES = new Set([
   "attachment_hash",
   "campaign",
 ]);
+const KEY_PAIR_INIT_WAIT_MS = 1_000;
+const KEY_PAIR_INIT_POLL_MS = 10;
+const KEY_PAIR_WAIT_STATE = new Int32Array(new SharedArrayBuffer(4));
 
 export class CommunityFeedResourceLimitError extends Error {
   constructor(message: string) {
@@ -71,6 +74,41 @@ function validateKeyPair(privatePem: string, publicPem: string): void {
   if (!verify(null, challenge, createPublicKey(publicPem), signature)) {
     throw new Error("Configured community signing private and public keys do not match.");
   }
+}
+
+interface StoredSigningKeyPair {
+  privatePem: string;
+  publicPem: string;
+}
+
+function readStoredKeyPair(privatePath: string, publicPath: string): StoredSigningKeyPair {
+  const pair = {
+    privatePem: readFileSync(privatePath, "utf8"),
+    publicPem: readFileSync(publicPath, "utf8"),
+  };
+  validateKeyPair(pair.privatePem, pair.publicPem);
+  return pair;
+}
+
+function waitForStoredKeyPair(privatePath: string, publicPath: string): StoredSigningKeyPair {
+  const deadline = Date.now() + KEY_PAIR_INIT_WAIT_MS;
+  let observedInvalidPair = false;
+  while (true) {
+    if (existsSync(privatePath) && existsSync(publicPath)) {
+      try {
+        return readStoredKeyPair(privatePath, publicPath);
+      } catch {
+        observedInvalidPair = true;
+      }
+    }
+    if (Date.now() >= deadline) break;
+    Atomics.wait(KEY_PAIR_WAIT_STATE, 0, 0, KEY_PAIR_INIT_POLL_MS);
+  }
+
+  if (observedInvalidPair) {
+    throw new Error("Community signing key storage is invalid; preserve the existing key files for diagnosis.");
+  }
+  throw new Error("Community signing key storage is incomplete; preserve the existing key file for diagnosis.");
 }
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -178,24 +216,42 @@ export class CommunityFeedSigner {
       throw new Error("Community signing requires both the private and public key, or neither.");
     }
 
+    let selectedPair: StoredSigningKeyPair;
     if (configuredPrivatePem && configuredPublicPem) {
       validateKeyPair(configuredPrivatePem, configuredPublicPem);
-      this.privatePem = configuredPrivatePem;
-      this.publicPem = configuredPublicPem;
-    } else if (existsSync(privatePath) && existsSync(publicPath)) {
-      this.privatePem = readFileSync(privatePath, "utf8");
-      this.publicPem = readFileSync(publicPath, "utf8");
-      validateKeyPair(this.privatePem, this.publicPem);
+      selectedPair = { privatePem: configuredPrivatePem, publicPem: configuredPublicPem };
     } else if (existsSync(privatePath) || existsSync(publicPath)) {
-      throw new Error("Community signing key storage is incomplete; preserve the existing key file for diagnosis.");
+      selectedPair = waitForStoredKeyPair(privatePath, publicPath);
     } else {
       const pair = generateKeyPairSync("ed25519");
-      this.privatePem = pair.privateKey.export({ type: "pkcs8", format: "pem" }).toString();
-      this.publicPem = pair.publicKey.export({ type: "spki", format: "pem" }).toString();
-      writeFileSync(privatePath, this.privatePem, { mode: 0o600, flag: "wx" });
-      writeFileSync(publicPath, this.publicPem, { mode: 0o644, flag: "wx" });
+      const generatedPair = {
+        privatePem: pair.privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
+        publicPem: pair.publicKey.export({ type: "spki", format: "pem" }).toString(),
+      };
+      try {
+        writeFileSync(privatePath, generatedPair.privatePem, { mode: 0o600, flag: "wx" });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        selectedPair = waitForStoredKeyPair(privatePath, publicPath);
+        this.privatePem = selectedPair.privatePem;
+        this.publicPem = selectedPair.publicPem;
+        this.keyId = keyId(this.publicPem);
+        return;
+      }
+      try {
+        writeFileSync(publicPath, generatedPair.publicPem, { mode: 0o644, flag: "wx" });
+      } catch (error) {
+        throw new Error(
+          `Community signing key initialization could not be completed; preserve the existing key files for diagnosis (${(error as NodeJS.ErrnoException).code ?? "unknown"}).`,
+        );
+      }
       try { chmodSync(privatePath, 0o600); } catch {}
+      try { chmodSync(publicPath, 0o644); } catch {}
+      selectedPair = generatedPair;
     }
+
+    this.privatePem = selectedPair.privatePem;
+    this.publicPem = selectedPair.publicPem;
     this.keyId = keyId(this.publicPem);
   }
 
