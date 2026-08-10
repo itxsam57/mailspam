@@ -107,11 +107,11 @@ describe("block and cleanup", () => {
 });
 
 describe("unsubscribe", () => {
-  it("prefers RFC 8058 one-click POST over a bare link when both are present", async () => {
+  it("does not offer RFC 8058 one-click from list headers alone without trusted DKIM coverage proof", async () => {
     const raw = readFileSync(join(CORPUS_DIR, "newsletter_marketing_abuse/legit-plain.eml"), "utf-8");
     const envelope = await normalizeRawMessage(raw, { provider: "gmail", accountProof: "x", providerFolderName: "INBOX", normalizedFolder: "inbox", providerNativeId: "test-id" });
     const capability = unsubscribeCapability(envelope);
-    expect(capability.method).toBe("one_click_post");
+    expect(capability.method).toBe("link_only");
     expect(capability.target).toBe("https://realnewsco.com/unsubscribe?one-click=true");
   });
 
