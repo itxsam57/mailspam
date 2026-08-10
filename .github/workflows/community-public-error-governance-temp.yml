@@ -1,0 +1,89 @@
+name: Temporary public community error governance refresh
+
+on:
+  push:
+    branches: [m2-community-public-error-integrity]
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    if: ${{ !contains(github.event.head_commit.message, '[public-error-governance]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m2-community-public-error-integrity
+      - name: Apply reviewed public-error governance
+        shell: python
+        run: |
+          from pathlib import Path
+
+          matrix = Path('.engineering/TEST_MATRIX.md')
+          text = matrix.read_text(encoding='utf-8')
+          if '| A-52 |' not in text:
+              lines = text.splitlines()
+              for i, line in enumerate(lines):
+                  if line.startswith('| A-51 | Community service readiness integrity |'):
+                      lines.insert(i + 1, '| A-52 | Public community error integrity | The dedicated unauthenticated community HTTP surface uses typed internal failures plus one stable JSON/no-store error boundary: malformed JSON, invalid runtime report schema, request size, reporter rate limit, operational unavailability, unexpected middleware failure and unknown routes map to reviewed machine codes without raw exception/stack/path/crypto/storage or attacker-controlled detail; runtime report fields/indicators are strictly type/bound validated before encrypted persistence; no message-substring status classification, provider/mailbox permission or deployment/gateway claim is allowed | `communityPublicErrorIntegrity.test.ts`, community architecture/API/reporting/network regressions, compiled dedicated-community smoke, strict type/build, full corpus/Worker/server/browser gate | Windows + macOS + Ubuntu | Blocking |')
+                      break
+              else:
+                  raise SystemExit('A-51 insertion point not found')
+              text = '\n'.join(lines) + '\n'
+          old = 'community service readiness/race-safe signing initialization behavior, and Analyze Links DNS-pinning/SSRF/redirect/resource-boundary behavior are automated.'
+          new = 'community service readiness/race-safe signing initialization behavior, dedicated public-community error isolation/runtime-report validation behavior, and Analyze Links DNS-pinning/SSRF/redirect/resource-boundary behavior are automated.'
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif new not in text:
+              raise SystemExit('automated handoff paragraph insertion point not found')
+          matrix.write_text(text, encoding='utf-8')
+
+          register = Path('.engineering/REGRESSION_REGISTER.md')
+          text = register.read_text(encoding='utf-8')
+          if '| REG-062 |' not in text:
+              lines = text.splitlines()
+              for i, line in enumerate(lines):
+                  if line.startswith('| REG-061 |'):
+                      lines.insert(i + 1, '| REG-062 | LOCKED | The dedicated unauthenticated community service must never expose raw internal errors or infer public status from message text. Validation/rate-limit/capacity/disabled failures are typed internally and translated at the HTTP edge to stable JSON codes; malformed/oversized bodies are captured by the final Express error barrier; every error is `Cache-Control: no-store`; paths, stack traces, crypto/storage diagnostics and attacker-controlled values remain private. Version-1 reports require strict runtime proof/timestamp/verdict/finite-score/evidence-code/indicator validation before aggregate persistence; malformed fields are rejected rather than silently skipped. Desktop-local API error governance remains separate. | `communityPublicErrorIntegrity.test.ts`, `communityArchitecture.test.ts`, community reporting/API/network regressions, strict type/build, full Windows/macOS/Ubuntu engineering gate |')
+                      break
+              else:
+                  raise SystemExit('REG-061 insertion point not found')
+              text = '\n'.join(lines) + '\n'
+          if '| GAP-021 |' not in text:
+              lines = text.splitlines()
+              for i, line in enumerate(lines):
+                  if line.startswith('| GAP-020 |'):
+                      lines.insert(i + 1, '| GAP-021 | RESOLVED | Unauthenticated community error-isolation and runtime-report-validation path | The dedicated public service formerly echoed internal exception messages on report/feed paths, could fall into Express default diagnostics on other routes/body errors, and classified report failures by message substrings; its aggregate validator also trusted compile-time report shapes at runtime. Added typed domain failures, strict pre-persistence version-1 runtime validation, stable JSON/no-store public error codes, route-level operational isolation and a final Express/body-parser error barrier. Real corrupt encrypted state is regression-tested across status/feed/public-key/report without leaking content, paths or diagnostics. GAP-004 deployment operations and GAP-008 gateway/volumetric controls remain open. |')
+                      break
+              else:
+                  raise SystemExit('GAP-020 insertion point not found')
+              text = '\n'.join(lines) + '\n'
+          register.write_text(text, encoding='utf-8')
+
+          readme = Path('README_REBUILD_STATUS.md')
+          text = readme.read_text(encoding='utf-8')
+          bullet = '- public community error-surface integrity: typed internal failures and strict version-1 runtime report validation now feed a stable JSON/no-store unauthenticated error boundary, preventing Express stacks, raw storage/crypto diagnostics, paths or attacker-controlled fields from crossing the dedicated public service while keeping deployment/gateway controls live.'
+          if bullet not in text:
+              lines = text.splitlines()
+              for i, line in enumerate(lines):
+                  if line.startswith('- production community readiness integrity:'):
+                      if line.endswith('.'):
+                          lines[i] = line[:-1] + ';'
+                      lines.insert(i + 1, bullet)
+                      break
+              else:
+                  raise SystemExit('README readiness bullet insertion point not found')
+              text = '\n'.join(lines) + '\n'
+          readme.write_text(text, encoding='utf-8')
+      - name: Commit governance
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .engineering/TEST_MATRIX.md .engineering/REGRESSION_REGISTER.md README_REBUILD_STATUS.md
+          git diff --cached --exit-code && exit 1 || true
+          git commit -m "Lock public community error governance [public-error-governance]"
+          git push origin HEAD:m2-community-public-error-integrity
