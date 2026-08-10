@@ -16,6 +16,11 @@ const SHARED_MAILBOX_DOMAINS = new Set([
 const DOMAIN_RE = /(?:^|[^a-z0-9-])((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63})(?=$|[^a-z0-9-])/gi;
 const PASS_RESULT_RE = /(?:^|;)\s*(spf|dkim)\s*=\s*pass\b([^;]*)/gi;
 
+/** Authentication-Results are actionable only when their producer/path provenance is explicitly trusted. */
+export function authenticationResultsTrusted(envelope: CanonicalEnvelope): boolean {
+  return envelope.authentication.providerTrust === "trusted";
+}
+
 function authenticationProperty(segment: string, property: "smtp.mailfrom" | "header.d"): string | null {
   const escaped = property.replace(".", "\\.");
   const match = segment.match(new RegExp(`(?:^|\\s)${escaped}\\s*=\\s*(?:\"([^\"]+)\"|([^\\s();]+))`, "i"));
@@ -38,11 +43,12 @@ function authenticationIdentityDomain(raw: string | null): string | null {
  * A bare SPF or DKIM pass is not sufficient: SPF authenticates smtp.mailfrom
  * (or HELO) and DKIM authenticates header.d, either of which may be unrelated
  * to the visible author. RFC 8601 carries those identities in
- * Authentication-Results, so we reuse the already-local canonical rawHeader
- * rather than adding DNS or provider calls.
+ * Authentication-Results, but those results are usable only after their
+ * producer/path provenance has been explicitly established. The already-local
+ * canonical rawHeader is reused; no DNS or provider call is added here.
  */
 export function alignedAuthenticationDomains(envelope: CanonicalEnvelope): string[] {
-  if (!envelope.from.domain) return [];
+  if (!authenticationResultsTrusted(envelope) || !envelope.from.domain) return [];
   const fromDomain = normalizeDomainName(envelope.from.domain);
   if (!fromDomain) return [];
 
@@ -69,7 +75,7 @@ export function alignedAuthenticationDomains(envelope: CanonicalEnvelope): strin
   return [...aligned];
 }
 
-/** True only when authentication proves an identity aligned to RFC5322.From. */
+/** True only when trusted authentication proves an identity aligned to RFC5322.From. */
 export function authenticationPassed(envelope: CanonicalEnvelope): boolean {
   return alignedAuthenticationDomains(envelope).length > 0;
 }
