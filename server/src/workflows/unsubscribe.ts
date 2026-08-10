@@ -44,6 +44,7 @@ function normalizedFooterTarget(envelope: CanonicalEnvelope): string | null {
 }
 
 function oneClickDkimAuthorized(envelope: CanonicalEnvelope): boolean {
+  if (!envelope.listHeaders.oneClickHeaderSetUnambiguous) return false;
   const signatures = envelope.listHeaders.oneClickDkimSignatures ?? [];
   if (signatures.length === 0) return false;
 
@@ -56,10 +57,10 @@ function oneClickDkimAuthorized(envelope: CanonicalEnvelope): boolean {
 
 /**
  * Every canonical provider uses this same capability resolver. RFC 8058
- * one-click POST is offered only when a trusted passing DKIM identity maps
- * unambiguously to exactly one raw DKIM signature and that signature signs both
- * required list headers. Otherwise the same message falls back to a manual
- * List-Unsubscribe/footer option rather than performing an automatic action.
+ * one-click POST is offered only when the raw list-header field set is
+ * unambiguous and a trusted passing DKIM identity maps unambiguously to exactly
+ * one raw DKIM signature that signs both required list headers. Otherwise the
+ * same message falls back to a manual List-Unsubscribe/footer option.
  */
 export function unsubscribeCapability(envelope: CanonicalEnvelope): UnsubscribeCapability {
   const targets = headerTargets(envelope.listHeaders.listUnsubscribe);
