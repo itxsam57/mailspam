@@ -89,6 +89,33 @@ describe("dedicated community public error boundary", () => {
     await expectJsonError(response, 400, "invalid_report");
   });
 
+  it("rejects malformed runtime report field types before aggregate persistence", async () => {
+    const network = new CommunityNetwork({ dataDirectory: temporaryDirectory(), serverEnabled: true });
+    const base = await start(network);
+    const valid = report();
+    const malformed: unknown[] = [
+      { ...valid, verdict: "definitely-not-a-verdict" },
+      { ...valid, evidenceScore: "8" },
+      { ...valid, evidenceCodes: "PUBLIC_ERROR_TEST" },
+      { ...valid, evidenceCodes: ["valid-but-lowercase"] },
+      { ...valid, indicators: [{ type: "campaign", value: "c".repeat(64) }] },
+      { ...valid, indicators: [{ type: "url_domain", value: 123 }] },
+    ];
+
+    for (const body of malformed) {
+      await expectJsonError(await fetch(`${base}/api/community/v1/report`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }), 400, "invalid_report");
+    }
+
+    const info = await (await fetch(`${base}/api/community/v1/public-key`)).json() as {
+      stats: { campaigns: number; warnings: number; confirmed: number };
+    };
+    expect(info.stats).toEqual({ campaigns: 0, warnings: 0, confirmed: 0 });
+  });
+
   it("keeps disabled service and typed operational failures generic", async () => {
     const disabled = new CommunityNetwork({ dataDirectory: temporaryDirectory(), serverEnabled: false });
     const disabledBase = await start(disabled);
