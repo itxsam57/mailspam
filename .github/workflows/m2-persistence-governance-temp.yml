@@ -1,0 +1,67 @@
+name: M2 persistence governance temporary
+on:
+  push:
+    branches:
+      - m2-final-closure-audit
+permissions:
+  contents: write
+jobs:
+  edit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m2-final-closure-audit
+      - shell: python
+        run: |
+          from pathlib import Path
+
+          matrix = Path('.engineering/TEST_MATRIX.md')
+          text = matrix.read_text()
+          row = '| A-58 | Local persistence descriptor/read/commit integrity | Local encrypted/security-sensitive files use one descriptor-bound bounded reader with no-follow where supported, regular-file proof, pre-allocation size contracts, exact-size read plus growth probe/recheck; raw private local keys require owner-only POSIX permissions; plaintext ceilings are distinct from derived encrypted Base64 envelope ceilings; first-use generated key candidates are zeroed; failed atomic replacement preserves the last good destination; resumable-scan persistence failures are explicit rather than silently swallowed | `localFileIntegrity.test.ts`, `communityStorageKeyReadIntegrity.test.ts`, `scanProgressRuntime.test.ts`, policy/scan/relationship/community persistence regressions, strict type/build, full corpus/Worker/server/browser gate | Windows + macOS + Ubuntu | Blocking |'
+          if '| A-58 |' not in text:
+              lines=text.splitlines()
+              for i,line in enumerate(lines):
+                  if line.startswith('| A-57 |'):
+                      lines.insert(i+1,row); break
+              else: raise SystemExit('A-57 missing')
+              matrix.write_text('\n'.join(lines)+'\n')
+
+          reg=Path('.engineering/REGRESSION_REGISTER.md')
+          text=reg.read_text()
+          row='| REG-068 | LOCKED | Local persistence/security-file reads must be descriptor-bound and resource-bounded before allocation: no-follow where supported, same-descriptor regular-file/size proof, exact-sized read, extra-byte probe and post-read size recheck. Raw private local keys require owner-only POSIX permissions. Plaintext database limits and encrypted JSON/Base64 envelope limits are separate so a valid write remains readable. Generated key candidates are zeroed after first-use races. Atomic replace failure preserves the previous destination and may clean only the temporary file. Protected resumable-scan finalization failure is explicit and cannot be represented as a durable checkpoint. No provider permission, OAuth, mailbox action, persistence schema, community-report schema or deployment claim is expanded. | `localFileIntegrity.test.ts`, `communityStorageKeyReadIntegrity.test.ts`, `scanProgressRuntime.test.ts`, persistence regressions, strict type/build, full Windows/macOS/Ubuntu engineering gate |'
+          if '| REG-068 |' not in text:
+              lines=text.splitlines()
+              for i,line in enumerate(lines):
+                  if line.startswith('| REG-067 |'):
+                      lines.insert(i+1,row); break
+              else: raise SystemExit('REG-067 missing')
+              text='\n'.join(lines)+'\n'
+          gap='| GAP-027 | RESOLVED | Local persistence descriptor/read/commit integrity | Final Milestone 2 audit found cross-store pre-allocation/path-read weaknesses, destructive generic rename fallback, raw-key permission ambiguity, scan/relationship plaintext-vs-encrypted size-contract mismatch and a silently swallowed scan-state write failure. Added one shared same-descriptor bounded reader, separate encrypted-envelope ceilings, owner-only POSIX raw-key consumption, generated-key zeroing, non-destructive replacement and explicit scan persistence-failure semantics across local policy/history/community/recovery state. No live/deployment gap is claimed closed by this code-only resolution. |'
+          if '| GAP-027 |' not in text:
+              lines=text.splitlines()
+              for i,line in enumerate(lines):
+                  if line.startswith('| GAP-026 |'):
+                      lines.insert(i+1,gap); break
+              else: raise SystemExit('GAP-026 missing')
+              text='\n'.join(lines)+'\n'
+          reg.write_text(text)
+
+          readme=Path('README_REBUILD_STATUS.md')
+          text=readme.read_text()
+          bullet='- local persistence descriptor/read/commit integrity: encrypted/security-state reads are same-descriptor and pre-allocation bounded, plaintext/encrypted envelope ceilings are distinct, raw private key files require owner-only POSIX modes, failed replacement preserves the previous valid database, and resumable-scan persistence failures are explicit;'
+          if bullet not in text:
+              lines=text.splitlines()
+              for i,line in enumerate(lines):
+                  if line.startswith('- RFC 8058 one-click unsubscribe integrity:'):
+                      lines[i]=line[:-1]+';' if line.endswith('.') else line
+                      lines.insert(i+1,bullet); break
+              else: raise SystemExit('README RFC8058 bullet missing')
+              readme.write_text('\n'.join(lines)+'\n')
+      - shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .engineering/TEST_MATRIX.md .engineering/REGRESSION_REGISTER.md README_REBUILD_STATUS.md
+          git commit -m "Lock local persistence integrity governance"
+          git push origin HEAD:m2-final-closure-audit
