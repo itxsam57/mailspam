@@ -123,14 +123,16 @@ describe("authenticated community aggregate-state integrity", () => {
       const item = campaign(state);
       item.reporters[REPORTER].reportedAt = new Date(Date.parse(item.lastSeen) + 1_000).toISOString();
     }],
-    ["unknown indicator reporter references", (state: Record<string, any>) => {
-      campaign(state).indicatorReporters["url_domain\0state-integrity.example"] = ["c".repeat(64)];
+    ["duplicate reporter indicators", (state: Record<string, any>) => {
+      const reporter = campaign(state).reporters[REPORTER];
+      reporter.indicators.push({ ...reporter.indicators[0] });
     }],
     ["missing complete campaign support", (state: Record<string, any>) => {
-      campaign(state).indicatorReporters[`campaign\0${CAMPAIGN}`] = [];
+      campaign(state).reporters[REPORTER].indicators = campaign(state).reporters[REPORTER].indicators
+        .filter((item: { type: string }) => item.type !== "campaign");
     }],
-    ["impossible evidence-code counts", (state: Record<string, any>) => {
-      campaign(state).evidenceCodes.STATE_INTEGRITY_TEST = 2;
+    ["duplicate evidence codes", (state: Record<string, any>) => {
+      campaign(state).reporters[REPORTER].evidenceCodes.push("STATE_INTEGRITY_TEST");
     }],
   ])("rejects validly encrypted state with %s", (_label, mutate) => {
     const directory = initializedDirectory();

@@ -26,6 +26,7 @@ import { MAX_COMMUNITY_AUTHORITATIVE_SOURCE_BYTES, MAX_COMMUNITY_SIGNING_KEY_FIL
 import { CommunityFeedSigner } from "./signing.js";
 import {
   COMMUNITY_REPORT_DATABASE_FILE,
+  COMMUNITY_REPORT_JOURNAL_FILE,
   COMMUNITY_REPORT_KEY_FILE,
   COMMUNITY_SIGNING_PRIVATE_FILE,
   COMMUNITY_SIGNING_PUBLIC_FILE,
@@ -48,6 +49,7 @@ export const MAX_COMMUNITY_BACKUP_FILE_BYTES = 384 * 1024 * 1024;
 const BACKUP_FILE_MODES: Readonly<Record<string, number>> = Object.freeze({
   [COMMUNITY_REPORT_KEY_FILE]: 0o600,
   [COMMUNITY_REPORT_DATABASE_FILE]: 0o600,
+  [COMMUNITY_REPORT_JOURNAL_FILE]: 0o600,
   [COMMUNITY_SIGNING_PRIVATE_FILE]: 0o600,
   [COMMUNITY_SIGNING_PUBLIC_FILE]: 0o644,
 });
@@ -257,7 +259,7 @@ function validatePayload(value: unknown): { payload: CommunityBackupPayload; fil
   if (typeof payload.createdAt !== "string" || payload.createdAt.length > 64 || !Number.isFinite(Date.parse(payload.createdAt))) {
     throw new Error("Community backup creation timestamp is invalid.");
   }
-  if (!Array.isArray(payload.files) || payload.files.length < 2 || payload.files.length > 4) {
+  if (!Array.isArray(payload.files) || payload.files.length < 2 || payload.files.length > 5) {
     throw new Error("Community backup file manifest is invalid.");
   }
 
@@ -281,6 +283,9 @@ function validatePayload(value: unknown): { payload: CommunityBackupPayload; fil
     const hasStorageKey = files.has(COMMUNITY_REPORT_KEY_FILE);
     const hasDatabase = files.has(COMMUNITY_REPORT_DATABASE_FILE);
     if (hasStorageKey !== hasDatabase) throw new Error("Community backup aggregate storage pair is incomplete.");
+    if (files.has(COMMUNITY_REPORT_JOURNAL_FILE) && !hasStorageKey) {
+      throw new Error("Community backup journal has no aggregate storage pair.");
+    }
     if (!files.has(COMMUNITY_SIGNING_PRIVATE_FILE) || !files.has(COMMUNITY_SIGNING_PUBLIC_FILE)) {
       throw new Error("Community backup signing key pair is incomplete.");
     }
@@ -297,6 +302,9 @@ function validateRecoveryDirectory(dataDirectory: string): { signingKeyId: strin
   const hasStorageKey = existsSync(join(dataDirectory, COMMUNITY_REPORT_KEY_FILE));
   const hasDatabase = existsSync(join(dataDirectory, COMMUNITY_REPORT_DATABASE_FILE));
   if (hasStorageKey !== hasDatabase) throw new Error("Recovered community aggregate storage pair is incomplete.");
+  if (existsSync(join(dataDirectory, COMMUNITY_REPORT_JOURNAL_FILE)) && !hasStorageKey) {
+    throw new Error("Recovered community report journal has no aggregate storage pair.");
+  }
   if (hasStorageKey) {
     const store = new EncryptedCommunityAggregateStore(dataDirectory);
     store.stats();
@@ -316,6 +324,7 @@ export function createEncryptedCommunityBackup(options: {
   const signing = loadSigningKeys(options.dataDirectory, options.configuredSigningKeys);
   const storageKeyPath = join(options.dataDirectory, COMMUNITY_REPORT_KEY_FILE);
   const databasePath = join(options.dataDirectory, COMMUNITY_REPORT_DATABASE_FILE);
+  const journalPath = join(options.dataDirectory, COMMUNITY_REPORT_JOURNAL_FILE);
   const hasStorageKey = existsSync(storageKeyPath);
   const hasDatabase = existsSync(databasePath);
   if (hasStorageKey !== hasDatabase) throw new Error("Community aggregate storage is incomplete; refusing to back up an inconsistent state.");
@@ -340,13 +349,19 @@ export function createEncryptedCommunityBackup(options: {
       const storageKey = readBoundedRegularFile(storageKeyPath, { description: "Community aggregate storage key", maxBytes: remainingBytes, requireOwnerOnly: true });
       remainingBytes -= storageKey.length;
       const database = readBoundedRegularFile(databasePath, { description: "Community aggregate database", maxBytes: remainingBytes });
+      remainingBytes -= database.length;
+      const journal = existsSync(journalPath)
+        ? readBoundedRegularFile(journalPath, { description: "Community aggregate journal", maxBytes: remainingBytes })
+        : null;
       try {
-        sourceBytes += storageKey.length + database.length;
+        sourceBytes += storageKey.length + database.length + (journal?.length ?? 0);
         files.push(encodeBackupFile(COMMUNITY_REPORT_KEY_FILE, storageKey));
         files.push(encodeBackupFile(COMMUNITY_REPORT_DATABASE_FILE, database));
+        if (journal) files.push(encodeBackupFile(COMMUNITY_REPORT_JOURNAL_FILE, journal));
       } finally {
         storageKey.fill(0);
         database.fill(0);
+        journal?.fill(0);
       }
     }
     files.push(encodeBackupFile(COMMUNITY_SIGNING_PRIVATE_FILE, privateBytes));

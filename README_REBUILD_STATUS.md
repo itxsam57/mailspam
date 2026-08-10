@@ -38,9 +38,9 @@ The following list records the Milestone 1 baseline as accepted at closure. Late
 - Windows and Ubuntu engineering gates
 - Permanent regression register and browser handoff workflow
 
-## Milestone 2 — CODE COMPLETE / LIVE ACCEPTANCE PENDING
+## Milestone 2 — CANONICAL PRODUCTION HARDENING IN PROGRESS
 
-Milestone 2 is not formally closed. The final whole-code closure audit has no remaining confirmed/reproducible code defect in the audited categories, the accepted installed dependency inventory is zero advisories, and the rebuild is ready for owner/live/deployment acceptance. Formal closure remains blocked by the registered live/deployment gaps and required manual checks. See `.engineering/MILESTONE_2_CODE_CLOSURE_AUDIT.md` and `docs/MILESTONE_2_LIVE_ACCEPTANCE.md`.
+Milestone 2 is not formally closed. The August 10 whole-code closure audit remains valid for the narrower desktop-beta boundary it audited, but the recovered canonical three-milestone specification also requires 10,000-client community capacity, anti-rollback feeds, scalable destination-analysis coordination, metrics/abuse operations and Windows-first packaging. The authoritative reconciliation is `.engineering/CANONICAL_ROADMAP_GAP_AUDIT.md`; external owner/deployment work remains in `docs/MILESTONE_2_LIVE_ACCEPTANCE.md`.
 
 The following engineering bricks are implemented and regression-locked on the current rebuild line:
 
@@ -70,6 +70,7 @@ The following engineering bricks are implemented and regression-locked on the cu
 - RFC 8058 one-click unsubscribe integrity: automatic POST now requires lossless/unambiguous raw list headers plus exact REG-066 trusted DKIM domain+selector correlation and signed coverage of both required headers; ambiguity or resource-limit exhaustion falls back to the existing manual unsubscribe path while user confirmation and hardened pinned-public HTTPS transport remain unchanged;
 - local persistence descriptor/read/commit integrity: encrypted/security-state reads are same-descriptor and pre-allocation bounded, plaintext/encrypted envelope ceilings are distinct, raw private key files require owner-only POSIX modes, failed replacement preserves the previous valid database, and resumable-scan persistence failures are explicit;
 - dependency security closure: reviewed Vitest/Microsoft/Google dependency upgrades preserve the existing OAuth/vault/runtime contracts and reduce the accepted installed npm advisory inventory to zero without force-fixing or hand-editing the lockfile;
+- scalable durable community ingestion: encrypted append-only report journaling plus bounded atomic snapshot compaction removes whole-database work from each request, 10,000 independent reporters are exercised through the production validation/dedupe/signing path, committed journal records survive restart, incomplete crash tails are removed safely, backup/restore includes the journal, and reporter-derived state expires after a fixed 90-day retention period;
 
 The exact current security and behavior claims are defined by `.engineering/REGRESSION_REGISTER.md`, `.engineering/TEST_MATRIX.md` and the feature-specific security contracts under `.engineering/`.
 
@@ -84,6 +85,8 @@ The current register intentionally keeps these deployment/live-acceptance items 
 - **GAP-008** — production gateway reporter reputation and volumetric/DDoS abuse defence.
 
 Manual visible acceptance items in the regression register also remain manual until the owner performs them. A green engineering gate does not convert those live/deployment claims into completed work.
+
+The remaining canonical buildable Milestone 2 rows are monotonic signed-feed rollback protection, a bounded cached destination-analysis coordinator, privacy-safe operational metrics and Windows-first packaging/release preparation. These are code requirements, not live-test substitutes.
 
 ## Run
 

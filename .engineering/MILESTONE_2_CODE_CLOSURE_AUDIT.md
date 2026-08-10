@@ -2,9 +2,9 @@
 
 ## Status
 
-**Code-complete to the audited/automated boundary; ready for owner/live/deployment acceptance.**
+**Historical desktop-beta closure audit; superseded for canonical milestone status by `.engineering/CANONICAL_ROADMAP_GAP_AUDIT.md`.**
 
-This is not a claim that software can never contain an undiscovered bug and it is not formal Milestone 2 closure. The remaining registered items require real provider, public-network, gateway or subjective owner evidence.
+This audit remains evidence for the code boundary reviewed on August 10, 2026. It is not formal Milestone 2 closure and must not be used to shrink the original three-milestone specification. The canonical reconciliation identified additional buildable Milestone 2 acceptance work alongside the real provider, public-network, gateway and subjective owner evidence.
 
 ## Audit basis
 

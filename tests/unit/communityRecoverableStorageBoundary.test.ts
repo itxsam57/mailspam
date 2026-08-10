@@ -12,6 +12,7 @@ import {
   COMMUNITY_STORAGE_KEY_BYTES,
   MAX_COMMUNITY_AGGREGATE_DATABASE_BYTES,
   MAX_COMMUNITY_AUTHORITATIVE_SOURCE_BYTES,
+  MAX_COMMUNITY_REPORT_JOURNAL_BYTES,
   MAX_COMMUNITY_SIGNING_KEY_FILE_BYTES,
 } from "../../server/src/community/resourceLimits.js";
 import {
@@ -54,6 +55,7 @@ describe("recoverable community aggregate storage boundary", () => {
     expect(MAX_COMMUNITY_BACKUP_SOURCE_BYTES).toBe(MAX_COMMUNITY_AUTHORITATIVE_SOURCE_BYTES);
     expect(
       MAX_COMMUNITY_AGGREGATE_DATABASE_BYTES +
+      MAX_COMMUNITY_REPORT_JOURNAL_BYTES +
       (2 * MAX_COMMUNITY_SIGNING_KEY_FILE_BYTES) +
       COMMUNITY_STORAGE_KEY_BYTES,
     ).toBe(MAX_COMMUNITY_AUTHORITATIVE_SOURCE_BYTES);
@@ -106,13 +108,18 @@ describe("recoverable community aggregate storage boundary", () => {
 
   it("locks fail-before-persist sizing on the aggregate writer", () => {
     const source = readFileSync(join(process.cwd(), "src/community/aggregateStore.ts"), "utf8");
-    const precheck = source.indexOf("encryptedEnvelopeByteLength(plaintextBytes) > MAX_COMMUNITY_AGGREGATE_DATABASE_BYTES");
-    const encryption = source.indexOf("createCipheriv(ALGORITHM, this.readKey(), iv)");
-    const finalCheck = source.indexOf('Buffer.byteLength(serialized, "utf8") > MAX_COMMUNITY_AGGREGATE_DATABASE_BYTES');
-    const write = source.indexOf("writeFileSync(temporaryPath, serialized");
-    expect(precheck).toBeGreaterThan(0);
-    expect(encryption).toBeGreaterThan(precheck);
-    expect(finalCheck).toBeGreaterThan(encryption);
-    expect(write).toBeGreaterThan(finalCheck);
+    const candidateCheck = source.indexOf("this.assertSnapshotCapacityBytes(candidatePlaintextBytes)");
+    const journalAppend = source.indexOf("this.appendJournal(line)");
+    const writer = source.indexOf("private writeDatabase(database");
+    const writerPrecheck = source.indexOf("this.assertSnapshotCapacity(database)", writer);
+    const writerEncryption = source.indexOf("this.encryptJson(database, SNAPSHOT_AAD)", writer);
+    const writerFinalCheck = source.indexOf('Buffer.byteLength(serialized, "utf8") > MAX_COMMUNITY_AGGREGATE_DATABASE_BYTES', writer);
+    const writerPersist = source.indexOf("writeFileSync(temporaryPath, serialized", writer);
+    expect(candidateCheck).toBeGreaterThan(0);
+    expect(journalAppend).toBeGreaterThan(candidateCheck);
+    expect(writerPrecheck).toBeGreaterThan(writer);
+    expect(writerEncryption).toBeGreaterThan(writerPrecheck);
+    expect(writerFinalCheck).toBeGreaterThan(writerEncryption);
+    expect(writerPersist).toBeGreaterThan(writerFinalCheck);
   });
 });

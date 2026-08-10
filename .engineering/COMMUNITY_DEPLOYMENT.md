@@ -29,6 +29,9 @@ It excludes mailbox address/proof, subject, body, contacts, credentials, OAuth/a
 - Evidence-free human reports cannot create Confirmed Threat status by themselves.
 - Generic no-reply/reporting delivery addresses are not published as exact sender indicators, protecting shared carriers from mass false blocks.
 - Invalid reports, oversized payloads, forged timestamps and excessive per-reporter daily submissions are rejected.
+- Accepted reports are durably appended to a bounded encrypted journal and periodically compacted into the encrypted aggregate snapshot, so ingestion does not rewrite the complete database per request.
+- Reporter-attributed campaign state has a fixed 90-day retention boundary; expired reporters no longer contribute to thresholds or signed feed entries.
+- The blocking capacity suite sends 10,000 independent reporters through validation, encrypted persistence, deduplication, restart recovery and signed-feed consumption.
 
 A reporter proof is privacy preserving but is not a complete Sybil defence across reinstallations or devices. Public operation still requires gateway enrollment, reputation and volumetric abuse controls.
 
@@ -124,11 +127,12 @@ A configured private key without its matching public key, an incomplete on-disk 
 Back up together:
 
 - `community-reports.enc.json`
+- `community-reports.journal.enc.ndjson`
 - `community-storage.key`
 - `community-feed-private.pem`
 - `community-feed-public.pem`
 
-The encrypted database is unusable without its storage key. Losing the signing pair changes the feed identity and requires a client public-key rollout.
+The encrypted snapshot and journal are unusable without their storage key. The built-in backup/restore operation preserves the matched snapshot, journal, storage key and signing pair under one authenticated recovery envelope. Losing the signing pair changes the feed identity and requires a client public-key rollout.
 
 Do not delete corrupted files as the first response. Preserve copies for diagnosis and restore the matched database/key pair from backup.
 
