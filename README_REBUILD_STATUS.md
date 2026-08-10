@@ -38,9 +38,11 @@ The following list records the Milestone 1 baseline as accepted at closure. Late
 - Windows and Ubuntu engineering gates
 - Permanent regression register and browser handoff workflow
 
-## Milestone 2 — IN PROGRESS
+## Milestone 2 — CODE COMPLETE / LIVE ACCEPTANCE PENDING
 
-Milestone 2 is not formally closed. The following engineering bricks are implemented and regression-locked on the current rebuild line:
+Milestone 2 is not formally closed. The final whole-code closure audit has no remaining confirmed/reproducible code defect in the audited categories, the accepted installed dependency inventory is zero advisories, and the rebuild is ready for owner/live/deployment acceptance. Formal closure remains blocked by the registered live/deployment gaps and required manual checks. See `.engineering/MILESTONE_2_CODE_CLOSURE_AUDIT.md` and `docs/MILESTONE_2_LIVE_ACCEPTANCE.md`.
+
+The following engineering bricks are implemented and regression-locked on the current rebuild line:
 
 - guided Gmail desktop OAuth with PKCE, stable identity, protected refresh-token custody and owner-accepted live Gmail reconnect/scan flow;
 - guided Outlook public-client PKCE architecture, stable Graph identity and protected refresh-token rotation, with real-Outlook owner acceptance still open;

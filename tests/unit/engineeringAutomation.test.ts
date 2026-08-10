@@ -83,6 +83,7 @@ describe("AI Engineering Automation Kit installation", () => {
     const workflow = read(".github/workflows/verify.yml");
     expect(workflow).toContain("ubuntu-latest");
     expect(workflow).toContain("windows-latest");
+    expect(workflow).toContain("macos-latest");
     expect(workflow).toContain("npm ci");
     expect(workflow).toContain("npm run gate");
     expect(workflow).toContain("ENGINEERING_AUDIT");
@@ -91,7 +92,7 @@ describe("AI Engineering Automation Kit installation", () => {
     expect(workflow).toContain("artifacts/engineering/");
   });
 
-  it("keeps browser automation limited to source/API smoke and leaves visible acceptance to the owner", () => {
+  it("keeps browser automation limited to source/API smoke and leaves visible/live acceptance to the owner", () => {
     const webCheck = read("scripts/engineering/check-web-assets.mjs");
     const smoke = read("scripts/engineering/smoke-server.mjs");
     const handoff = read(".engineering/MANUAL_TEST_HANDOFF_TEMPLATE.md");
@@ -101,8 +102,14 @@ describe("AI Engineering Automation Kit installation", () => {
     expect(smoke).toContain("/api/dev/test-suite");
     expect(smoke).toContain("event: scan-complete");
     expect(smoke).toContain("falseNegatives.length === 0");
-    expect(handoff).toContain("owner performs only the visible checks");
-    expect(handoff).toContain("Controlled live iCloud");
+
+    expect(handoff).toContain("The owner continues only after");
+    expect(handoff).toContain("docs/MILESTONE_2_LIVE_ACCEPTANCE.md");
+    expect(handoff).toContain("## Live provider checks");
+    expect(handoff).toContain("Microsoft public desktop/mobile registration");
+    expect(handoff).toContain("Do not mark these complete from a local fixture or unit test");
     expect(handoff).not.toContain("normal Apple ID password");
+    expect(handoff).not.toContain("Playwright");
+    expect(handoff).not.toContain("Puppeteer");
   });
 });
