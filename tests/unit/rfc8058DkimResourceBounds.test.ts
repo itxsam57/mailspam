@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractOneClickDkimSignatures } from "../../server/src/util/dkimSignatureMetadata.js";
+import { extractOneClickDkimSignatures } from "../../server/src/util/rfc8058Metadata.js";
 import { normalizeRawMessage } from "../../server/src/util/mimeNormalize.js";
 import { unsubscribeCapability } from "../../server/src/workflows/unsubscribe.js";
 
