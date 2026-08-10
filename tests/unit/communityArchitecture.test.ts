@@ -60,12 +60,18 @@ describe("community shield architecture", () => {
 
   it("supports a self-hosted central service without enabling public ingestion by default", () => {
     const network = read("server/src/community/network.ts");
-    const server = read("server/src/api/server.ts");
+    const errors = read("server/src/community/errors.ts");
+    const publicServer = read("server/src/community/server.ts");
+    const desktopServer = read("server/src/api/server.ts");
     expect(network).toContain('process.env.EMAIL_SHIELD_COMMUNITY_SERVER === "1"');
-    expect(network).toContain("Community aggregation service is disabled");
-    expect(server).toContain('/api/community/v1/report');
-    expect(server).toContain('/api/community/v1/feed');
-    expect(server).toContain('/api/community/v1/public-key');
+    expect(network).toContain('import { CommunityServiceDisabledError } from "./errors.js"');
+    expect(network).toContain("throw new CommunityServiceDisabledError()");
+    expect(errors).toContain("export class CommunityServiceDisabledError extends Error");
+    expect(publicServer).toContain("error instanceof CommunityServiceDisabledError");
+    expect(publicServer).toContain('sendPublicError(res, 503, "service_unavailable")');
+    expect(desktopServer).toContain('/api/community/v1/report');
+    expect(desktopServer).toContain('/api/community/v1/feed');
+    expect(desktopServer).toContain('/api/community/v1/public-key');
   });
 
   it("stores local campaign protection and pending reports encrypted", () => {
