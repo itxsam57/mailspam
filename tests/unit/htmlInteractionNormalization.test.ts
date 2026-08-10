@@ -117,6 +117,9 @@ describe("bounded HTML interaction normalization", () => {
         auth: "mx.local; spf=pass; dkim=pass; dmarc=pass",
       },
     ));
+    // This regression is about HTML/link behavior, not Authentication-Results
+    // provenance. The synthetic receiver result is therefore trusted explicitly.
+    envelope.authentication.providerTrust = "trusted";
     const result = scanMessage(envelope, emptyDeps);
 
     expect(envelope.htmlSignals).toMatchObject({ hasForm: true, hasPasswordField: true });

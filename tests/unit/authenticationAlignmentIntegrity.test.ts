@@ -11,6 +11,10 @@ import { InMemoryPersonalPolicyStore } from "../../server/src/engine/layers/pers
 import { scanMessage } from "../../server/src/engine/pipeline.js";
 
 function envelope(overrides: Partial<CanonicalEnvelope> = {}): CanonicalEnvelope {
+  const authentication = overrides.authentication
+    ? { ...overrides.authentication, providerTrust: overrides.authentication.providerTrust ?? "trusted" as const }
+    : { spf: "unknown" as const, dkim: "unknown" as const, dmarc: "unknown" as const, arc: "none" as const, providerTrust: "trusted" as const };
+
   return {
     provider: "gmail",
     accountProof: "proof",
@@ -26,12 +30,6 @@ function envelope(overrides: Partial<CanonicalEnvelope> = {}): CanonicalEnvelope
     replyTo: null,
     subject: "Cobalt Bank account notice",
     date: new Date(0).toISOString(),
-    authentication: {
-      spf: "unknown",
-      dkim: "unknown",
-      dmarc: "unknown",
-      arc: "none",
-    },
     textPreview: "Routine account information from the sender. ".repeat(5),
     htmlSignals: null,
     links: [],
@@ -47,6 +45,7 @@ function envelope(overrides: Partial<CanonicalEnvelope> = {}): CanonicalEnvelope
       contentCoverage: "complete",
     },
     ...overrides,
+    authentication,
   };
 }
 
@@ -55,7 +54,7 @@ const deps = () => ({
   threatFeed: { getVerifiedEntries: () => [] },
 });
 
-describe("RFC5322.From authentication alignment", () => {
+describe("RFC5322.From authentication alignment after trusted provenance", () => {
   it("accepts DMARC pass because DMARC already requires an aligned authenticated identifier", () => {
     const message = envelope({
       authentication: { spf: "pass", dkim: "pass", dmarc: "pass", arc: "none" },

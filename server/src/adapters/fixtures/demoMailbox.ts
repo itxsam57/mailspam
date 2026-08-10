@@ -11,7 +11,7 @@ import type { Provider } from "../../canonical/envelope.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CORPUS_DIR = join(__dirname, "../../../../fixtures/scam-corpus");
 
-interface ManifestEntry { category: string; kind: "malicious" | "legit"; file: string; variant: string }
+interface ManifestEntry { category: string; kind: "malicious" | "legit"; file: string; variant: string; authenticationTrust: "trusted" | "unknown" }
 
 /**
  * Builds a demo mailbox from the synthetic scam corpus: malicious "plain"
@@ -19,6 +19,10 @@ interface ManifestEntry { category: string; kind: "malicious" | "legit"; file: s
  * which is the realistic case this app targets) and Spam; legit controls
  * land in Inbox. Fixture folder mutations are held in the account session so
  * a provider-confirmed move remains visible on the next scan.
+ *
+ * The corpus is controlled test input. Its Authentication-Results values model
+ * provider-produced outcomes and are therefore marked trusted explicitly here;
+ * ad-hoc FixtureMessage instances remain unknown unless the test opts in.
  */
 export function buildDemoMailbox(
   provider: Provider,
@@ -40,6 +44,7 @@ export function buildDemoMailbox(
         rawEml,
         folder,
         providerFolderName: folder === "inbox" ? "INBOX" : folder === "spam" ? "Spam" : "Trash",
+        authenticationTrust: entry.authenticationTrust,
       };
     }
 
@@ -49,6 +54,7 @@ export function buildDemoMailbox(
       rawEml,
       folder,
       providerFolderName: folder === "inbox" ? "INBOX" : folder === "spam" ? "Spam" : "Trash",
+      authenticationTrust: entry.authenticationTrust,
     };
   });
 

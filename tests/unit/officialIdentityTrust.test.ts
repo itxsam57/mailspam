@@ -20,7 +20,7 @@ function message(overrides: Partial<CanonicalEnvelope> = {}): CanonicalEnvelope 
     replyTo: null,
     subject: "Example",
     date: new Date(0).toISOString(),
-    authentication: { spf: "pass", dkim: "pass", dmarc: "pass", arc: "none" },
+    authentication: { providerTrust: "trusted", spf: "pass", dkim: "pass", dmarc: "pass", arc: "none" },
     textPreview: "A readable security or marketing notification with enough visible content for bounded analysis.",
     htmlSignals: null,
     links: [],

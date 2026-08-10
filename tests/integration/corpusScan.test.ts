@@ -8,7 +8,7 @@ import type { ThreatFeedCache } from "../../server/src/engine/layers/globalIntel
 import type { Provider } from "../../server/src/canonical/envelope.js";
 
 const CORPUS_DIR = join(import.meta.dirname, "../../fixtures/scam-corpus");
-type ManifestEntry = { category: string; kind: "malicious" | "legit"; file: string; variant: string };
+type ManifestEntry = { category: string; kind: "malicious" | "legit"; file: string; variant: string; authenticationTrust: "trusted" | "unknown" };
 
 const manifest: ManifestEntry[] = JSON.parse(readFileSync(join(CORPUS_DIR, "manifest.json"), "utf-8"));
 
@@ -37,6 +37,7 @@ beforeAll(async () => {
       rawEml: readFileSync(join(CORPUS_DIR, m.file), "utf-8"),
       folder: "inbox",
       providerFolderName: "INBOX",
+      authenticationTrust: m.authenticationTrust,
     }));
     const adapter = new FixtureAdapter(provider, messages);
     const ac = new AbortController();

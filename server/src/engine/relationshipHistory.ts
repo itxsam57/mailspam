@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { CanonicalEnvelope, NormalizedFolder } from "../canonical/envelope.js";
 import type { Verdict } from "./verdict.js";
-import { authenticationPassed } from "./identitySignals.js";
+import { authenticationPassed, authenticationResultsTrusted } from "./identitySignals.js";
 
 export interface RelationshipProfile {
   messagesSeen: number;
@@ -101,6 +101,7 @@ export function hasEstablishedRelationship(profile: RelationshipProfile | undefi
 }
 
 function explicitAuthenticationFailure(envelope: CanonicalEnvelope): boolean {
+  if (!authenticationResultsTrusted(envelope)) return false;
   const auth = envelope.authentication;
   if (auth.dmarc === "fail") return true;
   if (auth.spf === "fail" && auth.dkim === "fail") return true;
