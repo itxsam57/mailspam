@@ -37,6 +37,13 @@ const THREAT_ENTRY_TYPES = new Set([
   "campaign",
 ]);
 
+export class CommunityFeedResourceLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CommunityFeedResourceLimitError";
+  }
+}
+
 function canonicalize(value: unknown): string {
   if (value === null || typeof value !== "object") {
     const serialized = JSON.stringify(value);
@@ -194,7 +201,12 @@ export class CommunityFeedSigner {
 
   sign(payload: CommunityFeedPayload): SignedCommunityFeed {
     const validation = validateFeedPayload(payload);
-    if (!validation.payload) throw new Error(`Community feed payload is invalid (${validation.reason}).`);
+    if (!validation.payload) {
+      if (validation.reason === "too_many_entries") {
+        throw new CommunityFeedResourceLimitError("Community feed exceeded the bounded entry-count limit.");
+      }
+      throw new Error(`Community feed payload is invalid (${validation.reason}).`);
+    }
     const bytes = signingBytes(validation.payload);
     const signature = sign(null, bytes, createPrivateKey(this.privatePem));
     if (!verify(null, bytes, createPublicKey(this.publicPem), signature)) {
@@ -210,7 +222,7 @@ export class CommunityFeedSigner {
       },
     };
     if (!documentWithinByteLimit(document)) {
-      throw new Error("Community feed exceeded the bounded signed-document size limit.");
+      throw new CommunityFeedResourceLimitError("Community feed exceeded the bounded signed-document size limit.");
     }
     return document;
   }
