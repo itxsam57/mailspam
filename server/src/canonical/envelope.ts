@@ -60,6 +60,20 @@ export interface ListHeaders {
   listId: string | null;
   listUnsubscribe: string | null;
   listUnsubscribePost: string | null;
+  /** True only when bounded raw MIME contains exactly one field of each RFC 8058 list-header type. */
+  oneClickHeaderSetUnambiguous?: boolean;
+  /**
+   * Worker/server-only bounded DKIM signature identities used for RFC 8058
+   * correlation. Every parseable raw signature candidate is retained so a
+   * duplicate `d=`+`s=` identity cannot be hidden merely because only one
+   * copy signs the required list headers. Raw signature bytes/values and the
+   * full signed-header list are never retained.
+   */
+  oneClickDkimSignatures?: Array<{
+    domain: string;
+    selector: string;
+    coversRequiredHeaders: boolean;
+  }>;
 }
 
 export interface ThreadContext {
