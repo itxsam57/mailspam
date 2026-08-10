@@ -9,7 +9,11 @@ import {
   MAX_COMMUNITY_FEED_RESPONSE_BYTES,
   MAX_COMMUNITY_RECEIPT_RESPONSE_BYTES,
 } from "./resourceLimits.js";
-import { CommunityFeedSigner, verifyCommunityFeed } from "./signing.js";
+import {
+  CommunityFeedResourceLimitError,
+  CommunityFeedSigner,
+  verifyCommunityFeed,
+} from "./signing.js";
 import type {
   CommunityReportContext,
   CommunityReportReceipt,
@@ -188,7 +192,7 @@ export class CommunityNetwork implements ThreatFeedCache {
 
     if (!this.remoteUrl) {
       const receipt = this.aggregateStore.accept(report);
-      this.rebuildEmbeddedFeed();
+      this.rebuildAfterAcceptedReport();
       return { ...receipt, delivery: "embedded_local" };
     }
 
@@ -220,7 +224,7 @@ export class CommunityNetwork implements ThreatFeedCache {
   acceptExternalReport(report: CommunityReportSubmission): CommunityReportReceipt {
     if (!this.serverEnabled) throw new Error("Community aggregation service is disabled on this instance.");
     const receipt = this.aggregateStore.accept(report);
-    this.rebuildEmbeddedFeed();
+    this.rebuildAfterAcceptedReport();
     return receipt;
   }
 
@@ -297,11 +301,25 @@ export class CommunityNetwork implements ThreatFeedCache {
     }
   }
 
+  private rebuildAfterAcceptedReport(): void {
+    try {
+      this.rebuildEmbeddedFeed();
+    } catch (error) {
+      if (!(error instanceof CommunityFeedResourceLimitError)) throw error;
+      const cached = this.cachedDocument
+        ? verifyCommunityFeed(this.cachedDocument, [this.signer.publicPem])
+        : null;
+      this.verifiedEntries = cached?.entries ?? null;
+      this.refreshError = `Community feed publication deferred: ${error.message}`;
+    }
+  }
+
   private rebuildEmbeddedFeed(): void {
     const document = this.signer.sign(this.aggregateStore.buildFeedPayload());
     const payload = verifyCommunityFeed(document, [this.signer.publicPem]);
     this.cachedDocument = document;
     this.verifiedEntries = payload?.entries ?? null;
+    this.refreshError = null;
     writeFileSync(this.feedCachePath, JSON.stringify(document), { mode: 0o600 });
   }
 
