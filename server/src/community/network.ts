@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { readBoundedUtf8File } from "../util/localFileIntegrity.js";
+import { existsSync, writeFileSync } from "node:fs";
 import type { SignedFeedEntry, ThreatFeedCache } from "../engine/layers/globalIntelligence.js";
 import { EncryptedCommunityAggregateStore } from "./aggregateStore.js";
 import { CommunityServiceDisabledError } from "./errors.js";
@@ -327,8 +328,10 @@ export class CommunityNetwork implements ThreatFeedCache {
   private loadCachedFeed(): void {
     if (!existsSync(this.feedCachePath)) return;
     try {
-      if (statSync(this.feedCachePath).size > MAX_COMMUNITY_FEED_RESPONSE_BYTES) return;
-      const document = JSON.parse(readFileSync(this.feedCachePath, "utf8")) as SignedCommunityFeed;
+      const document = JSON.parse(readBoundedUtf8File(this.feedCachePath, {
+        description: "Community signed-feed cache",
+        maxBytes: MAX_COMMUNITY_FEED_RESPONSE_BYTES,
+      })) as SignedCommunityFeed;
       const payload = verifyCommunityFeed(document, this.trustedPublicKeys);
       if (payload) {
         this.cachedDocument = document;

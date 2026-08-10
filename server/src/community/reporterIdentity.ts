@@ -1,6 +1,7 @@
 import { createHmac, randomBytes } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { readBoundedRegularFile } from "../util/localFileIntegrity.js";
 
 /**
  * Creates a stable pseudonym for one mailbox on one Email Shield installation.
@@ -32,10 +33,21 @@ export class CommunityReporterIdentity {
       try { writeFileSync(this.keyPath, key, { mode: 0o600, flag: "wx" }); }
       catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      } finally {
+        key.fill(0);
       }
     }
-    const key = readFileSync(this.keyPath);
-    if (key.length !== 32) throw new Error("Community reporter identity key is invalid.");
+    let key: Buffer;
+    try {
+      key = readBoundedRegularFile(this.keyPath, {
+        description: "Community reporter identity key",
+        maxBytes: 32,
+        exactBytes: 32,
+        requireOwnerOnly: true,
+      });
+    } catch {
+      throw new Error("Community reporter identity key is invalid.");
+    }
     try { chmodSync(this.keyPath, 0o600); } catch {}
     this.keyCache = key;
     return key;

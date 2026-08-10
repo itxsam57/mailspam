@@ -285,9 +285,14 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
     } catch (error) {
       record.status = "failed";
       record.updatedAt = Date.now();
-      try { defaultScanStateRepository.save(session.policyAccountKey, record); } catch {}
+      let historyFinalized = true;
+      try { defaultScanStateRepository.save(session.policyAccountKey, record); }
+      catch { historyFinalized = false; }
       writeEvent("scan-error", {
-        message: `Could not start scan worker: ${error instanceof Error ? error.message : String(error)}`,
+        message: historyFinalized
+          ? `Could not start scan worker: ${error instanceof Error ? error.message : String(error)}`
+          : `Could not start scan worker: ${error instanceof Error ? error.message : String(error)} Protected scan history could not be finalized; restart Email Shield before attempting to resume this scan.`,
+        historySaved: historyFinalized,
       });
       res.end();
       return;
@@ -318,6 +323,7 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
         return false;
       }
     };
+    let durableCheckpointAvailable = Boolean(record.checkpoint);
 
     const cleanup = () => {
       if (finished) return;
@@ -335,8 +341,17 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
       const active = activeScans.get(session.id);
       record.status = active?.stopRequested ? "stopped" : "failed";
       record.completedAt = null;
-      saveRecord();
-      writeEvent("scan-error", { message, resumable: Boolean(record.checkpoint), scanId: record.scanId });
+      const historySaved = saveRecord();
+      if (historySaved) durableCheckpointAvailable = Boolean(record.checkpoint);
+      writeEvent("scan-error", {
+        message: historySaved
+          ? message
+          : `${message} Protected scan status could not be finalized; restart Email Shield before attempting resume.`,
+        resumable: historySaved ? Boolean(record.checkpoint) : false,
+        durableCheckpointAvailable,
+        historySaved,
+        scanId: record.scanId,
+      });
       try { worker.postMessage({ type: "cancel" }); } catch {}
       const hardStop = setTimeout(() => { void worker.terminate(); }, 1000);
       hardStop.unref();
@@ -401,6 +416,7 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
           terminateWithError("The protected scan checkpoint could not be saved. The scan was stopped rather than continuing without resumability.");
           return;
         }
+        durableCheckpointAvailable = Boolean(record.checkpoint);
 
         // A detached dashboard has no consumer for browser action tokens. Keep
         // the Worker and protected checkpoint advancing, but do not accumulate

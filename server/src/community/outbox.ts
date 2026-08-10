@@ -7,17 +7,18 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { encryptedJsonEnvelopeByteCeiling, readBoundedRegularFile, readBoundedUtf8File, replaceFileFromTemporaryPath } from "../util/localFileIntegrity.js";
+import { COMMUNITY_STORAGE_KEY_BYTES, MAX_COMMUNITY_REPORT_REQUEST_BYTES } from "./resourceLimits.js";
 import type { CommunityReportSubmission } from "./types.js";
 
 const ALGORITHM = "aes-256-gcm";
 const AAD = Buffer.from("email-shield-community-outbox-v1", "utf8");
 const MAX_PENDING_REPORTS = 2_000;
+const MAX_OUTBOX_PLAINTEXT_BYTES = MAX_PENDING_REPORTS * MAX_COMMUNITY_REPORT_REQUEST_BYTES;
+const MAX_OUTBOX_ENCRYPTED_FILE_BYTES = encryptedJsonEnvelopeByteCeiling(MAX_OUTBOX_PLAINTEXT_BYTES);
 
 interface OutboxDatabase {
   version: 1;
@@ -76,14 +77,25 @@ export class EncryptedCommunityOutbox {
     if (this.keyCache) return this.keyCache;
     mkdirSync(this.dataDirectory, { recursive: true, mode: 0o700 });
     if (!existsSync(this.keyPath)) {
-      const key = randomBytes(32);
+      const key = randomBytes(COMMUNITY_STORAGE_KEY_BYTES);
       try { writeFileSync(this.keyPath, key, { mode: 0o600, flag: "wx" }); }
       catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      } finally {
+        key.fill(0);
       }
     }
-    const key = readFileSync(this.keyPath);
-    if (key.length !== 32) throw new Error("Community outbox encryption key is invalid.");
+    let key: Buffer;
+    try {
+      key = readBoundedRegularFile(this.keyPath, {
+        description: "Community outbox encryption key",
+        maxBytes: COMMUNITY_STORAGE_KEY_BYTES,
+        exactBytes: COMMUNITY_STORAGE_KEY_BYTES,
+        requireOwnerOnly: true,
+      });
+    } catch {
+      throw new Error("Community outbox encryption key is invalid.");
+    }
     try { chmodSync(this.keyPath, 0o600); } catch {}
     this.keyCache = key;
     return key;
@@ -92,7 +104,10 @@ export class EncryptedCommunityOutbox {
   private read(): OutboxDatabase {
     if (!existsSync(this.outboxPath)) return { version: 1, pending: [] };
     try {
-      const envelope = JSON.parse(readFileSync(this.outboxPath, "utf8")) as EncryptedEnvelope;
+      const envelope = JSON.parse(readBoundedUtf8File(this.outboxPath, {
+        description: "Encrypted community outbox",
+        maxBytes: MAX_OUTBOX_ENCRYPTED_FILE_BYTES,
+      })) as EncryptedEnvelope;
       if (envelope.version !== 1 || envelope.algorithm !== ALGORITHM) throw new Error("Unsupported format.");
       const decipher = createDecipheriv(ALGORITHM, this.readKey(), Buffer.from(envelope.iv, "base64"));
       decipher.setAAD(AAD);
@@ -101,6 +116,9 @@ export class EncryptedCommunityOutbox {
         decipher.update(Buffer.from(envelope.ciphertext, "base64")),
         decipher.final(),
       ]).toString("utf8");
+      if (Buffer.byteLength(plaintext, "utf8") > MAX_OUTBOX_PLAINTEXT_BYTES) {
+        throw new Error("Community outbox exceeds the local size limit.");
+      }
       const parsed = JSON.parse(plaintext) as OutboxDatabase;
       if (parsed.version !== 1 || !Array.isArray(parsed.pending)) throw new Error("Invalid database.");
       return parsed;
@@ -111,10 +129,14 @@ export class EncryptedCommunityOutbox {
 
   private write(database: OutboxDatabase): void {
     mkdirSync(this.dataDirectory, { recursive: true, mode: 0o700 });
+    const plaintext = JSON.stringify(database);
+    if (Buffer.byteLength(plaintext, "utf8") > MAX_OUTBOX_PLAINTEXT_BYTES) {
+      throw new Error("Community outbox exceeds the local size limit.");
+    }
     const iv = randomBytes(12);
     const cipher = createCipheriv(ALGORITHM, this.readKey(), iv);
     cipher.setAAD(AAD);
-    const ciphertext = Buffer.concat([cipher.update(JSON.stringify(database), "utf8"), cipher.final()]);
+    const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
     const envelope: EncryptedEnvelope = {
       version: 1,
       algorithm: ALGORITHM,
@@ -122,13 +144,13 @@ export class EncryptedCommunityOutbox {
       authTag: cipher.getAuthTag().toString("base64"),
       ciphertext: ciphertext.toString("base64"),
     };
-    const temporaryPath = `${this.outboxPath}.${process.pid}.${randomBytes(5).toString("hex")}.tmp`;
-    writeFileSync(temporaryPath, JSON.stringify(envelope), { mode: 0o600 });
-    try { renameSync(temporaryPath, this.outboxPath); }
-    catch {
-      rmSync(this.outboxPath, { force: true });
-      renameSync(temporaryPath, this.outboxPath);
+    const serialized = JSON.stringify(envelope);
+    if (Buffer.byteLength(serialized, "utf8") > MAX_OUTBOX_ENCRYPTED_FILE_BYTES) {
+      throw new Error("Encrypted community outbox exceeds the local size limit.");
     }
+    const temporaryPath = `${this.outboxPath}.${process.pid}.${randomBytes(5).toString("hex")}.tmp`;
+    writeFileSync(temporaryPath, serialized, { mode: 0o600 });
+    replaceFileFromTemporaryPath(temporaryPath, this.outboxPath);
     try { chmodSync(this.outboxPath, 0o600); } catch {}
   }
 }

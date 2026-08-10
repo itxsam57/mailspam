@@ -6,19 +6,13 @@ import {
 } from "node:crypto";
 import {
   chmodSync,
-  closeSync,
-  constants,
   existsSync,
-  fstatSync,
   mkdirSync,
-  openSync,
-  readFileSync,
-  renameSync,
-  rmSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
 import type { SignedFeedEntry } from "../engine/layers/globalIntelligence.js";
+import { readBoundedRegularFile, readBoundedUtf8File, replaceFileFromTemporaryPath } from "../util/localFileIntegrity.js";
 import { validateStoredCommunityDatabase } from "./aggregateState.js";
 import { CommunityReportCapacityError, CommunityReportRateLimitError, CommunityReportValidationError } from "./errors.js";
 import { COMMUNITY_STORAGE_KEY_BYTES, MAX_COMMUNITY_AGGREGATE_DATABASE_BYTES } from "./resourceLimits.js";
@@ -365,26 +359,16 @@ export class EncryptedCommunityAggregateStore {
       }
     }
 
-    const noFollow = process.platform === "win32" ? 0 : constants.O_NOFOLLOW;
-    let descriptor: number;
-    try {
-      descriptor = openSync(this.keyPath, constants.O_RDONLY | noFollow);
-    } catch {
-      throw new Error("Community storage encryption key could not be opened safely.");
-    }
     let key: Buffer;
     try {
-      const stat = fstatSync(descriptor);
-      if (!stat.isFile() || stat.size !== COMMUNITY_STORAGE_KEY_BYTES) {
-        throw new Error("Community storage encryption key is invalid.");
-      }
-      key = readFileSync(descriptor);
-      if (key.length !== COMMUNITY_STORAGE_KEY_BYTES) {
-        key.fill(0);
-        throw new Error("Community storage encryption key changed while being read.");
-      }
-    } finally {
-      closeSync(descriptor);
+      key = readBoundedRegularFile(this.keyPath, {
+        description: "Community storage encryption key",
+        maxBytes: COMMUNITY_STORAGE_KEY_BYTES,
+        exactBytes: COMMUNITY_STORAGE_KEY_BYTES,
+        requireOwnerOnly: true,
+      });
+    } catch (error) {
+      throw new Error(`Community storage encryption key is invalid: ${error instanceof Error ? error.message : String(error)}`);
     }
     try { chmodSync(this.keyPath, 0o600); } catch {}
     this.keyCache = key;
@@ -392,26 +376,13 @@ export class EncryptedCommunityAggregateStore {
   }
 
   private readDatabaseFile(): string {
-    const noFollow = process.platform === "win32" ? 0 : constants.O_NOFOLLOW;
-    let descriptor: number;
     try {
-      descriptor = openSync(this.databasePath, constants.O_RDONLY | noFollow);
-    } catch {
-      throw new Error("Encrypted community report database could not be opened safely.");
-    }
-    try {
-      const stat = fstatSync(descriptor);
-      if (!stat.isFile() || stat.size < 0 || stat.size > MAX_COMMUNITY_AGGREGATE_DATABASE_BYTES) {
-        throw new Error("Encrypted community report database exceeds the recoverable storage boundary.");
-      }
-      const content = readFileSync(descriptor);
-      if (content.length > MAX_COMMUNITY_AGGREGATE_DATABASE_BYTES) {
-        content.fill(0);
-        throw new Error("Encrypted community report database exceeded the recoverable storage boundary while being read.");
-      }
-      return content.toString("utf8");
-    } finally {
-      closeSync(descriptor);
+      return readBoundedUtf8File(this.databasePath, {
+        description: "Encrypted community report database",
+        maxBytes: MAX_COMMUNITY_AGGREGATE_DATABASE_BYTES,
+      });
+    } catch (error) {
+      throw new Error(`Encrypted community report database exceeds the recoverable storage boundary: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -457,11 +428,7 @@ export class EncryptedCommunityAggregateStore {
     }
     const temporaryPath = `${this.databasePath}.${process.pid}.${randomBytes(5).toString("hex")}.tmp`;
     writeFileSync(temporaryPath, serialized, { mode: 0o600 });
-    try { renameSync(temporaryPath, this.databasePath); }
-    catch {
-      rmSync(this.databasePath, { force: true });
-      renameSync(temporaryPath, this.databasePath);
-    }
+    replaceFileFromTemporaryPath(temporaryPath, this.databasePath);
     try { chmodSync(this.databasePath, 0o600); } catch {}
   }
 }

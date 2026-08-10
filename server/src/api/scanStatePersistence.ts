@@ -8,14 +8,12 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { CredentialReference, CredentialVault } from "../security/credentialVault.js";
+import { encryptedJsonEnvelopeByteCeiling, readBoundedRegularFile, replaceFileFromTemporaryPath } from "../util/localFileIntegrity.js";
 import { createCredentialVault } from "../security/credentialVaultFactory.js";
 import type { ScanCounters } from "../workflows/scanWorkflows.js";
 
@@ -28,6 +26,7 @@ const MAX_CURSOR_BYTES = 16 * 1024;
 const MAX_HASHES = 50_000;
 const MAX_COMPLETED_FOLDERS = 256;
 const MAX_DATABASE_BYTES = 8 * 1024 * 1024;
+const MAX_ENCRYPTED_DATABASE_BYTES = encryptedJsonEnvelopeByteCeiling(MAX_DATABASE_BYTES);
 const KEY_REFERENCE: CredentialReference = {
   id: "scan-history-encryption-key-v1",
   kind: "local-encryption-key",
@@ -321,8 +320,10 @@ export class EncryptedFileScanStateRepository implements ScanStateRepository {
   private readDatabase(): ScanStateDatabase {
     if (!existsSync(this.databasePath)) return { version: DATABASE_VERSION, accounts: {} };
     try {
-      const raw = readFileSync(this.databasePath);
-      if (raw.length > MAX_DATABASE_BYTES) throw new Error("Encrypted scan-state file exceeds the local size limit.");
+      const raw = readBoundedRegularFile(this.databasePath, {
+        description: "Encrypted scan-state file",
+        maxBytes: MAX_ENCRYPTED_DATABASE_BYTES,
+      });
       const envelope = JSON.parse(raw.toString("utf8")) as Partial<EncryptedScanStateEnvelope>;
       if (
         envelope.version !== DATABASE_VERSION ||
@@ -338,6 +339,9 @@ export class EncryptedFileScanStateRepository implements ScanStateRepository {
         decipher.update(Buffer.from(envelope.ciphertext, "base64")),
         decipher.final(),
       ]).toString("utf8");
+      if (Buffer.byteLength(plaintext, "utf8") > MAX_DATABASE_BYTES) {
+        throw new Error("Scan-state database exceeds the local size limit.");
+      }
       const parsed = JSON.parse(plaintext) as Partial<ScanStateDatabase>;
       if (parsed.version !== DATABASE_VERSION || !parsed.accounts || typeof parsed.accounts !== "object") {
         throw new Error("Unsupported scan-state database format.");
@@ -370,14 +374,13 @@ export class EncryptedFileScanStateRepository implements ScanStateRepository {
       authTag: cipher.getAuthTag().toString("base64"),
       ciphertext: ciphertext.toString("base64"),
     };
-    const temporaryPath = `${this.databasePath}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
-    writeFileSync(temporaryPath, JSON.stringify(envelope), { mode: 0o600 });
-    try {
-      renameSync(temporaryPath, this.databasePath);
-    } catch {
-      rmSync(this.databasePath, { force: true });
-      renameSync(temporaryPath, this.databasePath);
+    const serialized = JSON.stringify(envelope);
+    if (Buffer.byteLength(serialized, "utf8") > MAX_ENCRYPTED_DATABASE_BYTES) {
+      throw new Error("Encrypted scan-state file exceeds the local size limit.");
     }
+    const temporaryPath = `${this.databasePath}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+    writeFileSync(temporaryPath, serialized, { mode: 0o600 });
+    replaceFileFromTemporaryPath(temporaryPath, this.databasePath);
     try { chmodSync(this.databasePath, 0o600); } catch {}
   }
 }
