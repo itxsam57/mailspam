@@ -6,8 +6,12 @@ import {
 } from "node:crypto";
 import {
   chmodSync,
+  closeSync,
+  constants,
   existsSync,
+  fstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -17,6 +21,7 @@ import { join } from "node:path";
 import type { SignedFeedEntry } from "../engine/layers/globalIntelligence.js";
 import { validateStoredCommunityDatabase } from "./aggregateState.js";
 import { CommunityReportCapacityError, CommunityReportRateLimitError, CommunityReportValidationError } from "./errors.js";
+import { COMMUNITY_STORAGE_KEY_BYTES, MAX_COMMUNITY_AGGREGATE_DATABASE_BYTES } from "./resourceLimits.js";
 import type {
   CommunityCampaignStatus,
   CommunityFeedPayload,
@@ -35,6 +40,13 @@ const MAX_FUTURE_SKEW_MS = 5 * 60_000;
 const HUMAN_REPORT_BASE_WEIGHT = 5;
 const REPORT_VERDICTS = new Set(["safe", "unknown", "review", "high_risk", "confirmed_threat"]);
 const REPORT_INDICATOR_TYPES = new Set(["sender", "reply_to_domain", "url_domain", "attachment_hash", "campaign"]);
+const ENVELOPE_WITHOUT_CIPHERTEXT_BYTES = Buffer.byteLength(JSON.stringify({
+  version: 1,
+  algorithm: ALGORITHM,
+  iv: Buffer.alloc(12).toString("base64"),
+  authTag: Buffer.alloc(16).toString("base64"),
+  ciphertext: "",
+}), "utf8");
 
 interface ReporterRecord {
   /** Server acceptance time, never a client-controlled rate-limit timestamp. */
@@ -135,6 +147,10 @@ function parseIndicatorKey(key: string): CommunityIndicator | null {
 
 function ruleId(campaign: string, indicator: CommunityIndicator): string {
   return `community:${createHash("sha256").update(`${campaign}\0${indicator.type}\0${indicator.value}`).digest("hex").slice(0, 24)}`;
+}
+
+function encryptedEnvelopeByteLength(plaintextBytes: number): number {
+  return ENVELOPE_WITHOUT_CIPHERTEXT_BYTES + (4 * Math.ceil(plaintextBytes / 3));
 }
 
 function validateSubmission(input: CommunityReportSubmission): CommunityReportSubmission {
@@ -339,23 +355,47 @@ export class EncryptedCommunityAggregateStore {
     if (this.keyCache) return this.keyCache;
     this.ensureDirectory();
     if (!existsSync(this.keyPath)) {
-      const key = randomBytes(32);
+      const key = randomBytes(COMMUNITY_STORAGE_KEY_BYTES);
       try { writeFileSync(this.keyPath, key, { mode: 0o600, flag: "wx" }); }
       catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       }
     }
     const key = readFileSync(this.keyPath);
-    if (key.length !== 32) throw new Error("Community storage encryption key is invalid.");
+    if (key.length !== COMMUNITY_STORAGE_KEY_BYTES) throw new Error("Community storage encryption key is invalid.");
     try { chmodSync(this.keyPath, 0o600); } catch {}
     this.keyCache = key;
     return key;
   }
 
+  private readDatabaseFile(): string {
+    const noFollow = process.platform === "win32" ? 0 : constants.O_NOFOLLOW;
+    let descriptor: number;
+    try {
+      descriptor = openSync(this.databasePath, constants.O_RDONLY | noFollow);
+    } catch {
+      throw new Error("Encrypted community report database could not be opened safely.");
+    }
+    try {
+      const stat = fstatSync(descriptor);
+      if (!stat.isFile() || stat.size < 0 || stat.size > MAX_COMMUNITY_AGGREGATE_DATABASE_BYTES) {
+        throw new Error("Encrypted community report database exceeds the recoverable storage boundary.");
+      }
+      const content = readFileSync(descriptor);
+      if (content.length > MAX_COMMUNITY_AGGREGATE_DATABASE_BYTES) {
+        content.fill(0);
+        throw new Error("Encrypted community report database exceeded the recoverable storage boundary while being read.");
+      }
+      return content.toString("utf8");
+    } finally {
+      closeSync(descriptor);
+    }
+  }
+
   private readDatabase(): CommunityDatabase {
     if (!existsSync(this.databasePath)) return emptyDatabase();
     try {
-      const envelope = JSON.parse(readFileSync(this.databasePath, "utf8")) as EncryptedEnvelope;
+      const envelope = JSON.parse(this.readDatabaseFile()) as EncryptedEnvelope;
       if (envelope.version !== 1 || envelope.algorithm !== ALGORITHM) throw new Error("Unsupported format.");
       const decipher = createDecipheriv(ALGORITHM, this.readKey(), Buffer.from(envelope.iv, "base64"));
       decipher.setAAD(AAD);
@@ -372,10 +412,15 @@ export class EncryptedCommunityAggregateStore {
 
   private writeDatabase(database: CommunityDatabase): void {
     this.ensureDirectory();
+    const plaintext = JSON.stringify(database);
+    const plaintextBytes = Buffer.byteLength(plaintext, "utf8");
+    if (encryptedEnvelopeByteLength(plaintextBytes) > MAX_COMMUNITY_AGGREGATE_DATABASE_BYTES) {
+      throw new CommunityReportCapacityError();
+    }
     const iv = randomBytes(12);
     const cipher = createCipheriv(ALGORITHM, this.readKey(), iv);
     cipher.setAAD(AAD);
-    const ciphertext = Buffer.concat([cipher.update(JSON.stringify(database), "utf8"), cipher.final()]);
+    const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
     const envelope: EncryptedEnvelope = {
       version: 1,
       algorithm: ALGORITHM,
@@ -383,8 +428,12 @@ export class EncryptedCommunityAggregateStore {
       authTag: cipher.getAuthTag().toString("base64"),
       ciphertext: ciphertext.toString("base64"),
     };
+    const serialized = JSON.stringify(envelope);
+    if (Buffer.byteLength(serialized, "utf8") > MAX_COMMUNITY_AGGREGATE_DATABASE_BYTES) {
+      throw new CommunityReportCapacityError();
+    }
     const temporaryPath = `${this.databasePath}.${process.pid}.${randomBytes(5).toString("hex")}.tmp`;
-    writeFileSync(temporaryPath, JSON.stringify(envelope), { mode: 0o600 });
+    writeFileSync(temporaryPath, serialized, { mode: 0o600 });
     try { renameSync(temporaryPath, this.databasePath); }
     catch {
       rmSync(this.databasePath, { force: true });
