@@ -39,17 +39,17 @@ const SCRYPT_N = 32_768;
 const SCRYPT_R = 8;
 const SCRYPT_P = 1;
 const SCRYPT_MAXMEM = 64 * 1024 * 1024;
-export const MAX_COMMUNITY_BACKUP_SOURCE_BYTES = 256 * 1024 * 1024;
-export const MAX_COMMUNITY_BACKUP_FILE_BYTES = 384 * 1024 * 1024;
 const MAX_PASSPHRASE_FILE_BYTES = 4 * 1024;
 const MIN_PASSPHRASE_BYTES = 16;
+export const MAX_COMMUNITY_BACKUP_SOURCE_BYTES = 256 * 1024 * 1024;
+export const MAX_COMMUNITY_BACKUP_FILE_BYTES = 384 * 1024 * 1024;
 
-const BACKUP_FILE_MODES: Record<string, number> = {
+const BACKUP_FILE_MODES: Readonly<Record<string, number>> = Object.freeze({
   [COMMUNITY_REPORT_KEY_FILE]: 0o600,
   [COMMUNITY_REPORT_DATABASE_FILE]: 0o600,
   [COMMUNITY_SIGNING_PRIVATE_FILE]: 0o600,
   [COMMUNITY_SIGNING_PUBLIC_FILE]: 0o644,
-};
+});
 
 interface BackupFile {
   name: string;
@@ -66,18 +66,8 @@ interface CommunityBackupPayload {
 
 interface CommunityBackupEnvelope {
   version: 1;
-  kdf: {
-    algorithm: "scrypt";
-    salt: string;
-    N: number;
-    r: number;
-    p: number;
-  };
-  cipher: {
-    algorithm: "aes-256-gcm";
-    iv: string;
-    authTag: string;
-  };
+  kdf: { algorithm: "scrypt"; salt: string; N: number; r: number; p: number };
+  cipher: { algorithm: "aes-256-gcm"; iv: string; authTag: string };
   ciphertext: string;
 }
 
@@ -126,22 +116,35 @@ export interface CommunityRotationResult {
   nextPublicKeyPath: string;
 }
 
+function record(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function onlyKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
+  const accepted = new Set(allowed);
+  return Object.keys(value).every((key) => accepted.has(key));
+}
+
 function sha256(value: Buffer): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
 function signingKeyId(publicPem: string): string {
-  const der = createPublicKey(publicPem).export({ type: "spki", format: "der" });
+  const publicKey = createPublicKey(publicPem);
+  if (publicKey.asymmetricKeyType !== "ed25519") throw new Error("Community signing public key must be Ed25519.");
+  const der = publicKey.export({ type: "spki", format: "der" });
   return createHash("sha256").update(der).digest("hex").slice(0, 24);
 }
 
 function validateSigningKeyPair(keys: CommunitySigningKeys): string {
-  const challenge = Buffer.from("email-shield-community-operations-key-validation-v1", "utf8");
   const privateKey = createPrivateKey(keys.privatePem);
   const publicKey = createPublicKey(keys.publicPem);
   if (privateKey.asymmetricKeyType !== "ed25519" || publicKey.asymmetricKeyType !== "ed25519") {
     throw new Error("Community signing keys must be Ed25519 keys.");
   }
+  const challenge = Buffer.from("email-shield-community-operations-key-validation-v1", "utf8");
   const signature = sign(null, challenge, privateKey);
   if (!verify(null, challenge, publicKey, signature)) {
     throw new Error("Community signing private and public keys do not match.");
@@ -149,15 +152,17 @@ function validateSigningKeyPair(keys: CommunitySigningKeys): string {
   return signingKeyId(keys.publicPem);
 }
 
-function loadSigningKeys(dataDirectory: string, configured?: CommunitySigningKeys): { keys: CommunitySigningKeys; keyId: string } {
-  if (configured) {
-    return { keys: configured, keyId: validateSigningKeyPair(configured) };
-  }
+function loadSigningKeys(
+  dataDirectory: string,
+  configured?: CommunitySigningKeys,
+): { keys: CommunitySigningKeys; keyId: string } {
+  if (configured) return { keys: configured, keyId: validateSigningKeyPair(configured) };
   const privatePath = join(dataDirectory, COMMUNITY_SIGNING_PRIVATE_FILE);
   const publicPath = join(dataDirectory, COMMUNITY_SIGNING_PUBLIC_FILE);
-  if (!existsSync(privatePath) || !existsSync(publicPath)) {
-    throw new Error("Community signing key pair is missing; initialize the service or provide configured signing keys.");
-  }
+  const hasPrivate = existsSync(privatePath);
+  const hasPublic = existsSync(publicPath);
+  if (hasPrivate !== hasPublic) throw new Error("Community signing key storage is incomplete.");
+  if (!hasPrivate) throw new Error("Community signing key pair is missing; initialize the service or provide configured signing keys.");
   const keys = {
     privatePem: readFileSync(privatePath, "utf8"),
     publicPem: readFileSync(publicPath, "utf8"),
@@ -183,7 +188,7 @@ function deriveBackupKey(passphrase: Buffer, salt: Buffer): Buffer {
   });
 }
 
-function safeJsonParse<T>(raw: string, description: string): T {
+function parseJson<T>(raw: string, description: string): T {
   try {
     return JSON.parse(raw) as T;
   } catch {
@@ -191,50 +196,97 @@ function safeJsonParse<T>(raw: string, description: string): T {
   }
 }
 
-function validateBackupFile(file: BackupFile): Buffer {
-  if (!file || typeof file !== "object") throw new Error("Community backup contains an invalid file entry.");
-  if (!Object.hasOwn(BACKUP_FILE_MODES, file.name)) throw new Error("Community backup contains an unexpected file name.");
-  if (file.mode !== BACKUP_FILE_MODES[file.name]) throw new Error("Community backup contains an invalid file mode.");
-  if (!/^[a-f0-9]{64}$/.test(file.sha256)) throw new Error("Community backup contains an invalid file digest.");
-  if (typeof file.content !== "string" || !/^[A-Za-z0-9+/]*={0,2}$/.test(file.content)) {
-    throw new Error("Community backup contains invalid file encoding.");
+function canonicalBase64(value: unknown, expectedBytes?: number): Buffer {
+  if (typeof value !== "string" || !/^[A-Za-z0-9+/]*={0,2}$/.test(value)) {
+    throw new Error("Community backup contains invalid base64 encoding.");
   }
-  const content = Buffer.from(file.content, "base64");
-  if (content.toString("base64") !== file.content || sha256(content) !== file.sha256) {
-    throw new Error("Community backup file integrity validation failed.");
+  const decoded = Buffer.from(value, "base64");
+  if (decoded.toString("base64") !== value || (expectedBytes !== undefined && decoded.length !== expectedBytes)) {
+    throw new Error("Community backup contains non-canonical cryptographic encoding.");
   }
-  return content;
+  return decoded;
 }
 
-function validatePayload(payload: CommunityBackupPayload): Map<string, Buffer> {
-  if (!payload || payload.version !== 1 || typeof payload.createdAt !== "string" || !Number.isFinite(Date.parse(payload.createdAt))) {
+function encodeBackupFile(name: string, content: Buffer): BackupFile {
+  return {
+    name,
+    mode: BACKUP_FILE_MODES[name]!,
+    sha256: sha256(content),
+    content: content.toString("base64"),
+  };
+}
+
+function decodeBackupFile(value: unknown): { name: string; content: Buffer } {
+  const file = record(value);
+  if (!file || !onlyKeys(file, ["name", "mode", "sha256", "content"])) {
+    throw new Error("Community backup contains an invalid file entry.");
+  }
+  if (typeof file.name !== "string" || !Object.hasOwn(BACKUP_FILE_MODES, file.name)) {
+    throw new Error("Community backup contains an unexpected file name.");
+  }
+  if (file.mode !== BACKUP_FILE_MODES[file.name]) throw new Error("Community backup contains an invalid file mode.");
+  if (typeof file.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(file.sha256)) {
+    throw new Error("Community backup contains an invalid file digest.");
+  }
+  const content = canonicalBase64(file.content);
+  if (sha256(content) !== file.sha256) {
+    content.fill(0);
+    throw new Error("Community backup file integrity validation failed.");
+  }
+  return { name: file.name, content };
+}
+
+function validatePayload(value: unknown): { payload: CommunityBackupPayload; files: Map<string, Buffer> } {
+  const payload = record(value);
+  if (!payload || !onlyKeys(payload, ["version", "createdAt", "files"]) || payload.version !== 1) {
     throw new Error("Community backup payload is invalid.");
+  }
+  if (typeof payload.createdAt !== "string" || payload.createdAt.length > 64 || !Number.isFinite(Date.parse(payload.createdAt))) {
+    throw new Error("Community backup creation timestamp is invalid.");
   }
   if (!Array.isArray(payload.files) || payload.files.length < 2 || payload.files.length > 4) {
     throw new Error("Community backup file manifest is invalid.");
   }
+
   const files = new Map<string, Buffer>();
   let totalBytes = 0;
-  for (const file of payload.files) {
-    if (files.has(file.name)) throw new Error("Community backup contains duplicate file entries.");
-    const content = validateBackupFile(file);
-    totalBytes += content.length;
-    if (totalBytes > MAX_COMMUNITY_BACKUP_SOURCE_BYTES) throw new Error("Community backup payload exceeds the recovery size limit.");
-    files.set(file.name, content);
-  }
+  try {
+    for (const fileValue of payload.files) {
+      const { name, content } = decodeBackupFile(fileValue);
+      if (files.has(name)) {
+        content.fill(0);
+        throw new Error("Community backup contains duplicate file entries.");
+      }
+      totalBytes += content.length;
+      if (totalBytes > MAX_COMMUNITY_BACKUP_SOURCE_BYTES) {
+        content.fill(0);
+        throw new Error("Community backup payload exceeds the recovery size limit.");
+      }
+      files.set(name, content);
+    }
 
-  const hasStorageKey = files.has(COMMUNITY_REPORT_KEY_FILE);
-  const hasDatabase = files.has(COMMUNITY_REPORT_DATABASE_FILE);
-  if (hasStorageKey !== hasDatabase) throw new Error("Community backup aggregate storage pair is incomplete.");
-  if (!files.has(COMMUNITY_SIGNING_PRIVATE_FILE) || !files.has(COMMUNITY_SIGNING_PUBLIC_FILE)) {
-    throw new Error("Community backup signing key pair is incomplete.");
+    const hasStorageKey = files.has(COMMUNITY_REPORT_KEY_FILE);
+    const hasDatabase = files.has(COMMUNITY_REPORT_DATABASE_FILE);
+    if (hasStorageKey !== hasDatabase) throw new Error("Community backup aggregate storage pair is incomplete.");
+    if (!files.has(COMMUNITY_SIGNING_PRIVATE_FILE) || !files.has(COMMUNITY_SIGNING_PUBLIC_FILE)) {
+      throw new Error("Community backup signing key pair is incomplete.");
+    }
+
+    return { payload: payload as unknown as CommunityBackupPayload, files };
+  } catch (error) {
+    for (const content of files.values()) content.fill(0);
+    throw error;
   }
-  return files;
+}
+
+function readRegularFile(path: string, name: string): Buffer {
+  const stat = statSync(path);
+  if (!stat.isFile()) throw new Error(`Community authoritative file ${name} is not a regular file.`);
+  return readFileSync(path);
 }
 
 function validateRecoveryDirectory(dataDirectory: string): { signingKeyId: string; aggregateStoragePresent: boolean } {
   const signer = new CommunityFeedSigner(dataDirectory);
-  const keyId = signer.keyId;
   const hasStorageKey = existsSync(join(dataDirectory, COMMUNITY_REPORT_KEY_FILE));
   const hasDatabase = existsSync(join(dataDirectory, COMMUNITY_REPORT_DATABASE_FILE));
   if (hasStorageKey !== hasDatabase) throw new Error("Recovered community aggregate storage pair is incomplete.");
@@ -243,19 +295,7 @@ function validateRecoveryDirectory(dataDirectory: string): { signingKeyId: strin
     store.stats();
     store.buildFeedPayload();
   }
-  return { signingKeyId: keyId, aggregateStoragePresent: hasStorageKey };
-}
-
-function readSourceFile(path: string, name: string): BackupFile {
-  const stat = statSync(path);
-  if (!stat.isFile()) throw new Error(`Community authoritative file ${name} is not a regular file.`);
-  const content = readFileSync(path);
-  return {
-    name,
-    mode: BACKUP_FILE_MODES[name]!,
-    sha256: sha256(content),
-    content: content.toString("base64"),
-  };
+  return { signingKeyId: signer.keyId, aggregateStoragePresent: hasStorageKey };
 }
 
 export function createEncryptedCommunityBackup(options: {
@@ -278,33 +318,36 @@ export function createEncryptedCommunityBackup(options: {
     store.buildFeedPayload();
   }
 
-  const files: BackupFile[] = [];
-  if (hasStorageKey) {
-    files.push(readSourceFile(storageKeyPath, COMMUNITY_REPORT_KEY_FILE));
-    files.push(readSourceFile(databasePath, COMMUNITY_REPORT_DATABASE_FILE));
-  }
   const privateBytes = Buffer.from(signing.keys.privatePem, "utf8");
   const publicBytes = Buffer.from(signing.keys.publicPem, "utf8");
-  files.push({
-    name: COMMUNITY_SIGNING_PRIVATE_FILE,
-    mode: BACKUP_FILE_MODES[COMMUNITY_SIGNING_PRIVATE_FILE]!,
-    sha256: sha256(privateBytes),
-    content: privateBytes.toString("base64"),
-  });
-  files.push({
-    name: COMMUNITY_SIGNING_PUBLIC_FILE,
-    mode: BACKUP_FILE_MODES[COMMUNITY_SIGNING_PUBLIC_FILE]!,
-    sha256: sha256(publicBytes),
-    content: publicBytes.toString("base64"),
-  });
-  privateBytes.fill(0);
+  const aggregateBytes = hasStorageKey ? statSync(storageKeyPath).size + statSync(databasePath).size : 0;
+  const sourceBytes = aggregateBytes + privateBytes.length + publicBytes.length;
+  if (sourceBytes > MAX_COMMUNITY_BACKUP_SOURCE_BYTES) {
+    privateBytes.fill(0);
+    throw new Error("Community authoritative data exceeds the portable backup size limit.");
+  }
 
-  const sourceBytes = files.reduce((sum, file) => sum + Buffer.byteLength(file.content, "base64"), 0);
-  if (sourceBytes > MAX_COMMUNITY_BACKUP_SOURCE_BYTES) throw new Error("Community authoritative data exceeds the portable backup size limit.");
+  const files: BackupFile[] = [];
+  try {
+    if (hasStorageKey) {
+      const storageKey = readRegularFile(storageKeyPath, COMMUNITY_REPORT_KEY_FILE);
+      const database = readRegularFile(databasePath, COMMUNITY_REPORT_DATABASE_FILE);
+      try {
+        files.push(encodeBackupFile(COMMUNITY_REPORT_KEY_FILE, storageKey));
+        files.push(encodeBackupFile(COMMUNITY_REPORT_DATABASE_FILE, database));
+      } finally {
+        storageKey.fill(0);
+        database.fill(0);
+      }
+    }
+    files.push(encodeBackupFile(COMMUNITY_SIGNING_PRIVATE_FILE, privateBytes));
+    files.push(encodeBackupFile(COMMUNITY_SIGNING_PUBLIC_FILE, publicBytes));
+  } finally {
+    privateBytes.fill(0);
+  }
 
   const createdAt = (options.now ?? new Date()).toISOString();
-  const payload: CommunityBackupPayload = { version: 1, createdAt, files };
-  const plaintext = Buffer.from(JSON.stringify(payload), "utf8");
+  const plaintext = Buffer.from(JSON.stringify({ version: 1, createdAt, files } satisfies CommunityBackupPayload), "utf8");
   const passphrase = passphraseBuffer(options.passphrase);
   const salt = randomBytes(16);
   const iv = randomBytes(12);
@@ -341,29 +384,32 @@ export function createEncryptedCommunityBackup(options: {
   };
 }
 
-function decryptBackup(backupPath: string, passphraseInput: string | Buffer): { payload: CommunityBackupPayload; files: Map<string, Buffer> } {
+function decryptBackup(
+  backupPath: string,
+  passphraseInput: string | Buffer,
+): { payload: CommunityBackupPayload; files: Map<string, Buffer> } {
+  if (!existsSync(backupPath)) throw new Error("Community backup file does not exist.");
   const stat = statSync(backupPath);
-  if (!stat.isFile() || stat.size > MAX_COMMUNITY_BACKUP_FILE_BYTES) throw new Error("Community backup file is missing or exceeds the recovery size limit.");
-  const envelope = safeJsonParse<CommunityBackupEnvelope>(readFileSync(backupPath, "utf8"), "Community backup envelope");
+  if (!stat.isFile() || stat.size === 0 || stat.size > MAX_COMMUNITY_BACKUP_FILE_BYTES) {
+    throw new Error("Community backup file exceeds the recovery size limit.");
+  }
+  const root = record(parseJson<unknown>(readFileSync(backupPath, "utf8"), "Community backup envelope"));
+  if (!root || !onlyKeys(root, ["version", "kdf", "cipher", "ciphertext"]) || root.version !== BACKUP_VERSION) {
+    throw new Error("Community backup envelope is invalid.");
+  }
+  const kdf = record(root.kdf);
+  const cipherMetadata = record(root.cipher);
   if (
-    envelope?.version !== BACKUP_VERSION ||
-    envelope.kdf?.algorithm !== BACKUP_KDF ||
-    envelope.kdf.N !== SCRYPT_N || envelope.kdf.r !== SCRYPT_R || envelope.kdf.p !== SCRYPT_P ||
-    envelope.cipher?.algorithm !== BACKUP_ALGORITHM
+    !kdf || !onlyKeys(kdf, ["algorithm", "salt", "N", "r", "p"]) ||
+    kdf.algorithm !== BACKUP_KDF || kdf.N !== SCRYPT_N || kdf.r !== SCRYPT_R || kdf.p !== SCRYPT_P ||
+    !cipherMetadata || !onlyKeys(cipherMetadata, ["algorithm", "iv", "authTag"]) ||
+    cipherMetadata.algorithm !== BACKUP_ALGORITHM
   ) throw new Error("Community backup envelope parameters are unsupported.");
 
-  const salt = Buffer.from(envelope.kdf.salt, "base64");
-  const iv = Buffer.from(envelope.cipher.iv, "base64");
-  const authTag = Buffer.from(envelope.cipher.authTag, "base64");
-  const ciphertext = Buffer.from(envelope.ciphertext, "base64");
-  if (salt.length !== 16 || iv.length !== 12 || authTag.length !== 16) throw new Error("Community backup cryptographic metadata is invalid.");
-  if (
-    salt.toString("base64") !== envelope.kdf.salt ||
-    iv.toString("base64") !== envelope.cipher.iv ||
-    authTag.toString("base64") !== envelope.cipher.authTag ||
-    ciphertext.toString("base64") !== envelope.ciphertext
-  ) throw new Error("Community backup encoding is invalid.");
-
+  const salt = canonicalBase64(kdf.salt, 16);
+  const iv = canonicalBase64(cipherMetadata.iv, 12);
+  const authTag = canonicalBase64(cipherMetadata.authTag, 16);
+  const ciphertext = canonicalBase64(root.ciphertext);
   const passphrase = passphraseBuffer(passphraseInput);
   const key = deriveBackupKey(passphrase, salt);
   let plaintext: Buffer;
@@ -377,11 +423,14 @@ function decryptBackup(backupPath: string, passphraseInput: string | Buffer): { 
   } finally {
     key.fill(0);
     passphrase.fill(0);
+    salt.fill(0);
+    iv.fill(0);
+    authTag.fill(0);
+    ciphertext.fill(0);
   }
+
   try {
-    const payload = safeJsonParse<CommunityBackupPayload>(plaintext.toString("utf8"), "Community backup payload");
-    const files = validatePayload(payload);
-    return { payload, files };
+    return validatePayload(parseJson<unknown>(plaintext.toString("utf8"), "Community backup payload"));
   } finally {
     plaintext.fill(0);
   }
@@ -393,7 +442,7 @@ export function restoreEncryptedCommunityBackup(options: {
   passphrase: string | Buffer;
 }): CommunityRestoreResult {
   if (existsSync(options.targetDataDirectory)) {
-    throw new Error("Community restore target already exists; restore requires a new empty path for atomic cutover.");
+    throw new Error("Community restore target already exists; restore requires a new path for atomic cutover.");
   }
   const { payload, files } = decryptBackup(options.backupPath, options.passphrase);
   const parent = dirname(options.targetDataDirectory);
@@ -406,6 +455,7 @@ export function restoreEncryptedCommunityBackup(options: {
       try { chmodSync(path, BACKUP_FILE_MODES[name]!); } catch {}
     }
     const validation = validateRecoveryDirectory(staging);
+    if (existsSync(options.targetDataDirectory)) throw new Error("Community restore target appeared during validation; refusing non-atomic overwrite.");
     renameSync(staging, options.targetDataDirectory);
     return {
       targetDataDirectory: options.targetDataDirectory,
@@ -422,18 +472,21 @@ export function restoreEncryptedCommunityBackup(options: {
 }
 
 export function readCommunityBackupPassphraseFile(path: string): Buffer {
+  if (!existsSync(path)) throw new Error("Community backup passphrase file does not exist.");
   const stat = statSync(path);
   if (!stat.isFile() || stat.size === 0 || stat.size > MAX_PASSPHRASE_FILE_BYTES) {
     throw new Error("Community backup passphrase file must be a small regular file.");
   }
   const raw = readFileSync(path);
-  while (raw.length > 0 && (raw[raw.length - 1] === 0x0a || raw[raw.length - 1] === 0x0d)) {
-    raw.fill(0, raw.length - 1);
-    const trimmed = Buffer.from(raw.subarray(0, raw.length - 1));
-    raw.fill(0);
+  let end = raw.length;
+  while (end > 0 && (raw[end - 1] === 0x0a || raw[end - 1] === 0x0d)) end--;
+  const trimmed = Buffer.from(raw.subarray(0, end));
+  raw.fill(0);
+  try {
     return passphraseBuffer(trimmed);
+  } finally {
+    trimmed.fill(0);
   }
-  return passphraseBuffer(raw);
 }
 
 function generateSigningKeys(): CommunitySigningKeys {
@@ -488,12 +541,11 @@ export function prepareCommunitySigningRotation(options: {
     if (verified.currentKeyId !== current.keyId || verified.nextKeyId !== nextKeyId) {
       throw new Error("Community signing rotation package self-verification failed.");
     }
+    if (existsSync(options.outputDirectory)) throw new Error("Community signing rotation output appeared during preparation.");
     renameSync(staging, options.outputDirectory);
   } catch (error) {
     rmSync(staging, { recursive: true, force: true });
     throw error;
-  } finally {
-    Buffer.from(next.privatePem, "utf8").fill(0);
   }
 
   return {
@@ -513,7 +565,10 @@ export function verifyCommunitySigningRotationPackage(directory: string): Commun
   for (const path of [manifestPath, privatePath, publicPath]) {
     if (!existsSync(path) || !statSync(path).isFile()) throw new Error("Community signing rotation package is incomplete.");
   }
-  const manifest = safeJsonParse<CommunityRotationManifest>(readFileSync(manifestPath, "utf8"), "Community rotation manifest");
+  const root = record(parseJson<unknown>(readFileSync(manifestPath, "utf8"), "Community rotation manifest"));
+  if (!root || !onlyKeys(root, [
+    "version", "createdAt", "currentKeyId", "nextKeyId", "currentPublicKey", "nextPublicKey", "sequence",
+  ])) throw new Error("Community signing rotation manifest is invalid.");
   const expectedSequence: CommunityRotationManifest["sequence"] = [
     "deploy-overlap-trust",
     "verify-current-feed",
@@ -522,12 +577,13 @@ export function verifyCommunitySigningRotationPackage(directory: string): Commun
     "retire-current-trust-after-overlap",
   ];
   if (
-    manifest?.version !== 1 ||
-    typeof manifest.createdAt !== "string" || !Number.isFinite(Date.parse(manifest.createdAt)) ||
-    !/^[a-f0-9]{24}$/.test(manifest.currentKeyId) ||
-    !/^[a-f0-9]{24}$/.test(manifest.nextKeyId) ||
-    manifest.currentKeyId === manifest.nextKeyId ||
-    JSON.stringify(manifest.sequence) !== JSON.stringify(expectedSequence)
+    root.version !== 1 ||
+    typeof root.createdAt !== "string" || root.createdAt.length > 64 || !Number.isFinite(Date.parse(root.createdAt)) ||
+    typeof root.currentKeyId !== "string" || !/^[a-f0-9]{24}$/.test(root.currentKeyId) ||
+    typeof root.nextKeyId !== "string" || !/^[a-f0-9]{24}$/.test(root.nextKeyId) ||
+    root.currentKeyId === root.nextKeyId ||
+    typeof root.currentPublicKey !== "string" || typeof root.nextPublicKey !== "string" ||
+    !Array.isArray(root.sequence) || JSON.stringify(root.sequence) !== JSON.stringify(expectedSequence)
   ) throw new Error("Community signing rotation manifest is invalid.");
 
   const nextKeys = {
@@ -535,11 +591,11 @@ export function verifyCommunitySigningRotationPackage(directory: string): Commun
     publicPem: readFileSync(publicPath, "utf8"),
   };
   const nextKeyId = validateSigningKeyPair(nextKeys);
-  if (nextKeyId !== manifest.nextKeyId || nextKeys.publicPem !== manifest.nextPublicKey) {
+  if (nextKeyId !== root.nextKeyId || nextKeys.publicPem !== root.nextPublicKey) {
     throw new Error("Community signing rotation next-key material does not match its manifest.");
   }
-  if (signingKeyId(manifest.currentPublicKey) !== manifest.currentKeyId) {
+  if (signingKeyId(root.currentPublicKey) !== root.currentKeyId) {
     throw new Error("Community signing rotation current public key does not match its manifest.");
   }
-  return manifest;
+  return root as unknown as CommunityRotationManifest;
 }
