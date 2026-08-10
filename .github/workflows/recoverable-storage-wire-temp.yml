@@ -1,0 +1,105 @@
+name: Temporary recoverable storage wiring
+on:
+  push:
+    branches: [m2-community-recoverable-storage-bound]
+permissions:
+  contents: write
+jobs:
+  wire:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m2-community-recoverable-storage-bound
+      - name: Wire shared recoverability limits
+        shell: python
+        run: |
+          from pathlib import Path
+
+          ops = Path('server/src/community/operations.ts')
+          text = ops.read_text(encoding='utf-8')
+          marker = 'import { EncryptedCommunityAggregateStore } from "./aggregateStore.js";\n'
+          addition = marker + 'import {\n  MAX_COMMUNITY_AUTHORITATIVE_SOURCE_BYTES,\n  MAX_COMMUNITY_SIGNING_KEY_FILE_BYTES,\n} from "./resourceLimits.js";\n'
+          if 'MAX_COMMUNITY_AUTHORITATIVE_SOURCE_BYTES' not in text:
+              if marker not in text: raise SystemExit('operations import marker missing')
+              text = text.replace(marker, addition, 1)
+          text = text.replace('const MAX_SIGNING_KEY_FILE_BYTES = 64 * 1024;\nexport const MAX_COMMUNITY_BACKUP_SOURCE_BYTES = 192 * 1024 * 1024;\n', '')
+          text = text.replace('MAX_SIGNING_KEY_FILE_BYTES', 'MAX_COMMUNITY_SIGNING_KEY_FILE_BYTES')
+          text = text.replace('MAX_COMMUNITY_BACKUP_SOURCE_BYTES', 'MAX_COMMUNITY_AUTHORITATIVE_SOURCE_BYTES')
+          old = 'function validateSigningKeyPair(keys: CommunitySigningKeys): string {\n  const privateKey = createPrivateKey(keys.privatePem);'
+          new = 'function validateSigningKeyPair(keys: CommunitySigningKeys): string {\n  if (Buffer.byteLength(keys.privatePem, "utf8") > MAX_COMMUNITY_SIGNING_KEY_FILE_BYTES || Buffer.byteLength(keys.publicPem, "utf8") > MAX_COMMUNITY_SIGNING_KEY_FILE_BYTES) {\n    throw new Error("Community signing key material exceeds the recovery size limit.");\n  }\n  const privateKey = createPrivateKey(keys.privatePem);'
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif new not in text:
+              raise SystemExit('key validation insertion point missing')
+          ops.write_text(text, encoding='utf-8')
+
+          store = Path('server/src/community/aggregateStore.ts')
+          text = store.read_text(encoding='utf-8')
+          text = text.replace('  chmodSync,\n  existsSync,\n  mkdirSync,\n  readFileSync,', '  chmodSync,\n  closeSync,\n  constants,\n  existsSync,\n  fstatSync,\n  mkdirSync,\n  openSync,\n  readFileSync,')
+          marker = 'import { validateStoredCommunityDatabase } from "./aggregateState.js";\n'
+          addition = marker + 'import { COMMUNITY_STORAGE_KEY_BYTES, MAX_COMMUNITY_AGGREGATE_DATABASE_BYTES } from "./resourceLimits.js";\n'
+          if 'MAX_COMMUNITY_AGGREGATE_DATABASE_BYTES' not in text:
+              if marker not in text: raise SystemExit('store import marker missing')
+              text = text.replace(marker, addition, 1)
+          text = text.replace('if (key.length !== 32) throw new Error("Community storage encryption key is invalid.");', 'if (key.length !== COMMUNITY_STORAGE_KEY_BYTES) throw new Error("Community storage encryption key is invalid.");')
+          old = '''  private readDatabase(): CommunityDatabase {
+    if (!existsSync(this.databasePath)) return emptyDatabase();
+    try {
+      const envelope = JSON.parse(readFileSync(this.databasePath, "utf8")) as EncryptedEnvelope;'''
+          new = '''  private readDatabaseFile(): string {
+    const noFollow = process.platform === "win32" ? 0 : constants.O_NOFOLLOW;
+    let descriptor: number;
+    try {
+      descriptor = openSync(this.databasePath, constants.O_RDONLY | noFollow);
+    } catch {
+      throw new Error("Encrypted community report database could not be opened safely.");
+    }
+    try {
+      const stat = fstatSync(descriptor);
+      if (!stat.isFile() || stat.size < 0 || stat.size > MAX_COMMUNITY_AGGREGATE_DATABASE_BYTES) {
+        throw new Error("Encrypted community report database exceeds the recoverable storage boundary.");
+      }
+      const content = readFileSync(descriptor);
+      if (content.length > MAX_COMMUNITY_AGGREGATE_DATABASE_BYTES) {
+        content.fill(0);
+        throw new Error("Encrypted community report database exceeded the recoverable storage boundary while being read.");
+      }
+      return content.toString("utf8");
+    } finally {
+      closeSync(descriptor);
+    }
+  }
+
+  private readDatabase(): CommunityDatabase {
+    if (!existsSync(this.databasePath)) return emptyDatabase();
+    try {
+      const envelope = JSON.parse(this.readDatabaseFile()) as EncryptedEnvelope;'''
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif new not in text:
+              raise SystemExit('readDatabase insertion point missing')
+          old = '''    const temporaryPath = `${this.databasePath}.${process.pid}.${randomBytes(5).toString("hex")}.tmp`;
+    writeFileSync(temporaryPath, JSON.stringify(envelope), { mode: 0o600 });'''
+          new = '''    const serialized = JSON.stringify(envelope);
+    if (Buffer.byteLength(serialized, "utf8") > MAX_COMMUNITY_AGGREGATE_DATABASE_BYTES) {
+      throw new CommunityReportCapacityError();
+    }
+    const temporaryPath = `${this.databasePath}.${process.pid}.${randomBytes(5).toString("hex")}.tmp`;
+    writeFileSync(temporaryPath, serialized, { mode: 0o600 });'''
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif new not in text:
+              raise SystemExit('write boundary insertion point missing')
+          store.write_text(text, encoding='utf-8')
+      - name: Commit if changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add server/src/community/operations.ts server/src/community/aggregateStore.ts
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Align production aggregate storage with recovery bounds"
+          git push origin HEAD:m2-community-recoverable-storage-bound
