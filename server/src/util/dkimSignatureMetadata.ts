@@ -59,17 +59,17 @@ function normalizeSelector(raw: string | undefined): string | null {
 }
 
 /**
- * Extracts only the minimal DKIM identity metadata needed to prove RFC 8058
- * header coverage. It does not verify DKIM cryptography; cryptographic validity
- * is supplied separately by a trusted Authentication-Results `dkim=pass`.
- * Duplicate domain+selector entries are intentionally preserved so a caller can
- * reject ambiguous correlation rather than silently choosing one signature.
+ * Extracts only the minimal DKIM identity metadata needed for RFC 8058
+ * correlation. Every parseable bounded signature candidate is retained, even
+ * when it does not cover the required headers, so duplicate domain+selector
+ * identities cannot be hidden by filtering. Cryptographic validity is supplied
+ * separately by a trusted Authentication-Results `dkim=pass`.
  */
-export function extractOneClickDkimCoverage(raw: string | Buffer): NonNullable<ListHeaders["oneClickDkimCoverage"]> {
+export function extractOneClickDkimSignatures(raw: string | Buffer): NonNullable<ListHeaders["oneClickDkimSignatures"]> {
   const section = boundedRawHeaderSection(raw);
   if (!section) return [];
 
-  const coverage: NonNullable<ListHeaders["oneClickDkimCoverage"]> = [];
+  const signatures: NonNullable<ListHeaders["oneClickDkimSignatures"]> = [];
   let seenSignatures = 0;
   for (const header of unfoldHeaders(section)) {
     const match = header.match(/^DKIM-Signature\s*:\s*([\s\S]*)$/i);
@@ -90,8 +90,11 @@ export function extractOneClickDkimCoverage(raw: string | Buffer): NonNullable<L
         .map((name) => name.trim().toLowerCase())
         .filter(Boolean),
     );
-    if (![...REQUIRED_ONE_CLICK_HEADERS].every((name) => signedHeaders.has(name))) continue;
-    coverage.push({ domain, selector });
+    signatures.push({
+      domain,
+      selector,
+      coversRequiredHeaders: [...REQUIRED_ONE_CLICK_HEADERS].every((name) => signedHeaders.has(name)),
+    });
   }
-  return coverage;
+  return signatures;
 }
