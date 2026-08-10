@@ -20,7 +20,7 @@ export function normalizeDomainName(domain: string): string {
  * truth without DNS or network access at scan time.
  *
  * Unknown but syntactically parseable suffixes retain tldts' conservative
- * last-label behavior so fixture/test domains such as `example.test-domain`
+ * last-label behavior so reserved fixture domains such as `mail.example`
  * continue to group their own subdomains. A bare known public suffix has no
  * registrable owner and therefore returns an empty identity boundary.
  */
