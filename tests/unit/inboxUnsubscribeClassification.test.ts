@@ -25,7 +25,7 @@ function envelope(overrides: Partial<CanonicalEnvelope> = {}): CanonicalEnvelope
     replyTo: null,
     subject: "Example message",
     date: new Date(0).toISOString(),
-    authentication: { spf: "pass", dkim: "pass", dmarc: "pass", arc: "none" },
+    authentication: { providerTrust: "trusted", spf: "pass", dkim: "pass", dmarc: "pass", arc: "none" },
     textPreview: "Readable newsletter content ".repeat(40),
     htmlSignals: null,
     links: [],
@@ -220,7 +220,7 @@ describe("bounded inbox verdicts", () => {
   it("keeps bounded unauthenticated official mail Unknown", () => {
     const result = scanMessage(envelope({
       from: { displayName: "Apple", address: "noreply@email.apple.com", domain: "email.apple.com" },
-      authentication: { spf: "unknown", dkim: "unknown", dmarc: "unknown", arc: "unknown" },
+      authentication: { providerTrust: "trusted", spf: "unknown", dkim: "unknown", dmarc: "unknown", arc: "unknown" },
       textPreview: "Your Apple Account information has been updated. Review the security details in your account.",
       listHeaders: { listId: null, listUnsubscribe: null, listUnsubscribePost: null },
       parseStatus: "partial",

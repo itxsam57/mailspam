@@ -29,7 +29,7 @@ function envelope(overrides: Partial<CanonicalEnvelope> = {}): CanonicalEnvelope
     replyTo: null,
     subject: "Example message",
     date: new Date(0).toISOString(),
-    authentication: { spf: "pass", dkim: "pass", dmarc: "pass", arc: "none" },
+    authentication: { providerTrust: "trusted", spf: "pass", dkim: "pass", dmarc: "pass", arc: "none" },
     textPreview: "Readable authenticated message content ".repeat(8),
     htmlSignals: null,
     links: [],

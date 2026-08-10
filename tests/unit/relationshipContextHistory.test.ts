@@ -39,7 +39,7 @@ function envelope(overrides: Partial<CanonicalEnvelope> = {}): CanonicalEnvelope
     replyTo: null,
     subject: "Routine account update",
     date: new Date().toISOString(),
-    authentication: { spf: "pass", dkim: "pass", dmarc: "pass", arc: "unknown" },
+    authentication: { providerTrust: "trusted", spf: "pass", dkim: "pass", dmarc: "pass", arc: "unknown" },
     textPreview: "This is a routine readable account message with no unusual request or pressure.",
     htmlSignals: null,
     links: [],
@@ -92,7 +92,7 @@ describe("durable relationship context", () => {
 
   it("detects an explicit authentication downgrade after established authenticated history", () => {
     const current = envelope({
-      authentication: { spf: "fail", dkim: "fail", dmarc: "fail", arc: "unknown" },
+      authentication: { providerTrust: "trusted", spf: "fail", dkim: "fail", dmarc: "fail", arc: "unknown" },
     });
     annotateRelationshipHistory(current, snapshotFor("known@example.com", profile()));
     const result = relationshipContextLayer(current);

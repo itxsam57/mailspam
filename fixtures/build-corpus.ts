@@ -431,7 +431,7 @@ const FIXTURES: CategoryFixture[] = [
 ];
 
 const outDir = join(import.meta.dirname, "scam-corpus");
-const manifest: Array<{ category: string; kind: "malicious" | "legit"; file: string; variant: string }> = [];
+const manifest: Array<{ category: string; kind: "malicious" | "legit"; file: string; variant: string; authenticationTrust: "trusted" | "unknown" }> = [];
 
 for (const fixture of FIXTURES) {
   const catDir = join(outDir, fixture.category);
@@ -447,7 +447,7 @@ for (const fixture of FIXTURES) {
       const eml = buildEml(spec, variant);
       const filename = `${kind}-${variant}.eml`;
       writeFileSync(join(catDir, filename), eml, "utf-8");
-      manifest.push({ category: fixture.category, kind, file: join(fixture.category, filename), variant });
+      manifest.push({ category: fixture.category, kind, file: join(fixture.category, filename), variant, authenticationTrust: spec.authResults ? "trusted" : "unknown" });
     }
   }
 }

@@ -26,7 +26,7 @@ function envelope(overrides: Partial<CanonicalEnvelope> = {}): CanonicalEnvelope
     replyTo: null,
     subject: "Account information",
     date: new Date(0).toISOString(),
-    authentication: {
+    authentication: { providerTrust: "trusted",
       spf: "pass",
       dkim: "unknown",
       dmarc: "none",
@@ -96,7 +96,7 @@ describe("Public Suffix List registrable-domain boundary", () => {
 describe("PSL-backed authentication alignment", () => {
   it("rejects an SPF pass from a different registrant under the same deep public suffix", () => {
     const message = envelope({
-      authentication: {
+      authentication: { providerTrust: "trusted",
         spf: "pass",
         dkim: "unknown",
         dmarc: "none",
@@ -122,7 +122,7 @@ describe("PSL-backed authentication alignment", () => {
         address: "security@alice.github.io",
         domain: "alice.github.io",
       },
-      authentication: {
+      authentication: { providerTrust: "trusted",
         spf: "unknown",
         dkim: "pass",
         dmarc: "none",
@@ -138,7 +138,7 @@ describe("PSL-backed authentication alignment", () => {
 describe("PSL-backed link identity boundaries", () => {
   it("detects displayed-vs-actual deception between deep-suffix registrants", () => {
     const message = envelope({
-      authentication: { spf: "pass", dkim: "pass", dmarc: "pass", arc: "none" },
+      authentication: { providerTrust: "trusted", spf: "pass", dkim: "pass", dmarc: "pass", arc: "none" },
       links: [{
         visibleText: "https://login.northwind.pvt.k12.ma.us",
         rawUrl: "https://login.attacker.pvt.k12.ma.us/verify",
@@ -164,7 +164,7 @@ describe("PSL-backed link identity boundaries", () => {
         address: "security@alice.github.io",
         domain: "alice.github.io",
       },
-      authentication: { spf: "pass", dkim: "pass", dmarc: "pass", arc: "none" },
+      authentication: { providerTrust: "trusted", spf: "pass", dkim: "pass", dmarc: "pass", arc: "none" },
       links: [{
         visibleText: "Sign in to your account",
         rawUrl: "https://bob.github.io/login",

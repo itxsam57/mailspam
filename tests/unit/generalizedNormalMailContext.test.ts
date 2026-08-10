@@ -23,7 +23,7 @@ function envelope(overrides: Partial<CanonicalEnvelope> = {}): CanonicalEnvelope
     replyTo: null,
     subject: "Example Service update",
     date: new Date(0).toISOString(),
-    authentication: { spf: "pass", dkim: "pass", dmarc: "pass", arc: "none" },
+    authentication: { providerTrust: "trusted", spf: "pass", dkim: "pass", dmarc: "pass", arc: "none" },
     textPreview: "A normal readable message used to verify context-aware deterministic rules. ".repeat(4),
     htmlSignals: null,
     links: [],
@@ -133,7 +133,7 @@ describe("context-aware link structure", () => {
         address: "news@unrelated.example",
         domain: "unrelated.example",
       },
-      authentication: { spf: "fail", dkim: "fail", dmarc: "fail", arc: "none" },
+      authentication: { providerTrust: "trusted", spf: "fail", dkim: "fail", dmarc: "fail", arc: "none" },
       links: [{
         visibleText: "https://www.vendor.example",
         rawUrl: "https://click.delivery-platform.example/campaign/123",
@@ -190,7 +190,7 @@ describe("context-aware link structure", () => {
 
   it("keeps shortener evidence for unauthenticated mail", () => {
     const result = linkStructureLayer(envelope({
-      authentication: { spf: "fail", dkim: "fail", dmarc: "fail", arc: "none" },
+      authentication: { providerTrust: "trusted", spf: "fail", dkim: "fail", dmarc: "fail", arc: "none" },
       links: [{
         visibleText: "View activity",
         rawUrl: "https://t.co/example",
@@ -221,7 +221,7 @@ describe("subscription and coverage context", () => {
   it("keeps the same reward rule for first-contact personal or unauthenticated mail", () => {
     const result = messageIntentLayer(envelope({
       from: { displayName: "Rewards", address: "reward@gmail.com", domain: "gmail.com" },
-      authentication: { spf: "pass", dkim: "pass", dmarc: "pass", arc: "none" },
+      authentication: { providerTrust: "trusted", spf: "pass", dkim: "pass", dmarc: "pass", arc: "none" },
       subject: "Claim your free tool set",
     }));
 

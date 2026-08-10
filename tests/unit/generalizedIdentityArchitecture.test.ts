@@ -27,7 +27,7 @@ function envelope(overrides: Partial<CanonicalEnvelope> = {}): CanonicalEnvelope
     replyTo: null,
     subject: "Northwind Labs account update",
     date: new Date(0).toISOString(),
-    authentication: { spf: "pass", dkim: "pass", dmarc: "pass", arc: "none" },
+    authentication: { providerTrust: "trusted", spf: "pass", dkim: "pass", dmarc: "pass", arc: "none" },
     textPreview: "This is a readable account notification from a fictional organization used only for tests. ".repeat(4),
     htmlSignals: null,
     links: [],

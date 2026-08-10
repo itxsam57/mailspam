@@ -3,336 +3,392 @@
     "category": "brand_impersonation",
     "kind": "malicious",
     "file": "brand_impersonation/malicious-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "brand_impersonation",
     "kind": "legit",
     "file": "brand_impersonation/legit-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "callback_scam",
     "kind": "malicious",
     "file": "callback_scam/malicious-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "callback_scam",
     "kind": "legit",
     "file": "callback_scam/legit-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "credential_phishing",
     "kind": "malicious",
     "file": "credential_phishing/malicious-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "credential_phishing",
     "kind": "malicious",
     "file": "credential_phishing/malicious-html.eml",
-    "variant": "html"
+    "variant": "html",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "credential_phishing",
     "kind": "malicious",
     "file": "credential_phishing/malicious-multipart.eml",
-    "variant": "multipart"
+    "variant": "multipart",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "credential_phishing",
     "kind": "malicious",
     "file": "credential_phishing/malicious-base64.eml",
-    "variant": "base64"
+    "variant": "base64",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "credential_phishing",
     "kind": "malicious",
     "file": "credential_phishing/malicious-quoted-printable.eml",
-    "variant": "quoted-printable"
+    "variant": "quoted-printable",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "credential_phishing",
     "kind": "legit",
     "file": "credential_phishing/legit-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "credential_phishing",
     "kind": "legit",
     "file": "credential_phishing/legit-html.eml",
-    "variant": "html"
+    "variant": "html",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "credential_phishing",
     "kind": "legit",
     "file": "credential_phishing/legit-multipart.eml",
-    "variant": "multipart"
+    "variant": "multipart",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "credential_phishing",
     "kind": "legit",
     "file": "credential_phishing/legit-base64.eml",
-    "variant": "base64"
+    "variant": "base64",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "credential_phishing",
     "kind": "legit",
     "file": "credential_phishing/legit-quoted-printable.eml",
-    "variant": "quoted-printable"
+    "variant": "quoted-printable",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "business_email_compromise",
     "kind": "malicious",
     "file": "business_email_compromise/malicious-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "business_email_compromise",
     "kind": "malicious",
     "file": "business_email_compromise/malicious-html.eml",
-    "variant": "html"
+    "variant": "html",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "business_email_compromise",
     "kind": "malicious",
     "file": "business_email_compromise/malicious-multipart.eml",
-    "variant": "multipart"
+    "variant": "multipart",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "business_email_compromise",
     "kind": "malicious",
     "file": "business_email_compromise/malicious-base64.eml",
-    "variant": "base64"
+    "variant": "base64",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "business_email_compromise",
     "kind": "malicious",
     "file": "business_email_compromise/malicious-quoted-printable.eml",
-    "variant": "quoted-printable"
+    "variant": "quoted-printable",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "business_email_compromise",
     "kind": "legit",
     "file": "business_email_compromise/legit-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "business_email_compromise",
     "kind": "legit",
     "file": "business_email_compromise/legit-html.eml",
-    "variant": "html"
+    "variant": "html",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "business_email_compromise",
     "kind": "legit",
     "file": "business_email_compromise/legit-multipart.eml",
-    "variant": "multipart"
+    "variant": "multipart",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "business_email_compromise",
     "kind": "legit",
     "file": "business_email_compromise/legit-base64.eml",
-    "variant": "base64"
+    "variant": "base64",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "business_email_compromise",
     "kind": "legit",
     "file": "business_email_compromise/legit-quoted-printable.eml",
-    "variant": "quoted-printable"
+    "variant": "quoted-printable",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "cryptocurrency_scam",
     "kind": "malicious",
     "file": "cryptocurrency_scam/malicious-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "cryptocurrency_scam",
     "kind": "malicious",
     "file": "cryptocurrency_scam/malicious-html.eml",
-    "variant": "html"
+    "variant": "html",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "cryptocurrency_scam",
     "kind": "malicious",
     "file": "cryptocurrency_scam/malicious-multipart.eml",
-    "variant": "multipart"
+    "variant": "multipart",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "cryptocurrency_scam",
     "kind": "malicious",
     "file": "cryptocurrency_scam/malicious-base64.eml",
-    "variant": "base64"
+    "variant": "base64",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "cryptocurrency_scam",
     "kind": "malicious",
     "file": "cryptocurrency_scam/malicious-quoted-printable.eml",
-    "variant": "quoted-printable"
+    "variant": "quoted-printable",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "cryptocurrency_scam",
     "kind": "legit",
     "file": "cryptocurrency_scam/legit-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "cryptocurrency_scam",
     "kind": "legit",
     "file": "cryptocurrency_scam/legit-html.eml",
-    "variant": "html"
+    "variant": "html",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "cryptocurrency_scam",
     "kind": "legit",
     "file": "cryptocurrency_scam/legit-multipart.eml",
-    "variant": "multipart"
+    "variant": "multipart",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "cryptocurrency_scam",
     "kind": "legit",
     "file": "cryptocurrency_scam/legit-base64.eml",
-    "variant": "base64"
+    "variant": "base64",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "cryptocurrency_scam",
     "kind": "legit",
     "file": "cryptocurrency_scam/legit-quoted-printable.eml",
-    "variant": "quoted-printable"
+    "variant": "quoted-printable",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "delivery_payment_scam",
     "kind": "malicious",
     "file": "delivery_payment_scam/malicious-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "delivery_payment_scam",
     "kind": "legit",
     "file": "delivery_payment_scam/legit-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "romance_adult_social_lure",
     "kind": "malicious",
     "file": "romance_adult_social_lure/malicious-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "romance_adult_social_lure",
     "kind": "legit",
     "file": "romance_adult_social_lure/legit-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "job_task_scam",
     "kind": "malicious",
     "file": "job_task_scam/malicious-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "job_task_scam",
     "kind": "legit",
     "file": "job_task_scam/legit-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "government_legal_scam",
     "kind": "malicious",
     "file": "government_legal_scam/malicious-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "government_legal_scam",
     "kind": "legit",
     "file": "government_legal_scam/legit-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "prize_reward_scam",
     "kind": "malicious",
     "file": "prize_reward_scam/malicious-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "prize_reward_scam",
     "kind": "legit",
     "file": "prize_reward_scam/legit-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "cloud_document_scam",
     "kind": "malicious",
     "file": "cloud_document_scam/malicious-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "cloud_document_scam",
     "kind": "legit",
     "file": "cloud_document_scam/legit-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "qr_phishing",
     "kind": "malicious",
     "file": "qr_phishing/malicious-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "qr_phishing",
     "kind": "legit",
     "file": "qr_phishing/legit-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "malware_delivery",
     "kind": "malicious",
     "file": "malware_delivery/malicious-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "malware_delivery",
     "kind": "legit",
     "file": "malware_delivery/legit-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "browser_trap",
     "kind": "malicious",
     "file": "browser_trap/malicious-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "browser_trap",
     "kind": "legit",
     "file": "browser_trap/legit-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "newsletter_marketing_abuse",
     "kind": "malicious",
     "file": "newsletter_marketing_abuse/malicious-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "newsletter_marketing_abuse",
     "kind": "legit",
     "file": "newsletter_marketing_abuse/legit-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "conversation_hijacking",
     "kind": "malicious",
     "file": "conversation_hijacking/malicious-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   },
   {
     "category": "conversation_hijacking",
     "kind": "legit",
     "file": "conversation_hijacking/legit-plain.eml",
-    "variant": "plain"
+    "variant": "plain",
+    "authenticationTrust": "trusted"
   }
 ]

@@ -11,7 +11,7 @@ import type { Provider } from "../../canonical/envelope.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CORPUS_DIR = join(__dirname, "../../../../fixtures/scam-corpus");
 
-interface ManifestEntry { category: string; kind: "malicious" | "legit"; file: string; variant: string }
+interface ManifestEntry { category: string; kind: "malicious" | "legit"; file: string; variant: string; authenticationTrust: "trusted" | "unknown" }
 
 /**
  * Builds a demo mailbox from the synthetic scam corpus: malicious "plain"
@@ -44,7 +44,7 @@ export function buildDemoMailbox(
         rawEml,
         folder,
         providerFolderName: folder === "inbox" ? "INBOX" : folder === "spam" ? "Spam" : "Trash",
-        authenticationTrust: "trusted",
+        authenticationTrust: entry.authenticationTrust,
       };
     }
 
@@ -54,7 +54,7 @@ export function buildDemoMailbox(
       rawEml,
       folder,
       providerFolderName: folder === "inbox" ? "INBOX" : folder === "spam" ? "Spam" : "Trash",
-      authenticationTrust: "trusted",
+      authenticationTrust: entry.authenticationTrust,
     };
   });
 

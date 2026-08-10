@@ -30,7 +30,6 @@ function envelope(overrides: Partial<CanonicalEnvelope> = {}): CanonicalEnvelope
     replyTo: null,
     subject: "Cobalt Bank account notice",
     date: new Date(0).toISOString(),
-    authentication,
     textPreview: "Routine account information from the sender. ".repeat(5),
     htmlSignals: null,
     links: [],
