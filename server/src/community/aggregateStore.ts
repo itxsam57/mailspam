@@ -355,14 +355,37 @@ export class EncryptedCommunityAggregateStore {
     if (this.keyCache) return this.keyCache;
     this.ensureDirectory();
     if (!existsSync(this.keyPath)) {
-      const key = randomBytes(COMMUNITY_STORAGE_KEY_BYTES);
-      try { writeFileSync(this.keyPath, key, { mode: 0o600, flag: "wx" }); }
-      catch (error) {
+      const generated = randomBytes(COMMUNITY_STORAGE_KEY_BYTES);
+      try {
+        writeFileSync(this.keyPath, generated, { mode: 0o600, flag: "wx" });
+      } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      } finally {
+        generated.fill(0);
       }
     }
-    const key = readFileSync(this.keyPath);
-    if (key.length !== COMMUNITY_STORAGE_KEY_BYTES) throw new Error("Community storage encryption key is invalid.");
+
+    const noFollow = process.platform === "win32" ? 0 : constants.O_NOFOLLOW;
+    let descriptor: number;
+    try {
+      descriptor = openSync(this.keyPath, constants.O_RDONLY | noFollow);
+    } catch {
+      throw new Error("Community storage encryption key could not be opened safely.");
+    }
+    let key: Buffer;
+    try {
+      const stat = fstatSync(descriptor);
+      if (!stat.isFile() || stat.size !== COMMUNITY_STORAGE_KEY_BYTES) {
+        throw new Error("Community storage encryption key is invalid.");
+      }
+      key = readFileSync(descriptor);
+      if (key.length !== COMMUNITY_STORAGE_KEY_BYTES) {
+        key.fill(0);
+        throw new Error("Community storage encryption key changed while being read.");
+      }
+    } finally {
+      closeSync(descriptor);
+    }
     try { chmodSync(this.keyPath, 0o600); } catch {}
     this.keyCache = key;
     return key;
