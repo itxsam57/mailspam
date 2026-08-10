@@ -61,15 +61,16 @@ export interface ListHeaders {
   listUnsubscribe: string | null;
   listUnsubscribePost: string | null;
   /**
-   * Worker/server-only bounded DKIM signature identities whose `h=` list
-   * explicitly covers both RFC 8058 one-click headers. Raw signature bytes,
-   * signature values and the full signed-header list are deliberately not
-   * retained. A one-click POST still requires correlation with a trusted
-   * `dkim=pass` result for the exact domain+selector pair.
+   * Worker/server-only bounded DKIM signature identities used for RFC 8058
+   * correlation. Every parseable raw signature candidate is retained so a
+   * duplicate `d=`+`s=` identity cannot be hidden merely because only one
+   * copy signs the required list headers. Raw signature bytes/values and the
+   * full signed-header list are never retained.
    */
-  oneClickDkimCoverage?: Array<{
+  oneClickDkimSignatures?: Array<{
     domain: string;
     selector: string;
+    coversRequiredHeaders: boolean;
   }>;
 }
 
