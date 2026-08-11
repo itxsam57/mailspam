@@ -27,6 +27,7 @@ import type { ScanActionContext } from "../workflows/scanWorkflows.js";
 import { runDeveloperTestSuite } from "../devtools/testSuiteRunner.js";
 import { communityNetwork, type CommunityNetwork } from "../community/network.js";
 import type { CommunityReportSubmission } from "../community/types.js";
+import { localOperationalMetrics } from "./localOperationalMetrics.js";
 
 export function createServer(options: {
   community?: CommunityNetwork;
@@ -368,6 +369,7 @@ export function createServer(options: {
 
     try {
       sessionStore.mutateAndPersistPersonalPolicy(session, (policy) => policy.approveException(action.exceptionKey));
+      localOperationalMetrics.recordFalsePositiveApproval();
       res.json({
         markedSafe: true,
         persisted: sessionStore.personalPolicyPersistent(),
@@ -422,6 +424,7 @@ export function createServer(options: {
 
     try {
       const receipt = await community.submit(action.communityReport, session.policyAccountKey);
+      localOperationalMetrics.recordAbuseReport(true);
       res.json({
         success: true,
         localProtected: true,
@@ -432,6 +435,7 @@ export function createServer(options: {
         ...receipt,
       });
     } catch (error) {
+      localOperationalMetrics.recordAbuseReport(false);
       res.status(502).json({
         error: `The campaign is protected locally, but the community report could not be queued: ${error instanceof Error ? error.message : String(error)}`,
         localProtected: true,

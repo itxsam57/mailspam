@@ -25,11 +25,13 @@ import {
   normalizeSenderAddress,
   normalizeSenderDomain,
 } from "../workflows/blockAndCleanup.js";
-import type { DestinationAnalysisCoordinator } from "../workflows/analyzeLinks.js";
+import { destinationAnalysisCoordinator, type DestinationAnalysisCoordinator } from "../workflows/analyzeLinks.js";
 import {
   createBackgroundProtectionCoordinator,
   type BackgroundProtectionCoordinator,
 } from "./backgroundProtection.js";
+import { localOperationalMetrics } from "./localOperationalMetrics.js";
+import { providerCapabilitySnapshot } from "../adapters/providerCapabilities.js";
 
 function escapeAttribute(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({
@@ -70,6 +72,7 @@ export function createLocalDesktopServer(options: {
   const app = express();
   const security = options.security ?? localSecurity;
   const community = options.community ?? communityNetwork;
+  const destinationAnalyzer = options.destinationAnalyzer ?? destinationAnalysisCoordinator;
   const backgroundProtection = options.backgroundProtection ?? createBackgroundProtectionCoordinator(community);
   const googleOAuth = options.googleOAuth ?? new GoogleOAuthFlowManager({
     clientId: process.env.EMAIL_SHIELD_GOOGLE_CLIENT_ID?.trim() ?? "",
@@ -79,7 +82,7 @@ export function createLocalDesktopServer(options: {
     clientId: process.env.EMAIL_SHIELD_MICROSOFT_CLIENT_ID?.trim() ?? "",
     sessionStore,
   });
-  const inner = createServer({ community, destinationAnalyzer: options.destinationAnalyzer });
+  const inner = createServer({ community, destinationAnalyzer });
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const webDir = join(__dirname, "../../../web");
   const dashboardTemplate = readFileSync(join(webDir, "index.html"), "utf8");
@@ -102,7 +105,7 @@ export function createLocalDesktopServer(options: {
       .replace(/<script>(\s*const API\s*=)/, `<script nonce="${nonce}">$1`)
       .replace(
         "</body>",
-        '<script src="/scan-monitor.js"></script><script src="/scan-history.js"></script><script src="/background-protection.js"></script><script src="/unsubscribe-monitor.js"></script><script src="/gmail-oauth.js"></script><script src="/outlook-oauth.js"></script><script src="/account-disconnect.js"></script><script src="/policy-management.js"></script></body>',
+        '<script src="/scan-monitor.js"></script><script src="/scan-history.js"></script><script src="/background-protection.js"></script><script src="/unsubscribe-monitor.js"></script><script src="/gmail-oauth.js"></script><script src="/outlook-oauth.js"></script><script src="/account-disconnect.js"></script><script src="/policy-management.js"></script><script src="/operations-dashboard.js"></script></body>',
       );
 
     res.setHeader("Referrer-Policy", "same-origin");
@@ -129,6 +132,42 @@ export function createLocalDesktopServer(options: {
     security.requireProtectedRead(),
     security.requireSameOrigin(),
     (req: Request, res: Response) => security.issueMutationNonce(req, res),
+  );
+
+  app.get(
+    "/api/operations/v1/snapshot",
+    security.requireProtectedRead(),
+    (req: Request, res: Response) => {
+      if (!security.enforceRouteLimit(req, res, "operations-snapshot", 30)) return;
+      const background = sessionStore.list().reduce((aggregate, session) => {
+        try {
+          const status = backgroundProtection.status(session.policyAccountKey);
+          if (status.enabled) aggregate.enabled += 1;
+          if (status.active) aggregate.running += 1;
+          if (status.status === "failed") aggregate.failed += 1;
+        } catch {
+          aggregate.unavailable += 1;
+        }
+        return aggregate;
+      }, { accounts: sessionStore.list().length, enabled: 0, running: 0, failed: 0, unavailable: 0 });
+      res.setHeader("Cache-Control", "no-store");
+      const feedEntries = community.getVerifiedEntries();
+      res.json({
+        schemaVersion: 1,
+        generatedAt: new Date().toISOString(),
+        local: localOperationalMetrics.snapshot(),
+        providerContracts: providerCapabilitySnapshot(),
+        feed: {
+          remoteConfigured: Boolean(community.remoteUrl),
+          verified: feedEntries !== null,
+          entries: feedEntries?.length ?? 0,
+          pendingReports: community.pendingReports(),
+        },
+        destinationAnalysis: destinationAnalyzer.telemetry(),
+        background,
+        privacy: "aggregate_only_no_mailbox_identity_or_content",
+      });
+    },
   );
 
   app.use("/api/accounts", (req: Request, res: Response, next) => {

@@ -97,7 +97,7 @@ try {
   const homeHtml = await home.text();
   assert(home.status === 200, `Homepage returned HTTP ${home.status}.`);
   assert(homeHtml.includes("Email Shield"), "Homepage is missing the Email Shield application marker.");
-  assert(homeHtml.includes('/local-security.js') && homeHtml.includes('/scan-monitor.js') && homeHtml.includes('/unsubscribe-monitor.js'), "Dashboard response is missing local security or action scripts.");
+  assert(homeHtml.includes('/local-security.js') && homeHtml.includes('/scan-monitor.js') && homeHtml.includes('/unsubscribe-monitor.js') && homeHtml.includes('/operations-dashboard.js'), "Dashboard response is missing local security, action or operations scripts.");
   assert(home.headers.get("content-security-policy")?.includes("frame-ancestors 'none'"), "Dashboard is missing its restrictive Content Security Policy.");
   const cookie = home.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
   const csrf = homeHtml.match(/<meta name="email-shield-csrf" content="([^"]+)"/)?.[1] ?? "";
@@ -192,6 +192,20 @@ try {
     assert(typeof summary.subject === "string", "Diagnostic summary is missing its subject label.");
     assert(typeof summary.verdict === "string", "Diagnostic summary is missing its verdict.");
     assert(summary.reviewAction && typeof summary.reviewAction.token === "string", "Diagnostic summary is missing an opaque review token.");
+  }
+
+  const operationsResponse = await fetch(`${baseUrl}/api/operations/v1/snapshot`, {
+    headers: protectedHeaders(),
+    signal: AbortSignal.timeout(5_000),
+  });
+  const operations = await json(operationsResponse, "Privacy-safe operations snapshot");
+  assert(operationsResponse.headers.get("cache-control") === "no-store", "Operations snapshot is cacheable.");
+  assert(operations.schemaVersion === 1 && operations.privacy === "aggregate_only_no_mailbox_identity_or_content", "Operations snapshot omitted its strict privacy contract.");
+  assert(operations.local?.providers?.gmail?.scans?.completed >= 1, "Operations snapshot did not record the compiled Gmail fixture scan.");
+  assert(Array.isArray(operations.providerContracts) && operations.providerContracts.length === 5, "Operations snapshot omitted a provider contract.");
+  const serializedOperations = JSON.stringify(operations);
+  for (const forbidden of ["subject", "fromAddress", "messageId", "accountId", "providerNativeId", "exception", "token", "body"]) {
+    assert(!serializedOperations.includes(`\"${forbidden}\"`), `Operations snapshot exposed forbidden field ${forbidden}.`);
   }
 
   const developerReport = await json(await fetch(`${baseUrl}/api/dev/test-suite`, {

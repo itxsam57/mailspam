@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 1,
+  "providers": [
+    {
+      "schemaVersion": 1,
+      "provider": "gmail",
+      "authentication": "oauth_pkce",
+      "transport": "gmail_api",
+      "fixtureParity": true,
+      "capabilities": {
+        "connect": true,
+        "folderDiscovery": true,
+        "boundedPageFetch": true,
+        "quickScan": true,
+        "fullAudit": true,
+        "spamJunkScan": true,
+        "cancellation": true,
+        "moveToTrash": true,
+        "reportSpam": true,
+        "canonicalMime": true,
+        "sharedPortableCore": true
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "provider": "icloud",
+      "authentication": "app_password",
+      "transport": "imap_tls",
+      "fixtureParity": true,
+      "capabilities": {
+        "connect": true,
+        "folderDiscovery": true,
+        "boundedPageFetch": true,
+        "quickScan": true,
+        "fullAudit": true,
+        "spamJunkScan": true,
+        "cancellation": true,
+        "moveToTrash": true,
+        "reportSpam": true,
+        "canonicalMime": true,
+        "sharedPortableCore": true
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "provider": "outlook",
+      "authentication": "oauth_pkce",
+      "transport": "microsoft_graph",
+      "fixtureParity": true,
+      "capabilities": {
+        "connect": true,
+        "folderDiscovery": true,
+        "boundedPageFetch": true,
+        "quickScan": true,
+        "fullAudit": true,
+        "spamJunkScan": true,
+        "cancellation": true,
+        "moveToTrash": true,
+        "reportSpam": true,
+        "canonicalMime": true,
+        "sharedPortableCore": true
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "provider": "yahoo",
+      "authentication": "app_password",
+      "transport": "imap_tls",
+      "fixtureParity": true,
+      "capabilities": {
+        "connect": true,
+        "folderDiscovery": true,
+        "boundedPageFetch": true,
+        "quickScan": true,
+        "fullAudit": true,
+        "spamJunkScan": true,
+        "cancellation": true,
+        "moveToTrash": true,
+        "reportSpam": true,
+        "canonicalMime": true,
+        "sharedPortableCore": true
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "provider": "imap",
+      "authentication": "server_credentials",
+      "transport": "imap_tls",
+      "fixtureParity": true,
+      "capabilities": {
+        "connect": true,
+        "folderDiscovery": true,
+        "boundedPageFetch": true,
+        "quickScan": true,
+        "fullAudit": true,
+        "spamJunkScan": true,
+        "cancellation": true,
+        "moveToTrash": true,
+        "reportSpam": true,
+        "canonicalMime": true,
+        "sharedPortableCore": true
+      }
+    }
+  ]
+}

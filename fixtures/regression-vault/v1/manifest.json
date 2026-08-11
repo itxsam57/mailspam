@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "4911f41543305e0e852527a44a5dd166",
+      "category": "legitimate_control",
+      "kind": "legit",
+      "expectedVerdict": "safe",
+      "authenticationTrust": "trusted",
+      "file": "samples/legitimate_control/4911f41543305e0e852527a44a5dd166.eml",
+      "sha256": "4911f41543305e0e852527a44a5dd16634a8747b4911ff50753c6372eb1a1f48",
+      "provenance": {
+        "source": "verified_anonymized_operator_sample",
+        "sanitizerVersion": 1,
+        "reviewDigest": "4911f41543305e0e852527a44a5dd16634a8747b4911ff50753c6372eb1a1f48",
+        "reviewerRole": "quality_reviewer"
+      }
+    },
+    {
+      "id": "b3dcf1b27692ac3a54c7bd6f409d6fa5",
+      "category": "credential_phishing",
+      "kind": "malicious",
+      "expectedVerdict": "non_safe",
+      "authenticationTrust": "unknown",
+      "file": "samples/credential_phishing/b3dcf1b27692ac3a54c7bd6f409d6fa5.eml",
+      "sha256": "b3dcf1b27692ac3a54c7bd6f409d6fa5e97dbf2d87f0d70683fe85f8bb17126e",
+      "provenance": {
+        "source": "verified_anonymized_operator_sample",
+        "sanitizerVersion": 1,
+        "reviewDigest": "b3dcf1b27692ac3a54c7bd6f409d6fa5e97dbf2d87f0d70683fe85f8bb17126e",
+        "reviewerRole": "security_reviewer"
+      }
+    }
+  ]
+}

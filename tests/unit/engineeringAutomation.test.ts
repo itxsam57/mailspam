@@ -37,6 +37,8 @@ describe("AI Engineering Automation Kit installation", () => {
       "test:unit": expect.any(String),
       "test:integration": expect.any(String),
       "check:web": expect.any(String),
+      "check:provider-compatibility": expect.any(String),
+      "check:regression-vault": expect.any(String),
       "smoke:server": expect.any(String),
       "smoke:background": expect.any(String),
       "audit:inventory": expect.any(String),

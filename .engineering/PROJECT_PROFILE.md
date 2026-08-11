@@ -65,6 +65,8 @@ Database/migrations/seeds: not applicable. The current service uses encrypted lo
 | Unit tests | `npm run test:unit` | Detection, privacy, API, signing, aggregation and architecture suites. |
 | Integration tests | `npm run test:integration` | Corpus and compiled Worker runtime suites. |
 | Browser/static checks | `npm run check:web` | Validates HTML/JS wiring, privacy boundaries and syntax. |
+| Provider compatibility | `npm run check:provider-compatibility` | Replays the reviewed v1 compiled capability/fixture contract for all five providers. |
+| Regression Vault | `npm run check:regression-vault` | Verifies approved anonymized sample provenance, hashes and all-five-provider outcomes. |
 | Server/API smoke | `npm run smoke:server` | Starts the compiled server and exercises fixture/API/SSE paths. |
 | Full dependency inventory | `npm run audit:inventory` | Writes package-level advisory evidence without rewriting dependencies. |
 | Production dependency audit | `npm run audit:prod` | Fails on high or critical production vulnerabilities. |

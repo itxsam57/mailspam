@@ -17,6 +17,7 @@ import {
   replaceSecureOutlookRefreshToken,
   type SecureAdapterConfig,
 } from "../security/secureAdapterConfig.js";
+import { cancelledOperationalError, localOperationalMetrics, type AdapterOperation } from "./localOperationalMetrics.js";
 
 export type AdapterConfig =
   | { provider: Provider; mode: "fixture"; fixtureFolderOverrides?: FixtureFolderOverrides }
@@ -51,6 +52,39 @@ function createRuntimeAdapter(config: AdapterConfig, outlookRefreshTokenSink?: O
     case "yahoo": return createYahooAdapter(config.credentials.user, config.credentials.appPassword);
     case "imap": return createGenericImapAdapter(config.credentials);
   }
+}
+
+async function observe<T>(provider: Provider, operation: AdapterOperation, task: () => Promise<T>): Promise<T> {
+  const finish = localOperationalMetrics.beginAdapterOperation(provider, operation);
+  try {
+    const result = await task();
+    finish("succeeded");
+    return result;
+  } catch (error) {
+    finish(cancelledOperationalError(error) ? "cancelled" : "failed");
+    throw error;
+  }
+}
+
+class OperationalAdapter implements EmailAdapter {
+  readonly provider: Provider;
+
+  constructor(private readonly delegate: EmailAdapter) {
+    this.provider = delegate.provider;
+  }
+
+  connect(signal: AbortSignal): Promise<void> { return observe(this.provider, "connect", () => this.delegate.connect(signal)); }
+  listFolders(signal: AbortSignal): Promise<FolderDescriptor[]> { return observe(this.provider, "list_folders", () => this.delegate.listFolders(signal)); }
+  fetchPage(folder: FolderDescriptor, cursor: string | null, pageSize: number, signal: AbortSignal): Promise<FetchPage> {
+    return observe(this.provider, "fetch_page", () => this.delegate.fetchPage(folder, cursor, pageSize, signal));
+  }
+  moveToTrash(messageIds: string[], signal: AbortSignal): Promise<void> {
+    return observe(this.provider, "move_to_trash", () => this.delegate.moveToTrash(messageIds, signal));
+  }
+  reportSpam(messageIds: string[], signal: AbortSignal): Promise<SpamReportResult> {
+    return observe(this.provider, "report_spam", () => this.delegate.reportSpam(messageIds, signal));
+  }
+  disconnect(): Promise<void> { return observe(this.provider, "disconnect", () => this.delegate.disconnect()); }
 }
 
 /**
@@ -127,7 +161,10 @@ export function createAdapter(
   config: AdapterConfig | SecureAdapterConfig,
   credentialVault: CredentialVault = createCredentialVault(),
 ): EmailAdapter {
-  if (config.mode === "fixture") return createRuntimeAdapter(config);
-  if (isSecureLiveConfig(config)) return new SecureConfigAdapter(config, credentialVault);
-  return createRuntimeAdapter(config);
+  const adapter = config.mode === "fixture"
+    ? createRuntimeAdapter(config)
+    : isSecureLiveConfig(config)
+      ? new SecureConfigAdapter(config, credentialVault)
+      : createRuntimeAdapter(config);
+  return new OperationalAdapter(adapter);
 }

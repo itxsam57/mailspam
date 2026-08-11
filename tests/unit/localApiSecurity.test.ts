@@ -143,6 +143,25 @@ describe("local desktop security boundary", () => {
     })).status).toBe(200);
   });
 
+  it("protects the aggregate-only operations snapshot and emits no mailbox/content fields", async () => {
+    const context = await start();
+    expect((await fetch(`${context.baseUrl}/api/operations/v1/snapshot`)).status).toBe(401);
+    const response = await fetch(`${context.baseUrl}/api/operations/v1/snapshot`, { headers: headers(context) });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const body = await response.json();
+    expect(body).toMatchObject({
+      schemaVersion: 1,
+      privacy: "aggregate_only_no_mailbox_identity_or_content",
+      local: { schemaVersion: 1 },
+      providerContracts: expect.arrayContaining([expect.objectContaining({ provider: "gmail" })]),
+    });
+    const serialized = JSON.stringify(body);
+    for (const forbidden of ["subject", "fromAddress", "messageId", "accountId", "providerNativeId", "exception", "token", "body"]) {
+      expect(serialized).not.toContain(`\"${forbidden}\"`);
+    }
+  });
+
   it("rejects DNS rebinding, forwarded requests, and another local origin", async () => {
     const context = await start();
     expect(await rawStatus(context.baseUrl, { Host: "attacker.example" })).toBe(421);

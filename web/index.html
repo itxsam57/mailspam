@@ -180,6 +180,11 @@
   .safety-item { padding:14px; border:1px solid var(--border); border-radius:8px; background:var(--panel-raised); }
   .safety-item h3 { margin:0 0 6px; font-size:14px; color:var(--text); }
   .safety-item p,.safety-intro { margin:0; color:var(--text-muted); line-height:1.55; font-size:13px; }
+  .operations-table-wrap { overflow-x:auto; }
+  .operations-table { width:100%; border-collapse:collapse; font-size:12px; }
+  .operations-table caption { text-align:left; color:var(--text-muted); line-height:1.5; margin-bottom:10px; }
+  .operations-table th,.operations-table td { padding:8px; text-align:right; border-bottom:1px solid var(--border); white-space:nowrap; }
+  .operations-table th:first-child,.operations-table td:first-child,.operations-table th:nth-child(2),.operations-table td:nth-child(2) { text-align:left; }
   .safety-intro { margin-bottom:14px; }
   @media (max-width: 680px) {
     header { padding:14px 18px; align-items:flex-start; gap:12px; }
@@ -277,6 +282,31 @@
       <article class="safety-item"><h3 data-i18n="education.controls.heading">Actions are separate</h3><p data-i18n="education.controls.body">Report Scam shares privacy-reduced indicators; it does not move mail. Block and Trash are account-scoped choices. Analyze Links is explicit and never uses mailbox cookies or provider credentials.</p></article>
       <article class="safety-item"><h3 data-i18n="education.help.heading">When you still are not sure</h3><p data-i18n="education.help.body">Contact the organization using a trusted number or app, ask a trusted person, or leave the message untouched. Urgency is a reason to slow down.</p></article>
     </div>
+  </section>
+
+  <section class="panel" id="operationsPanel" aria-labelledby="operationsHeading">
+    <div class="row" style="justify-content:space-between;">
+      <h2 id="operationsHeading" data-i18n="operations.heading">Privacy-safe operations</h2>
+      <button id="operationsRefresh" type="button" data-i18n="operations.refresh">Refresh operations</button>
+    </div>
+    <p id="operationsSummary" class="safety-intro"></p>
+    <div class="operations-table-wrap">
+      <table class="operations-table">
+        <caption data-i18n="operations.caption">Aggregate provider health. No mailbox address, message identity, subject, body, destination, or exception text is collected.</caption>
+        <thead><tr>
+          <th scope="col" data-i18n="operations.provider">Provider</th>
+          <th scope="col" data-i18n="operations.transport">Transport</th>
+          <th scope="col" data-i18n="operations.started">Scans started</th>
+          <th scope="col" data-i18n="operations.completed">Completed</th>
+          <th scope="col" data-i18n="operations.ended">Failed / stopped</th>
+          <th scope="col" data-i18n="operations.examined">Messages examined</th>
+          <th scope="col" data-i18n="operations.failures">Adapter failures</th>
+          <th scope="col" data-i18n="operations.active">Active operations</th>
+        </tr></thead>
+        <tbody id="operationsRows"></tbody>
+      </table>
+    </div>
+    <p id="operationsStatus" class="hint" role="status" aria-live="polite" aria-atomic="true" data-i18n="operations.loading">Loading aggregate operations…</p>
   </section>
 
   <section class="panel dev-panel" id="devPanel" style="display:none;">

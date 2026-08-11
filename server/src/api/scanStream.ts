@@ -17,6 +17,7 @@ import {
 import type { ScanActionContext, ScanProgress, ScanResumeInput } from "../workflows/scanWorkflows.js";
 import type { CommunityNetwork } from "../community/network.js";
 import type { SignedFeedEntry } from "../engine/layers/globalIntelligence.js";
+import { localOperationalMetrics } from "./localOperationalMetrics.js";
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const LIVE_IMAP_FIRST_PROGRESS_TIMEOUT_MS = 180_000;
@@ -161,6 +162,19 @@ function createInitialCheckpoint(): ScanResumeCheckpoint {
   };
 }
 
+function counterDelta(current: ScanProgress["counters"], initial: ScanProgress["counters"]): ScanProgress["counters"] {
+  return {
+    examined: Math.max(0, current.examined - initial.examined),
+    safe: Math.max(0, current.safe - initial.safe),
+    review: Math.max(0, current.review - initial.review),
+    highRisk: Math.max(0, current.highRisk - initial.highRisk),
+    confirmedThreat: Math.max(0, current.confirmedThreat - initial.confirmedThreat),
+    unknown: Math.max(0, current.unknown - initial.unknown),
+    skipped: Math.max(0, current.skipped - initial.skipped),
+    malformed: Math.max(0, current.malformed - initial.malformed),
+  };
+}
+
 function createNewRecord(type: ScanType): ScanHistoryRecord {
   const now = Date.now();
   return {
@@ -267,6 +281,8 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
     const maxMessages = type === "quick"
       ? (liveImap ? LIVE_IMAP_QUICK_LIMIT : DEFAULT_PAGE_SIZE)
       : undefined;
+    const initialOperationalCounters = { ...record.counters };
+    localOperationalMetrics.recordScanStarted(session.config.provider);
 
     let worker: Worker;
     try {
@@ -294,6 +310,11 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
           : `Could not start scan worker: ${error instanceof Error ? error.message : String(error)} Protected scan history could not be finalized; restart Email Shield before attempting to resume this scan.`,
         historySaved: historyFinalized,
       });
+      localOperationalMetrics.recordScanFinished(
+        session.config.provider,
+        "failed",
+        counterDelta(record.counters, initialOperationalCounters),
+      );
       res.end();
       return;
     }
@@ -352,6 +373,11 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
         historySaved,
         scanId: record.scanId,
       });
+      localOperationalMetrics.recordScanFinished(
+        session.config.provider,
+        record.status === "stopped" ? "stopped" : "failed",
+        counterDelta(record.counters, initialOperationalCounters),
+      );
       try { worker.postMessage({ type: "cancel" }); } catch {}
       const hardStop = setTimeout(() => { void worker.terminate(); }, 1000);
       hardStop.unref();
@@ -463,6 +489,11 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
         } else {
           writeEvent("scan-complete", { scanId: record.scanId, historySaved: true });
         }
+        localOperationalMetrics.recordScanFinished(
+          session.config.provider,
+          "completed",
+          counterDelta(record.counters, initialOperationalCounters),
+        );
         cleanup();
       } else if (message.type === "error") {
         const active = activeScans.get(session.id);

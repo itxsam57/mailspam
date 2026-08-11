@@ -8,6 +8,7 @@
   const protectedPath = (path) =>
     path.startsWith('/api/accounts') ||
     path.startsWith('/api/dev') ||
+    path.startsWith('/api/operations') ||
     path.startsWith('/api/security');
   const unsafeMethod = (method) => !['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase());
 

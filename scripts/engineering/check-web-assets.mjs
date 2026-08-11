@@ -63,6 +63,7 @@ const injectedScripts = [
   "outlook-oauth.js",
   "account-disconnect.js",
   "policy-management.js",
+  "operations-dashboard.js",
 ];
 for (const script of injectedScripts) {
   requireCondition(desktopServer.includes(`/${script}`), `Local desktop dashboard injection no longer includes /${script}.`);
@@ -95,6 +96,7 @@ for (const [browserPath, browserNeedle, serverNeedle] of endpointContracts) {
 }
 
 const desktopEndpointContracts = [
+  ["web/operations-dashboard.js", "/api/operations/v1/snapshot", '"/api/operations/v1/snapshot"'],
   ["web/gmail-oauth.js", "/api/accounts/oauth/google/config", 'app.get("/api/accounts/oauth/google/config"'],
   ["web/gmail-oauth.js", "/api/accounts/oauth/google/start", 'app.post("/api/accounts/oauth/google/start"'],
   ["web/gmail-oauth.js", "/api/accounts/oauth/google/status/", 'app.get("/api/accounts/oauth/google/status/:flowId"'],
