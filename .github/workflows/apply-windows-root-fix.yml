@@ -24,23 +24,19 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
-
           store = Path('server/src/community/aggregateStore.ts')
           text = store.read_text(encoding='utf-8')
-          old = '''      const descriptor = openSync(this.journalPath, fsConstants.O_WRONLY | fsConstants.O_TRUNC | noFollow);
-      try {
-        if (!fstatSync(descriptor).isFile()) throw new Error("Community report journal is not a regular file.");
-      } finally {'''
-          new = '''      const descriptor = openSync(this.journalPath, fsConstants.O_WRONLY | noFollow);
-      try {
-        if (!fstatSync(descriptor).isFile()) throw new Error("Community report journal is not a regular file.");
-        ftruncateSync(descriptor, 0);
-      } finally {'''
-          if text.count(old) != 1:
-              raise SystemExit(f'Expected exactly one compact truncate-open block, found {text.count(old)}.')
-          store.write_text(text.replace(old, new, 1), encoding='utf-8', newline='\n')
+          old_open = '      const descriptor = openSync(this.journalPath, fsConstants.O_WRONLY | fsConstants.O_TRUNC | noFollow);'
+          new_open = '      const descriptor = openSync(this.journalPath, fsConstants.O_WRONLY | noFollow);'
+          stat_line = '        if (!fstatSync(descriptor).isFile()) throw new Error("Community report journal is not a regular file.");'
+          if text.count(old_open) != 1:
+              raise SystemExit(f'Expected one compact O_TRUNC open, found {text.count(old_open)}.')
+          if text.count(stat_line) != 1:
+              raise SystemExit(f'Expected one compact regular-file check, found {text.count(stat_line)}.')
+          text = text.replace(old_open, new_open, 1)
+          text = text.replace(stat_line, stat_line + '\n        ftruncateSync(descriptor, 0);', 1)
+          store.write_text(text, encoding='utf-8', newline='\n')
           PY
-
           git diff --check
           git diff -- server/src/community/aggregateStore.ts
 
