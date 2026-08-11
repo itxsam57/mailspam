@@ -5,6 +5,9 @@ import { initializeDefaultBackgroundProtectionRepository } from "./api/defaultBa
 import { createBackgroundProtectionCoordinator } from "./api/backgroundProtection.js";
 import { createLocalDesktopServer } from "./api/localDesktopServer.js";
 import { communityNetwork } from "./community/network.js";
+import { ensureManagedDataDirectory } from "./security/managedDataDirectory.js";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 const PORT = Number(process.env.PORT ?? 4173);
 const HOST = process.env.HOST ?? "127.0.0.1";
@@ -12,6 +15,8 @@ const HOST = process.env.HOST ?? "127.0.0.1";
 if (!["127.0.0.1", "localhost", "::1"].includes(HOST)) {
   throw new Error("The Email Shield desktop server may bind only to a loopback host.");
 }
+
+ensureManagedDataDirectory(process.env.EMAIL_SHIELD_DATA_DIR?.trim() || join(homedir(), ".email-shield"));
 
 // Resolve or migrate protected local encryption keys before the desktop API
 // becomes reachable. Native-vault failures therefore stop startup instead of

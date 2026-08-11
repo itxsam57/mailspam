@@ -106,8 +106,12 @@ The first Milestone 3 production brick is implemented and regression locked:
 - all desktop Quick/Full/Spam decisions routed through that contract with byte-for-byte parity to the locked pipeline;
 - a transitive build gate forbidding Node/host, I/O, adapter, API, OAuth, vault, Worker and shell dependencies from the core graph, supported by ECMAScript-only SHA-256 and platform-neutral IP/domain parsing;
 - seven deterministic complete JSON request/response vectors covering Gmail, iCloud, Outlook, Yahoo, generic IMAP, unavailable intelligence and personal-block precedence.
+- exact Ed25519 signed-update envelopes and pinned overlap trust stores binding version, target, commit, release ID and the complete portable-manifest digest;
+- the packaged release lifecycle verifies every byte before and after staging, permits only same-target newer updates, atomically activates, re-verifies one-step rollback and fails closed on torn activation;
+- guarded uninstall preserves user state by default and accepts explicit purge only for a separate marked, narrowly validated Email Shield data directory; the compiled gate executes the installer CLI using the actual bundled runtime.
 
 Native Windows/macOS background-task acceptance and Android/iOS shells remain later Milestone 3 work; the current desktop scheduler is not represented as a mobile continuous daemon.
+Production release-key custody, native Windows/macOS installer wrapping, Authenticode/Developer ID signing, Apple notarization and mobile-store acceptance remain external and are not represented by ephemeral gate signatures.
 
 ## Run
 

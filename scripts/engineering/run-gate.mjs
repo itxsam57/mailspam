@@ -38,6 +38,7 @@ const steps = [
   npmStep("community-smoke", "Compiled dedicated community service smoke", "smoke:community"),
   npmStep("background-smoke", "Compiled scheduled background protection smoke", "smoke:background"),
   npmStep("portable-package", "Reproducible portable package and bundled-runtime smoke", "package:verify"),
+  npmStep("release-lifecycle", "Signed release install, activation and uninstall smoke", "smoke:release"),
 ];
 
 if (process.env.ENGINEERING_AUDIT !== "0") {

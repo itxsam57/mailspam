@@ -42,14 +42,20 @@ const requiredFiles = [
   ".engineering/TEST_MATRIX.md",
   ".engineering/REGRESSION_REGISTER.md",
   ".engineering/COMMUNITY_DEPLOYMENT.md",
+  ".engineering/RELEASE_UPDATE_LIFECYCLE.md",
   "scripts/engineering/smoke-community.mjs",
   "scripts/engineering/smoke-background-protection.mjs",
+  "scripts/engineering/smoke-release-lifecycle.mjs",
   "scripts/engineering/check-portable-core.mjs",
   "scripts/engineering/core-conformance-vectors.mjs",
   "fixtures/core-conformance/v1/vectors.json",
   "scripts/release/build-portable.mjs",
   "scripts/release/portable-package-lib.mjs",
   "scripts/release/verify-portable.mjs",
+  "scripts/release/release-lifecycle-lib.mjs",
+  "scripts/release/release-cli.mjs",
+  "scripts/release/sign-update.mjs",
+  "scripts/release/create-release-trust.mjs",
 ];
 for (const path of requiredFiles) requireCondition(existsSync(resolve(root, path)), `Required repository file is missing: ${path}`);
 
@@ -68,7 +74,8 @@ requireCondition(serverPackage.type === "module", "Server workspace must remain 
 
 for (const script of [
   "preflight", "typecheck", "build", "test:unit", "test:integration",
-  "check:web", "check:core", "generate:core-vectors", "check:core-vectors", "smoke:server", "smoke:community", "smoke:background", "audit:inventory", "audit:prod",
+  "check:web", "check:core", "generate:core-vectors", "check:core-vectors", "smoke:server", "smoke:community", "smoke:background", "smoke:release", "audit:inventory", "audit:prod",
+  "release:trust", "release:sign", "release:manage",
   "package:portable", "verify:package", "package:verify",
   "gate", "verify", "dev", "dev:community", "start", "start:community",
 ]) {

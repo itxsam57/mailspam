@@ -25,12 +25,15 @@ if (manifest.productionPackages.includes("googleapis")) throw new Error("Portabl
 
 const actualFiles = listPackageFiles(packageRoot, new Set([RELEASE_MANIFEST_FILE]));
 if (JSON.stringify(actualFiles) !== JSON.stringify(manifest.files)) throw new Error("Portable package file inventory or digest verification failed.");
+for (const requiredTool of ["tools/release-cli.mjs", "tools/release-lifecycle-lib.mjs", "tools/portable-package-lib.mjs"]) {
+  if (!actualFiles.some((entry) => entry.path === requiredTool)) throw new Error(`Portable package is missing release lifecycle tool: ${requiredTool}`);
+}
 const actualArtifactBytes = actualFiles.reduce((total, file) => total + file.bytes, 0);
 if (actualArtifactBytes !== manifest.artifactBytes || actualArtifactBytes > MAX_PORTABLE_PACKAGE_BYTES) {
   throw new Error("Portable package size verification failed.");
 }
 const forbidden = actualFiles.filter((entry) =>
-  /(^|\/)(?:\.env(?:\..*)?|personal-policies\.enc\.json|scan-state\.enc\.json|relationship-history\.enc\.json|background-protection\.enc\.json|community-feed-rollback\.enc\.json|community-.*\.(?:key|pem)|credentials?\.json|tokens?\.json)$/i.test(entry.path),
+  /(^|\/)(?:\.env(?:\..*)?|personal-policies\.enc\.json|scan-state\.enc\.json|relationship-history\.enc\.json|background-protection\.enc\.json|community-feed-rollback\.enc\.json|community-.*\.(?:key|pem)|release-(?:private|signing).*\.(?:key|pem)|credentials?\.json|tokens?\.json)$/i.test(entry.path),
 );
 if (forbidden.length) throw new Error(`Portable package contains forbidden state/secret paths: ${forbidden.map((entry) => entry.path).join(", ")}`);
 if (actualFiles.some((entry) => /node_modules\/(?:vitest|typescript|tsx|@types)(?:\/|$)/.test(entry.path))) {

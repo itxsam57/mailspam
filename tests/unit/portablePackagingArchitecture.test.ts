@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const root = join(process.cwd(), "..");
+const root = join(import.meta.dirname, "../..");
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 describe("portable release packaging architecture", () => {
@@ -15,6 +15,9 @@ describe("portable release packaging architecture", () => {
       "package:portable": expect.any(String),
       "verify:package": expect.any(String),
       "package:verify": expect.any(String),
+      "release:trust": expect.any(String),
+      "release:sign": expect.any(String),
+      "release:manage": expect.any(String),
     });
     expect(builder).toContain("productionPackagePaths(lockfile)");
     expect(builder).toContain("copyRegularFile(process.execPath");
@@ -45,8 +48,15 @@ describe("portable release packaging architecture", () => {
     expect(verifier).toContain("Portable package did not become ready");
     expect(verifier).toContain("development-only dependencies");
     expect(verifier).toContain("background-protection\\.enc\\.json");
+    expect(read("scripts/release/release-lifecycle-lib.mjs")).toContain("verifySignedUpdate");
+    expect(read("scripts/release/release-lifecycle-lib.mjs")).toContain("stageVerifiedRelease");
+    expect(read("scripts/release/release-lifecycle-lib.mjs")).toContain("rollbackRelease");
+    expect(read("scripts/release/release-lifecycle-lib.mjs")).toContain("uninstallRelease");
+    expect(read("scripts/release/build-portable.mjs")).toContain('join(packageRoot, "tools/release-cli.mjs")');
     expect(gate).toContain('"portable-package"');
     expect(gate).toContain('"package:verify"');
+    expect(gate).toContain('"release-lifecycle"');
+    expect(gate).toContain('"smoke:release"');
   });
 
   it("publishes one verified host-targeted artifact on every CI platform", () => {
