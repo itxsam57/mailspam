@@ -1,0 +1,53 @@
+name: Apply Windows root fix
+
+on:
+  push:
+    branches:
+      - diagnostic/windows-recovered-gate
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout clean fix branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/windows-recovered-gate
+          fetch-depth: 0
+
+      - name: Apply root-cause fixes only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          store = Path('server/src/community/aggregateStore.ts')
+          text = store.read_text(encoding='utf-8')
+          old = 'const noFollow = typeof fsConstants.O_NOFOLLOW === "number" ? fsConstants.O_NOFOLLOW : 0;'
+          new = 'const noFollow = process.platform === "win32" ? 0 : (fsConstants.O_NOFOLLOW ?? 0);'
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected exactly one divergent compact O_NOFOLLOW expression, found {text.count(old)}.')
+          store.write_text(text.replace(old, new, 1), encoding='utf-8', newline='\n')
+
+          attrs = Path('.gitattributes')
+          if attrs.exists():
+              raise SystemExit('.gitattributes unexpectedly already exists on the clean recovered branch.')
+          attrs.write_text('* text=auto eol=lf\n', encoding='utf-8', newline='\n')
+          PY
+
+          git diff --check
+          git diff -- .gitattributes server/src/community/aggregateStore.ts
+
+      - name: Commit clean fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "itxsam57"
+          git config user.email "143406136+itxsam57@users.noreply.github.com"
+          git add .gitattributes server/src/community/aggregateStore.ts
+          git commit -m "Fix Windows integrity and community storage gates"
+          git push origin HEAD:refs/heads/fix/windows-recovered-gate
