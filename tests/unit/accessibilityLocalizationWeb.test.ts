@@ -38,6 +38,7 @@ describe("accessible localized safety interface", () => {
 
   it("uses a strict extensible catalog and locale-aware date/number formatters", () => {
     const source = read("web/i18n.js");
+    const operations = read("web/operations-dashboard.js");
     const elements: Array<{ textContent?: string; setAttribute: (name: string, value: string) => void; getAttribute: (name: string) => string }> = [];
     const documentElement = { lang: "", dataset: {} as Record<string, string> };
     const document = {
@@ -60,6 +61,19 @@ describe("accessible localized safety interface", () => {
     expect(api.locale()).toBe("en");
     expect(api.t("scan.quick")).toBe("Quick Scan");
     expect(api.t("missing.message")).toBe("[missing.message]");
+    expect(api.t("operations.summary", {
+      feed: "verified",
+      feedEntries: 2,
+      pending: 1,
+      falsePositive: 3,
+      abuseAccepted: 4,
+      abuseFailed: 5,
+      background: 6,
+    })).toBe("Feed: verified (2 entries); queued privacy-reduced reports: 1; message-level Safe approvals: 3; scam reports accepted/failed: 4/5; scheduled accounts: 6.");
+    expect(api.t("operations.updated", { date: "Aug 12" })).toBe("Aggregate operations refreshed Aug 12.");
+    expect(operations).toContain("const t = (key, values) => i18n?.t(key, values) || key;");
+    expect(operations).toContain("summary.textContent = t('operations.summary', {");
+    expect(operations).toContain("status.textContent = t('operations.updated', { date:");
     api.register("fr", { "scan.quick": "Analyse rapide", "test.hello": "Bonjour {name}" });
     expect(api.setLocale("fr-FR")).toBe("fr");
     expect(documentElement.lang).toBe("fr");
