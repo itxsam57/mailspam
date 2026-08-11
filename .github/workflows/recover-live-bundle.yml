@@ -1,0 +1,71 @@
+name: Recover verified live-test bundle
+
+on:
+  push:
+    branches:
+      - recovery/import-live-test-bundle-v2-2026-08-11
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout recovery transport
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Reconstruct and verify exact Git bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat \
+            .recovery/live-test-bundle-v2/part-00 \
+            .recovery/live-test-bundle-v2/part-01 \
+            .recovery/live-test-bundle-v2/part-02 \
+            .recovery/live-test-bundle-v2/part-03 \
+            .recovery/live-test-bundle-v2/part-04 \
+            .recovery/live-test-bundle-v2/gap-88268-90000 \
+            .recovery/live-test-bundle-v2/part-05 \
+            .recovery/live-test-bundle-v2/gap-107608-108000 \
+            .recovery/live-test-bundle-v2/part-06 \
+            .recovery/live-test-bundle-v2/part-07 \
+            > /tmp/recovery.b64
+
+          test "$(wc -c </tmp/recovery.b64)" = "156726"
+          tail -c +12727 .recovery/live-test-bundle-v2/part-08 >> /tmp/recovery.b64
+          test "$(wc -c </tmp/recovery.b64)" = "162000"
+          tail -c +10001 .recovery/live-test-bundle-v2/tail-bulk-04 >> /tmp/recovery.b64
+          test "$(wc -c </tmp/recovery.b64)" = "168000"
+
+          cat \
+            .recovery/live-test-bundle-v2/tail-168000-184000 \
+            .recovery/live-test-bundle-v2/tail-184000-200000 \
+            .recovery/live-test-bundle-v2/tail-200000-216000 \
+            .recovery/live-test-bundle-v2/tail-216000-232000 \
+            .recovery/live-test-bundle-v2/tail-232000-248000 \
+            .recovery/live-test-bundle-v2/tail-248000-264000 \
+            .recovery/live-test-bundle-v2/tail-264000-279228 \
+            >> /tmp/recovery.b64
+
+          test "$(wc -c </tmp/recovery.b64)" = "279228"
+          echo "1cb57e790e167aac293b7f392c319584c3cd14a7877a89a4689f194ae8229a08  /tmp/recovery.b64" | sha256sum -c -
+
+          base64 -d /tmp/recovery.b64 > /tmp/recovery.bundle
+          test "$(wc -c </tmp/recovery.bundle)" = "209421"
+          echo "9410f374098541e3b19defdd9ec8bebe5669ca5c154f479afb0f12cef348a7cb  /tmp/recovery.bundle" | sha256sum -c -
+          git bundle verify /tmp/recovery.bundle
+
+          git fetch /tmp/recovery.bundle HEAD:refs/heads/recovered-live-bundle
+          test "$(git rev-parse recovered-live-bundle)" = "6f520ff5ece2c62b767fc7a28e65dddebcbe5297"
+          test "$(git rev-parse recovered-live-bundle^{tree})" = "e7f09d6ce9fb5d01c2491e20afc379c2f1b6b63f"
+          test "$(git merge-base recovered-live-bundle 35e1896c40fbae00a7aa3d2272096944fc9092a5)" = "35e1896c40fbae00a7aa3d2272096944fc9092a5"
+          test "$(git rev-list --count 35e1896c40fbae00a7aa3d2272096944fc9092a5..recovered-live-bundle)" = "13"
+          git fsck --strict
+
+          git push origin 6f520ff5ece2c62b767fc7a28e65dddebcbe5297:refs/heads/recovery/live-test-bundle-verified-2026-08-11
