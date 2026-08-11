@@ -37,18 +37,40 @@ jobs:
             .recovery/live-test-bundle-v2/part-01 \
             .recovery/live-test-bundle-v2/part-02 \
             .recovery/live-test-bundle-v2/part-03 \
-            .recovery/live-test-bundle-v2/part-04 \
-            .recovery/live-test-bundle-v2/gap-88268-90000 \
-            .recovery/live-test-bundle-v2/part-05 \
-            .recovery/live-test-bundle-v2/gap-107608-108000 \
-            .recovery/live-test-bundle-v2/part-06 \
-            .recovery/live-test-bundle-v2/part-07 \
             > /tmp/recovery.b64
-          check_prefix 64770c259cd808ea4d32fe174c8fe7dbd30b4f3ea7831522b39b27f384158ef4 156726
+          check_prefix ecfbbdb66d3facea05956be225f44339e6c5bffae0ca1e000a512034785a543f 72000
 
-          tail -c +12727 .recovery/live-test-bundle-v2/part-08 >> /tmp/recovery.b64
-          check_prefix cb4eacbfade4e038e430cc6343ddee642841a5c56c42afbeb5ca936aea1b7bfd 162000
-          tail -c +10001 .recovery/live-test-bundle-v2/tail-bulk-04 >> /tmp/recovery.b64
+          cat .recovery/live-test-bundle-v2/tail-00 >> /tmp/recovery.b64
+          check_prefix cd6d55ea68b90e8d9b2d7c9da3c12b3e42164993dba1d8fec53319336dce6c24 80000
+          cat .recovery/live-test-bundle-v2/tail-01 >> /tmp/recovery.b64
+          check_prefix f9ad492f9438f99753cc66238b2b54e35c27697ec29062d00957c23ced59c3fa 88000
+          head -c 268 .recovery/live-test-bundle-v2/tail-bulk-02 >> /tmp/recovery.b64
+          check_prefix daf00dd04500a24ce1320ea265e65865ce83372eb48b6d128640207808e438ca 88268
+          cat .recovery/live-test-bundle-v2/gap-88268-90000 >> /tmp/recovery.b64
+          check_prefix e4f4684a9bbab66eefdbcd89663a6fd1736e627a92efae4151e8491c20abaf41 90000
+          tail -c +2001 .recovery/live-test-bundle-v2/tail-bulk-02 >> /tmp/recovery.b64
+          check_prefix d15ac72485ee54ba9511b1ae4c9412a5c4af571813683faf1b386fd4065d0a0c 104000
+          cat .recovery/live-test-bundle-v2/gap-104000-106000 >> /tmp/recovery.b64
+          check_prefix 35ddd4366011338dd0fbf4930661fb1682a50401c68eaea9757c4053bf52ef75 106000
+          cat .recovery/live-test-bundle-v2/gap-106000-107608 >> /tmp/recovery.b64
+          check_prefix fa56043babde030d2d4bc199234b86b2fef65c869ab7099d3e7f344f862e52cb 107608
+          cat .recovery/live-test-bundle-v2/gap-107608-108000 >> /tmp/recovery.b64
+          check_prefix 2a364f52d876cbd04aed79654eb3a6b192376859273a6043628d8adc4b1d59af 108000
+          cat .recovery/live-test-bundle-v2/part-06 >> /tmp/recovery.b64
+          check_prefix 3c579846d1f43574eeff3679af2fdf121e382e4d4a3c6413027eff7db204ce8d 126000
+          cat .recovery/live-test-bundle-v2/gap-126000-128000 >> /tmp/recovery.b64
+          check_prefix df4f96f90cae8d2b077259552d61233f6f45ac43d5ab5130e1aea91aa7a76ace 128000
+          cat .recovery/live-test-bundle-v2/gap-128000-130000 >> /tmp/recovery.b64
+          check_prefix 1401ac36751edf39b12cd7dcaac22b588e9840f338821408cb36a89d8b10c732 130000
+          cat .recovery/live-test-bundle-v2/gap-130000-132000 >> /tmp/recovery.b64
+          check_prefix 8a3cc94b90b117d83e64b8a19de7cdca8686a848f616a9825a9a774ba7609596 132000
+          cat .recovery/live-test-bundle-v2/gap-132000-134000 >> /tmp/recovery.b64
+          check_prefix 5bdbb292451738cef7b6084bc05d16057125bd24c0ed4ed80bd3f3e92ce9ea4c 134000
+          cat .recovery/live-test-bundle-v2/gap-134000-136000 >> /tmp/recovery.b64
+          check_prefix a79c0d075bb0c9818d4af9bfc04ab80513b4d26e9e6c4d84b017c162307bf4fb 136000
+          cat .recovery/live-test-bundle-v2/tail-bulk-03 >> /tmp/recovery.b64
+          check_prefix 8aceb2b6c4ffc658d23e56dcb3dc5186afc704fa2008bdcd2baddc2f15d00a90 152000
+          cat .recovery/live-test-bundle-v2/tail-bulk-04 >> /tmp/recovery.b64
           check_prefix 49f2eb7545f7c8c88b372b3a839f04cdfd3dada0cb1e0a0b729c18c8e5878573 168000
 
           cat .recovery/live-test-bundle-v2/tail-168000-184000 >> /tmp/recovery.b64
@@ -94,12 +116,10 @@ jobs:
           test "$(wc -c </tmp/recovery.bundle)" = "209421"
           echo "9410f374098541e3b19defdd9ec8bebe5669ca5c154f479afb0f12cef348a7cb  /tmp/recovery.bundle" | sha256sum -c -
           git bundle verify /tmp/recovery.bundle
-
           git fetch /tmp/recovery.bundle HEAD:refs/heads/recovered-live-bundle
           test "$(git rev-parse recovered-live-bundle)" = "6f520ff5ece2c62b767fc7a28e65dddebcbe5297"
           test "$(git rev-parse recovered-live-bundle^{tree})" = "e7f09d6ce9fb5d01c2491e20afc379c2f1b6b63f"
           test "$(git merge-base recovered-live-bundle 35e1896c40fbae00a7aa3d2272096944fc9092a5)" = "35e1896c40fbae00a7aa3d2272096944fc9092a5"
           test "$(git rev-list --count 35e1896c40fbae00a7aa3d2272096944fc9092a5..recovered-live-bundle)" = "13"
           git fsck --strict
-
           git push origin 6f520ff5ece2c62b767fc7a28e65dddebcbe5297:refs/heads/recovery/live-test-bundle-verified-2026-08-11
