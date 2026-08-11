@@ -23,6 +23,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          check_prefix() {
+            expected="$1"
+            bytes="$2"
+            actual="$(sha256sum /tmp/recovery.b64 | awk '{print $1}')"
+            echo "prefix ${bytes}: ${actual}"
+            test "$(wc -c </tmp/recovery.b64)" = "$bytes"
+            test "$actual" = "$expected"
+          }
 
           cat \
             .recovery/live-test-bundle-v2/part-00 \
@@ -36,37 +44,51 @@ jobs:
             .recovery/live-test-bundle-v2/part-06 \
             .recovery/live-test-bundle-v2/part-07 \
             > /tmp/recovery.b64
+          check_prefix 64770c259cd808ea4d32fe174c8fe7dbd30b4f3ea7831522b39b27f384158ef4 156726
 
-          test "$(wc -c </tmp/recovery.b64)" = "156726"
           tail -c +12727 .recovery/live-test-bundle-v2/part-08 >> /tmp/recovery.b64
-          test "$(wc -c </tmp/recovery.b64)" = "162000"
+          check_prefix cb4eacbfade4e038e430cc6343ddee642841a5c56c42afbeb5ca936aea1b7bfd 162000
           tail -c +10001 .recovery/live-test-bundle-v2/tail-bulk-04 >> /tmp/recovery.b64
-          test "$(wc -c </tmp/recovery.b64)" = "168000"
+          check_prefix 49f2eb7545f7c8c88b372b3a839f04cdfd3dada0cb1e0a0b729c18c8e5878573 168000
 
-          cat \
-            .recovery/live-test-bundle-v2/tail-168000-184000 \
-            .recovery/live-test-bundle-v2/tail-178000-184000 \
-            .recovery/live-test-bundle-v2/tail-184000-200000 \
-            .recovery/live-test-bundle-v2/tail-196000-200000 \
-            .recovery/live-test-bundle-v2/tail-200000-208000 \
-            .recovery/live-test-bundle-v2/tail-208000-216000 \
-            .recovery/live-test-bundle-v2/tail-216000-224000 \
-            .recovery/live-test-bundle-v2/tail-224000-228000 \
-            .recovery/live-test-bundle-v2/tail-228000-232000 \
-            .recovery/live-test-bundle-v2/tail-232000-248000 \
-            .recovery/live-test-bundle-v2/tail-248000-256000 \
-            .recovery/live-test-bundle-v2/tail-256000-260000 \
-            .recovery/live-test-bundle-v2/tail-260000-264000 \
-            .recovery/live-test-bundle-v2/tail-264000-268000 \
-            .recovery/live-test-bundle-v2/tail-268000-272000 \
-            .recovery/live-test-bundle-v2/tail-272000-274000 \
-            .recovery/live-test-bundle-v2/tail-274000-276000 \
-            .recovery/live-test-bundle-v2/tail-276000-278000 \
-            .recovery/live-test-bundle-v2/tail-278000-279228 \
-            >> /tmp/recovery.b64
-
-          test "$(wc -c </tmp/recovery.b64)" = "279228"
-          echo "1cb57e790e167aac293b7f392c319584c3cd14a7877a89a4689f194ae8229a08  /tmp/recovery.b64" | sha256sum -c -
+          cat .recovery/live-test-bundle-v2/tail-168000-184000 >> /tmp/recovery.b64
+          check_prefix cb427015df2cbe1f35c993831e1c942b2dec435c8b937b15293ea96f8e7c85cf 178000
+          cat .recovery/live-test-bundle-v2/tail-178000-184000 >> /tmp/recovery.b64
+          check_prefix a90fe5a45687b5973622763111737381f305bb7371d87ccf201aed7ba4eb7977 184000
+          cat .recovery/live-test-bundle-v2/tail-184000-200000 >> /tmp/recovery.b64
+          check_prefix 8f5e9d132f4f98c01c8eb99e372dfb279178ff4312d87499701b0a4aae34a20d 196000
+          cat .recovery/live-test-bundle-v2/tail-196000-200000 >> /tmp/recovery.b64
+          check_prefix b63f79a575148ed537dade09b8edb115915281170631c2eee5db49465de4ae07 200000
+          cat .recovery/live-test-bundle-v2/tail-200000-208000 >> /tmp/recovery.b64
+          check_prefix c480af74033f8bbb2eaf13ef30a3d382d077acf26bcd3d32e0cc65e4402dc996 208000
+          cat .recovery/live-test-bundle-v2/tail-208000-216000 >> /tmp/recovery.b64
+          check_prefix 8cc55f8b0543c0a17807b41a2c813a44baecd33792528c24f7b49a46218a9b8c 216000
+          cat .recovery/live-test-bundle-v2/tail-216000-224000 >> /tmp/recovery.b64
+          check_prefix 93ab4785a206375cee9ff32d0b85dc6016c5a2f407da8f020f75f9eed666424d 224000
+          cat .recovery/live-test-bundle-v2/tail-224000-228000 >> /tmp/recovery.b64
+          check_prefix 43b78f73ccb7d36542e23465ddabd10a3de90e69a1cdb0a2d3a40edacfe5d6b8 228000
+          cat .recovery/live-test-bundle-v2/tail-228000-232000 >> /tmp/recovery.b64
+          check_prefix 3a24a877b0e92a8a78cdf4be9d316ba7077759c676290403d789f8581f064db2 232000
+          cat .recovery/live-test-bundle-v2/tail-232000-248000 >> /tmp/recovery.b64
+          check_prefix a4f89cb6cace2beecd57c1d06e490b6004e66b0a9e4b302f16df76f4f041a072 248000
+          cat .recovery/live-test-bundle-v2/tail-248000-256000 >> /tmp/recovery.b64
+          check_prefix a0f239003510cb73dbb9a83584925ed995ec7f51a973a24da667d95e0607aa7d 256000
+          cat .recovery/live-test-bundle-v2/tail-256000-260000 >> /tmp/recovery.b64
+          check_prefix e39301913e55acb53ce3b152070d027f9a02af098e6f1ffc0fd011b575b63f76 260000
+          cat .recovery/live-test-bundle-v2/tail-260000-264000 >> /tmp/recovery.b64
+          check_prefix 204d4c3db1cf4a742896ff8e5b1be8364ce9607e8298fd034d1f7e3cf58fa807 264000
+          cat .recovery/live-test-bundle-v2/tail-264000-268000 >> /tmp/recovery.b64
+          check_prefix 28c36955b3279807e0ffd238aac30617d06cc8db03e2f983d2e14ace46c0aeb4 268000
+          cat .recovery/live-test-bundle-v2/tail-268000-272000 >> /tmp/recovery.b64
+          check_prefix 9de654a133ef3b92f5dae7d3d21f8ac7963670188d1c6d8bd2c170fd8705bcda 272000
+          cat .recovery/live-test-bundle-v2/tail-272000-274000 >> /tmp/recovery.b64
+          check_prefix cbac2b52a46b0b2e7e103e5803d22fc00a52ac629b7012ed48ff0a5c498f4c35 274000
+          cat .recovery/live-test-bundle-v2/tail-274000-276000 >> /tmp/recovery.b64
+          check_prefix 16f4a3534043a358ea80ef994b59f9e587e184c1cdd776990a693457f3d36d24 276000
+          cat .recovery/live-test-bundle-v2/tail-276000-278000 >> /tmp/recovery.b64
+          check_prefix 76ba55ef54e7042aa9229392e0102dc309e9c8c3044cdf466968512ce80276c9 278000
+          cat .recovery/live-test-bundle-v2/tail-278000-279228 >> /tmp/recovery.b64
+          check_prefix 1cb57e790e167aac293b7f392c319584c3cd14a7877a89a4689f194ae8229a08 279228
 
           base64 -d /tmp/recovery.b64 > /tmp/recovery.bundle
           test "$(wc -c </tmp/recovery.bundle)" = "209421"
