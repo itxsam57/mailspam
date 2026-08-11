@@ -1,0 +1,82 @@
+name: Witness recovered bundle gate
+
+on:
+  push:
+    branches:
+      - recovery/import-live-test-bundle-v2-2026-08-11
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: read
+
+jobs:
+  witness:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CANDIDATE_SHA: 6f520ff5ece2c62b767fc7a28e65dddebcbe5297
+      CANDIDATE_TREE: e7f09d6ce9fb5d01c2491e20afc379c2f1b6b63f
+      PR_NUMBER: '59'
+    steps:
+      - name: Checkout transport branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prove PR tree and wait for the full engineering gate
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          pr_head="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.sha')"
+          test "$pr_head" = "$CANDIDATE_SHA"
+
+          git fetch origin "+refs/pull/${PR_NUMBER}/merge:refs/remotes/origin/recovery-pr-merge"
+          test "$(git rev-parse refs/remotes/origin/recovery-pr-merge^{tree})" = "$CANDIDATE_TREE"
+
+          run_id=""
+          for attempt in $(seq 1 90); do
+            run_id="$(gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/runs?event=pull_request&per_page=100" \
+              --jq ".workflow_runs[] | select(.path == \".github/workflows/verify.yml\") | select(.pull_requests[]?.number == ${PR_NUMBER}) | .id" \
+              | head -n 1)"
+
+            if [ -n "$run_id" ]; then
+              status="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '.status')"
+              conclusion="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '.conclusion // ""')"
+              if [ "$status" = "completed" ]; then
+                test "$conclusion" = "success"
+                break
+              fi
+            fi
+            sleep 10
+          done
+
+          test -n "$run_id"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '.status')" = "completed"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '.conclusion')" = "success"
+
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100" > /tmp/jobs.json
+          python - <<'PY'
+          import json
+          jobs = json.load(open('/tmp/jobs.json', encoding='utf-8'))['jobs']
+          names = [(j['name'], j.get('conclusion')) for j in jobs]
+          failed = [name for name, conclusion in names if conclusion != 'success']
+          if failed:
+              raise SystemExit(f'non-green jobs: {failed}')
+          lowered = '\n'.join(name.lower() for name, _ in names)
+          required = {
+              'windows': 'windows' in lowered,
+              'macos': 'macos' in lowered or 'mac' in lowered,
+              'linux': 'ubuntu' in lowered or 'linux' in lowered,
+              'summary': 'summary' in lowered or 'result' in lowered,
+          }
+          missing = [key for key, ok in required.items() if not ok]
+          if missing:
+              raise SystemExit(f'missing required gate jobs: {missing}; jobs={names}')
+          print('FULL_ENGINEERING_GATE_WITNESS=PASS')
+          PY
+
+          git push --force-with-lease origin \
+            "${CANDIDATE_SHA}:refs/heads/recovery/live-test-bundle-gate-passed-2026-08-11"
