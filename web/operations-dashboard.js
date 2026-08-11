@@ -7,7 +7,7 @@
   if (!panel || !refresh || !status || !summary || !rows) return;
 
   const i18n = window.emailShieldI18n;
-  const t = (key) => i18n?.t(key) || key;
+  const t = (key, values) => i18n?.t(key, values) || key;
   const number = (value) => i18n?.formatNumber(value) || String(Number(value) || 0);
 
   function cell(value, scope) {
