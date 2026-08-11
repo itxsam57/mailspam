@@ -12,10 +12,10 @@ jobs:
   diagnose:
     runs-on: windows-latest
     steps:
-      - name: Checkout exact diagnostic commit
+      - name: Checkout fixed recovered branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: fix/windows-recovered-gate
 
       - name: Set up Node.js 22
         uses: actions/setup-node@v4
@@ -29,15 +29,13 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Run failing checks with full output
+      - name: Run remaining failing checks with full output
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Continue'
-          $log = Join-Path $PWD 'windows-diagnostic.txt'
+          $log = Join-Path $PWD 'windows-fixed-community-diagnostic.txt'
           Remove-Item $log -ErrorAction SilentlyContinue
           $commands = @(
-            @{ Name = 'core-vectors'; Args = @('run','check:core-vectors') },
-            @{ Name = 'regression-vault'; Args = @('run','check:regression-vault') },
             @{ Name = 'unit'; Args = @('run','test:unit') },
             @{ Name = 'community-smoke'; Args = @('run','smoke:community') }
           )
@@ -51,6 +49,6 @@ jobs:
       - name: Upload diagnostic log
         uses: actions/upload-artifact@v4
         with:
-          name: windows-recovered-diagnostic
-          path: windows-diagnostic.txt
+          name: windows-fixed-community-diagnostic
+          path: windows-fixed-community-diagnostic.txt
           if-no-files-found: error
