@@ -116,7 +116,7 @@ describe("generic crypto yield promotion intent", () => {
 
 describe("safe-message audit and review UI", () => {
   it("keeps Safe compact while exposing shared Report Scam and separate provider actions through opaque tokens", () => {
-    const root = join(process.cwd(), "..");
+const root = join(import.meta.dirname, "../..");
     const scanMonitor = readFileSync(join(root, "web/scan-monitor.js"), "utf8");
     const unsubscribeMonitor = readFileSync(join(root, "web/unsubscribe-monitor.js"), "utf8");
     const reviewActions = readFileSync(join(root, "web/review-actions.js"), "utf8");

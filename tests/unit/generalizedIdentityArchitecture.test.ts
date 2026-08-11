@@ -151,7 +151,7 @@ describe("updateable signed identity knowledge", () => {
 
 describe("architecture boundary", () => {
   it("keeps brand mappings out of MIME and local identity code", () => {
-    const root = join(process.cwd(), "..");
+const root = join(import.meta.dirname, "../..");
     const mime = readFileSync(join(root, "server/src/util/mimeNormalize.ts"), "utf8");
     const htmlInteractions = readFileSync(join(root, "server/src/util/htmlInteraction.ts"), "utf8");
     const identity = readFileSync(join(root, "server/src/engine/layers/identityImpersonation.ts"), "utf8");

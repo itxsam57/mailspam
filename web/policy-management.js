@@ -16,11 +16,12 @@
   const panel = document.createElement('section');
   panel.className = 'panel policy-management-panel';
   panel.id = 'policyManagementPanel';
+  panel.setAttribute('aria-labelledby', 'policyManagementHeading');
   panel.innerHTML = `
-    <h2>Personal Policy Management</h2>
+    <h2 id="policyManagementHeading">Personal Policy Management</h2>
     <div class="policy-toolbar">
-      <input id="policySearch" type="search" placeholder="Search personal rules" autocomplete="off" />
-      <select id="policyCategory">
+      <label class="field" for="policySearch"><span>Search personal rules</span><input id="policySearch" type="search" autocomplete="off" /></label>
+      <label class="field" for="policyCategory"><span>Policy type</span><select id="policyCategory">
         <option value="all">All policy types</option>
         <option value="blockedSenders">Blocked senders</option>
         <option value="blockedDomains">Blocked domains</option>
@@ -28,25 +29,25 @@
         <option value="approvedExceptions">Safe exceptions</option>
         <option value="unsubscribedActions">Unsubscribe history</option>
         <option value="reportedCampaigns">Reported scam campaigns</option>
-      </select>
-      <button id="policyRefresh">Refresh</button>
-      <button id="policySelectVisible">Select visible</button>
-      <button id="policyRevokeSelected" disabled>Revoke selected</button>
-      <button id="policyClearCategory" disabled>Clear category</button>
+      </select></label>
+      <button id="policyRefresh" type="button">Refresh</button>
+      <button id="policySelectVisible" type="button">Select visible</button>
+      <button id="policyRevokeSelected" type="button" disabled>Revoke selected</button>
+      <button id="policyClearCategory" type="button" disabled>Clear category</button>
     </div>
     <div class="policy-toolbar policy-backup-toolbar">
-      <button id="policyExport">Export policy backup</button>
-      <select id="policyImportMode" title="Import mode">
+      <button id="policyExport" type="button">Export policy backup</button>
+      <label class="field" for="policyImportMode"><span>Import mode</span><select id="policyImportMode">
         <option value="merge">Import: merge</option>
         <option value="replace">Import: replace</option>
-      </select>
-      <button id="policyImport">Choose backup to import</button>
+      </select></label>
+      <button id="policyImport" type="button">Choose backup to import</button>
       <input id="policyImportFile" type="file" accept="application/json,.json" hidden />
-      <button id="policyReset" class="danger">Reset all personal policy</button>
+      <button id="policyReset" class="danger" type="button">Reset all personal policy</button>
     </div>
-    <div id="policyStatus" class="policy-status">Select a connected account to manage its personal policy.</div>
-    <div id="policyCounts" class="policy-counts"></div>
-    <div id="policyList" class="policy-list"></div>
+    <div id="policyStatus" class="policy-status" role="status" aria-live="polite" aria-atomic="true">Select a connected account to manage its personal policy.</div>
+    <div id="policyCounts" class="policy-counts" role="status" aria-label="Personal policy counts"></div>
+    <div id="policyList" class="policy-list" aria-label="Personal policy entries"></div>
   `;
 
   const style = document.createElement('style');
@@ -63,7 +64,7 @@
     .policy-list { display:flex; flex-direction:column; gap:7px; }
     .policy-row { display:grid; grid-template-columns:auto minmax(120px, 170px) 1fr auto; gap:10px; align-items:center; padding:9px 10px; background:var(--panel-raised); border:1px solid var(--border); border-radius:7px; }
     .policy-row-label { font-size:11px; color:var(--text-faint); }
-    .policy-row-value { font-family:'IBM Plex Mono', monospace; font-size:11px; overflow-wrap:anywhere; }
+    .policy-row-value { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:11px; overflow-wrap:anywhere; }
     .policy-row button { font-size:11px; padding:5px 9px; }
     .policy-empty { color:var(--text-faint); text-align:center; padding:24px 8px; font-size:12px; }
     @media (max-width:720px) { .policy-row { grid-template-columns:auto 1fr auto; } .policy-row-label { grid-column:2; } .policy-row-value { grid-column:2; } .policy-row button { grid-column:3; grid-row:1 / span 2; } }

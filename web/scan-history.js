@@ -8,16 +8,16 @@
     .scan-history-panel{display:none}
     .scan-history-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
     .scan-history-head h2{margin:0}
-    .scan-history-state{font-size:11px;color:#5b6272}
+    .scan-history-state{font-size:11px;color:var(--text-faint)}
     .scan-history-list{display:flex;flex-direction:column;gap:8px}
     .scan-history-row{display:grid;grid-template-columns:minmax(110px,.7fr) minmax(130px,1fr) minmax(220px,1.8fr) auto;gap:12px;align-items:center;padding:10px 12px;border:1px solid #2a2f3a;border-radius:7px;background:#222732;font-size:11px}
     .scan-history-type{font-weight:600;text-transform:uppercase;letter-spacing:.05em}
-    .scan-history-status{font-family:'IBM Plex Mono',monospace;color:#8b93a3}
+    .scan-history-status{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--text-muted)}
     .scan-history-status.completed{color:#3fb88a}.scan-history-status.failed{color:#e23d4f}.scan-history-status.interrupted,.scan-history-status.stopped{color:#e8b23d}.scan-history-status.running{color:#6fb7ff}
-    .scan-history-counts{color:#8b93a3;line-height:1.5}
+    .scan-history-counts{color:var(--text-muted);line-height:1.5}
     .scan-history-actions{display:flex;gap:6px;justify-content:flex-end}
     .scan-history-actions button{padding:5px 9px;font-size:11px}
-    .scan-history-empty{padding:14px;color:#5b6272;border:1px dashed #2a2f3a;border-radius:7px;font-size:11px}
+    .scan-history-empty{padding:14px;color:var(--text-faint);border:1px dashed #2a2f3a;border-radius:7px;font-size:11px}
     @media(max-width:760px){.scan-history-row{grid-template-columns:1fr}.scan-history-actions{justify-content:flex-start}}
   `;
   document.head.appendChild(style);
@@ -25,16 +25,17 @@
   const panel = document.createElement('section');
   panel.className = 'panel scan-history-panel';
   panel.id = 'scanHistoryPanel';
+  panel.setAttribute('aria-labelledby', 'scanHistoryHeading');
   panel.innerHTML = `
     <div class="scan-history-head">
-      <h2>Scan history & resume</h2>
+      <h2 id="scanHistoryHeading">Scan history & resume</h2>
       <div class="row">
         <span id="scanHistoryPersistence" class="scan-history-state"></span>
         <button id="scanHistoryRefreshBtn" type="button">Refresh</button>
       </div>
     </div>
     <div class="hint">Only privacy-reduced scan status and counters are shown here. Provider cursors and resume hashes remain encrypted server-side.</div>
-    <div id="scanHistoryList" class="scan-history-list" style="margin-top:10px;"></div>`;
+    <div id="scanHistoryList" class="scan-history-list" style="margin-top:10px;" role="status" aria-live="polite" aria-atomic="false"></div>`;
   scanPanel.after(panel);
 
   const list = panel.querySelector('#scanHistoryList');
@@ -51,7 +52,7 @@
   function formatTime(value) {
     const time = Number(value);
     if (!Number.isFinite(time) || time <= 0) return '—';
-    return new Date(time).toLocaleString();
+    return window.emailShieldI18n?.formatDate(time) ?? new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(time));
   }
 
   function render(history, persistent) {

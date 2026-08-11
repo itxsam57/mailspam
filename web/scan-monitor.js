@@ -3,7 +3,7 @@
   style.textContent = `
     .scan-monitor-status {
       display:flex;align-items:center;gap:9px;min-height:36px;margin-top:12px;padding:9px 12px;
-      border:1px solid #2a2f3a;border-radius:6px;color:#8b93a3;font-size:12px;background:rgba(255,255,255,.015)
+      border:1px solid #2a2f3a;border-radius:6px;color:var(--text-muted);font-size:12px;background:rgba(255,255,255,.015)
     }
     .scan-monitor-status.running::before {
       content:'';width:12px;height:12px;border:2px solid #2a2f3a;border-top-color:#3fb88a;
@@ -12,19 +12,19 @@
     .scan-monitor-status.error {color:#ff9a9f;border-color:rgba(226,61,79,.55)}
     .scan-monitor-status.complete {color:#3fb88a;border-color:rgba(63,184,138,.45)}
     .scan-diagnostics {margin:10px 0 14px;border:1px solid #2a2f3a;border-radius:6px;background:rgba(255,255,255,.01)}
-    .scan-diagnostics summary {cursor:pointer;padding:9px 12px;color:#8b93a3;font-size:12px;user-select:none}
-    .scan-diagnostics-note {padding:0 12px 8px;color:#5b6272;font-size:11px}
+    .scan-diagnostics summary {cursor:pointer;padding:9px 12px;color:var(--text-muted);font-size:12px;user-select:none}
+    .scan-diagnostics-note {padding:0 12px 8px;color:var(--text-faint);font-size:11px}
     .scan-diagnostics-scroll {overflow:auto;max-height:340px;border-top:1px solid #2a2f3a}
     .scan-diagnostics table {width:100%;border-collapse:collapse;font-size:11px}
     .scan-diagnostics th,.scan-diagnostics td {padding:7px 9px;border-bottom:1px solid #2a2f3a;text-align:left;vertical-align:top}
-    .scan-diagnostics th {position:sticky;top:0;background:#1b1f27;color:#8b93a3;font-weight:600}
+    .scan-diagnostics th {position:sticky;top:0;background:#1b1f27;color:var(--text-muted);font-weight:600}
     .scan-diagnostics td {color:#c9ced8}
     .scan-diagnostics .diag-safe {color:#3fb88a}
     .scan-diagnostics .diag-review {color:#e8b23d}
     .scan-diagnostics .diag-high_risk {color:#e8632e}
     .scan-diagnostics .diag-confirmed_threat {color:#e23d4f}
-    .scan-diagnostics .diag-unknown {color:#8b93a3}
-    .trash-action-status,.policy-action-status {margin-top:9px;font-size:11px;color:#8b93a3}
+    .scan-diagnostics .diag-unknown {color:var(--text-muted)}
+    .trash-action-status,.policy-action-status {margin-top:9px;font-size:11px;color:var(--text-muted)}
     .trash-action-status.success,.policy-action-status.success {color:#3fb88a}
     .trash-action-status.error,.policy-action-status.error {color:#ff9a9f}
     .card.trash-moved {opacity:.72;border-style:dashed}
@@ -43,6 +43,7 @@
   status.className = 'scan-monitor-status';
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
+  status.setAttribute('aria-atomic', 'true');
   status.textContent = 'Ready to scan. Running scans continue locally across a page refresh; protected scan history is shown below.';
   counters.before(status);
 
@@ -53,7 +54,8 @@
     <summary>Diagnostic audit (0 messages)</summary>
     <div class="scan-diagnostics-note">Local test view only. Shows metadata, verdicts, evidence codes, and parse notes—never message bodies, raw HTML, credentials, unsubscribe destinations, or attachment content.</div>
     <div class="scan-diagnostics-scroll"><table>
-      <thead><tr><th>Verdict</th><th>Score</th><th>Subject</th><th>Sender</th><th>Parse</th><th>Evidence / notes</th></tr></thead>
+      <caption class="visually-hidden">Privacy-reduced diagnostic results for scanned messages</caption>
+      <thead><tr><th scope="col">Verdict</th><th scope="col">Score</th><th scope="col">Subject</th><th scope="col">Sender</th><th scope="col">Parse</th><th scope="col">Evidence / notes</th></tr></thead>
       <tbody></tbody>
     </table></div>`;
   cards.before(diagnostics);
@@ -90,6 +92,7 @@
 
   function finish() {
     stopButton.disabled = true;
+    scanPanel.setAttribute('aria-busy', 'false');
     source?.close();
     source = null;
   }
@@ -162,6 +165,7 @@
     }
 
     source?.close();
+    scanPanel.setAttribute('aria-busy', 'true');
     receivedServerEvent = false;
     sessionExpired = false;
     stopButton.disabled = true;

@@ -109,6 +109,8 @@ The first Milestone 3 production brick is implemented and regression locked:
 - exact Ed25519 signed-update envelopes and pinned overlap trust stores binding version, target, commit, release ID and the complete portable-manifest digest;
 - the packaged release lifecycle verifies every byte before and after staging, permits only same-target newer updates, atomically activates, re-verifies one-step rollback and fails closed on torn activation;
 - guarded uninstall preserves user state by default and accepts explicit purge only for a separate marked, narrowly validated Email Shield data directory; the compiled gate executes the installer CLI using the actual bundled runtime.
+- accessible labelled onboarding/dynamic credentials, keyboard-visible focus, selected-account semantics, live statuses, readable layer/table alternatives, reduced-motion/forced-color/narrow layouts and local system fonts;
+- a strict extensible memory-only locale catalog with English fallback and shared locale-safe date/number formatting, plus a visible safety guide that distinguishes Safe from incomplete and keeps Report, Block, Trash and Analyze Links explicit and separate.
 
 Native Windows/macOS background-task acceptance and Android/iOS shells remain later Milestone 3 work; the current desktop scheduler is not represented as a mobile continuous daemon.
 Production release-key custody, native Windows/macOS installer wrapping, Authenticode/Developer ID signing, Apple notarization and mobile-store acceptance remain external and are not represented by ephemeral gate signatures.

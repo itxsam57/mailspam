@@ -8,7 +8,7 @@
     const style = document.createElement('style');
     style.textContent = `
       .safe-message-audit summary {color:#3fb88a;font-weight:600}
-      .safe-message-audit .safe-empty {padding:10px 12px;color:#5b6272;font-size:11px;border-top:1px solid #2a2f3a}
+      .safe-message-audit .safe-empty {padding:10px 12px;color:var(--text-faint);font-size:11px;border-top:1px solid #2a2f3a}
       .safe-message-audit .safe-actions-cell {min-width:300px}
     `;
     document.head.appendChild(style);
@@ -21,7 +21,8 @@
       <div class="scan-diagnostics-note">Safe messages remain outside the warning-card feed. You can correct a false Safe result by reporting the campaign to Email Shield's privacy-reduced community shield, move only this message to provider Spam/Junk, trust a sender, or unsubscribe when supported.</div>
       <div class="safe-empty">No messages have been classified Safe in this scan yet.</div>
       <div class="scan-diagnostics-scroll" hidden><table>
-        <thead><tr><th>Subject</th><th>Sender</th><th>Parse</th><th>Evidence / notes</th><th>Actions</th></tr></thead>
+        <caption class="visually-hidden">Safe-message review and correction actions</caption>
+        <thead><tr><th scope="col">Subject</th><th scope="col">Sender</th><th scope="col">Parse</th><th scope="col">Evidence / notes</th><th scope="col">Actions</th></tr></thead>
         <tbody></tbody>
       </table></div>`;
     diagnostics.before(safeAudit);

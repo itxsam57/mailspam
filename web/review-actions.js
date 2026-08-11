@@ -4,7 +4,7 @@
 
   const style = document.createElement('style');
   style.textContent = `
-    .review-action-status {display:block;margin-top:7px;font-size:11px;color:#8b93a3}
+    .review-action-status {display:block;margin-top:7px;font-size:11px;color:var(--text-muted)}
     .review-action-status.success {color:#3fb88a}
     .review-action-status.error {color:#ff9a9f}
     .card.review-approved,.card.spam-moved,.card.community-reported {opacity:.82;border-style:dashed}

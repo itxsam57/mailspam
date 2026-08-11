@@ -15,7 +15,7 @@
 
   function formatTime(value) {
     if (!Number.isFinite(value)) return 'not scheduled';
-    return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
+    return window.emailShieldI18n?.formatDate(value) ?? new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
   }
 
   function render(body) {

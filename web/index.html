@@ -4,8 +4,6 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Email Shield</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg: #12151a;
@@ -13,8 +11,8 @@
     --panel-raised: #222732;
     --border: #2a2f3a;
     --text: #e7e9ee;
-    --text-muted: #8b93a3;
-    --text-faint: #5b6272;
+    --text-muted: #aeb5c2;
+    --text-faint: #929bad;
     --safe: #3fb88a;
     --review: #e8b23d;
     --high-risk: #e8632e;
@@ -26,10 +24,19 @@
     margin: 0;
     background: var(--bg);
     color: var(--text);
-    font-family: 'IBM Plex Sans', sans-serif;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     -webkit-font-smoothing: antialiased;
   }
-  code, .mono { font-family: 'IBM Plex Mono', monospace; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace; }
+  .skip-link {
+    position: fixed; top: 8px; left: 8px; z-index: 100; transform: translateY(-160%);
+    background: var(--text); color: var(--bg); padding: 10px 14px; border-radius: 6px; font-weight: 700;
+  }
+  .skip-link:focus { transform: translateY(0); }
+  .visually-hidden {
+    position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
 
   header {
     display: flex;
@@ -51,7 +58,7 @@
     font-size: 14px; font-weight: 700; color: #0b1210;
   }
   .brand h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: 0.02em; }
-  .brand .sub { font-size: 11px; color: var(--text-faint); font-family: 'IBM Plex Mono', monospace; }
+  .brand .sub { font-size: 11px; color: var(--text-faint); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 
   main { max-width: 980px; margin: 0 auto; padding: 28px; }
 
@@ -81,6 +88,12 @@
     font-size: 13px;
     font-family: inherit;
     cursor: pointer;
+    min-height: 38px;
+  }
+  input { cursor: text; }
+  :where(a, button, input, select, summary, [tabindex]):focus-visible {
+    outline: 3px solid #8ecbff;
+    outline-offset: 3px;
   }
   button.primary { background: var(--safe); color: #0b1210; border: none; font-weight: 600; }
   button.danger { background: var(--confirmed); color: #fff; border: none; font-weight: 600; }
@@ -96,7 +109,7 @@
 
   .counters { display: flex; gap: 14px; flex-wrap: wrap; margin: 14px 0; }
   .counter { text-align: center; min-width: 68px; }
-  .counter .n { font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 600; }
+  .counter .n { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 22px; font-weight: 600; }
   .counter .l { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint); }
   .c-safe .n { color: var(--safe); }
   .c-review .n { color: var(--review); }
@@ -119,7 +132,7 @@
 
   .card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
   .card-subject { font-weight: 600; font-size: 14px; }
-  .card-from { font-size: 12px; color: var(--text-muted); font-family: 'IBM Plex Mono', monospace; margin-top: 2px; }
+  .card-from { font-size: 12px; color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; margin-top: 2px; }
   .verdict-badge {
     font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700;
     padding: 3px 8px; border-radius: 4px; white-space: nowrap;
@@ -145,7 +158,7 @@
     position: absolute; bottom: 10px; left: 0;
     background: #05070a; color: var(--text); font-size: 11px;
     padding: 6px 8px; border-radius: 4px; white-space: pre-wrap; width: 220px;
-    z-index: 20; border: 1px solid var(--border); font-family: 'IBM Plex Sans', sans-serif;
+    z-index: 20; border: 1px solid var(--border); font-family: system-ui, sans-serif;
   }
 
   .evidence-list { margin-top: 10px; font-size: 12px; color: var(--text-muted); }
@@ -156,66 +169,90 @@
   .card-actions button { font-size: 11px; padding: 5px 10px; }
 
   .dev-panel { border: 1px dashed var(--border); }
-  .dev-summary { font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 1.8; }
+  .dev-summary { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.8; }
   .pass { color: var(--safe); font-weight: 600; }
   .fail { color: var(--confirmed); font-weight: 600; }
 
   .empty-state { text-align: center; padding: 40px 20px; color: var(--text-faint); font-size: 13px; }
   .hint { font-size: 11px; color: var(--text-faint); margin-top: 6px; }
+  .field { display:flex; flex-direction:column; gap:5px; color:var(--text-muted); font-size:12px; }
+  .safety-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+  .safety-item { padding:14px; border:1px solid var(--border); border-radius:8px; background:var(--panel-raised); }
+  .safety-item h3 { margin:0 0 6px; font-size:14px; color:var(--text); }
+  .safety-item p,.safety-intro { margin:0; color:var(--text-muted); line-height:1.55; font-size:13px; }
+  .safety-intro { margin-bottom:14px; }
+  @media (max-width: 680px) {
+    header { padding:14px 18px; align-items:flex-start; gap:12px; }
+    main { padding:18px; }
+    .safety-grid { grid-template-columns:1fr; }
+    .card-top { flex-direction:column; }
+    .card-actions { flex-wrap:wrap; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { scroll-behavior:auto !important; animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; }
+  }
+  @media (forced-colors: active) {
+    .card, .panel, button, input, select { border:1px solid CanvasText; }
+  }
 </style>
 </head>
 <body>
 
+<a class="skip-link" href="#mainContent" data-i18n="nav.skip">Skip to main content</a>
+
 <header>
   <div class="brand">
-    <div class="brand-mark">ES</div>
+    <div class="brand-mark" aria-hidden="true">ES</div>
     <div>
-      <h1>Email Shield</h1>
-      <div class="sub">local scam-detection engine — milestone 1</div>
+      <h1 data-i18n="app.name">Email Shield</h1>
+      <div class="sub" data-i18n="app.tagline">Local, deterministic mailbox protection</div>
     </div>
   </div>
   <div class="row">
-    <button id="devSuiteBtn">Run Developer Test Suite</button>
+    <button id="devSuiteBtn" type="button" data-i18n="developer.run">Run Developer Test Suite</button>
   </div>
 </header>
 
-<main>
+<main id="mainContent" tabindex="-1">
 
-  <section class="panel">
-    <h2>Connect an account</h2>
+  <section class="panel" aria-labelledby="connectHeading">
+    <h2 id="connectHeading" data-i18n="connect.heading">Connect an account</h2>
     <div class="row">
+      <label class="field" for="providerSelect"><span data-i18n="connect.provider">Email provider</span>
       <select id="providerSelect">
         <option value="gmail">Gmail</option>
         <option value="icloud">iCloud</option>
         <option value="outlook">Outlook</option>
         <option value="yahoo">Yahoo</option>
         <option value="imap">Generic IMAP</option>
-      </select>
+      </select></label>
+      <label class="field" for="modeSelect"><span data-i18n="connect.mode">Connection mode</span>
       <select id="modeSelect">
-        <option value="fixture">Fixture demo mailbox (no credentials needed)</option>
-        <option value="live">Live account (requires credentials — see README)</option>
-      </select>
-      <button class="primary" id="connectBtn">Connect</button>
+        <option value="fixture" data-i18n="connect.fixture">Fixture demo mailbox (no credentials needed)</option>
+        <option value="live" data-i18n="connect.live">Live account (requires provider authorization)</option>
+      </select></label>
+      <button class="primary" id="connectBtn" type="button" data-i18n="connect.action">Connect</button>
     </div>
     <div id="credentialFields" class="row" style="margin-top:10px;"></div>
-    <div class="hint">Fixture mode loads the synthetic scam corpus so you can see the engine work immediately. Live mode requires OAuth or an app password for the chosen provider.</div>
-    <div class="accounts-list" id="accountsList"></div>
+    <div class="hint" data-i18n="connect.help">Fixture mode loads a synthetic scam corpus. Live mode uses provider OAuth or a provider-approved app password.</div>
+    <p id="connectStatus" class="hint" role="status" aria-live="polite" aria-atomic="true"></p>
+    <div class="accounts-list" id="accountsList" role="list" aria-live="polite" aria-label="Connected accounts"></div>
   </section>
 
-  <section class="panel" id="scanPanel" style="display:none;">
-    <h2>Scan</h2>
+  <section class="panel" id="scanPanel" style="display:none;" aria-labelledby="scanHeading" tabindex="-1">
+    <h2 id="scanHeading" data-i18n="scan.heading">Scan selected account</h2>
     <div class="row">
-      <button id="quickScanBtn">Quick Scan</button>
-      <button id="fullScanBtn">Full Mailbox Audit</button>
-      <button id="spamScanBtn">Spam / Junk Scan</button>
-      <button class="danger" id="stopScanBtn" disabled>Stop Scan</button>
+      <button id="quickScanBtn" type="button" data-i18n="scan.quick">Quick Scan</button>
+      <button id="fullScanBtn" type="button" data-i18n="scan.full">Full Mailbox Audit</button>
+      <button id="spamScanBtn" type="button" data-i18n="scan.spam">Spam / Junk Scan</button>
+      <button class="danger" id="stopScanBtn" type="button" disabled data-i18n="scan.stop">Stop Scan</button>
     </div>
-    <div class="counters" id="counters"></div>
-    <div id="cards"></div>
+    <div class="counters" id="counters" role="status" aria-live="polite" aria-atomic="true"></div>
+    <div id="cards" aria-label="Suspicious message results"></div>
     <div id="backgroundProtection" style="margin-top:18px;border-top:1px solid var(--border);padding-top:14px;">
-      <h3>Background protection</h3>
+      <h3 data-i18n="background.heading">Background protection</h3>
       <div class="row">
-        <label for="backgroundInterval">Check this account every</label>
+        <label for="backgroundInterval" data-i18n="background.interval">Check this account every</label>
         <select id="backgroundInterval">
           <option value="30">30 minutes</option>
           <option value="60" selected>1 hour</option>
@@ -224,20 +261,32 @@
           <option value="720">12 hours</option>
           <option value="1440">24 hours</option>
         </select>
-        <button id="backgroundToggle" type="button">Enable</button>
+        <button id="backgroundToggle" type="button" aria-pressed="false" data-i18n="background.enable">Enable</button>
       </div>
-      <p id="backgroundStatus" class="hint" role="status" aria-live="polite">Background protection is paused.</p>
-      <div class="hint">Runs one resource-bounded Quick Scan at a time. Manual scans take priority; provider actions and Analyze Links never run automatically.</div>
+      <p id="backgroundStatus" class="hint" role="status" aria-live="polite" aria-atomic="true" data-i18n="background.paused">Background protection is paused.</p>
+      <div class="hint" data-i18n="background.help">Runs one resource-bounded Quick Scan at a time. Manual scans take priority; provider actions and Analyze Links never run automatically.</div>
+    </div>
+  </section>
+
+  <section class="panel" id="safetyEducation" aria-labelledby="safetyHeading">
+    <h2 id="safetyHeading" data-i18n="education.heading">Safety guide</h2>
+    <p class="safety-intro" data-i18n="education.intro">Email Shield explains deterministic evidence. It does not replace your provider, promise that every message is safe, or ask for passwords, payment, recovery codes, or seed phrases.</p>
+    <div class="safety-grid">
+      <article class="safety-item"><h3 data-i18n="education.verdicts.heading">Read the verdict carefully</h3><p data-i18n="education.verdicts.body">Safe means no meaningful warning was found in content that was successfully inspected. Unknown or partial means inspection was incomplete—retry it; never treat it as Safe.</p></article>
+      <article class="safety-item"><h3 data-i18n="education.actions.heading">Pause before you act</h3><p data-i18n="education.actions.body">Do not reply, call a number in the message, pay, or share a password, one-time code, recovery code, or seed phrase. Open the known official provider or organization site yourself.</p></article>
+      <article class="safety-item"><h3 data-i18n="education.controls.heading">Actions are separate</h3><p data-i18n="education.controls.body">Report Scam shares privacy-reduced indicators; it does not move mail. Block and Trash are account-scoped choices. Analyze Links is explicit and never uses mailbox cookies or provider credentials.</p></article>
+      <article class="safety-item"><h3 data-i18n="education.help.heading">When you still are not sure</h3><p data-i18n="education.help.body">Contact the organization using a trusted number or app, ask a trusted person, or leave the message untouched. Urgency is a reason to slow down.</p></article>
     </div>
   </section>
 
   <section class="panel dev-panel" id="devPanel" style="display:none;">
-    <h2>Developer Testing Suite</h2>
-    <div id="devResults" class="dev-summary"></div>
+    <h2 data-i18n="developer.heading">Developer Testing Suite</h2>
+    <div id="devResults" class="dev-summary" role="status" aria-live="polite"></div>
   </section>
 
 </main>
 
+<script src="/i18n.js"></script>
 <script>
 const API = '';
 let currentAccountId = null;
@@ -252,6 +301,10 @@ const countersEl = document.getElementById('counters');
 const cardsEl = document.getElementById('cards');
 const stopBtn = document.getElementById('stopScanBtn');
 const credentialFields = document.getElementById('credentialFields');
+const connectStatus = document.getElementById('connectStatus');
+const i18n = window.emailShieldI18n;
+const t = (key, values) => i18n?.t(key, values) || key;
+const formatNumber = (value) => i18n?.formatNumber(value) || String(Number(value) || 0);
 
 const LAYER_ORDER = [
   'transport_auth', 'identity_impersonation', 'message_intent', 'link_structure',
@@ -269,16 +322,36 @@ const LAYER_LABEL = {
 async function refreshAccounts() {
   const res = await fetch(`${API}/api/accounts`);
   const accounts = await res.json();
-  accountsList.innerHTML = accounts.map(a => `
-    <div class="account-chip ${a.accountId === currentAccountId ? 'active' : ''}" data-id="${a.accountId}">
-      <span>${a.label} <span class="hint mono">(${a.provider})</span></span>
-      <button data-select="${a.accountId}">Use</button>
-    </div>
-  `).join('') || '<div class="hint">No accounts connected yet.</div>';
-
-  accountsList.querySelectorAll('[data-select]').forEach(btn => {
-    btn.addEventListener('click', () => selectAccount(btn.dataset.select));
-  });
+  accountsList.replaceChildren();
+  if (!Array.isArray(accounts) || accounts.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'hint';
+    empty.textContent = t('connect.empty');
+    accountsList.append(empty);
+    return;
+  }
+  for (const account of accounts) {
+    const selected = account.accountId === currentAccountId;
+    const row = document.createElement('div');
+    row.className = `account-chip${selected ? ' active' : ''}`;
+    row.dataset.id = String(account.accountId || '');
+    row.setAttribute('role', 'listitem');
+    const identity = document.createElement('span');
+    identity.textContent = String(account.label || account.provider || 'Account');
+    const provider = document.createElement('span');
+    provider.className = 'hint mono';
+    provider.textContent = ` (${String(account.provider || 'mail')})`;
+    identity.append(provider);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.select = String(account.accountId || '');
+    button.textContent = t('account.use');
+    button.setAttribute('aria-pressed', String(selected));
+    if (selected) button.setAttribute('aria-current', 'true');
+    button.addEventListener('click', () => selectAccount(button.dataset.select));
+    row.append(identity, button);
+    accountsList.append(row);
+  }
 }
 
 function selectAccount(id) {
@@ -286,6 +359,7 @@ function selectAccount(id) {
   scanPanel.style.display = 'block';
   countersEl.innerHTML = '';
   cardsEl.innerHTML = '';
+  connectStatus.textContent = 'Selected account changed. Scan controls are ready.';
   refreshAccounts();
 }
 
@@ -293,12 +367,13 @@ function renderCredentialFields() {
   if (modeSelect.value === 'fixture') { credentialFields.innerHTML = ''; return; }
   const p = providerSelect.value;
   if (p === 'icloud' || p === 'yahoo') credentialFields.innerHTML = `
-    <input id="credUser" type="email" placeholder="${p === 'icloud' ? 'iCloud' : 'Yahoo'} email" autocomplete="username">
-    <input id="credPassword" type="password" placeholder="App-specific password" autocomplete="current-password">`;
+    <label class="field" for="credUser"><span>${p === 'icloud' ? 'iCloud' : 'Yahoo'} email</span><input id="credUser" type="email" autocomplete="username"></label>
+    <label class="field" for="credPassword"><span>App-specific password</span><input id="credPassword" type="password" autocomplete="current-password"></label>`;
   else if (p === 'imap') credentialFields.innerHTML = `
-    <input id="credHost" placeholder="IMAP host"><input id="credPort" value="993" size="5">
-    <input id="credUser" type="email" placeholder="Username/email" autocomplete="username">
-    <input id="credPassword" type="password" placeholder="App password" autocomplete="current-password">`;
+    <label class="field" for="credHost"><span>IMAP host</span><input id="credHost" inputmode="url"></label>
+    <label class="field" for="credPort"><span>Port</span><input id="credPort" value="993" size="5" inputmode="numeric"></label>
+    <label class="field" for="credUser"><span>Username or email</span><input id="credUser" type="email" autocomplete="username"></label>
+    <label class="field" for="credPassword"><span>App password</span><input id="credPassword" type="password" autocomplete="current-password"></label>`;
   else credentialFields.innerHTML = `<div class="hint">OAuth browser setup is not yet exposed in this hard-test build. Use fixture mode for ${p}, or configure provider credentials through the documented local developer flow.</div>`;
 }
 providerSelect.addEventListener('change', renderCredentialFields);
@@ -316,6 +391,7 @@ function collectCredentials() {
 connectBtn.addEventListener('click', async () => {
   connectBtn.disabled = true;
   connectBtn.textContent = 'Connecting…';
+  connectStatus.textContent = 'Connecting to the selected provider…';
   try {
     const res = await fetch(`${API}/api/accounts/connect`, {
       method: 'POST',
@@ -326,8 +402,10 @@ connectBtn.addEventListener('click', async () => {
     if (!res.ok) throw new Error(data.error || 'Connect failed');
     await refreshAccounts();
     selectAccount(data.accountId);
+    connectStatus.textContent = 'Account connected. Scan controls are ready.';
   } catch (err) {
-    alert(err.message);
+    connectStatus.textContent = err instanceof Error ? err.message : String(err);
+    connectStatus.focus?.();
   } finally {
     connectBtn.disabled = false;
     connectBtn.textContent = 'Connect';
@@ -341,16 +419,17 @@ function verdictLabel(v) {
 function renderReadout(layerResults) {
   return LAYER_ORDER.map(layerName => {
     const lr = layerResults.find(l => l.layer === layerName);
-    if (!lr) return `<div class="tick"></div>`;
+    if (!lr) return `<div class="tick" role="listitem" aria-label="${escapeHtml(LAYER_LABEL[layerName])}: not available"></div>`;
     const fired = lr.evidence.some(e => e.scoreContribution > 0);
     const skipped = lr.incomplete;
     const cls = skipped ? 'skipped' : (fired ? 'fired' : '');
     const tip = skipped
       ? `${LAYER_LABEL[layerName]}: ${lr.incompleteReason || 'not run this pass'}`
       : fired
-        ? `${LAYER_LABEL[layerName]}: ${lr.evidence.map(e => escapeHtml(e.description)).join(' ')}`
+        ? `${LAYER_LABEL[layerName]}: ${lr.evidence.map(e => e.description).join(' ')}`
         : `${LAYER_LABEL[layerName]}: clean`;
-    return `<div class="tick ${cls}" title="${tip.replace(/"/g, '&quot;')}"></div>`;
+    const safeTip = escapeHtml(tip);
+    return `<div class="tick ${cls}" role="listitem" aria-label="${safeTip}" title="${safeTip}"></div>`;
   }).join('');
 }
 
@@ -362,7 +441,7 @@ function renderCard(result) {
   `).join('') || '<div class="evidence-item">No scored evidence — flagged by missing/partial data only.</div>';
 
   return `
-    <div class="card ${verdict}">
+    <article class="card ${verdict}" aria-label="${escapeHtml(`${verdictLabel(verdict)}: ${env.subject || '(no subject)'}`)}">
       <div class="card-top">
         <div>
           <div class="card-subject">${escapeHtml(env.subject || '(no subject)')}</div>
@@ -370,14 +449,14 @@ function renderCard(result) {
         </div>
         <span class="verdict-badge ${verdict}">${verdictLabel(verdict)}</span>
       </div>
-      <div class="readout">${renderReadout(result.scored.layerResults)}</div>
+      <div class="readout" role="list" aria-label="Detection layer results">${renderReadout(result.scored.layerResults)}</div>
       <div class="evidence-list">${evidenceHtml}</div>
       <div class="card-actions">
         <button data-action="block-sender" data-address="${escapeHtml(env.from.address || '')}">Block sender</button>
         <button data-action="block-domain" data-domain="${escapeHtml(env.from.domain || '')}">Block domain</button>
         <button data-action="trash" data-native-id="${escapeHtml(env.providerNativeId)}">Move to Trash</button>
       </div>
-    </div>
+    </article>
   `;
 }
 
@@ -387,11 +466,11 @@ function escapeHtml(s) {
 
 function renderCounters(c) {
   countersEl.innerHTML = `
-    <div class="counter c-safe"><div class="n">${c.safe}</div><div class="l">Safe</div></div>
-    <div class="counter c-review"><div class="n">${c.review}</div><div class="l">Review</div></div>
-    <div class="counter c-high"><div class="n">${c.highRisk}</div><div class="l">High Risk</div></div>
-    <div class="counter c-confirmed"><div class="n">${c.confirmedThreat}</div><div class="l">Confirmed</div></div>
-    <div class="counter c-unknown"><div class="n">${c.unknown}</div><div class="l">Unknown</div></div>
+    <div class="counter c-safe"><div class="n">${formatNumber(c.safe)}</div><div class="l">Safe</div></div>
+    <div class="counter c-review"><div class="n">${formatNumber(c.review)}</div><div class="l">Review</div></div>
+    <div class="counter c-high"><div class="n">${formatNumber(c.highRisk)}</div><div class="l">High Risk</div></div>
+    <div class="counter c-confirmed"><div class="n">${formatNumber(c.confirmedThreat)}</div><div class="l">Confirmed</div></div>
+    <div class="counter c-unknown"><div class="n">${formatNumber(c.unknown)}</div><div class="l">Unknown</div></div>
   `;
 }
 
@@ -462,7 +541,7 @@ document.getElementById('devSuiteBtn').addEventListener('click', async () => {
     Cross-provider parity failures: <span class="${parityFails === 0 ? 'pass' : 'fail'}">${parityFails}</span><br/>
     False positives: <span class="${r.falsePositives.length === 0 ? 'pass' : 'fail'}">${r.falsePositives.length}</span><br/>
     False negatives: <span class="${r.falseNegatives.length === 0 ? 'pass' : 'fail'}">${r.falseNegatives.length}</span>
-    <div class="hint" style="margin-top:10px;">Generated ${new Date(r.generatedAt).toLocaleString()}</div>
+    <div class="hint" style="margin-top:10px;">Generated ${escapeHtml(i18n.formatDate(r.generatedAt))}</div>
   `;
 });
 

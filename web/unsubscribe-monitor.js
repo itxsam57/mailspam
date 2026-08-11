@@ -9,7 +9,7 @@
 
   const style = document.createElement('style');
   style.textContent = `
-    .unsubscribe-action-status {display:block;margin-top:7px;font-size:11px;color:#8b93a3}
+    .unsubscribe-action-status {display:block;margin-top:7px;font-size:11px;color:var(--text-muted)}
     .unsubscribe-action-status.success {color:#3fb88a}
     .unsubscribe-action-status.error {color:#ff9a9f}
   `;

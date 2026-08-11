@@ -20,6 +20,9 @@
       element = document.createElement('div');
       element.id = 'outlookOAuthStatus';
       element.className = 'hint';
+      element.setAttribute('role', 'status');
+      element.setAttribute('aria-live', 'polite');
+      element.setAttribute('aria-atomic', 'true');
       credentialFields.replaceChildren(element);
     }
     return element;
