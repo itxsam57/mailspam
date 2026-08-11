@@ -681,9 +681,10 @@ export class EncryptedCommunityAggregateStore {
     this.writeDatabase(database);
     if (existsSync(this.journalPath)) {
       const noFollow = process.platform === "win32" ? 0 : (fsConstants.O_NOFOLLOW ?? 0);
-      const descriptor = openSync(this.journalPath, fsConstants.O_WRONLY | fsConstants.O_TRUNC | noFollow);
+      const descriptor = openSync(this.journalPath, fsConstants.O_WRONLY | noFollow);
       try {
         if (!fstatSync(descriptor).isFile()) throw new Error("Community report journal is not a regular file.");
+        ftruncateSync(descriptor, 0);
       } finally {
         closeSync(descriptor);
       }
