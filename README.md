@@ -2,7 +2,7 @@
 
 Email Shield is a local-first, deterministic email scam-detection layer. Mailbox scans and message content remain on the user's machine. When the user explicitly selects **Report Scam to Email Shield**, the client may send a privacy-reduced indicator report to a configured community service; it never uploads the message body, subject, mailbox address, contacts, credentials, provider message ID, raw private URL path/query values, attachment names, or attachment content.
 
-Milestone 2 is **code-complete to its audited and automated boundary**. It is not formally closed until the registered owner/live/deployment acceptance items pass. See `docs/MILESTONE_2_LIVE_ACCEPTANCE.md`.
+Milestone 1 is closed. Milestone 2 is **code-complete to its audited and automated boundary** but awaits registered owner/live/deployment acceptance. Milestone 3 repository work now includes signed release lifecycle, bounded background protection, portable core, accessibility/localization foundation, aggregate operations, Regression Vault, provider contracts and executable capacity/public-security documentation; actual Android/iOS mailbox shells remain missing and external/native acceptance remains open. See `docs/THREE_MILESTONE_FINAL_RECONCILIATION.md`.
 
 ## Run the desktop client
 
@@ -89,7 +89,7 @@ A dedicated community-only service exposes only community health/report/feed/pub
 
 ## Engineering quality baseline
 
-The Engineering Gate runs strict typecheck, production build, unit/API/regression tests, the full five-provider corpus, Worker runtime, browser source/privacy/wiring checks, compiled desktop/community smoke, dependency inventory and the production dependency audit on Windows, macOS and Ubuntu/Linux with real Linux Secret Service coverage.
+The Engineering Gate runs strict typecheck, production build, unit/API/regression tests, the full five-provider corpus, portable-core vectors, provider compatibility, approved Regression Vault, capacity/cost and public-document contracts, Worker runtime, browser source/privacy/wiring checks, compiled desktop/community/background smoke, reproducible package/signed lifecycle verification, dependency inventory and the production dependency audit on Windows, macOS and Ubuntu/Linux with real Linux Secret Service coverage.
 
 The accepted Milestone 2 dependency graph currently has zero installed npm advisories. Future advisories are new evidence and must be reviewed; audit policy must not be weakened to hide them.
 
@@ -105,3 +105,12 @@ These remain open until real owner/deployment evidence exists:
 - required visible/manual acceptance items in `.engineering/REGRESSION_REGISTER.md`.
 
 Run `npm run gate` before live acceptance. Follow `docs/MILESTONE_2_LIVE_ACCEPTANCE.md` and record only PASS/FAIL evidence—never credentials, OAuth codes/tokens, mailbox bodies or private provider identifiers.
+
+## Public security and deployment documents
+
+- `PRIVACY.md` — local/community data flows, retention, choices and deletion boundaries;
+- `SECURITY.md` — private vulnerability disclosure and release/security policy;
+- `THREAT_MODEL.md` — assets, trust boundaries, adversaries, controls and residual risk;
+- `INCIDENT_RESPONSE.md` — severity, containment/recovery and scoped compromise playbooks;
+- `docs/DEPLOYMENT_CAPACITY_COST.md` — executable workload/cost plan and deployment sizing;
+- `docs/THREE_MILESTONE_FINAL_RECONCILIATION.md` — canonical implemented/external/missing status.

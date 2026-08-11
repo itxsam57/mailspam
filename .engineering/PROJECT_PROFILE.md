@@ -67,6 +67,9 @@ Database/migrations/seeds: not applicable. The current service uses encrypted lo
 | Browser/static checks | `npm run check:web` | Validates HTML/JS wiring, privacy boundaries and syntax. |
 | Provider compatibility | `npm run check:provider-compatibility` | Replays the reviewed v1 compiled capability/fixture contract for all five providers. |
 | Regression Vault | `npm run check:regression-vault` | Verifies approved anonymized sample provenance, hashes and all-five-provider outcomes. |
+| Capacity contract | `npm run check:capacity` | Validates runtime-owned deployment budgets and reviewed workload/cost arithmetic. |
+| Public documentation | `npm run check:public-docs` | Blocks stale privacy/security/threat/incident/reconciliation claims. |
+| Capacity worksheet | `npm run capacity:plan` | Emits the reviewed baseline; accepts only a complete operator unit-price set. |
 | Server/API smoke | `npm run smoke:server` | Starts the compiled server and exercises fixture/API/SSE paths. |
 | Full dependency inventory | `npm run audit:inventory` | Writes package-level advisory evidence without rewriting dependencies. |
 | Production dependency audit | `npm run audit:prod` | Fails on high or critical production vulnerabilities. |

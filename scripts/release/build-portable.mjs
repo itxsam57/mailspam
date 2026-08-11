@@ -39,6 +39,12 @@ const requiredSources = [
   "scripts/release/release-cli.mjs",
   "scripts/release/release-lifecycle-lib.mjs",
   "scripts/release/portable-package-lib.mjs",
+  "PRIVACY.md",
+  "SECURITY.md",
+  "THREAT_MODEL.md",
+  "INCIDENT_RESPONSE.md",
+  "docs/DEPLOYMENT_CAPACITY_COST.md",
+  "docs/THREE_MILESTONE_FINAL_RECONCILIATION.md",
 ];
 for (const path of requiredSources) {
   try { readFileSync(resolve(root, path)); }
@@ -52,6 +58,14 @@ copyTree(resolve(root, "web"), join(packageRoot, "app/web"));
 copyRegularFile(resolve(root, "scripts/release/release-cli.mjs"), join(packageRoot, "tools/release-cli.mjs"), true);
 copyRegularFile(resolve(root, "scripts/release/release-lifecycle-lib.mjs"), join(packageRoot, "tools/release-lifecycle-lib.mjs"));
 copyRegularFile(resolve(root, "scripts/release/portable-package-lib.mjs"), join(packageRoot, "tools/portable-package-lib.mjs"));
+for (const path of [
+  "PRIVACY.md",
+  "SECURITY.md",
+  "THREAT_MODEL.md",
+  "INCIDENT_RESPONSE.md",
+  "docs/DEPLOYMENT_CAPACITY_COST.md",
+  "docs/THREE_MILESTONE_FINAL_RECONCILIATION.md",
+]) copyRegularFile(resolve(root, path), join(packageRoot, "docs", path.replace(/^docs\//, "")));
 
 const productionPackages = [];
 for (const dependency of productionPackagePaths(lockfile)) {

@@ -19,8 +19,8 @@ These should be completed using `docs/MILESTONE_2_LIVE_ACCEPTANCE.md`. Any defec
 
 These are future expansions, not hidden Milestone 2 closure requirements unless the product plan later promotes them:
 
-1. **Signed desktop packaging and process binding** — signed installers/binaries, updater integrity, stronger application/process binding beyond the current localhost browser/session boundary, and explicit uninstall cleanup behavior.
-2. **Production release engineering** — reproducible signed release packages, update channel, rollback strategy, platform installer acceptance and release provenance/attestation.
+1. **Native production distribution acceptance** — wrap the verified portable lifecycle in native installers, provision production signing identities, complete Authenticode/Developer ID/notarization, publish through immutable distribution and execute owned upgrade/rollback/uninstall acceptance.
+2. **Android/iOS mailbox applications** — build real provider acquisition, native vault, schedule/notification, explicit action and accessible UI shells that consume the locked portable core vectors without inheriting desktop loopback assumptions.
 3. **Broader attachment malware analysis** — optional local/static or privacy-reviewed sandbox integration beyond the current MIME/type/hash/QR checks. Any cloud analysis would require a new privacy and consent architecture.
 4. **Broader QR/image format support** — additional formats beyond the currently locked bounded PNG/JPEG decoder when there is a demonstrated need.
 5. **Provider-specific trusted Authentication-Results enablement** — only for providers where Email Shield can prove the exact receiver-controlled authentication-result producer boundary. Do not hardcode guessed authserv IDs or infer trust merely from API access.

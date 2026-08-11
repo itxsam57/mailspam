@@ -33,6 +33,8 @@ const steps = [
   npmStep("core-vectors", "Versioned portable-core conformance vectors", "check:core-vectors"),
   npmStep("provider-compatibility", "Versioned provider compatibility contracts", "check:provider-compatibility"),
   npmStep("regression-vault", "Approved anonymized Regression Vault", "check:regression-vault"),
+  npmStep("capacity-budgets", "Deployment capacity and cost budgets", "check:capacity"),
+  npmStep("public-docs", "Public privacy, security, threat, incident and deployment contracts", "check:public-docs"),
   npmStep("unit", "Unit, API and regression tests", "test:unit"),
   npmStep("integration", "Integration, corpus and Worker tests", "test:integration"),
   npmStep("web", "Browser source, privacy and wiring checks", "check:web"),

@@ -41,7 +41,7 @@ npm run vault -- approve --candidate-id <32-hex-id> --review-digest <64-hex-sha2
 
 Approval re-reads and revalidates the sanitized bytes, requires the displayed SHA-256, accepts only fixed reviewer roles, scans the candidate through all five adapters, enforces Safe for legitimate controls or non-Safe for malicious samples, rejects duplicate IDs/digests, writes a placeholder-only sample, and atomically replaces the sorted strict manifest. The candidate remains outside source control for audit/re-review; it contains no original message.
 
-`npm run check:regression-vault` revalidates manifest schema/provenance/sorting/deduplication, path containment, placeholder-only privacy rules, every sample SHA-256 and all five provider outcomes. It runs after the production build in the full Engineering Gate. `npm run release:sign` independently rebuilds, reruns provider compatibility plus the Regression Vault, and rebuilds/verifies the exact clean-head portable artifact before it will invoke the signing command, so a direct release-signing workflow cannot bypass these release gates or sign a stale package.
+`npm run check:regression-vault` revalidates manifest schema/provenance/sorting/deduplication, path containment, placeholder-only privacy rules, every sample SHA-256 and all five provider outcomes. It runs after the production build in the full Engineering Gate. `npm run release:sign` independently rebuilds, reruns provider compatibility, Regression Vault, capacity and public-document contracts, then rebuilds/verifies the exact clean-head portable artifact before it will invoke the signing command, so a direct release-signing workflow cannot bypass these release gates or sign a stale package.
 
 ## Evidence and limitations
 

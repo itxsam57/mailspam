@@ -72,3 +72,5 @@ Automation covers the implementation contracts including:
 ## Status rule
 
 A green Engineering Gate means **ready for owner/live acceptance**, not that GAP-001/002/004/005/008 are automatically closed. Milestone 2 becomes formally closed only after the applicable owner/deployment evidence in `docs/MILESTONE_2_LIVE_ACCEPTANCE.md` is PASS and no reproducible defect remains unresolved.
+
+The owner also verifies MAN-020: refresh the Privacy-safe operations table after a fixture scan and explicit Safe/scam-report review actions; confirm its aggregate counts/status are readable with keyboard, screen reader, 200%/400% zoom, narrow layout and forced colors, and that no mailbox/message identity or content appears.

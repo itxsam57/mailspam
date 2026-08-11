@@ -53,6 +53,9 @@ describe("portable release packaging architecture", () => {
     expect(read("scripts/release/release-lifecycle-lib.mjs")).toContain("rollbackRelease");
     expect(read("scripts/release/release-lifecycle-lib.mjs")).toContain("uninstallRelease");
     expect(read("scripts/release/build-portable.mjs")).toContain('join(packageRoot, "tools/release-cli.mjs")');
+    for (const publicDocument of ["PRIVACY.md", "SECURITY.md", "THREAT_MODEL.md", "INCIDENT_RESPONSE.md", "THREE_MILESTONE_FINAL_RECONCILIATION.md"]) {
+      expect(read("scripts/release/build-portable.mjs")).toContain(publicDocument);
+    }
     expect(gate).toContain('"portable-package"');
     expect(gate).toContain('"package:verify"');
     expect(gate).toContain('"release-lifecycle"');

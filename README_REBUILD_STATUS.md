@@ -92,7 +92,7 @@ Manual visible acceptance items in the regression register also remain manual un
 
 All canonical repository-buildable Milestone 2 rows are now implemented and regression locked: scalable community ingestion, monotonic signed-feed rollback protection, bounded cached destination analysis, privacy-safe application metrics/diagnostics and the Windows-first portable release foundation/cross-platform plan. Milestone 2 is still not formally closed because the listed owner/live deployment, provider, controlled-egress, monitoring, gateway and signing ceremony gates remain external acceptance, not code-test substitutes.
 
-## Milestone 3 — CONTINUOUS PROTECTION IN PROGRESS
+## Milestone 3 — REPOSITORY FEATURES IMPLEMENTED EXCEPT MOBILE SHELLS; ACCEPTANCE OPEN
 
 The first Milestone 3 production brick is implemented and regression locked:
 
@@ -111,9 +111,15 @@ The first Milestone 3 production brick is implemented and regression locked:
 - guarded uninstall preserves user state by default and accepts explicit purge only for a separate marked, narrowly validated Email Shield data directory; the compiled gate executes the installer CLI using the actual bundled runtime.
 - accessible labelled onboarding/dynamic credentials, keyboard-visible focus, selected-account semantics, live statuses, readable layer/table alternatives, reduced-motion/forced-color/narrow layouts and local system fonts;
 - a strict extensible memory-only locale catalog with English fallback and shared locale-safe date/number formatting, plus a visible safety guide that distinguishes Safe from incomplete and keeps Report, Block, Trash and Analyze Links explicit and separate.
+- a protected no-store aggregate-only operations view for five-provider adapter/scan health, feed/background/destination capacity and explicit Safe/scam-report review outcomes, without mailbox/content/identity/destination/exception values;
+- a two-stage anonymized Regression Vault with attested sanitizer, exact-digest reviewer approval, strict provenance/dedupe/hashes and all-five-provider outcomes blocking both the full gate and release signing;
+- a reviewed version-1 provider capability snapshot with executable connect/folder/fetch/cancel/Spam/Trash parity and release-drift blocking;
+- public privacy, security/disclosure, threat-model and incident-response documents protected by a compiled documentation gate;
+- an executable schema-v1 deployment/cost worksheet importing the runtime network/storage/concurrency/background ceilings, a 70% baseline storage planning target, existing 10,000-reporter proof and a compiled 192 MiB-heap background performance smoke.
 
-Native Windows/macOS background-task acceptance and Android/iOS shells remain later Milestone 3 work; the current desktop scheduler is not represented as a mobile continuous daemon.
+Android/iOS mailbox application shells remain missing Milestone 3 product code. Native Windows/macOS background-task acceptance remains external; the current desktop scheduler is not represented as a mobile continuous daemon.
 Production release-key custody, native Windows/macOS installer wrapping, Authenticode/Developer ID signing, Apple notarization and mobile-store acceptance remain external and are not represented by ephemeral gate signatures.
+The authoritative line-by-line result is `docs/THREE_MILESTONE_FINAL_RECONCILIATION.md`; this repository must not be described as all three milestones formally closed.
 
 ## Run
 

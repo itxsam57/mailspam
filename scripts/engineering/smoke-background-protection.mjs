@@ -19,6 +19,8 @@ const coordinator = new BackgroundProtectionCoordinator({
   executor: new WorkerBackgroundProtectionExecutor(community),
 });
 const session = sessionStore.create("gmail", "background-smoke", { provider: "gmail", mode: "fixture" });
+const startedAt = performance.now();
+const initialRss = process.memoryUsage().rss;
 
 try {
   const now = Date.now();
@@ -36,7 +38,11 @@ try {
   assert.ok(completed, "The background run must create completed protected scan history.");
   assert.ok(completed.counters.examined > 0 && completed.counters.examined <= 20);
   assert.equal(completed.checkpoint, null);
-  console.log(`Compiled background-protection smoke passed; examined ${completed.counters.examined} bounded fixture messages.`);
+  const durationMilliseconds = performance.now() - startedAt;
+  const rssGrowthBytes = Math.max(0, process.memoryUsage().rss - initialRss);
+  assert.ok(durationMilliseconds < 30_000, `Fixture background run exceeded the 30-second low-resource budget: ${durationMilliseconds}ms.`);
+  assert.ok(rssGrowthBytes < 128 * 1024 * 1024, `Fixture background run exceeded the 128 MiB RSS-growth budget: ${rssGrowthBytes} bytes.`);
+  console.log(`Compiled background-protection smoke passed under a 192 MiB heap; examined ${completed.counters.examined} messages in ${Math.round(durationMilliseconds)}ms with ${rssGrowthBytes} bytes RSS growth.`);
 } finally {
   coordinator.remove(session.policyAccountKey);
   await sessionStore.remove(session.id);

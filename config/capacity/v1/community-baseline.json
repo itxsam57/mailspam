@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "clients": 10000,
+  "averageReportsPerClientPerDay": 0.05,
+  "retentionDays": 90,
+  "averageReportBytes": 2048,
+  "feedDownloadsPerClientPerDay": 1,
+  "averageFeedBytes": 524288,
+  "computeInstances": 1,
+  "backupCopies": 3
+}
