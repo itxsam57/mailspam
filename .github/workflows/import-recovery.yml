@@ -1,0 +1,35 @@
+name: Recovery Bundle Import
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout import staging branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reconstruct and verify recovery bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .recovery/live-test-bundle/part-* > /tmp/recovery.bundle.b64
+          printf '%s  %s\n' '64b4ff0b6dcaf4b3019e421e7cba188e9f84ebd159a4cfbc951cfc3a803f8f44' /tmp/recovery.bundle.b64 | sha256sum -c -
+          base64 --decode /tmp/recovery.bundle.b64 > /tmp/recovery.bundle
+          printf '%s  %s\n' '1df17feb8770ed4825a98ddfe31817322933c2a15a0bc3e23242987f2349b919' /tmp/recovery.bundle | sha256sum -c -
+          git bundle verify /tmp/recovery.bundle
+
+      - name: Import exact recovered history to protected recovery branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch /tmp/recovery.bundle HEAD:refs/remotes/recovery-bundle/head
+          test "$(git rev-parse refs/remotes/recovery-bundle/head)" = '1073bc934395869e8a57fe7c68dd9e5183df170a'
+          git merge-base --is-ancestor '35e1896c40fbae00a7aa3d2272096944fc9092a5' refs/remotes/recovery-bundle/head
+          git push origin refs/remotes/recovery-bundle/head:refs/heads/recovery/live-test-bundle-2026-08-11 --force-with-lease=refs/heads/recovery/live-test-bundle-2026-08-11:35e1896c40fbae00a7aa3d2272096944fc9092a5
