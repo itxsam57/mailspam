@@ -1,0 +1,139 @@
+name: Promote verified live-test bundle
+
+on:
+  push:
+    branches:
+      - recovery/import-live-test-bundle-v2-2026-08-11
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: read
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BASE_SHA: 35e1896c40fbae00a7aa3d2272096944fc9092a5
+      CANDIDATE_SHA: 6f520ff5ece2c62b767fc7a28e65dddebcbe5297
+      CANDIDATE_TREE: e7f09d6ce9fb5d01c2491e20afc379c2f1b6b63f
+      PR_NUMBER: '59'
+    steps:
+      - name: Checkout recovery control branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Require green pre-main gate on code-identical PR tree
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          pr_head="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.sha')"
+          test "$pr_head" = "$CANDIDATE_SHA"
+
+          git fetch origin "+refs/pull/${PR_NUMBER}/merge:refs/remotes/origin/recovery-pr-merge"
+          test "$(git rev-parse refs/remotes/origin/recovery-pr-merge^{tree})" = "$CANDIDATE_TREE"
+
+          run_id=""
+          for attempt in $(seq 1 90); do
+            run_id="$(gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/runs?event=pull_request&per_page=100" \
+              --jq ".workflow_runs[] | select(.path == \".github/workflows/verify.yml\") | select(.pull_requests[]?.number == ${PR_NUMBER}) | .id" \
+              | head -n 1)"
+            if [ -n "$run_id" ]; then
+              status="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '.status')"
+              conclusion="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '.conclusion // ""')"
+              if [ "$status" = "completed" ]; then
+                test "$conclusion" = "success"
+                break
+              fi
+            fi
+            sleep 10
+          done
+
+          test -n "$run_id"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '.status')" = "completed"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '.conclusion')" = "success"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100" > /tmp/pre-jobs.json
+          python - <<'PY'
+          import json
+          jobs = json.load(open('/tmp/pre-jobs.json', encoding='utf-8'))['jobs']
+          names = [(j['name'], j.get('conclusion')) for j in jobs]
+          failed = [name for name, conclusion in names if conclusion != 'success']
+          if failed:
+              raise SystemExit(f'pre-main non-green jobs: {failed}')
+          lowered = '\n'.join(name.lower() for name, _ in names)
+          required = {
+              'windows': 'windows' in lowered,
+              'macos': 'macos' in lowered or 'mac' in lowered,
+              'linux': 'ubuntu' in lowered or 'linux' in lowered,
+              'summary': 'summary' in lowered or 'result' in lowered,
+          }
+          missing = [key for key, ok in required.items() if not ok]
+          if missing:
+              raise SystemExit(f'pre-main missing required jobs: {missing}; jobs={names}')
+          print('PRE_MAIN_ENGINEERING_GATE=PASS')
+          PY
+
+      - name: Fast-forward main from the frozen base only
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_main="$(git ls-remote origin refs/heads/main | cut -f1)"
+          test "$current_main" = "$BASE_SHA"
+          git fetch origin "$CANDIDATE_SHA"
+          test "$(git merge-base "$BASE_SHA" "$CANDIDATE_SHA")" = "$BASE_SHA"
+          test "$(git rev-list --count "$BASE_SHA..$CANDIDATE_SHA")" = "13"
+          test "$(git rev-parse "$CANDIDATE_SHA^{tree}")" = "$CANDIDATE_TREE"
+          git push origin "$CANDIDATE_SHA:refs/heads/main"
+
+      - name: Require independent full gate on exact main
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          run_id=""
+          for attempt in $(seq 1 90); do
+            run_id="$(gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/runs?event=push&branch=main&per_page=100" \
+              --jq ".workflow_runs[] | select(.path == \".github/workflows/verify.yml\") | select(.head_sha == \"${CANDIDATE_SHA}\") | .id" \
+              | head -n 1)"
+            if [ -n "$run_id" ]; then
+              status="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '.status')"
+              conclusion="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '.conclusion // ""')"
+              if [ "$status" = "completed" ]; then
+                test "$conclusion" = "success"
+                break
+              fi
+            fi
+            sleep 10
+          done
+
+          test -n "$run_id"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '.status')" = "completed"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '.conclusion')" = "success"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100" > /tmp/post-jobs.json
+          python - <<'PY'
+          import json
+          jobs = json.load(open('/tmp/post-jobs.json', encoding='utf-8'))['jobs']
+          names = [(j['name'], j.get('conclusion')) for j in jobs]
+          failed = [name for name, conclusion in names if conclusion != 'success']
+          if failed:
+              raise SystemExit(f'post-main non-green jobs: {failed}')
+          lowered = '\n'.join(name.lower() for name, _ in names)
+          required = {
+              'windows': 'windows' in lowered,
+              'macos': 'macos' in lowered or 'mac' in lowered,
+              'linux': 'ubuntu' in lowered or 'linux' in lowered,
+              'summary': 'summary' in lowered or 'result' in lowered,
+          }
+          missing = [key for key, ok in required.items() if not ok]
+          if missing:
+              raise SystemExit(f'post-main missing required jobs: {missing}; jobs={names}')
+          print('POST_MAIN_ENGINEERING_GATE=PASS')
+          PY
+
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$CANDIDATE_SHA"
+          git push --force-with-lease origin \
+            "$CANDIDATE_SHA:refs/heads/recovery/live-test-main-gate-passed-2026-08-11"
