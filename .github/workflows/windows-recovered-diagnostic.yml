@@ -1,0 +1,56 @@
+name: Windows recovered gate diagnostic
+
+on:
+  push:
+    branches:
+      - diagnostic/windows-recovered-gate
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout exact diagnostic commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Run failing checks with full output
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $log = Join-Path $PWD 'windows-diagnostic.txt'
+          Remove-Item $log -ErrorAction SilentlyContinue
+          $commands = @(
+            @{ Name = 'core-vectors'; Args = @('run','check:core-vectors') },
+            @{ Name = 'regression-vault'; Args = @('run','check:regression-vault') },
+            @{ Name = 'unit'; Args = @('run','test:unit') },
+            @{ Name = 'community-smoke'; Args = @('run','smoke:community') }
+          )
+          foreach ($item in $commands) {
+            "`n===== $($item.Name) =====" | Tee-Object -FilePath $log -Append
+            & npm.cmd @($item.Args) 2>&1 | Tee-Object -FilePath $log -Append
+            "EXIT_CODE=$LASTEXITCODE" | Tee-Object -FilePath $log -Append
+          }
+          exit 0
+
+      - name: Upload diagnostic log
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-recovered-diagnostic
+          path: windows-diagnostic.txt
+          if-no-files-found: error
