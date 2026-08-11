@@ -45,15 +45,24 @@ jobs:
 
           cat \
             .recovery/live-test-bundle-v2/tail-168000-184000 \
+            .recovery/live-test-bundle-v2/tail-178000-184000 \
             .recovery/live-test-bundle-v2/tail-184000-200000 \
+            .recovery/live-test-bundle-v2/tail-196000-200000 \
             .recovery/live-test-bundle-v2/tail-200000-208000 \
             .recovery/live-test-bundle-v2/tail-208000-216000 \
             .recovery/live-test-bundle-v2/tail-216000-224000 \
             .recovery/live-test-bundle-v2/tail-224000-228000 \
             .recovery/live-test-bundle-v2/tail-228000-232000 \
             .recovery/live-test-bundle-v2/tail-232000-248000 \
-            .recovery/live-test-bundle-v2/tail-248000-264000 \
-            .recovery/live-test-bundle-v2/tail-264000-279228 \
+            .recovery/live-test-bundle-v2/tail-248000-256000 \
+            .recovery/live-test-bundle-v2/tail-256000-260000 \
+            .recovery/live-test-bundle-v2/tail-260000-264000 \
+            .recovery/live-test-bundle-v2/tail-264000-268000 \
+            .recovery/live-test-bundle-v2/tail-268000-272000 \
+            .recovery/live-test-bundle-v2/tail-272000-274000 \
+            .recovery/live-test-bundle-v2/tail-274000-276000 \
+            .recovery/live-test-bundle-v2/tail-276000-278000 \
+            .recovery/live-test-bundle-v2/tail-278000-279228 \
             >> /tmp/recovery.b64
 
           test "$(wc -c </tmp/recovery.b64)" = "279228"
