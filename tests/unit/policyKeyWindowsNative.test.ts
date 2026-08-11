@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,7 +9,10 @@ import {
   policyAccountKey,
 } from "../../server/src/api/policyPersistence.js";
 import type { CredentialReference } from "../../server/src/security/credentialVault.js";
-import { WindowsCredentialManagerVault } from "../../server/src/security/windowsCredentialManagerVault.js";
+import {
+  PowerShellWindowsCredentialBridge,
+  WindowsCredentialManagerVault,
+} from "../../server/src/security/windowsCredentialManagerVault.js";
 
 const POLICY_KEY_REFERENCE: CredentialReference = {
   id: "personal-policy-encryption-key-v1",
@@ -44,8 +48,16 @@ describe("Windows native personal-policy key custody", () => {
       });
       writeFileSync(join(directory, "personal-policy.key"), key, { mode: 0o600 });
 
-      const vault = new WindowsCredentialManagerVault();
-      await vault.delete(POLICY_KEY_REFERENCE);
+      const nativeBridge = new PowerShellWindowsCredentialBridge();
+      const targetNamespace = `test-${randomUUID()}`;
+      const vault = new WindowsCredentialManagerVault({
+        invoke(request) {
+          return nativeBridge.invoke({
+            ...request,
+            target: `${request.target}/${targetNamespace}`,
+          });
+        },
+      });
       try {
         const migrated = await createDefaultPersonalPolicyRepository({
           dataDirectory: directory,
