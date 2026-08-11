@@ -21,34 +21,55 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
-      - name: Install locked dependencies
-        run: npm ci
-
-      - name: Build
-        run: npm run build
-
-      - name: Run remaining failing checks with full output
+      - name: Probe Windows journal open modes
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Continue'
-          $log = Join-Path $PWD 'windows-fixed-community-diagnostic.txt'
-          Remove-Item $log -ErrorAction SilentlyContinue
-          $commands = @(
-            @{ Name = 'unit'; Args = @('run','test:unit') },
-            @{ Name = 'community-smoke'; Args = @('run','smoke:community') }
-          )
-          foreach ($item in $commands) {
-            "`n===== $($item.Name) =====" | Tee-Object -FilePath $log -Append
-            & npm.cmd @($item.Args) 2>&1 | Tee-Object -FilePath $log -Append
-            "EXIT_CODE=$LASTEXITCODE" | Tee-Object -FilePath $log -Append
+          @'
+          const { closeSync, constants, fstatSync, ftruncateSync, openSync, writeFileSync } = require('node:fs');
+          const { join } = require('node:path');
+          const { tmpdir } = require('node:os');
+
+          const cases = [
+            ['WRONLY_TRUNC', () => openSync(file(), constants.O_WRONLY | constants.O_TRUNC), false],
+            ['WRONLY_THEN_FTRUNCATE', () => openSync(file(), constants.O_WRONLY), true],
+            ['RDWR_THEN_FTRUNCATE', () => openSync(file(), constants.O_RDWR), true],
+            ['RPLUS_THEN_FTRUNCATE', () => openSync(file(), 'r+'), true],
+          ];
+          let counter = 0;
+          function file() {
+            const path = join(tmpdir(), `email-shield-open-probe-${process.pid}-${counter++}.txt`);
+            writeFileSync(path, 'journal-data', { encoding: 'utf8' });
+            return path;
           }
-          exit 0
+          console.log(JSON.stringify({
+            platform: process.platform,
+            O_WRONLY: constants.O_WRONLY,
+            O_RDWR: constants.O_RDWR,
+            O_TRUNC: constants.O_TRUNC,
+            O_NOFOLLOW: constants.O_NOFOLLOW ?? null,
+          }));
+          for (const [name, opener, truncateAfterOpen] of cases) {
+            let fd;
+            try {
+              fd = opener();
+              const before = fstatSync(fd);
+              if (!before.isFile()) throw new Error('not a regular file');
+              if (truncateAfterOpen) ftruncateSync(fd, 0);
+              const after = fstatSync(fd);
+              console.log(`${name}: PASS before=${before.size} after=${after.size}`);
+            } catch (error) {
+              console.log(`${name}: FAIL code=${error.code ?? ''} errno=${error.errno ?? ''} syscall=${error.syscall ?? ''} message=${error.message}`);
+            } finally {
+              if (fd !== undefined) closeSync(fd);
+            }
+          }
+          '@ | Set-Content -Encoding utf8 windows-open-probe.cjs
+          node windows-open-probe.cjs | Tee-Object -FilePath windows-open-probe.txt
 
       - name: Upload diagnostic log
         uses: actions/upload-artifact@v4
         with:
-          name: windows-fixed-community-diagnostic
-          path: windows-fixed-community-diagnostic.txt
+          name: windows-open-probe
+          path: windows-open-probe.txt
           if-no-files-found: error
