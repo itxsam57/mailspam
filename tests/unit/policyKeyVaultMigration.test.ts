@@ -12,6 +12,7 @@ import type {
   CredentialVault,
   CredentialVaultCapabilities,
 } from "../../server/src/security/credentialVault.js";
+import { dataBoundCredentialReference } from "../../server/src/security/dataBoundEncryptionKey.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -81,6 +82,56 @@ afterEach(() => {
 });
 
 describe("personal-policy encryption-key vault migration", () => {
+  it("binds fresh keys to each data root without replacing a legacy user-profile key", async () => {
+    const userDirectory = temporaryDirectory();
+    const smokeDirectory = temporaryDirectory();
+    const userKey = Buffer.alloc(32, 14);
+    const accountKey = policyAccountKey({ provider: "icloud", mode: "fixture" });
+    new EncryptedFilePolicyRepository(userDirectory, userKey).save(accountKey, snapshot());
+    const vault = new TestVault();
+    const legacyReference = { id: "personal-policy-encryption-key-v1", kind: "local-encryption-key" } as const;
+    await vault.write(legacyReference, userKey.toString("base64"));
+
+    const smoke = await createDefaultPersonalPolicyRepository({
+      dataDirectory: smokeDirectory,
+      credentialVault: vault,
+      platform: "win32",
+    });
+    smoke.save(policyAccountKey({ provider: "gmail", mode: "fixture" }), snapshot());
+    expect(await vault.read(legacyReference)).toBe(userKey.toString("base64"));
+
+    const user = await createDefaultPersonalPolicyRepository({
+      dataDirectory: userDirectory,
+      credentialVault: vault,
+      platform: "win32",
+    });
+    expect(user.load(accountKey)).toEqual(snapshot());
+    expect(await vault.read(legacyReference)).toBe(userKey.toString("base64"));
+    expect(vault.writes.map((item) => item.reference.id)).toEqual(expect.arrayContaining([
+      expect.stringMatching(/^personal-policy-encryption-key-v1:data:[a-f0-9]{64}$/),
+    ]));
+    expect(new Set(vault.writes.map((item) => item.reference.id)).size).toBe(3);
+  });
+
+  it("preserves an unreadable database and gives an explicit recovery boundary", async () => {
+    const directory = temporaryDirectory();
+    const databaseKey = Buffer.alloc(32, 15);
+    const accountKey = policyAccountKey({ provider: "icloud", mode: "fixture" });
+    new EncryptedFilePolicyRepository(directory, databaseKey).save(accountKey, snapshot());
+    const vault = new TestVault();
+    await vault.write(
+      { id: "personal-policy-encryption-key-v1", kind: "local-encryption-key" },
+      Buffer.alloc(32, 16).toString("base64"),
+    );
+
+    await expect(createDefaultPersonalPolicyRepository({
+      dataDirectory: directory,
+      credentialVault: vault,
+      platform: "win32",
+    })).rejects.toThrow(/npm run recover:local-state/i);
+    expect(existsSync(join(directory, "personal-policies.enc.json"))).toBe(true);
+  });
+
   it("migrates a valid legacy key to one local-encryption-key vault record before deleting the raw file", async () => {
     const directory = temporaryDirectory();
     const key = Buffer.alloc(32, 17);
@@ -142,20 +193,30 @@ describe("personal-policy encryption-key vault migration", () => {
     expect(existsSync(join(directory, "personal-policy.key"))).toBe(true);
   });
 
-  it("fails closed if an existing protected key disagrees with the legacy key", async () => {
+  it("replaces an unauthenticated scoped key only after the legacy raw key authenticates the database", async () => {
     const directory = temporaryDirectory();
     const legacyKey = Buffer.alloc(32, 20);
     prepareLegacyDatabase(directory, legacyKey);
     const vault = new TestVault();
     const protectedKey = Buffer.alloc(32, 21).toString("base64");
-    await vault.write({ id: "personal-policy-encryption-key-v1", kind: "local-encryption-key" }, protectedKey);
+    await vault.write(dataBoundCredentialReference(
+      { id: "personal-policy-encryption-key-v1", kind: "local-encryption-key" },
+      directory,
+      "win32",
+    ), protectedKey);
 
-    await expect(createDefaultPersonalPolicyRepository({
+    const repository = await createDefaultPersonalPolicyRepository({
       dataDirectory: directory,
       credentialVault: vault,
       platform: "win32",
-    })).rejects.toThrow();
-    expect(existsSync(join(directory, "personal-policy.key"))).toBe(true);
+    });
+    expect(repository.load(policyAccountKey({ provider: "icloud", mode: "fixture" }))).toEqual(snapshot());
+    expect(existsSync(join(directory, "personal-policy.key"))).toBe(false);
+    expect(await vault.read(dataBoundCredentialReference(
+      { id: "personal-policy-encryption-key-v1", kind: "local-encryption-key" },
+      directory,
+      "win32",
+    ))).toBe(legacyKey.toString("base64"));
   });
 
   it("generates a new protected key without ever creating personal-policy.key", async () => {

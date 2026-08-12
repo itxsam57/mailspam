@@ -2,13 +2,13 @@ import {
   createCipheriv,
   createDecipheriv,
   randomBytes,
-  timingSafeEqual,
 } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import type { CredentialReference, CredentialVault } from "../security/credentialVault.js";
 import { createCredentialVault } from "../security/credentialVaultFactory.js";
+import { resolveDataBoundEncryptionKey } from "../security/dataBoundEncryptionKey.js";
+import { defaultEmailShieldDataDirectory } from "../security/dataDirectory.js";
 import {
   encryptedJsonEnvelopeByteCeiling,
   readBoundedRegularFile,
@@ -20,7 +20,7 @@ const ALGORITHM = "aes-256-gcm";
 const AAD = Buffer.from("email-shield-background-protection-v1", "utf8");
 const KEY_BYTES = 32;
 const MAX_DATABASE_BYTES = 256 * 1024;
-const MAX_ENCRYPTED_DATABASE_BYTES = encryptedJsonEnvelopeByteCeiling(MAX_DATABASE_BYTES);
+export const BACKGROUND_PROTECTION_ENCRYPTED_DATABASE_MAX_BYTES = encryptedJsonEnvelopeByteCeiling(MAX_DATABASE_BYTES);
 const MAX_ACCOUNTS = 128;
 export const MIN_BACKGROUND_INTERVAL_MINUTES = 30;
 export const MAX_BACKGROUND_INTERVAL_MINUTES = 24 * 60;
@@ -82,10 +82,6 @@ export interface BackgroundProtectionRepositoryFactoryOptions {
   dataDirectory?: string;
   credentialVault?: CredentialVault;
   platform?: NodeJS.Platform;
-}
-
-function defaultDataDirectory(): string {
-  return process.env.EMAIL_SHIELD_DATA_DIR?.trim() || join(homedir(), ".email-shield");
 }
 
 function validAccountKey(value: string): boolean {
@@ -262,7 +258,7 @@ export class EncryptedFileBackgroundProtectionRepository implements BackgroundPr
     try {
       const raw = readBoundedRegularFile(this.databasePath, {
         description: "Encrypted background protection file",
-        maxBytes: MAX_ENCRYPTED_DATABASE_BYTES,
+        maxBytes: BACKGROUND_PROTECTION_ENCRYPTED_DATABASE_MAX_BYTES,
       });
       const envelope = JSON.parse(raw.toString("utf8")) as Partial<EncryptedBackgroundProtectionEnvelope>;
       if (Object.keys(envelope).some((field) => !["version", "algorithm", "iv", "authTag", "ciphertext"].includes(field))) {
@@ -320,7 +316,7 @@ export class EncryptedFileBackgroundProtectionRepository implements BackgroundPr
       ciphertext: ciphertext.toString("base64"),
     };
     const serialized = JSON.stringify(envelope);
-    if (Buffer.byteLength(serialized, "utf8") > MAX_ENCRYPTED_DATABASE_BYTES) throw new Error("Encrypted background protection file exceeds its size limit.");
+    if (Buffer.byteLength(serialized, "utf8") > BACKGROUND_PROTECTION_ENCRYPTED_DATABASE_MAX_BYTES) throw new Error("Encrypted background protection file exceeds its size limit.");
     const temporaryPath = `${this.databasePath}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
     writeFileSync(temporaryPath, serialized, { mode: 0o600 });
     replaceFileFromTemporaryPath(temporaryPath, this.databasePath);
@@ -328,25 +324,10 @@ export class EncryptedFileBackgroundProtectionRepository implements BackgroundPr
   }
 }
 
-function decodeKey(secret: string): Buffer {
-  const normalized = secret.trim();
-  const key = Buffer.from(normalized, "base64");
-  if (key.length !== KEY_BYTES || key.toString("base64") !== normalized) throw new Error("Protected background protection key is invalid.");
-  return key;
-}
-
-async function writeAndVerifyKey(vault: CredentialVault, key: Buffer): Promise<void> {
-  await vault.write(KEY_REFERENCE, key.toString("base64"));
-  const stored = await vault.read(KEY_REFERENCE);
-  if (!stored) throw new Error("Protected background protection key write was not readable.");
-  const roundTrip = decodeKey(stored);
-  if (roundTrip.length !== key.length || !timingSafeEqual(roundTrip, key)) throw new Error("Protected background protection key verification failed.");
-}
-
 export async function createDefaultBackgroundProtectionRepository(
   options: BackgroundProtectionRepositoryFactoryOptions = {},
 ): Promise<BackgroundProtectionRepository> {
-  const dataDirectory = options.dataDirectory ?? defaultDataDirectory();
+  const dataDirectory = options.dataDirectory ?? defaultEmailShieldDataDirectory();
   const databasePath = join(dataDirectory, "background-protection.enc.json");
   const platform = options.platform ?? process.platform;
   const vault = options.credentialVault ?? createCredentialVault(platform);
@@ -357,16 +338,19 @@ export async function createDefaultBackgroundProtectionRepository(
     return new InMemoryBackgroundProtectionRepository();
   }
 
-  const stored = await vault.read(KEY_REFERENCE);
-  let key: Buffer;
-  if (stored) key = decodeKey(stored);
-  else {
-    if (databaseExists) throw new Error("Encrypted background protection state exists but its protected key is unavailable.");
-    key = randomBytes(KEY_BYTES);
-    await writeAndVerifyKey(vault, key);
-  }
-
-  const repository = new EncryptedFileBackgroundProtectionRepository(dataDirectory, key);
+  const resolved = await resolveDataBoundEncryptionKey({
+    vault,
+    legacyReference: KEY_REFERENCE,
+    dataDirectory,
+    platform,
+    databaseExists,
+    keyBytes: KEY_BYTES,
+    label: "background protection",
+    validateExistingKey: (candidate) => {
+      new EncryptedFileBackgroundProtectionRepository(dataDirectory, candidate).assertReadable();
+    },
+  });
+  const repository = new EncryptedFileBackgroundProtectionRepository(dataDirectory, resolved.key);
   repository.assertReadable();
   repository.recoverInterrupted();
   return repository;

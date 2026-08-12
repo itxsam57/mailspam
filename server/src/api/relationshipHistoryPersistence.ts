@@ -3,7 +3,6 @@ import {
   createDecipheriv,
   createHmac,
   randomBytes,
-  timingSafeEqual,
 } from "node:crypto";
 import {
   chmodSync,
@@ -11,11 +10,12 @@ import {
   mkdirSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import type { CredentialReference, CredentialVault } from "../security/credentialVault.js";
 import { encryptedJsonEnvelopeByteCeiling, readBoundedRegularFile, replaceFileFromTemporaryPath } from "../util/localFileIntegrity.js";
 import { createCredentialVault } from "../security/credentialVaultFactory.js";
+import { resolveDataBoundEncryptionKey } from "../security/dataBoundEncryptionKey.js";
+import { defaultEmailShieldDataDirectory } from "../security/dataDirectory.js";
 import {
   applyRelationshipObservationToSnapshot,
   cloneRelationshipProfile,
@@ -32,7 +32,7 @@ const MAX_RELATIONSHIPS_PER_ACCOUNT = 20_000;
 const MAX_OBSERVED_MESSAGES_PER_ACCOUNT = 100_000;
 const MAX_REPLY_TO_KEYS = 8;
 const MAX_DATABASE_BYTES = 32 * 1024 * 1024;
-const MAX_ENCRYPTED_DATABASE_BYTES = encryptedJsonEnvelopeByteCeiling(MAX_DATABASE_BYTES);
+export const RELATIONSHIP_HISTORY_ENCRYPTED_DATABASE_MAX_BYTES = encryptedJsonEnvelopeByteCeiling(MAX_DATABASE_BYTES);
 const KEY_REFERENCE: CredentialReference = {
   id: "relationship-history-encryption-key-v1",
   kind: "local-encryption-key",
@@ -78,10 +78,6 @@ const DEFAULT_CAPACITY: RelationshipCapacity = {
   maxRelationships: MAX_RELATIONSHIPS_PER_ACCOUNT,
   maxObservedMessages: MAX_OBSERVED_MESSAGES_PER_ACCOUNT,
 };
-
-function defaultDataDirectory(): string {
-  return process.env.EMAIL_SHIELD_DATA_DIR?.trim() || join(homedir(), ".email-shield");
-}
 
 function validAccountKey(value: string): boolean {
   return /^[a-f0-9]{64}$/.test(value);
@@ -337,7 +333,7 @@ export class EncryptedFileRelationshipHistoryRepository implements RelationshipH
     try {
       const raw = readBoundedRegularFile(this.databasePath, {
         description: "Encrypted relationship-history file",
-        maxBytes: MAX_ENCRYPTED_DATABASE_BYTES,
+        maxBytes: RELATIONSHIP_HISTORY_ENCRYPTED_DATABASE_MAX_BYTES,
       });
       const envelope = JSON.parse(raw.toString("utf8")) as Partial<EncryptedRelationshipEnvelope>;
       if (
@@ -407,7 +403,7 @@ export class EncryptedFileRelationshipHistoryRepository implements RelationshipH
       ciphertext: ciphertext.toString("base64"),
     };
     const serialized = JSON.stringify(envelope);
-    if (Buffer.byteLength(serialized, "utf8") > MAX_ENCRYPTED_DATABASE_BYTES) {
+    if (Buffer.byteLength(serialized, "utf8") > RELATIONSHIP_HISTORY_ENCRYPTED_DATABASE_MAX_BYTES) {
       throw new Error("Encrypted relationship-history file exceeds the local size limit.");
     }
     const temporaryPath = `${this.databasePath}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
@@ -417,35 +413,10 @@ export class EncryptedFileRelationshipHistoryRepository implements RelationshipH
   }
 }
 
-function encodeKey(key: Buffer): string {
-  return key.toString("base64");
-}
-
-function decodeKey(secret: string): Buffer {
-  const normalized = secret.trim();
-  const key = Buffer.from(normalized, "base64");
-  if (key.length !== KEY_BYTES || key.toString("base64") !== normalized) {
-    throw new Error("Protected relationship-history encryption key is invalid.");
-  }
-  return key;
-}
-
-function sameKey(left: Buffer, right: Buffer): boolean {
-  return left.length === right.length && timingSafeEqual(left, right);
-}
-
-async function writeAndVerifyKey(vault: CredentialVault, key: Buffer): Promise<void> {
-  await vault.write(KEY_REFERENCE, encodeKey(key));
-  const stored = await vault.read(KEY_REFERENCE);
-  if (!stored) throw new Error("Protected relationship-history encryption key write was not readable.");
-  const roundTrip = decodeKey(stored);
-  if (!sameKey(key, roundTrip)) throw new Error("Protected relationship-history encryption key verification failed.");
-}
-
 export async function createDefaultRelationshipHistoryRepository(
   options: RelationshipHistoryRepositoryFactoryOptions = {},
 ): Promise<RelationshipHistoryRepository> {
-  const dataDirectory = options.dataDirectory ?? defaultDataDirectory();
+  const dataDirectory = options.dataDirectory ?? defaultEmailShieldDataDirectory();
   const databasePath = join(dataDirectory, "relationship-history.enc.json");
   const platform = options.platform ?? process.platform;
   const vault = options.credentialVault ?? createCredentialVault(platform);
@@ -458,19 +429,19 @@ export async function createDefaultRelationshipHistoryRepository(
     return new InMemoryRelationshipHistoryRepository();
   }
 
-  const protectedSecret = await vault.read(KEY_REFERENCE);
-  let key: Buffer;
-  if (protectedSecret) {
-    key = decodeKey(protectedSecret);
-  } else {
-    if (databaseExists) {
-      throw new Error("Encrypted relationship history exists but its protected encryption key is unavailable.");
-    }
-    key = randomBytes(KEY_BYTES);
-    await writeAndVerifyKey(vault, key);
-  }
-
-  const repository = new EncryptedFileRelationshipHistoryRepository(dataDirectory, key);
+  const resolved = await resolveDataBoundEncryptionKey({
+    vault,
+    legacyReference: KEY_REFERENCE,
+    dataDirectory,
+    platform,
+    databaseExists,
+    keyBytes: KEY_BYTES,
+    label: "relationship history",
+    validateExistingKey: (candidate) => {
+      new EncryptedFileRelationshipHistoryRepository(dataDirectory, candidate).assertReadable();
+    },
+  });
+  const repository = new EncryptedFileRelationshipHistoryRepository(dataDirectory, resolved.key);
   repository.assertReadable();
   return repository;
 }

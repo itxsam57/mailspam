@@ -162,8 +162,8 @@ describe("encrypted relationship history", () => {
     });
     expect(first.persistent).toBe(true);
     expect(vault.writes).toHaveLength(1);
-    expect(vault.writes[0]?.reference).toEqual({
-      id: "relationship-history-encryption-key-v1",
+    expect(vault.writes[0]?.reference).toMatchObject({
+      id: expect.stringMatching(/^relationship-history-encryption-key-v1:data:[a-f0-9]{64}$/),
       kind: "local-encryption-key",
     });
 

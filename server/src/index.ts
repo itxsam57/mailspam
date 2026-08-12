@@ -7,8 +7,7 @@ import { createLocalDesktopServer } from "./api/localDesktopServer.js";
 import { communityNetwork } from "./community/network.js";
 import { ensureManagedDataDirectory } from "./security/managedDataDirectory.js";
 import { getRuntimeCredentialVault } from "./security/credentialVaultFactory.js";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { defaultEmailShieldDataDirectory } from "./security/dataDirectory.js";
 import { FileFixtureConnectionPersistence } from "./api/fixtureConnectionPersistence.js";
 import { sessionStore } from "./api/sessionStore.js";
 
@@ -19,7 +18,7 @@ if (!["127.0.0.1", "localhost", "::1"].includes(HOST)) {
   throw new Error("The Email Shield desktop server may bind only to a loopback host.");
 }
 
-const dataDirectory = process.env.EMAIL_SHIELD_DATA_DIR?.trim() || join(homedir(), ".email-shield");
+const dataDirectory = defaultEmailShieldDataDirectory();
 ensureManagedDataDirectory(dataDirectory);
 
 // Resolve or migrate protected local encryption keys before the desktop API

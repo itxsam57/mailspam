@@ -12,6 +12,8 @@
 8. Run `npm run dev`.
 9. Open the generated `artifacts/engineering/MANUAL_TEST_HANDOFF.md` and `docs/MILESTONE_2_LIVE_ACCEPTANCE.md`.
 
+Gate and smoke data directories use distinct native-vault credential identities and cannot replace the normal profile's local encryption keys. If startup explicitly reports an unavailable historical key, do not delete `.email-shield`; run `npm run recover:local-state` once. The command preserves confirmed unreadable encrypted files and their SHA-256 manifest in a timestamped recovery archive, then `npm run dev` can start clean. The archive remains ciphertext and still requires the original lost key for future decryption.
+
 Build, strict typecheck, unit/API/regression tests, scam-corpus parity, compiled Worker runtime, browser-source/privacy/wiring validation, desktop/community smoke and dependency audits belong to the automated gate. Do not make the owner repeat those tests manually as a substitute for CI evidence.
 
 GitHub Actions runs the Engineering Gate on **Windows, macOS and Ubuntu/Linux**, with real Linux Secret Service coverage, and uploads the verification report/manual handoff.

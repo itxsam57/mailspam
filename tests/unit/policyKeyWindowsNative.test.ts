@@ -13,6 +13,7 @@ import {
   PowerShellWindowsCredentialBridge,
   WindowsCredentialManagerVault,
 } from "../../server/src/security/windowsCredentialManagerVault.js";
+import { dataBoundCredentialReference } from "../../server/src/security/dataBoundEncryptionKey.js";
 
 const POLICY_KEY_REFERENCE: CredentialReference = {
   id: "personal-policy-encryption-key-v1",
@@ -58,6 +59,7 @@ describe("Windows native personal-policy key custody", () => {
           });
         },
       });
+      const dataBoundReference = dataBoundCredentialReference(POLICY_KEY_REFERENCE, directory, "win32");
       try {
         const migrated = await createDefaultPersonalPolicyRepository({
           dataDirectory: directory,
@@ -66,11 +68,11 @@ describe("Windows native personal-policy key custody", () => {
         });
         expect(migrated.load(accountKey).blockedSenders).toEqual(["blocked@example.com"]);
         expect(existsSync(join(directory, "personal-policy.key"))).toBe(false);
-        const protectedSecret = await vault.read(POLICY_KEY_REFERENCE);
+        const protectedSecret = await vault.read(dataBoundReference);
         expect(protectedSecret).not.toBeNull();
         expect(Buffer.from(protectedSecret!, "base64")).toEqual(key);
       } finally {
-        try { await vault.delete(POLICY_KEY_REFERENCE); } finally { nativeBridge.close(); }
+        try { await vault.delete(dataBoundReference); } finally { nativeBridge.close(); }
       }
     },
     30_000,

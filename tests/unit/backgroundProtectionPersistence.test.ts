@@ -85,8 +85,8 @@ describe("protected background protection persistence", () => {
 
     expect(repository.persistent).toBe(true);
     expect(vault.writes).toHaveLength(1);
-    expect(vault.writes[0]?.reference).toEqual({
-      id: "background-protection-encryption-key-v1",
+    expect(vault.writes[0]?.reference).toMatchObject({
+      id: expect.stringMatching(/^background-protection-encryption-key-v1:data:[a-f0-9]{64}$/),
       kind: "local-encryption-key",
     });
     expect(Buffer.from(vault.writes[0]!.secret, "base64")).toHaveLength(32);
@@ -172,7 +172,7 @@ describe("protected background protection persistence", () => {
       dataDirectory: directory,
       credentialVault: vault,
       platform: "win32",
-    })).rejects.toThrow(/encrypted background protection state could not be read/i);
+    })).rejects.toThrow(/cannot be authenticated with its data-bound or legacy key/i);
     expect(existsSync(path)).toBe(true);
   });
 });

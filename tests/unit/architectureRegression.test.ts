@@ -96,6 +96,7 @@ describe("transport architecture regressions", () => {
     const desktopServer = read("server/src/api/localDesktopServer.ts");
     const sessions = read("server/src/api/sessionStore.ts");
     const persistence = read("server/src/api/policyPersistence.ts");
+    const dataDirectory = read("server/src/security/dataDirectory.ts");
     const monitor = read("web/scan-monitor.js");
 
     expect(sessions).toContain("policyStores = new Map");
@@ -107,7 +108,8 @@ describe("transport architecture regressions", () => {
     expect(server).toContain("persistent: sessionStore.personalPolicyPersistent()");
     expect(server).not.toContain("persisted: true");
     expect(persistence).toContain('const ALGORITHM = "aes-256-gcm"');
-    expect(persistence).toContain('join(homedir(), ".email-shield")');
+    expect(persistence).toContain("defaultEmailShieldDataDirectory()");
+    expect(dataDirectory).toContain('join(homedir(), ".email-shield")');
     expect(persistence).toContain("personal-policies.enc.json");
     expect(persistence).toContain("unsubscribedActions");
     expect(persistence).not.toContain("appPassword:");

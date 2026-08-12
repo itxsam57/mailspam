@@ -38,7 +38,7 @@ The desktop API is loopback-only and protected by:
 - restrictive CSP, anti-framing and browser capability headers;
 - credential/OAuth/JWT-like response redaction.
 
-Supported native secret custody is Windows Credential Manager, macOS Keychain and Linux Secret Service. Missing native custody fails closed instead of creating a plaintext fallback.
+Supported native secret custody is Windows Credential Manager, macOS Keychain and Linux Secret Service. Each local encryption key is bound to the normalized absolute data directory, so a gate, smoke test or alternate installation cannot replace the key for the normal user profile. Missing native custody fails closed instead of creating a plaintext fallback.
 
 ## Detection architecture
 
@@ -68,6 +68,7 @@ Email Shield supports manual web/mailto unsubscribe plus RFC 8058 one-click. Aut
 - Relationship history stores only HMAC identities and bounded aggregate observations; it never becomes an allowlist or positive trust score.
 - Thread continuity uses bounded RFC `In-Reply-To` / `References` observations and deletes raw identifiers before scoring/browser output.
 - Local encrypted/security-sensitive persistence reads are descriptor-bound and size-bounded before allocation; failed atomic replacement preserves the last good database.
+- If an encrypted local-state file can no longer authenticate because its original native-vault key is unavailable, startup preserves it and names `npm run recover:local-state`. That explicit command archives only confirmed unreadable ciphertext with an integrity manifest before allowing clean state; it does not claim to decrypt data without the original key.
 
 ## Links, HTML, QR and attachments
 

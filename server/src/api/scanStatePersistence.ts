@@ -2,7 +2,6 @@ import {
   createCipheriv,
   createDecipheriv,
   randomBytes,
-  timingSafeEqual,
 } from "node:crypto";
 import {
   chmodSync,
@@ -10,11 +9,12 @@ import {
   mkdirSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import type { CredentialReference, CredentialVault } from "../security/credentialVault.js";
 import { encryptedJsonEnvelopeByteCeiling, readBoundedRegularFile, replaceFileFromTemporaryPath } from "../util/localFileIntegrity.js";
 import { createCredentialVault } from "../security/credentialVaultFactory.js";
+import { resolveDataBoundEncryptionKey } from "../security/dataBoundEncryptionKey.js";
+import { defaultEmailShieldDataDirectory } from "../security/dataDirectory.js";
 import type { ScanCounters } from "../workflows/scanWorkflows.js";
 
 const DATABASE_VERSION = 1;
@@ -26,7 +26,7 @@ const MAX_CURSOR_BYTES = 16 * 1024;
 const MAX_HASHES = 50_000;
 const MAX_COMPLETED_FOLDERS = 256;
 const MAX_DATABASE_BYTES = 8 * 1024 * 1024;
-const MAX_ENCRYPTED_DATABASE_BYTES = encryptedJsonEnvelopeByteCeiling(MAX_DATABASE_BYTES);
+export const SCAN_STATE_ENCRYPTED_DATABASE_MAX_BYTES = encryptedJsonEnvelopeByteCeiling(MAX_DATABASE_BYTES);
 const KEY_REFERENCE: CredentialReference = {
   id: "scan-history-encryption-key-v1",
   kind: "local-encryption-key",
@@ -79,10 +79,6 @@ export interface ScanStateRepositoryFactoryOptions {
   dataDirectory?: string;
   credentialVault?: CredentialVault;
   platform?: NodeJS.Platform;
-}
-
-function defaultDataDirectory(): string {
-  return process.env.EMAIL_SHIELD_DATA_DIR?.trim() || join(homedir(), ".email-shield");
 }
 
 export function emptyScanCounters(): ScanCounters {
@@ -322,7 +318,7 @@ export class EncryptedFileScanStateRepository implements ScanStateRepository {
     try {
       const raw = readBoundedRegularFile(this.databasePath, {
         description: "Encrypted scan-state file",
-        maxBytes: MAX_ENCRYPTED_DATABASE_BYTES,
+        maxBytes: SCAN_STATE_ENCRYPTED_DATABASE_MAX_BYTES,
       });
       const envelope = JSON.parse(raw.toString("utf8")) as Partial<EncryptedScanStateEnvelope>;
       if (
@@ -375,7 +371,7 @@ export class EncryptedFileScanStateRepository implements ScanStateRepository {
       ciphertext: ciphertext.toString("base64"),
     };
     const serialized = JSON.stringify(envelope);
-    if (Buffer.byteLength(serialized, "utf8") > MAX_ENCRYPTED_DATABASE_BYTES) {
+    if (Buffer.byteLength(serialized, "utf8") > SCAN_STATE_ENCRYPTED_DATABASE_MAX_BYTES) {
       throw new Error("Encrypted scan-state file exceeds the local size limit.");
     }
     const temporaryPath = `${this.databasePath}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
@@ -385,35 +381,10 @@ export class EncryptedFileScanStateRepository implements ScanStateRepository {
   }
 }
 
-function encodeKey(key: Buffer): string {
-  return key.toString("base64");
-}
-
-function decodeKey(secret: string): Buffer {
-  const normalized = secret.trim();
-  const key = Buffer.from(normalized, "base64");
-  if (key.length !== KEY_BYTES || key.toString("base64") !== normalized) {
-    throw new Error("Protected scan-state encryption key is invalid.");
-  }
-  return key;
-}
-
-function sameKey(left: Buffer, right: Buffer): boolean {
-  return left.length === right.length && timingSafeEqual(left, right);
-}
-
-async function writeAndVerifyKey(vault: CredentialVault, key: Buffer): Promise<void> {
-  await vault.write(KEY_REFERENCE, encodeKey(key));
-  const stored = await vault.read(KEY_REFERENCE);
-  if (!stored) throw new Error("Protected scan-state encryption key write was not readable.");
-  const roundTrip = decodeKey(stored);
-  if (!sameKey(key, roundTrip)) throw new Error("Protected scan-state encryption key verification failed.");
-}
-
 export async function createDefaultScanStateRepository(
   options: ScanStateRepositoryFactoryOptions = {},
 ): Promise<ScanStateRepository> {
-  const dataDirectory = options.dataDirectory ?? defaultDataDirectory();
+  const dataDirectory = options.dataDirectory ?? defaultEmailShieldDataDirectory();
   const databasePath = join(dataDirectory, "scan-state.enc.json");
   const platform = options.platform ?? process.platform;
   const vault = options.credentialVault ?? createCredentialVault(platform);
@@ -426,19 +397,19 @@ export async function createDefaultScanStateRepository(
     return new InMemoryScanStateRepository();
   }
 
-  const protectedSecret = await vault.read(KEY_REFERENCE);
-  let key: Buffer;
-  if (protectedSecret) {
-    key = decodeKey(protectedSecret);
-  } else {
-    if (databaseExists) {
-      throw new Error("Encrypted scan history exists but its protected encryption key is unavailable.");
-    }
-    key = randomBytes(KEY_BYTES);
-    await writeAndVerifyKey(vault, key);
-  }
-
-  const repository = new EncryptedFileScanStateRepository(dataDirectory, key);
+  const resolved = await resolveDataBoundEncryptionKey({
+    vault,
+    legacyReference: KEY_REFERENCE,
+    dataDirectory,
+    platform,
+    databaseExists,
+    keyBytes: KEY_BYTES,
+    label: "scan history",
+    validateExistingKey: (candidate) => {
+      new EncryptedFileScanStateRepository(dataDirectory, candidate).assertReadable();
+    },
+  });
+  const repository = new EncryptedFileScanStateRepository(dataDirectory, resolved.key);
   repository.assertReadable();
   repository.recoverInterrupted();
   return repository;

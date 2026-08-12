@@ -401,7 +401,7 @@ export function uninstallRelease({ installRoot, dataRoot = null, purgeData = fal
     if (data === root || data.startsWith(`${root}${sep}`) || root.startsWith(`${data}${sep}`)) {
       throw new Error("Install and data roots must be independent managed directories.");
     }
-    const knownDataName = /^(?:\.email-shield-data\.json|personal-(?:policies\.enc\.json|policy\.key)|scan-state(?:\.enc\.json|\.key)|relationship-history(?:\.enc\.json|\.key)|background-protection(?:\.enc\.json|\.key)|community-[a-z0-9.-]+)$/;
+    const knownDataName = /^(?:\.email-shield-data\.json|personal-(?:policies\.enc\.json|policy\.key)|scan-state(?:\.enc\.json|\.key)|relationship-history(?:\.enc\.json|\.key)|background-protection(?:\.enc\.json|\.key)|community-[a-z0-9.-]+|local-state-recovery-[0-9TZ.-]+-[a-f0-9]{8})$/;
     const unknown = readdirSync(data).filter((name) => !knownDataName.test(name));
     if (unknown.length) throw new Error("Data root contains files not owned by Email Shield; refusing recursive purge.");
     rmSync(data, { recursive: true, force: true });

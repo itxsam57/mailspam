@@ -12,11 +12,15 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import type { PersonalPolicySnapshot } from "../engine/layers/personalRules.js";
 import type { CredentialReference, CredentialVault } from "../security/credentialVault.js";
 import { createCredentialVault } from "../security/credentialVaultFactory.js";
+import {
+  dataBoundCredentialReference,
+  resolveDataBoundEncryptionKey,
+} from "../security/dataBoundEncryptionKey.js";
+import { defaultEmailShieldDataDirectory } from "../security/dataDirectory.js";
 import { encryptedJsonEnvelopeByteCeiling, readBoundedRegularFile, readBoundedUtf8File, replaceFileFromTemporaryPath } from "../util/localFileIntegrity.js";
 import type { AdapterConfig } from "./adapterConfig.js";
 
@@ -25,7 +29,7 @@ const ALGORITHM = "aes-256-gcm";
 const AAD = Buffer.from("email-shield-personal-policy-v1", "utf8");
 const MAX_RULES_PER_LIST = 10_000;
 const MAX_POLICY_PLAINTEXT_BYTES = 64 * 1024 * 1024;
-const MAX_POLICY_ENCRYPTED_FILE_BYTES = encryptedJsonEnvelopeByteCeiling(MAX_POLICY_PLAINTEXT_BYTES);
+export const POLICY_ENCRYPTED_DATABASE_MAX_BYTES = encryptedJsonEnvelopeByteCeiling(MAX_POLICY_PLAINTEXT_BYTES);
 const POLICY_KEY_BYTES = 32;
 const POLICY_KEY_REFERENCE: CredentialReference = {
   id: "personal-policy-encryption-key-v1",
@@ -55,10 +59,6 @@ export interface PersonalPolicyRepositoryFactoryOptions {
   dataDirectory?: string;
   credentialVault?: CredentialVault;
   platform?: NodeJS.Platform;
-}
-
-function defaultDataDirectory(): string {
-  return process.env.EMAIL_SHIELD_DATA_DIR?.trim() || join(homedir(), ".email-shield");
 }
 
 function emptySnapshot(): PersonalPolicySnapshot {
@@ -132,7 +132,7 @@ export class EncryptedFilePolicyRepository implements PersonalPolicyRepository {
   private readonly encryptionKey: Buffer;
 
   constructor(
-    dataDirectory = defaultDataDirectory(),
+    dataDirectory = defaultEmailShieldDataDirectory(),
     encryptionKey: Buffer,
   ) {
     if (!Buffer.isBuffer(encryptionKey) || encryptionKey.length !== POLICY_KEY_BYTES) {
@@ -171,7 +171,7 @@ export class EncryptedFilePolicyRepository implements PersonalPolicyRepository {
     try {
       const envelope = JSON.parse(readBoundedUtf8File(this.databasePath, {
         description: "Encrypted personal-policy database",
-        maxBytes: MAX_POLICY_ENCRYPTED_FILE_BYTES,
+        maxBytes: POLICY_ENCRYPTED_DATABASE_MAX_BYTES,
       })) as Partial<EncryptedPolicyEnvelope>;
       if (
         envelope.version !== DATABASE_VERSION ||
@@ -228,7 +228,7 @@ export class EncryptedFilePolicyRepository implements PersonalPolicyRepository {
       ciphertext: ciphertext.toString("base64"),
     };
     const serialized = JSON.stringify(envelope);
-    if (Buffer.byteLength(serialized, "utf8") > MAX_POLICY_ENCRYPTED_FILE_BYTES) {
+    if (Buffer.byteLength(serialized, "utf8") > POLICY_ENCRYPTED_DATABASE_MAX_BYTES) {
       throw new Error("Encrypted personal-policy database exceeds the local size limit.");
     }
     const temporaryPath = `${this.databasePath}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
@@ -270,10 +270,11 @@ function sameKey(left: Buffer, right: Buffer): boolean {
 
 async function writeAndVerifyProtectedPolicyKey(
   vault: CredentialVault,
+  reference: CredentialReference,
   key: Buffer,
 ): Promise<void> {
-  await vault.write(POLICY_KEY_REFERENCE, encodePolicyKey(key));
-  const stored = await vault.read(POLICY_KEY_REFERENCE);
+  await vault.write(reference, encodePolicyKey(key));
+  const stored = await vault.read(reference);
   if (!stored) throw new Error("Protected personal-policy encryption key write was not readable.");
   const roundTrip = decodePolicyKey(stored);
   if (!sameKey(key, roundTrip)) {
@@ -296,7 +297,7 @@ async function writeAndVerifyProtectedPolicyKey(
 export async function createDefaultPersonalPolicyRepository(
   options: PersonalPolicyRepositoryFactoryOptions = {},
 ): Promise<PersonalPolicyRepository> {
-  const dataDirectory = options.dataDirectory ?? defaultDataDirectory();
+  const dataDirectory = options.dataDirectory ?? defaultEmailShieldDataDirectory();
   const keyPath = join(dataDirectory, "personal-policy.key");
   const databasePath = join(dataDirectory, "personal-policies.enc.json");
   const platform = options.platform ?? process.platform;
@@ -305,31 +306,27 @@ export async function createDefaultPersonalPolicyRepository(
   const databaseExists = existsSync(databasePath);
 
   if (vault.capabilities().available) {
-    const protectedSecret = await vault.read(POLICY_KEY_REFERENCE);
-    if (protectedSecret) {
-      const protectedKey = decodePolicyKey(protectedSecret);
-      const repository = new EncryptedFilePolicyRepository(dataDirectory, protectedKey);
-      repository.assertReadable();
-
-      if (legacyExists) {
-        const legacyKey = readLegacyPolicyKey(keyPath);
-        if (!sameKey(protectedKey, legacyKey)) {
-          throw new Error("Protected and legacy personal-policy encryption keys disagree; the legacy key file was preserved.");
-        }
-        try {
-          rmSync(keyPath);
-        } catch {
-          throw new Error("Protected personal-policy key is valid, but the legacy plaintext key file could not be removed.");
-        }
-      }
-      return repository;
-    }
-
+    const scopedReference = dataBoundCredentialReference(POLICY_KEY_REFERENCE, dataDirectory, platform);
     if (legacyExists) {
       const legacyKey = readLegacyPolicyKey(keyPath);
       const repository = new EncryptedFilePolicyRepository(dataDirectory, legacyKey);
       repository.assertReadable();
-      await writeAndVerifyProtectedPolicyKey(vault, legacyKey);
+      const scopedSecret = await vault.read(scopedReference);
+      if (scopedSecret) {
+        let scopedKey: Buffer | null = null;
+        try { scopedKey = decodePolicyKey(scopedSecret); } catch {}
+        if (scopedKey && !sameKey(scopedKey, legacyKey)) {
+          let scopedAuthenticates = false;
+          try {
+            new EncryptedFilePolicyRepository(dataDirectory, scopedKey).assertReadable();
+            scopedAuthenticates = databaseExists;
+          } catch {}
+          if (scopedAuthenticates) {
+            throw new Error("Data-bound and legacy personal-policy encryption keys disagree; the legacy key file was preserved.");
+          }
+        }
+      }
+      await writeAndVerifyProtectedPolicyKey(vault, scopedReference, legacyKey);
       try {
         rmSync(keyPath);
       } catch {
@@ -338,13 +335,19 @@ export async function createDefaultPersonalPolicyRepository(
       return repository;
     }
 
-    if (databaseExists) {
-      throw new Error("Encrypted personal policies exist but their protected encryption key is unavailable.");
-    }
-
-    const generated = randomBytes(POLICY_KEY_BYTES);
-    await writeAndVerifyProtectedPolicyKey(vault, generated);
-    return new EncryptedFilePolicyRepository(dataDirectory, generated);
+    const resolved = await resolveDataBoundEncryptionKey({
+      vault,
+      legacyReference: POLICY_KEY_REFERENCE,
+      dataDirectory,
+      platform,
+      databaseExists,
+      keyBytes: POLICY_KEY_BYTES,
+      label: "personal policy",
+      validateExistingKey: (candidate) => {
+        new EncryptedFilePolicyRepository(dataDirectory, candidate).assertReadable();
+      },
+    });
+    return new EncryptedFilePolicyRepository(dataDirectory, resolved.key);
   }
 
   if (legacyExists) {

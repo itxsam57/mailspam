@@ -99,8 +99,8 @@ describe("encrypted resumable scan-state persistence", () => {
 
     expect(repository.persistent).toBe(true);
     expect(vault.writes).toHaveLength(1);
-    expect(vault.writes[0]?.reference).toEqual({
-      id: "scan-history-encryption-key-v1",
+    expect(vault.writes[0]?.reference).toMatchObject({
+      id: expect.stringMatching(/^scan-history-encryption-key-v1:data:[a-f0-9]{64}$/),
       kind: "local-encryption-key",
     });
     expect(Buffer.from(vault.writes[0]!.secret, "base64")).toHaveLength(32);

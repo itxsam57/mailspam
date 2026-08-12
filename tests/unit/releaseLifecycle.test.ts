@@ -164,6 +164,9 @@ describe("signed release installation, update and rollback lifecycle", () => {
     mkdirSync(dataRoot, { recursive: true });
     writeFileSync(join(dataRoot, DATA_MARKER_FILE), dataMarker());
     writeFileSync(join(dataRoot, "personal-policies.enc.json"), "protected-state");
+    const recovery = join(dataRoot, "local-state-recovery-2026-08-12T12-34-56-789Z-0123abcd");
+    mkdirSync(recovery);
+    writeFileSync(join(recovery, "recovery-manifest.json"), "preserved-recovery-state");
 
     installRelease({ ...release, trustStorePath, installRoot });
     expect(uninstallRelease({ installRoot }).dataPurged).toBe(false);
