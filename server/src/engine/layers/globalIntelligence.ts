@@ -1,5 +1,6 @@
 import type { CanonicalEnvelope } from "../../canonical/envelope.js";
 import { LEGITIMATE_RULE_PREFIX } from "../../community/feedback.js";
+import { FAMILY_FEED_RULE_PREFIX } from "../../platform/familyThreatProtocol.js";
 import {
   authenticationPassed,
   authenticatedSenderIdentityDomains,
@@ -136,6 +137,21 @@ export function globalIntelligenceLayer(
     if (entry.type === "campaign" && expected === messageCampaignFingerprint) hit = true;
 
     if (hit) {
+      const familyRule = entry.type === "campaign" && entry.ruleId.startsWith(FAMILY_FEED_RULE_PREFIX);
+      if (familyRule) {
+        if (entry.confirmedThreat) confirmed = true;
+        evidence.push({
+          layer: "global_intelligence",
+          code: entry.confirmedThreat ? "FAMILY_CONFIRMED_MATCH" : "FAMILY_WARNING_MATCH",
+          description: entry.confirmedThreat
+            ? "Matched a confirmed private Family Shield campaign. The family rule is scoped to this Shield Circle and does not create global community consensus."
+            : "Matched a private Family Shield warning. The family rule is scoped to this Shield Circle and is quarantined reversibly while awaiting stronger family confirmation.",
+          scoreContribution: entry.confirmedThreat ? 10 : 3,
+          source: "signed_feed",
+        });
+        continue;
+      }
+
       const legitimateConsensus = entry.type === "campaign" &&
         entry.confirmedThreat === false &&
         entry.ruleId.startsWith(LEGITIMATE_RULE_PREFIX);
