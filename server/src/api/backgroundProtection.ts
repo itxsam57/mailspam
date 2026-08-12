@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Worker } from "node:worker_threads";
 import type { CommunityNetwork } from "../community/network.js";
-import type { ScanProgress } from "../workflows/scanWorkflows.js";
+import type { ScanProgress, ScanCounters } from "../workflows/scanWorkflows.js";
 import type { AccountPlatformService } from "../platform/accountFamilyService.js";
 import { mergeVerifiedAndFamilyIntelligence } from "../platform/familyThreatFeedAdapter.js";
 import { defaultRelationshipHistoryRepository } from "./defaultRelationshipHistoryRepository.js";
@@ -223,6 +223,15 @@ export class WorkerBackgroundProtectionExecutor implements BackgroundProtectionE
   ) {}
 
   async execute(session: AccountSession): Promise<void> {
+    await this.executeWithSummary(session);
+  }
+
+  /**
+   * One authoritative bounded Worker protection path shared by scheduled and
+   * near-real-time triggers. Realtime may consume the counters, but it does not
+   * get a separate scanner, policy model or threat-feed path.
+   */
+  async executeWithSummary(session: AccountSession): Promise<ScanCounters> {
     if (session.activeScanWorker) throw new BackgroundProtectionRunError("scan_conflict", "An account scan is already active.");
     const now = Date.now();
     const record: ScanHistoryRecord = {
@@ -372,6 +381,8 @@ export class WorkerBackgroundProtectionExecutor implements BackgroundProtectionE
     }).finally(() => {
       if (session.activeScanWorker === worker) session.activeScanWorker = null;
     });
+
+    return { ...record.counters };
   }
 }
 
