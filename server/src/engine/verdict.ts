@@ -44,6 +44,12 @@ export function computeVerdict(params: {
   boundedContentAllowsSafe?: boolean;
   /** Explicit approval of this exact message, never a sender/domain allowlist. */
   exactMessageApprovedByUser?: boolean;
+  /**
+   * Authenticated campaign/sender learning may suppress only a borderline
+   * Review made entirely from weak context. The pipeline computes this guard;
+   * this function still refuses High Risk, confirmed, or unavailable content.
+   */
+  adaptiveLegitimateAllowsSafe?: boolean;
 }): ScoredMessage {
   const {
     parseStatus,
@@ -51,6 +57,7 @@ export function computeVerdict(params: {
     confirmedByRule,
     boundedContentAllowsSafe = false,
     exactMessageApprovedByUser = false,
+    adaptiveLegitimateAllowsSafe = false,
   } = params;
 
   const evidence = layerResults.flatMap((layer) => layer.evidence);
@@ -71,6 +78,9 @@ export function computeVerdict(params: {
   }
   if (score >= HIGH_RISK_THRESHOLD) {
     return { score, evidence, verdict: "high_risk", confirmedByRule: false, layerResults };
+  }
+  if (adaptiveLegitimateAllowsSafe && !hasUnavailableContent) {
+    return { score, evidence, verdict: "safe", confirmedByRule: false, layerResults };
   }
   if (score >= REVIEW_THRESHOLD) {
     return { score, evidence, verdict: "review", confirmedByRule: false, layerResults };
