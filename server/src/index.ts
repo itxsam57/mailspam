@@ -6,6 +6,7 @@ import { createBackgroundProtectionCoordinator } from "./api/backgroundProtectio
 import { createLocalDesktopServer } from "./api/localDesktopServer.js";
 import { communityNetwork } from "./community/network.js";
 import { ensureManagedDataDirectory } from "./security/managedDataDirectory.js";
+import { getRuntimeCredentialVault } from "./security/credentialVaultFactory.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -19,12 +20,14 @@ if (!["127.0.0.1", "localhost", "::1"].includes(HOST)) {
 ensureManagedDataDirectory(process.env.EMAIL_SHIELD_DATA_DIR?.trim() || join(homedir(), ".email-shield"));
 
 // Resolve or migrate protected local encryption keys before the desktop API
-// becomes reachable. Native-vault failures therefore stop startup instead of
-// silently recreating plaintext keys or discarding encrypted local state.
-await initializeDefaultPersonalPolicyRepository();
-await initializeDefaultScanStateRepository();
-await initializeDefaultRelationshipHistoryRepository();
-await initializeDefaultBackgroundProtectionRepository();
+// becomes reachable. One native runtime vault is shared across every protected
+// repository and provider session so Windows initializes its trusted helper
+// once instead of recompiling it for each credential operation.
+const credentialVault = getRuntimeCredentialVault();
+await initializeDefaultPersonalPolicyRepository({ credentialVault });
+await initializeDefaultScanStateRepository({ credentialVault });
+await initializeDefaultRelationshipHistoryRepository({ credentialVault });
+await initializeDefaultBackgroundProtectionRepository({ credentialVault });
 
 const backgroundProtection = createBackgroundProtectionCoordinator(communityNetwork);
 backgroundProtection.start();
