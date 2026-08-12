@@ -1,4 +1,5 @@
 import { generateKeyPairSync, sign } from "node:crypto";
+import { accountRegistrationStatement } from "../../server/dist/accountService/protocol.js";
 import { createAccountServiceServer } from "../../server/dist/accountService/server.js";
 import { SharedAccountFamilyService } from "../../server/dist/accountService/service.js";
 import { InMemoryAccountServiceStore } from "../../server/dist/accountService/store.js";
@@ -11,14 +12,12 @@ const identity = {
   platform: "desktop",
   label: "Compiled smoke device",
 };
-const registered = {
-  ...identity,
-  deviceId: deriveDeviceId(identity),
-  createdAt: 1,
-  lastSeenAt: 1,
-  revokedAt: null,
-};
+const deviceId = deriveDeviceId(identity);
 const accountId = "acct_smoke-account-0001";
+const username = "compiled.smoke";
+const recoveryCodeHash = hashRecoveryCode("compiled-smoke-recovery-code-123456789");
+const registrationStatement = accountRegistrationStatement({ accountId, username, recoveryCodeHash, deviceId });
+const registrationProof = sign(null, Buffer.from(registrationStatement, "utf8"), pair.privateKey).toString("base64");
 const adminToken = "account-service-smoke-admin-token-1234567890";
 const service = new SharedAccountFamilyService(new InMemoryAccountServiceStore());
 const app = createAccountServiceServer(service, { adminToken, allowDevelopmentEntitlements: true });
@@ -53,9 +52,10 @@ try {
 
   await request("/v1/accounts/register", {
     accountId,
-    username: "compiled.smoke",
-    recoveryCodeHash: hashRecoveryCode("compiled-smoke-recovery-code-123456789"),
-    device: registered,
+    username,
+    recoveryCodeHash,
+    device: identity,
+    deviceProof: registrationProof,
   }, { expect: 201 });
 
   await request(`/v1/internal/entitlements/${accountId}`, {
@@ -74,7 +74,7 @@ try {
 
   const challenge = await request("/v1/auth/challenge", {
     accountId,
-    deviceId: registered.deviceId,
+    deviceId,
     operation: "family:create",
   }, { expect: 200 });
   const signature = sign(null, Buffer.from(challenge.body.challenge, "utf8"), pair.privateKey).toString("base64");
@@ -88,7 +88,7 @@ try {
 
   const forbidden = await request("/v1/auth/challenge", {
     accountId,
-    deviceId: registered.deviceId,
+    deviceId,
     operation: "snapshot",
     subject: "raw email content must be rejected",
   }, { expect: 400 });
@@ -97,7 +97,7 @@ try {
   }
 
   console.log(`Compiled account/Family Shield service smoke passed at ${baseUrl}.`);
-  console.log("Device-signed authentication, Family entitlement, family creation, and raw-mail rejection passed.");
+  console.log("Signed registration, device-signed authentication, Family entitlement, family creation, and raw-mail rejection passed.");
 } finally {
   await new Promise((resolve) => server.close(() => resolve()));
 }
