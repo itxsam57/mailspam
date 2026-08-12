@@ -1,6 +1,8 @@
 import type { Express, Request, Response } from "express";
-import { createAdapter } from "./adapterConfig.js";
-import { ReviewActionConflictError, sessionStore } from "./sessionStore.js";
+import type { EmailAdapter } from "../canonical/adapter.js";
+import type { SecureAdapterConfig } from "../security/secureAdapterConfig.js";
+import { createAdapter, type AdapterConfig } from "./adapterConfig.js";
+import { ReviewActionConflictError, SessionStore, sessionStore } from "./sessionStore.js";
 import { communityNetwork, type CommunityNetwork } from "../community/network.js";
 import {
   USER_BLOCKED_MESSAGE_CODE,
@@ -13,6 +15,12 @@ import {
   normalizeSenderDomain,
 } from "../workflows/blockAndCleanup.js";
 import type { CommunityReportContext, CommunityReportReceipt } from "../community/types.js";
+
+export interface ProtectionActionRouteDependencies {
+  sessions?: SessionStore;
+  community?: CommunityNetwork;
+  adapterFactory?: (config: AdapterConfig | SecureAdapterConfig) => EmailAdapter;
+}
 
 function actionError(error: unknown): { status: number; message: string } {
   return {
@@ -48,12 +56,13 @@ function legitimateLearningContext(context: CommunityReportContext): CommunityRe
 }
 
 async function moveCurrentMessageToTrash(
-  session: NonNullable<ReturnType<typeof sessionStore.get>>,
+  session: NonNullable<ReturnType<SessionStore["get"]>>,
   providerNativeId: string,
+  adapterFactory: ProtectionActionRouteDependencies["adapterFactory"],
 ): Promise<{ movedCurrent: boolean; moveError?: string }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 35_000);
-  const adapter = createAdapter(session.config);
+  const adapter = (adapterFactory ?? createAdapter)(session.config);
   try {
     await adapter.connect(controller.signal);
     const result = await moveMessagesToTrash(adapter, [providerNativeId], controller.signal);
@@ -89,10 +98,13 @@ async function submitLearning(
 
 export function registerProtectionActionRoutes(
   app: Express,
-  community: CommunityNetwork = communityNetwork,
+  dependencies: ProtectionActionRouteDependencies = {},
 ): void {
+  const sessions = dependencies.sessions ?? sessionStore;
+  const community = dependencies.community ?? communityNetwork;
+
   const block = (scope: "sender" | "domain") => async (req: Request, res: Response) => {
-    const session = sessionStore.get(req.params.id!);
+    const session = sessions.get(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
 
     let action;
@@ -100,44 +112,44 @@ export function registerProtectionActionRoutes(
       // Block is also the disposal transaction for the selected message. Using
       // the existing opaque Trash operation gives duplicate/stale tabs one
       // atomic 409 boundary without trusting sender/domain values from JS.
-      action = sessionStore.claimReviewAction(session, (req.body as { token?: unknown }).token, "trash");
+      action = sessions.claimReviewAction(session, (req.body as { token?: unknown }).token, "trash");
     } catch (error) {
       const detail = actionError(error);
       return res.status(detail.status).json({ error: detail.message });
     }
 
     if (!action.senderAddress) {
-      sessionStore.releaseReviewAction(action, "trash");
+      sessions.releaseReviewAction(action, "trash");
       return res.status(400).json({ error: "This message does not contain a usable sender address." });
     }
 
     const address = normalizeSenderAddress(action.senderAddress);
     const value = scope === "sender" ? address : senderDomain(address);
     if (scope === "domain" && isSharedMailboxDomain(value)) {
-      sessionStore.releaseReviewAction(action, "trash");
+      sessions.releaseReviewAction(action, "trash");
       return res.status(409).json({
         error: `Domain-wide blocking is disabled for shared mailbox domain ${value}. Block the exact sender instead.`,
       });
     }
 
     try {
-      sessionStore.mutateAndPersistPersonalPolicy(session, (policy) => {
+      sessions.mutateAndPersistPersonalPolicy(session, (policy) => {
         if (scope === "sender") policy.blockSender(value);
         else policy.blockDomain(value);
       });
     } catch (error) {
-      sessionStore.releaseReviewAction(action, "trash");
+      sessions.releaseReviewAction(action, "trash");
       return res.status(500).json({
         error: `${scope === "sender" ? "Sender" : "Domain"} block was not saved: ${error instanceof Error ? error.message : String(error)}`,
       });
     }
 
-    const move = await moveCurrentMessageToTrash(session, action.providerNativeId);
+    const move = await moveCurrentMessageToTrash(session, action.providerNativeId, dependencies.adapterFactory);
     if (!move.movedCurrent) {
       // The durable block is already authoritative and must never be rolled
       // back because a provider move was transiently unavailable. Releasing
       // the token permits an explicit retry of the current-message disposal.
-      sessionStore.releaseReviewAction(action, "trash");
+      sessions.releaseReviewAction(action, "trash");
     }
 
     const learning = await submitLearning(
@@ -149,7 +161,7 @@ export function registerProtectionActionRoutes(
     noStore(res);
     return res.status(move.movedCurrent ? 200 : 207).json({
       blocked: true,
-      persisted: sessionStore.personalPolicyPersistent(),
+      persisted: sessions.personalPolicyPersistent(),
       scope,
       value,
       accountId: session.id,
@@ -169,14 +181,14 @@ export function registerProtectionActionRoutes(
   app.post("/api/accounts/:id/messages/block-domain", block("domain"));
 
   app.post("/api/accounts/:id/messages/legitimate-feedback", async (req: Request, res: Response) => {
-    const session = sessionStore.get(req.params.id!);
+    const session = sessions.get(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
 
     let action;
     try {
       // A positive campaign decision and Report Scam are mutually exclusive for
       // the same stale scan card. A rescan is required to reverse that judgment.
-      action = sessionStore.claimReviewAction(session, (req.body as { token?: unknown }).token, "report_scam");
+      action = sessions.claimReviewAction(session, (req.body as { token?: unknown }).token, "report_scam");
     } catch (error) {
       const detail = actionError(error);
       return res.status(detail.status).json({ error: detail.message });
@@ -197,7 +209,7 @@ export function registerProtectionActionRoutes(
         independentReporters: receipt.independentReporters,
       });
     } catch (error) {
-      sessionStore.releaseReviewAction(action, "report_scam");
+      sessions.releaseReviewAction(action, "report_scam");
       noStore(res);
       return res.status(502).json({
         error: `Legitimate feedback could not be queued: ${error instanceof Error ? error.message : String(error)}`,
