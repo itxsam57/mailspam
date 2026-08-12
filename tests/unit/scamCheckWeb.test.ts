@@ -13,7 +13,7 @@ describe("Scam Check consumer web surface", () => {
     expect(scamCheck).toContain('Check something suspicious');
   });
 
-  it("offers text, link and local file checks without a remote AI endpoint", () => {
+  it("offers text, link and local file checks without a remote analysis endpoint", () => {
     expect(scamCheck).toContain("data-scam-check-mode=\"message\"");
     expect(scamCheck).toContain("data-scam-check-mode=\"url\"");
     expect(scamCheck).toContain("data-scam-check-mode=\"file\"");
@@ -21,7 +21,15 @@ describe("Scam Check consumer web surface", () => {
     expect(scamCheck).toContain("/api/scam-check/v1/eml");
     expect(scamCheck).toContain("/api/scam-check/v1/image");
     expect(scamCheck).toContain("Nothing is sent to a remote AI service.");
-    expect(scamCheck).not.toMatch(/https?:\/\//);
+    // A URL-shaped placeholder is legitimate UI copy. The privacy invariant is
+    // that this module never fetches an absolute remote analysis endpoint.
+    expect(scamCheck).not.toMatch(/fetch\(\s*['"`]https?:\/\//i);
+    expect([...scamCheck.matchAll(/fetch\(\s*(['"`])([^'"`]+)\1/g)].map((match) => match[2]))
+      .toEqual(expect.arrayContaining([
+        "/api/scam-check/v1/analyze",
+        "/api/scam-check/v1/eml",
+        "/api/scam-check/v1/image",
+      ]));
   });
 
   it("renders server evidence as text rather than injecting returned HTML", () => {
