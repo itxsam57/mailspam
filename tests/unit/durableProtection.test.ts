@@ -2,9 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import type { CanonicalEnvelope } from "../../server/src/canonical/envelope.js";
 import type { ScanResult } from "../../server/src/engine/pipeline.js";
 import {
+  collectCommunityWarningQuarantineIds,
   collectDurableAutoTrashIds,
   DurableProtectionEnforcementError,
+  enforceCommunityWarningQuarantine,
   enforceDurableAutoTrash,
+  isCommunityWarningQuarantineResult,
   isDurableAutoTrashResult,
 } from "../../server/src/workflows/durableProtection.js";
 
@@ -12,9 +15,10 @@ function result(
   providerNativeId: string,
   verdict: ScanResult["scored"]["verdict"],
   codes: string[],
+  folder: CanonicalEnvelope["folder"] = "inbox",
 ): ScanResult {
   return {
-    envelope: { providerNativeId } as CanonicalEnvelope,
+    envelope: { providerNativeId, folder } as CanonicalEnvelope,
     scored: {
       verdict,
       score: codes.length * 10,
@@ -84,6 +88,66 @@ describe("durable automatic Trash policy", () => {
       name: "DurableProtectionEnforcementError",
       requested: 150,
       moved: 100,
+    });
+  });
+});
+
+describe("signed community warning quarantine", () => {
+  it("quarantines a signed warning from Inbox but never treats it as global Trash authority", () => {
+    const warning = result("warning-1", "review", ["GLOBAL_WARNING_MATCH"]);
+    expect(isCommunityWarningQuarantineResult(warning)).toBe(true);
+    expect(isDurableAutoTrashResult(warning)).toBe(false);
+  });
+
+  it("does not re-quarantine mail already in Spam/Junk or Trash", () => {
+    expect(isCommunityWarningQuarantineResult(result("spam", "review", ["GLOBAL_WARNING_MATCH"], "spam"))).toBe(false);
+    expect(isCommunityWarningQuarantineResult(result("trash", "review", ["GLOBAL_WARNING_MATCH"], "trash"))).toBe(false);
+  });
+
+  it("does not quarantine a globally confirmed match because confirmed protection belongs in Trash", () => {
+    const confirmed = result("confirmed", "confirmed_threat", ["GLOBAL_WARNING_MATCH", "GLOBAL_CONFIRMED_MATCH"]);
+    expect(isCommunityWarningQuarantineResult(confirmed)).toBe(false);
+    expect(isDurableAutoTrashResult(confirmed)).toBe(true);
+  });
+
+  it("collects only signed-warning IDs and uses bounded Spam/Junk batches", async () => {
+    const ids = new Set<string>();
+    collectCommunityWarningQuarantineIds([
+      result("warning-1", "review", ["GLOBAL_WARNING_MATCH"]),
+      result("heuristic", "review", ["CALLBACK_SCAM_INTENT"]),
+      result("warning-2", "high_risk", ["GLOBAL_WARNING_MATCH", "MALFORMED_URL"]),
+    ], ids);
+    expect([...ids]).toEqual(["warning-1", "warning-2"]);
+
+    const calls: string[][] = [];
+    const adapter = {
+      reportSpam: vi.fn(async (batch: string[]) => {
+        calls.push([...batch]);
+        return { requested: batch.length, reported: batch.length, mode: "junk_folder_move" as const };
+      }),
+    };
+    const many = Array.from({ length: 205 }, (_, index) => `warning-${index}`);
+    const output = await enforceCommunityWarningQuarantine(adapter, many, new AbortController().signal);
+    expect(output).toEqual({ requested: 205, quarantined: 205 });
+    expect(calls.map((batch) => batch.length)).toEqual([100, 100, 5]);
+  });
+
+  it("fails closed if the provider does not confirm a complete warning batch", async () => {
+    const adapter = {
+      reportSpam: vi.fn(async (batch: string[]) => ({
+        requested: batch.length,
+        reported: batch.length - 1,
+        mode: "junk_folder_move" as const,
+      })),
+    };
+    await expect(enforceCommunityWarningQuarantine(
+      adapter,
+      ["warning-1", "warning-2"],
+      new AbortController().signal,
+    )).rejects.toMatchObject({
+      name: "CommunityWarningQuarantineError",
+      requested: 2,
+      quarantined: 0,
     });
   });
 });
