@@ -4,7 +4,6 @@
   installedModules.add('protection-learning');
 
   const submittedPositiveFeedback = new Set();
-  const reportTrashAttempts = new Set();
 
   function selectedAccountId() {
     return document.querySelector('.account-chip.active')?.dataset.id || null;
@@ -45,6 +44,12 @@
     card?.classList.add('trash-moved');
   }
 
+  function disableSafeTrust(card) {
+    card?.querySelectorAll('[data-action="mark-safe"],[data-action="trust-sender"]').forEach((button) => {
+      if (button instanceof HTMLButtonElement) button.disabled = true;
+    });
+  }
+
   async function post(accountId, endpoint, body) {
     const response = await fetch(`/api/accounts/${encodeURIComponent(accountId)}/messages/${endpoint}`, {
       method: 'POST',
@@ -70,48 +75,15 @@
     }
   }
 
-  async function trashReportedMessage(accountId, token, card) {
-    const key = `${accountId}:${token}`;
-    if (reportTrashAttempts.has(key)) return;
-    reportTrashAttempts.add(key);
-    const status = actionStatus(card);
-    try {
-      const result = await post(accountId, 'trash', { token });
-      if (result.success !== true || result.moved !== 1 || result.requested !== 1) {
-        throw new Error('The provider did not confirm exactly one Trash move.');
-      }
-      disableTrash(card);
-      if (status) {
-        status.className = 'review-action-status success';
-        status.textContent = 'Scam reported and this message moved to Trash. Future matching campaign messages are automatically trashed for this account.';
-      }
-      setGlobalStatus('Scam campaign protected locally and the current message moved to Trash.', 'complete');
-    } catch (error) {
-      reportTrashAttempts.delete(key);
-      if (status) {
-        status.className = 'review-action-status error';
-        status.textContent = `Scam protection was saved, but the current message could not be moved to Trash: ${error instanceof Error ? error.message : String(error)}`;
-      }
-      setGlobalStatus('Scam protection is active, but the provider Trash move needs attention.', 'error');
-    }
-  }
-
-  function observeSuccessfulReviewAction(button, accountId, token, kind) {
-    const expected = kind === 'report'
-      ? 'Campaign protected locally ✓'
-      : kind === 'safe'
-        ? 'Message marked Safe ✓'
-        : 'Sender trusted ✓';
-    const card = cardFor(button);
+  function observeSuccessfulPositiveAction(button, accountId, token, kind) {
+    const expected = kind === 'safe' ? 'Message marked Safe ✓' : 'Sender trusted ✓';
     let closed = false;
     const finish = () => {
-      if (closed) return;
-      if (button.textContent?.trim() !== expected) return;
+      if (closed || button.textContent?.trim() !== expected) return;
       closed = true;
       observer.disconnect();
       clearTimeout(timeout);
-      if (kind === 'report') void trashReportedMessage(accountId, token, card);
-      else void submitLegitimateFeedback(accountId, token);
+      void submitLegitimateFeedback(accountId, token);
     };
     const observer = new MutationObserver(finish);
     observer.observe(button, { childList: true, subtree: true, characterData: true, attributes: true });
@@ -122,31 +94,127 @@
     finish();
   }
 
+  function communityDeliveryMessage(result) {
+    if (result.communityAccepted !== true) {
+      return `Shared learning was not accepted${result.communityError ? `: ${result.communityError}` : ''}. Local protection is still active.`;
+    }
+    if (result.delivery === 'remote_shared') {
+      return `Shared network status: ${result.status}; ${result.independentReporters} independent reporter(s).`;
+    }
+    if (result.delivery === 'queued_remote') {
+      return 'The encrypted privacy-reduced report is queued and will retry when the configured shared service is reachable.';
+    }
+    if (result.delivery === 'embedded_local') {
+      return `Local test-network status: ${result.status}; ${result.independentReporters} local reporter proof(s). Other installations are not protected until a central community service is configured.`;
+    }
+    return 'Local protection is active; no cross-user delivery scope was returned.';
+  }
+
+  async function handleReportScam(button, accountId, token, card) {
+    const subject = card?.querySelector('.card-subject,.safe-subject,.diag-subject')?.textContent?.trim() || '(no subject)';
+    const sender = card?.querySelector('.card-from,.safe-sender,.diag-sender')?.textContent?.trim() || 'unknown sender';
+    const explanation = 'Email Shield will save this campaign as a local threat, move this message to Trash now, and automatically Trash future matching campaign mail for this account. Only privacy-reduced campaign indicators are submitted to community learning. Other users are affected only after independent quality thresholds: warning-level campaigns are quarantined to Spam/Junk; globally confirmed threats are moved to Trash.';
+    if (!window.confirm(`Report this scam campaign to Email Shield?\n\n${subject}\n${sender}\n\n${explanation}`)) return;
+
+    let blockSender = false;
+    if (button.dataset.sender) {
+      blockSender = window.confirm('Also block this exact sender address for your mailbox?\n\nChoose Cancel when the sender is a shared delivery platform. The campaign itself will still be protected locally and future matching campaign mail will be trashed.');
+    }
+
+    const previousText = button.textContent;
+    const status = actionStatus(card);
+    button.disabled = true;
+    button.textContent = 'Protecting and moving…';
+    if (status) {
+      status.className = 'review-action-status';
+      status.textContent = 'Saving local campaign protection, moving the current message to Trash, and submitting privacy-reduced community evidence…';
+    }
+
+    try {
+      const result = await post(accountId, 'report-scam', { token, blockSender });
+      if (result.success !== true || result.localProtected !== true || result.accountId !== accountId || result.token !== token) {
+        throw new Error('The server did not confirm durable local campaign protection.');
+      }
+
+      document.querySelectorAll(`[data-action="report-scam"][data-review-token="${CSS.escape(token)}"]`).forEach((candidate) => {
+        if (!(candidate instanceof HTMLButtonElement)) return;
+        candidate.disabled = true;
+        candidate.textContent = 'Campaign protected locally ✓';
+      });
+      card?.classList.add('community-reported');
+      disableSafeTrust(card);
+
+      if (result.senderBlocked === true && button.dataset.sender) {
+        const normalizedSender = String(button.dataset.sender).toLowerCase();
+        document.querySelectorAll('[data-action="block-sender"]').forEach((candidate) => {
+          if (!(candidate instanceof HTMLButtonElement)) return;
+          if (String(candidate.dataset.address || '').toLowerCase() !== normalizedSender) return;
+          candidate.dataset.action = 'unblock-sender';
+          candidate.disabled = false;
+          candidate.textContent = 'Unblock sender (blocked ✓)';
+        });
+      }
+
+      if (result.movedCurrent === true) disableTrash(card);
+      const communityState = communityDeliveryMessage(result);
+      const moveState = result.movedCurrent === true
+        ? 'The current message was moved to Trash.'
+        : `Local protection is active, but the current provider Trash move needs attention${result.moveError ? `: ${result.moveError}` : '.'}`;
+      if (status) {
+        status.className = result.movedCurrent === true && result.communityAccepted === true
+          ? 'review-action-status success'
+          : 'review-action-status error';
+        status.textContent = `Matching campaign messages are protected locally and future matches will auto-Trash. ${moveState} ${communityState}${result.senderBlocked ? ' The exact sender is also blocked.' : ''}`;
+      }
+      const complete = result.movedCurrent === true && result.communityAccepted === true;
+      setGlobalStatus(
+        complete
+          ? 'Scam campaign protected, current message moved to Trash, and community evidence accepted.'
+          : 'Scam campaign protection is active; one external protection step needs attention.',
+        complete ? 'complete' : 'error',
+      );
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = previousText || 'Report Scam to Email Shield';
+      const message = error instanceof Error ? error.message : String(error);
+      if (status) {
+        status.className = 'review-action-status error';
+        status.textContent = `Report failed before durable local protection was confirmed: ${message}`;
+      }
+      setGlobalStatus(`Report Scam failed: ${message}`, 'error');
+    }
+  }
+
   window.addEventListener('click', async (event) => {
     const button = event.target instanceof Element
-      ? event.target.closest('[data-action="block-sender"],[data-action="block-domain"]')
+      ? event.target.closest('[data-action="block-sender"],[data-action="block-domain"],[data-action="report-scam"]')
       : null;
     if (!(button instanceof HTMLButtonElement) || button.disabled) return;
 
-    // Window capture runs before the legacy document-capture block handler.
-    // Owning the event here ensures the browser never sends address/domain as
-    // mutation authority; only the opaque scan action token is accepted.
+    // Window capture runs before the legacy document-capture handlers. Durable
+    // protection actions are therefore authorized only by the opaque server
+    // scan token; browser-supplied sender/domain/message identity is never the
+    // source of authority.
     event.preventDefault();
     event.stopImmediatePropagation();
 
     const accountId = selectedAccountId();
     const token = reviewToken(button);
-    const isSender = button.dataset.action === 'block-sender';
-    const scope = isSender ? 'sender' : 'domain';
-    const displayValue = isSender ? button.dataset.address : button.dataset.domain;
     const card = cardFor(button);
-    const subject = card?.querySelector('.card-subject')?.textContent?.trim() || '(no subject)';
-
     if (!accountId || !token) {
-      setGlobalStatus(`Block ${scope} failed: the protected scan action is missing. Rescan before trying again.`, 'error');
+      setGlobalStatus('Protection action failed: the protected scan action is missing. Rescan before trying again.', 'error');
       return;
     }
 
+    if (button.dataset.action === 'report-scam') {
+      await handleReportScam(button, accountId, token, card);
+      return;
+    }
+
+    const isSender = button.dataset.action === 'block-sender';
+    const scope = isSender ? 'sender' : 'domain';
+    const displayValue = isSender ? button.dataset.address : button.dataset.domain;
+    const subject = card?.querySelector('.card-subject')?.textContent?.trim() || '(no subject)';
     const consequence = isSender
       ? 'This message will move to Trash now. Future messages from this exact address will be Confirmed Threat and automatically moved to Trash when Email Shield protection scans them.'
       : 'This message will move to Trash now. Future messages from every address on this domain will be Confirmed Threat and automatically moved to Trash when Email Shield protection scans them. Shared consumer-mail domains cannot be blocked domain-wide.';
@@ -205,15 +273,13 @@
 
   window.addEventListener('click', (event) => {
     const button = event.target instanceof Element
-      ? event.target.closest('[data-action="mark-safe"],[data-action="trust-sender"],[data-action="report-scam"]')
+      ? event.target.closest('[data-action="mark-safe"],[data-action="trust-sender"]')
       : null;
     if (!(button instanceof HTMLButtonElement) || button.disabled) return;
     const accountId = selectedAccountId();
     const token = reviewToken(button);
     if (!accountId || !token) return;
-    const kind = button.dataset.action === 'report-scam'
-      ? 'report'
-      : button.dataset.action === 'mark-safe' ? 'safe' : 'trust';
-    observeSuccessfulReviewAction(button, accountId, token, kind);
+    const kind = button.dataset.action === 'mark-safe' ? 'safe' : 'trust';
+    observeSuccessfulPositiveAction(button, accountId, token, kind);
   }, true);
 })();
