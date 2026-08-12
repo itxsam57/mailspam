@@ -9,14 +9,15 @@ describe("consumer Scam Check", () => {
     const result = evaluateConsumerScamCheck({
       schemaVersion: 1,
       kind: "message",
-      subject: "Your subscription was renewed",
-      text: "Your subscription was charged. If you did not authorize this, call us now at (555) 123-4567. Review details at http://192.0.2.44/login",
+      subject: "Subscription renewed",
+      text: "Your subscription renewed. If you did not authorize this, call us now at (555) 123-4567. Review details at http://192.0.2.44/login",
     });
 
-    expect(result.verdict).toBe("high_risk");
-    expect(result.action).toBe("allow_one_click_block");
     expect(result.evidence.some((item) => item.code === "CALLBACK_SCAM_INTENT")).toBe(true);
     expect(result.evidence.some((item) => item.code === "RAW_IP_HOST")).toBe(true);
+    expect(result.score).toBeGreaterThanOrEqual(6);
+    expect(result.verdict).toBe("high_risk");
+    expect(result.action).toBe("allow_one_click_block");
     expect(result.explanation.scamCategory).toBe("callback_refund");
     expect(result.explanation.evidenceStrength).toBe("strong");
     expect(result.explanation.safeNextActions.join(" ")).toMatch(/independently/i);
