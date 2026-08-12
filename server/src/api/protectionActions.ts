@@ -16,11 +16,13 @@ import {
 } from "../workflows/blockAndCleanup.js";
 import type { CommunityReportContext, CommunityReportReceipt } from "../community/types.js";
 import { localOperationalMetrics } from "./localOperationalMetrics.js";
+import type { AccountPlatformService } from "../platform/accountFamilyService.js";
 
 export interface ProtectionActionRouteDependencies {
   sessions?: SessionStore;
   community?: CommunityNetwork;
   adapterFactory?: (config: AdapterConfig | SecureAdapterConfig) => EmailAdapter;
+  familyThreats?: Pick<AccountPlatformService, "recordFamilyThreat">;
 }
 
 function actionError(error: unknown): { status: number; message: string } {
@@ -97,6 +99,22 @@ async function submitLearning(
   }
 }
 
+function familyStatus(
+  dependencies: ProtectionActionRouteDependencies,
+  mailboxAccountKey: string,
+  campaignFingerprint: string,
+  source: "report_scam" | "family_block",
+): { shared: boolean; status?: string; error?: string } {
+  if (!dependencies.familyThreats) return { shared: false };
+  try {
+    const snapshot = dependencies.familyThreats.recordFamilyThreat(mailboxAccountKey, campaignFingerprint, source);
+    const status = snapshot?.entries.find((entry) => entry.campaignFingerprint === campaignFingerprint)?.status;
+    return snapshot ? { shared: true, status } : { shared: false };
+  } catch (error) {
+    return { shared: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 export function registerProtectionActionRoutes(
   app: Express,
   dependencies: ProtectionActionRouteDependencies = {},
@@ -110,9 +128,8 @@ export function registerProtectionActionRoutes(
 
     let action;
     try {
-      // Block is also the disposal transaction for the selected message. Using
-      // the existing opaque Trash operation gives duplicate/stale tabs one
-      // atomic 409 boundary without trusting sender/domain values from JS.
+      // The opaque scan token, not a browser-supplied address/domain, owns the
+      // mutation. Duplicate/stale tabs share one atomic 409 boundary.
       action = sessions.claimReviewAction(session, (req.body as { token?: unknown }).token, "trash");
     } catch (error) {
       const detail = actionError(error);
@@ -158,6 +175,10 @@ export function registerProtectionActionRoutes(
       blockLearningContext(action.communityReport),
       session.policyAccountKey,
     );
+    const shareWithFamily = (req.body as { shareWithFamily?: unknown }).shareWithFamily === true;
+    const family = shareWithFamily
+      ? familyStatus(dependencies, session.policyAccountKey, action.communityReport.campaignFingerprint, "family_block")
+      : { shared: false };
 
     noStore(res);
     return res.status(move.movedCurrent ? 200 : 207).json({
@@ -169,6 +190,7 @@ export function registerProtectionActionRoutes(
       token: action.token,
       movedCurrent: move.movedCurrent,
       moveError: move.moveError,
+      family,
       learning: learning ? {
         accepted: learning.accepted,
         delivery: learning.delivery,
@@ -206,6 +228,16 @@ export function registerProtectionActionRoutes(
       });
     }
 
+    // Family sharing is privacy-reduced and separate from the public community
+    // service. A local report automatically enters the member's private circle
+    // when this mailbox has been linked to a Family Shield account.
+    const family = familyStatus(
+      dependencies,
+      session.policyAccountKey,
+      action.communityReport.campaignFingerprint,
+      "report_scam",
+    );
+
     // Local campaign protection is committed before any network/provider side
     // effect. Even if either service is temporarily unavailable, every future
     // matching message remains a local Confirmed Threat and will auto-Trash.
@@ -221,7 +253,7 @@ export function registerProtectionActionRoutes(
       communityError = error instanceof Error ? error.message : String(error);
     }
 
-    const complete = move.movedCurrent && receipt?.accepted === true;
+    const complete = move.movedCurrent && receipt?.accepted === true && !family.error;
     noStore(res);
     return res.status(complete ? 200 : 207).json({
       success: true,
@@ -231,6 +263,7 @@ export function registerProtectionActionRoutes(
       token: action.token,
       movedCurrent: move.movedCurrent,
       moveError: move.moveError,
+      family,
       communityAccepted: receipt?.accepted === true,
       communityError,
       pendingReports: community.pendingReports(),
