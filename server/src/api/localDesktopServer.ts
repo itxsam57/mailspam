@@ -32,6 +32,10 @@ import {
 } from "./backgroundProtection.js";
 import { localOperationalMetrics } from "./localOperationalMetrics.js";
 import { providerCapabilitySnapshot } from "../adapters/providerCapabilities.js";
+import {
+  noFixtureConnectionPersistence,
+  type FixtureConnectionPersistence,
+} from "./fixtureConnectionPersistence.js";
 
 function escapeAttribute(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({
@@ -68,6 +72,7 @@ export function createLocalDesktopServer(options: {
   microsoftOAuth?: MicrosoftOAuthFlowManager;
   destinationAnalyzer?: DestinationAnalysisCoordinator;
   backgroundProtection?: BackgroundProtectionCoordinator;
+  fixtureConnections?: FixtureConnectionPersistence;
 } = {}) {
   const app = express();
   const security = options.security ?? localSecurity;
@@ -82,7 +87,8 @@ export function createLocalDesktopServer(options: {
     clientId: process.env.EMAIL_SHIELD_MICROSOFT_CLIENT_ID?.trim() ?? "",
     sessionStore,
   });
-  const inner = createServer({ community, destinationAnalyzer });
+  const fixtureConnections = options.fixtureConnections ?? noFixtureConnectionPersistence;
+  const inner = createServer({ community, destinationAnalyzer, fixtureConnections });
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const webDir = join(__dirname, "../../../web");
   const dashboardTemplate = readFileSync(join(webDir, "index.html"), "utf8");
@@ -105,7 +111,7 @@ export function createLocalDesktopServer(options: {
       .replace(/<script>(\s*const API\s*=)/, `<script nonce="${nonce}">$1`)
       .replace(
         "</body>",
-        '<script src="/scan-monitor.js"></script><script src="/scan-history.js"></script><script src="/background-protection.js"></script><script src="/unsubscribe-monitor.js"></script><script src="/gmail-oauth.js"></script><script src="/outlook-oauth.js"></script><script src="/account-disconnect.js"></script><script src="/policy-management.js"></script><script src="/operations-dashboard.js"></script></body>',
+        '<script src="/scan-monitor.js"></script><script src="/review-actions.js"></script><script src="/safe-audit.js"></script><script src="/unsubscribe-monitor.js"></script><script src="/workspace-restore.js"></script><script src="/scan-history.js"></script><script src="/background-protection.js"></script><script src="/gmail-oauth.js"></script><script src="/outlook-oauth.js"></script><script src="/account-disconnect.js"></script><script src="/policy-management.js"></script><script src="/operations-dashboard.js"></script></body>',
       );
 
     res.setHeader("Referrer-Policy", "same-origin");
@@ -187,6 +193,23 @@ export function createLocalDesktopServer(options: {
     next();
   });
 
+  app.get("/api/accounts/workspace", (_req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json(sessionStore.workspaceSnapshot());
+  });
+
+  app.post("/api/accounts/workspace", (req: Request, res: Response) => {
+    const accountId = (req.body as { accountId?: unknown }).accountId;
+    if (typeof accountId !== "string") return res.status(400).json({ error: "A connected account is required." });
+    try {
+      sessionStore.selectWorkspaceSession(accountId);
+      res.setHeader("Cache-Control", "no-store");
+      res.json({ selectedAccountId: accountId });
+    } catch (error) {
+      res.status(404).json({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
   app.get("/api/accounts/oauth/google/config", (_req: Request, res: Response) => {
     res.setHeader("Cache-Control", "no-store");
     res.json({
@@ -250,11 +273,14 @@ export function createLocalDesktopServer(options: {
     const session = sessionStore.get(id);
     if (!session) return res.status(404).json({ error: "Unknown account" });
     if (session.activeScanWorker) requestActiveScanStop(id);
+    const before = sessionStore.list();
     try {
+      fixtureConnections.synchronize(before.filter((candidate) => candidate.id !== id));
       await sessionStore.remove(id);
       backgroundProtection.remove(session.policyAccountKey);
       res.status(204).send();
     } catch (error) {
+      try { fixtureConnections.synchronize(before); } catch {}
       res.status(502).json({
         error: `Account disconnect could not be completed: ${error instanceof Error ? error.message : String(error)}`,
       });

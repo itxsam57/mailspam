@@ -14,10 +14,11 @@ import {
   normalizeManualUnsubscribeTarget,
   normalizeOneClickTarget,
 } from "../workflows/unsubscribe.js";
-import type { ScanActionContext, ScanProgress, ScanResumeInput } from "../workflows/scanWorkflows.js";
+import type { ScanActionContext, ScanDiagnosticSummary, ScanProgress, ScanResumeInput } from "../workflows/scanWorkflows.js";
 import type { CommunityNetwork } from "../community/network.js";
 import type { SignedFeedEntry } from "../engine/layers/globalIntelligence.js";
 import { localOperationalMetrics } from "./localOperationalMetrics.js";
+import type { ScanResult } from "../engine/pipeline.js";
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const LIVE_IMAP_FIRST_PROGRESS_TIMEOUT_MS = 180_000;
@@ -81,16 +82,52 @@ export function requestActiveScanStop(sessionId: string): boolean {
   return true;
 }
 
-export function publicScanProgress(
-  progress: ScanProgress,
-): Omit<ScanProgress, "cursor" | "checkpoint" | "relationshipObservations"> {
+export interface PublicSuspiciousCard {
+  envelope: {
+    subject: string;
+    from: { displayName: string | null; address: string | null; domain: string | null };
+  };
+  scored: ScanResult["scored"];
+  action: ScanResult["action"];
+  reviewAction?: unknown;
+  unsubscribeAction?: unknown;
+}
+
+export type PublicScanProgress = Omit<ScanProgress, "cursor" | "checkpoint" | "relationshipObservations" | "suspiciousCards" | "diagnosticSummaries"> & {
+  suspiciousCards: PublicSuspiciousCard[];
+  diagnosticSummaries: Array<Omit<ScanDiagnosticSummary, "actionContext">>;
+};
+
+export function publicScanProgress(progress: ScanProgress): PublicScanProgress {
   const {
     cursor: _cursor,
     checkpoint: _checkpoint,
     relationshipObservations: _relationshipObservations,
+    suspiciousCards,
+    diagnosticSummaries,
     ...publicProgress
   } = progress;
-  return publicProgress;
+  return {
+    ...publicProgress,
+    diagnosticSummaries: diagnosticSummaries.map((summary) => {
+      const { actionContext: _actionContext, ...publicSummary } = summary;
+      return publicSummary;
+    }),
+    suspiciousCards: suspiciousCards.map((result) => ({
+      envelope: {
+        subject: result.envelope.subject,
+        from: {
+          displayName: result.envelope.from.displayName,
+          address: result.envelope.from.address,
+          domain: result.envelope.from.domain,
+        },
+      },
+      scored: result.scored,
+      action: result.action,
+      reviewAction: (result as typeof result & { reviewAction?: unknown }).reviewAction,
+      unsubscribeAction: (result as typeof result & { unsubscribeAction?: unknown }).unsubscribeAction,
+    })),
+  };
 }
 
 function sseHeaders(res: Response): void {
@@ -247,6 +284,7 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
     }
 
     sessionStore.clearScanActions(session);
+    sessionStore.beginWorkspaceScan(session, record.scanId, type, record.counters);
     sseHeaders(res);
     res.flushHeaders();
 
@@ -361,6 +399,7 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
       terminalEventSent = true;
       const active = activeScans.get(session.id);
       record.status = active?.stopRequested ? "stopped" : "failed";
+      sessionStore.finishWorkspaceScan(session, record.status);
       record.completedAt = null;
       const historySaved = saveRecord();
       if (historySaved) durableCheckpointAvailable = Boolean(record.checkpoint);
@@ -473,10 +512,13 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
           };
         }
 
-        res.write(`data: ${JSON.stringify(publicScanProgress(progress))}\n\n`);
+        const publicProgress = publicScanProgress(progress);
+        sessionStore.rememberWorkspaceProgress(session, publicProgress);
+        res.write(`data: ${JSON.stringify(publicProgress)}\n\n`);
       } else if (message.type === "complete") {
         terminalEventSent = true;
         record.status = "completed";
+        sessionStore.finishWorkspaceScan(session, "completed");
         const completedAt = Date.now();
         record.completedAt = completedAt;
         record.updatedAt = completedAt;

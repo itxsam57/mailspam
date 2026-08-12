@@ -63,6 +63,7 @@
     }
 
     list.innerHTML = '';
+    const newestResumable = history.find((record) => record?.resumable === true);
     for (const record of history) {
       const row = document.createElement('div');
       row.className = 'scan-history-row';
@@ -97,7 +98,7 @@
         const resume = document.createElement('button');
         resume.className = 'primary';
         resume.type = 'button';
-        resume.textContent = 'Resume';
+        resume.textContent = record === newestResumable ? `Resume newest ${String(record.type || 'mailbox')} scan` : 'Resume';
         resume.dataset.scanHistoryResume = String(record.scanId || '');
         resume.dataset.scanType = String(record.type || 'full');
         actions.append(resume);

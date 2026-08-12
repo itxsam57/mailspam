@@ -128,6 +128,12 @@
         ],
         "layerResults": [
           {
+            "layer": "provider_context",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
             "layer": "transport_auth",
             "applicable": true,
             "evidence": [
@@ -349,6 +355,12 @@
           }
         ],
         "layerResults": [
+          {
+            "layer": "provider_context",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
           {
             "layer": "transport_auth",
             "applicable": true,
@@ -572,6 +584,12 @@
         ],
         "layerResults": [
           {
+            "layer": "provider_context",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
             "layer": "transport_auth",
             "applicable": true,
             "evidence": [
@@ -793,6 +811,12 @@
           }
         ],
         "layerResults": [
+          {
+            "layer": "provider_context",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
           {
             "layer": "transport_auth",
             "applicable": true,
@@ -1016,6 +1040,12 @@
         ],
         "layerResults": [
           {
+            "layer": "provider_context",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
             "layer": "transport_auth",
             "applicable": true,
             "evidence": [
@@ -1217,6 +1247,12 @@
         ],
         "layerResults": [
           {
+            "layer": "provider_context",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
             "layer": "transport_auth",
             "applicable": true,
             "evidence": [],
@@ -1404,6 +1440,12 @@
           }
         ],
         "layerResults": [
+          {
+            "layer": "provider_context",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
           {
             "layer": "transport_auth",
             "applicable": true,

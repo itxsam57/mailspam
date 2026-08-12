@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { FixtureAdapter, type FixtureMessage } from "../../server/src/adapters/fixtures/fixtureAdapter.js";
 import { InMemoryPersonalPolicyStore } from "../../server/src/engine/layers/personalRules.js";
 import { createStoppableScan, quickScan } from "../../server/src/workflows/scanWorkflows.js";
+import { publicScanProgress } from "../../server/src/api/scanStream.js";
 
 const corpus = join(import.meta.dirname, "../../fixtures/scam-corpus");
 const deps = {
@@ -48,5 +49,14 @@ describe("scan diagnostic summaries", () => {
       expect(item).not.toHaveProperty("providerNativeId");
       expect(item).not.toHaveProperty("accountProof");
     }
+
+    const privateCard = final.suspiciousCards[0]!;
+    const browserJson = JSON.stringify(publicScanProgress(final));
+    expect(browserJson).not.toContain(privateCard.envelope.providerNativeId);
+    expect(browserJson).not.toContain(privateCard.envelope.messageId);
+    expect(browserJson).not.toContain(privateCard.envelope.accountProof);
+    expect(browserJson).not.toContain(privateCard.envelope.textPreview!);
+    expect(browserJson).not.toContain('"links"');
+    expect(browserJson).not.toContain('"attachments"');
   });
 });

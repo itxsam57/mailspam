@@ -6,6 +6,7 @@ import {
 } from "../identitySignals.js";
 import { organizationClaimAligned } from "./identityImpersonation.js";
 import type { LayerResult } from "../verdict.js";
+import { normalizeSecurityText } from "../securityText.js";
 
 interface IntentRule {
   code: string;
@@ -99,6 +100,54 @@ const RULES: IntentRule[] = [
   },
 ];
 
+/**
+ * High-signal concepts in frequently targeted languages. A rule requires both
+ * an intent and a pressure/action concept, which avoids classifying ordinary
+ * translated account, delivery, or prize wording by a single keyword.
+ */
+const MULTILINGUAL_RULES: IntentRule[] = [
+  {
+    code: "MULTILINGUAL_CREDENTIAL_PHISH_INTENT",
+    category: "credential_phishing",
+    intentPhrases: [
+      /(?:پاس\s*ورڈ|رمز\s*عبور|كلمة\s*المرور|पासवर्ड|contraseña|mot\s+de\s+passe|passwort|senha)/u,
+      /(?:تصديق|تحقق|تصدیق|تصدیق\s+کریں|सत्यापित\s+करें|verificar\s+(?:su\s+)?cuenta|vérifiez\s+(?:votre\s+)?compte|konto\s+bestätigen|verificar\s+(?:a\s+)?conta)/u,
+    ],
+    pressurePhrases: [
+      /(?:فورا|فوری|الآن|على\s+الفور|तुरंत|inmediatamente|immédiatement|sofort|imediatamente)/u,
+      /(?:حساب|اکاؤنٹ|खाता|cuenta|compte|konto|conta).{0,36}(?:تعليق|بند|معطل|सस्पेंड|बंद|suspend|bloqu|gesperrt|desativad)/u,
+    ],
+    score: 3,
+    description: "Message combines a multilingual credential/account-verification request with urgency or account-loss pressure.",
+  },
+  {
+    code: "MULTILINGUAL_ADVANCE_FEE_INTENT",
+    category: "advance_fee",
+    intentPhrases: [
+      /(?:جائزة|يانصيب|انعام|انعام\s+جیت|انعامی\s+رقم|पुरस्कार|लॉटरी|premio|lotería|prix|loterie|gewinn|lotterie|prêmio|loteria)/u,
+    ],
+    pressurePhrases: [
+      /(?:رسوم|فيس|فیس|फीस|tarifa|tasa|frais|gebühr|taxa).{0,32}(?:ادفع|ادا|پیمنٹ|भुगतान|pagar|payez|zahlen|pague)/u,
+      /(?:اطالب|حاصل\s+کریں|दावा\s+करें|reclamar|réclamez|beanspruchen|resgatar).{0,24}(?:الآن|فوری|अभी|ahora|maintenant|jetzt|agora)/u,
+    ],
+    score: 3,
+    description: "Prize or lottery wording in another language is paired with a fee/payment or immediate-claim demand.",
+  },
+  {
+    code: "MULTILINGUAL_PAYMENT_DIVERSION_INTENT",
+    category: "payment_diversion",
+    intentPhrases: [
+      /(?:تحويل\s+بنكي|تحویل\s+رقم|بنک\s+ٹرانسفر|बैंक\s+ट्रांसफर|tarjeta(?:s)?\s+de\s+regalo|virement\s+bancaire|geschenkkarte|transferência\s+bancária)/u,
+    ],
+    pressurePhrases: [
+      /(?:سرا|خفي|راز|خفیہ|गोपनीय|secreto|confidentiel|vertraulich|confidencial)/u,
+      /(?:فورا|فوری|الآن|तुरंत|urgente|immédiatement|sofort|imediatamente)/u,
+    ],
+    score: 4,
+    description: "A multilingual bank-transfer or gift-card request is paired with secrecy or urgency, consistent with payment diversion.",
+  },
+];
+
 const FIRST_CONTACT_ROMANCE_PATTERN = /(?:meet new people|wanna see (?:my )?photos?|see photos? me|free right now|how can i contact you|what if i said i want you|do you like to meet|\bdates?\b|actual person)/i;
 const HIGH_CONFIDENCE_ROMANCE_PATTERN = /(?:wanna see (?:my )?photos?|see (?:my )?(?:hot |private )?photos?|private photos?|what if i said i want you|i(?:'|’)m waiting for you|waiting for you.{0,40}(?:open|join|view)|(?:open|join|view).{0,40}(?:my )?(?:profile|photos?|groups?)|\b(?:nudes?|naked|hookup|sex|sext|fuck|pussy|tits?)\b)/i;
 const EXPLICIT_ADULT_SITE_PATTERN = /(?:exclusive\s+adult(?:\s+dating)?\s+community|adult\s+(?:live\s+chat|dating|personal|secret)\s+(?:site|community)|one[- ]night\s+dates?|n\s*u\s*d\s*e\s+(?:my\s+)?photos?|(?:send|check|view)\s+(?:my\s+)?(?:nude|hot|private)\s+(?:pics?|photos?)|join\s+(?:my|our)\s+(?:adult\s+)?(?:group|community))/i;
@@ -117,12 +166,26 @@ function hasAuthenticatedBulkMailContext(envelope: CanonicalEnvelope): boolean {
 
 export function messageIntentLayer(envelope: CanonicalEnvelope): LayerResult {
   const linkText = envelope.links.map((link) => `${link.visibleText ?? ""}\n${link.rawUrl}`).join("\n");
-  const haystack = `${envelope.subject}\n${envelope.textPreview ?? ""}\n${envelope.htmlSignals?.extractedText ?? ""}\n${linkText}`;
-  const subject = envelope.subject.trim();
+  const haystack = normalizeSecurityText(`${envelope.subject}\n${envelope.textPreview ?? ""}\n${envelope.htmlSignals?.extractedText ?? ""}\n${linkText}`);
+  const subject = normalizeSecurityText(envelope.subject);
   const evidence: LayerResult["evidence"] = [];
   const incomplete = envelope.textPreview === null && envelope.htmlSignals === null;
 
   for (const rule of RULES) {
+    const hasIntent = rule.intentPhrases.some((pattern) => pattern.test(haystack));
+    const hasPressure = rule.pressurePhrases.some((pattern) => pattern.test(haystack));
+    if (hasIntent && hasPressure) {
+      evidence.push({
+        layer: "message_intent",
+        code: rule.code,
+        description: rule.description,
+        scoreContribution: rule.score,
+        source: "local",
+      });
+    }
+  }
+
+  for (const rule of MULTILINGUAL_RULES) {
     const hasIntent = rule.intentPhrases.some((pattern) => pattern.test(haystack));
     const hasPressure = rule.pressurePhrases.some((pattern) => pattern.test(haystack));
     if (hasIntent && hasPressure) {

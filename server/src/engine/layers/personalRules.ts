@@ -139,16 +139,16 @@ export function personalRulesLayer(
       evidence.push({
         layer: "personal_rules",
         code: "TRUSTED_SENDER",
-        description: "Sender is on the user's account-scoped trusted senders list.",
-        scoreContribution: -10,
+        description: "Sender is on the user's account-scoped trusted list; trust cannot suppress independent threat evidence.",
+        scoreContribution: 0,
         source: "personal_rule",
       });
     } else if (address && store.isApprovedException(address)) {
       evidence.push({
         layer: "personal_rules",
         code: "APPROVED_EXCEPTION",
-        description: "Sender was explicitly approved by a legacy personal rule.",
-        scoreContribution: -10,
+        description: "Sender was approved by a legacy personal rule; approval cannot suppress independent threat evidence.",
+        scoreContribution: 0,
         source: "personal_rule",
       });
     }

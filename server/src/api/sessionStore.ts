@@ -17,7 +17,7 @@ import {
   type SecureAdapterConfig,
 } from "../security/secureAdapterConfig.js";
 import type { UnsubscribeMethod } from "../workflows/unsubscribe.js";
-import type { ScanActionContext } from "../workflows/scanWorkflows.js";
+import type { ScanActionContext, ScanCounters } from "../workflows/scanWorkflows.js";
 import type { AdapterConfig } from "./adapterConfig.js";
 import { defaultPersonalPolicyRepository } from "./defaultPolicyRepository.js";
 import {
@@ -44,6 +44,16 @@ export interface RegisteredReviewAction {
   normalizedFolder: NormalizedFolder;
   communityReport: CommunityReportContext;
   createdAt: number;
+  claimedOperations: Set<ReviewActionOperation>;
+}
+
+export type ReviewActionOperation = "mark_safe" | "trust_sender" | "report_scam" | "trash" | "report_spam";
+
+export class ReviewActionConflictError extends Error {
+  constructor() {
+    super("This message action was already used in another tab or request. Rescan to obtain a fresh action.");
+    this.name = "ReviewActionConflictError";
+  }
 }
 
 export interface AccountSession {
@@ -63,6 +73,18 @@ export interface AccountSession {
 
 const MAX_SCAN_ACTIONS = 5_000;
 const ACTION_TTL_MS = 30 * 60 * 1_000;
+const MAX_WORKSPACE_CARDS = 200;
+const MAX_WORKSPACE_DIAGNOSTICS = 500;
+
+export interface WorkspaceScanPresentation {
+  scanId: string;
+  type: string;
+  status: "running" | "completed" | "failed" | "stopped";
+  updatedAt: number;
+  counters: ScanCounters;
+  suspiciousCards: unknown[];
+  diagnosticSummaries: unknown[];
+}
 
 function senderDomain(address: string | null): string | null {
   if (!address) return null;
@@ -81,6 +103,8 @@ export class SessionStore {
   private policyStores = new Map<string, InMemoryPersonalPolicyStore>();
   private vaultReferenceCounts = new Map<string, number>();
   private vaultLifecycleTail: Promise<void> = Promise.resolve();
+  private selectedWorkspaceSessionId: string | null = null;
+  private workspacePresentations = new Map<string, WorkspaceScanPresentation>();
 
   constructor(
     private readonly policyRepository: PersonalPolicyRepository = new InMemoryPolicyRepository(),
@@ -213,6 +237,60 @@ export class SessionStore {
     this.clearScanActions(session);
   }
 
+  selectWorkspaceSession(id: string): void {
+    if (!this.get(id)) throw new Error("The selected account is no longer connected.");
+    this.selectedWorkspaceSessionId = id;
+  }
+
+  beginWorkspaceScan(session: AccountSession, scanId: string, type: string, counters: ScanCounters): void {
+    this.selectedWorkspaceSessionId = session.id;
+    this.workspacePresentations.set(session.id, {
+      scanId,
+      type,
+      status: "running",
+      updatedAt: Date.now(),
+      counters: { ...counters },
+      suspiciousCards: [],
+      diagnosticSummaries: [],
+    });
+  }
+
+  rememberWorkspaceProgress(
+    session: AccountSession,
+    progress: { counters?: unknown; suspiciousCards?: unknown; diagnosticSummaries?: unknown },
+  ): void {
+    const presentation = this.workspacePresentations.get(session.id);
+    if (!presentation) return;
+    if (progress.counters && typeof progress.counters === "object") {
+      presentation.counters = structuredClone(progress.counters) as ScanCounters;
+    }
+    const cards = Array.isArray(progress.suspiciousCards) ? structuredClone(progress.suspiciousCards) : [];
+    const diagnostics = Array.isArray(progress.diagnosticSummaries) ? structuredClone(progress.diagnosticSummaries) : [];
+    presentation.suspiciousCards = [...cards, ...presentation.suspiciousCards].slice(0, MAX_WORKSPACE_CARDS);
+    presentation.diagnosticSummaries = [...presentation.diagnosticSummaries, ...diagnostics].slice(-MAX_WORKSPACE_DIAGNOSTICS);
+    presentation.updatedAt = Date.now();
+  }
+
+  finishWorkspaceScan(session: AccountSession, status: WorkspaceScanPresentation["status"]): void {
+    const presentation = this.workspacePresentations.get(session.id);
+    if (!presentation) return;
+    presentation.status = status;
+    presentation.updatedAt = Date.now();
+  }
+
+  workspaceSnapshot(): { selectedAccountId: string | null; presentation: WorkspaceScanPresentation | null } {
+    const selected = this.selectedWorkspaceSessionId && this.get(this.selectedWorkspaceSessionId)
+      ? this.selectedWorkspaceSessionId
+      : null;
+    if (!selected) this.selectedWorkspaceSessionId = null;
+    return {
+      selectedAccountId: selected,
+      presentation: selected && this.workspacePresentations.has(selected)
+        ? structuredClone(this.workspacePresentations.get(selected)!)
+        : null,
+    };
+  }
+
   registerReviewAction(session: AccountSession, context: ScanActionContext): {
     token: string;
     alreadyApproved: boolean;
@@ -237,6 +315,7 @@ export class SessionStore {
       normalizedFolder: context.normalizedFolder,
       communityReport: structuredClone(context.communityReport),
       createdAt: Date.now(),
+      claimedOperations: new Set(),
     });
     const canMoveToSpam = context.normalizedFolder !== "spam";
     const alreadyReported = session.personalPolicy.isReportedCampaign(context.communityReport.campaignFingerprint);
@@ -266,6 +345,23 @@ export class SessionStore {
       throw new Error("The message review action expired. Rescan the mailbox.");
     }
     return action;
+  }
+
+  /** Atomically reserves one action kind before any asynchronous provider call. */
+  claimReviewAction(
+    session: AccountSession,
+    token: unknown,
+    operation: ReviewActionOperation,
+  ): RegisteredReviewAction {
+    const action = this.resolveReviewAction(session, token);
+    if (action.claimedOperations.has(operation)) throw new ReviewActionConflictError();
+    action.claimedOperations.add(operation);
+    return action;
+  }
+
+  /** Release only when no local or provider side effect was committed. */
+  releaseReviewAction(action: RegisteredReviewAction, operation: ReviewActionOperation): void {
+    action.claimedOperations.delete(operation);
   }
 
   registerUnsubscribeAction(
@@ -348,6 +444,8 @@ export class SessionStore {
         }
 
         this.clearScanActions(session);
+        this.workspacePresentations.delete(id);
+        if (this.selectedWorkspaceSessionId === id) this.selectedWorkspaceSessionId = null;
         this.sessions.delete(id);
         releaseMemorySecrets(session.config);
 

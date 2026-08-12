@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SessionStore } from "../../server/src/api/sessionStore.js";
+import { ReviewActionConflictError, SessionStore } from "../../server/src/api/sessionStore.js";
 import {
   InMemoryPolicyRepository,
   type PersonalPolicyRepository,
@@ -29,6 +29,34 @@ function reviewContext(overrides: Partial<ScanActionContext> = {}): ScanActionCo
 }
 
 describe("account-scoped personal policy", () => {
+  it("atomically rejects a duplicate review operation while allowing an explicit retry after pre-commit failure", () => {
+    const store = new SessionStore(new InMemoryPolicyRepository());
+    const session = store.create("gmail", "fixture", { provider: "gmail", mode: "fixture" });
+    const registered = store.registerReviewAction(session, reviewContext());
+    const claimed = store.claimReviewAction(session, registered.token, "trash");
+    expect(() => store.claimReviewAction(session, registered.token, "trash")).toThrow(ReviewActionConflictError);
+    store.releaseReviewAction(claimed, "trash");
+    expect(store.claimReviewAction(session, registered.token, "trash")).toBe(claimed);
+  });
+
+  it("keeps selected-account and last-scan presentation bounded to process memory", () => {
+    const store = new SessionStore(new InMemoryPolicyRepository());
+    const session = store.create("gmail", "fixture", { provider: "gmail", mode: "fixture" });
+    const counters = { examined: 0, safe: 0, review: 0, highRisk: 0, confirmedThreat: 0, unknown: 0, skipped: 0, malformed: 0 };
+    store.beginWorkspaceScan(session, "scan-1", "quick", counters);
+    store.rememberWorkspaceProgress(session, {
+      counters: { ...counters, examined: 600 },
+      suspiciousCards: Array.from({ length: 250 }, (_, index) => ({ index })),
+      diagnosticSummaries: Array.from({ length: 600 }, (_, index) => ({ index })),
+    });
+    store.finishWorkspaceScan(session, "completed");
+    const workspace = store.workspaceSnapshot();
+    expect(workspace.selectedAccountId).toBe(session.id);
+    expect(workspace.presentation?.suspiciousCards).toHaveLength(200);
+    expect(workspace.presentation?.diagnosticSummaries).toHaveLength(500);
+    expect(workspace.presentation?.status).toBe("completed");
+  });
+
   it("does not leak rules between different accounts", () => {
     const repository = new InMemoryPolicyRepository();
     const store = new SessionStore(repository);

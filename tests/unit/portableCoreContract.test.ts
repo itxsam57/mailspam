@@ -75,7 +75,7 @@ describe("versioned portable protection core contract", () => {
     const serialized = JSON.stringify(response);
     expect(response.schemaVersion).toBe(1);
     expect(response.verdict).not.toBe("safe");
-    expect(response.layerResults).toHaveLength(10);
+    expect(response.layerResults).toHaveLength(11);
     expect(serialized).not.toContain(value.accountProof);
     expect(serialized).not.toContain(value.providerNativeId);
     expect(serialized).not.toContain(value.subject);

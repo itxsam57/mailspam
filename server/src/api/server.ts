@@ -3,7 +3,7 @@ import type { Request, Response } from "express";
 import { dirname, join } from "node:path";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { sessionStore } from "./sessionStore.js";
+import { ReviewActionConflictError, sessionStore } from "./sessionStore.js";
 import { createAdapter, type AdapterConfig } from "./adapterConfig.js";
 import { Worker } from "node:worker_threads";
 import {
@@ -23,26 +23,38 @@ import {
   type DestinationAnalysisCoordinator,
 } from "../workflows/analyzeLinks.js";
 import type { Provider } from "../canonical/envelope.js";
-import type { ScanActionContext } from "../workflows/scanWorkflows.js";
+import type { ScanActionContext, ScanProgress } from "../workflows/scanWorkflows.js";
 import { runDeveloperTestSuite } from "../devtools/testSuiteRunner.js";
 import { communityNetwork, type CommunityNetwork } from "../community/network.js";
 import type { CommunityReportSubmission } from "../community/types.js";
 import { localOperationalMetrics } from "./localOperationalMetrics.js";
+import { publicScanProgress } from "./scanStream.js";
+import {
+  noFixtureConnectionPersistence,
+  type FixtureConnectionPersistence,
+} from "./fixtureConnectionPersistence.js";
 
 export function createServer(options: {
   community?: CommunityNetwork;
   destinationAnalyzer?: DestinationAnalysisCoordinator;
+  fixtureConnections?: FixtureConnectionPersistence;
 } = {}) {
   const app = express();
   const community = options.community ?? communityNetwork;
   const destinationAnalyzer = options.destinationAnalyzer ?? destinationAnalysisCoordinator;
+  const fixtureConnections = options.fixtureConnections ?? noFixtureConnectionPersistence;
   app.use(express.json({ limit: "64kb" }));
+
+  const reviewActionError = (error: unknown) => ({
+    status: error instanceof ReviewActionConflictError ? 409 : 400,
+    message: error instanceof Error ? error.message : String(error),
+  });
 
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const webDir = join(__dirname, "../../../web");
   const dashboardHtml = readFileSync(join(webDir, "index.html"), "utf8").replace(
     "</body>",
-    '<script src="/scan-monitor.js"></script><script src="/unsubscribe-monitor.js"></script></body>',
+    '<script src="/scan-monitor.js"></script><script src="/review-actions.js"></script><script src="/safe-audit.js"></script><script src="/unsubscribe-monitor.js"></script></body>',
   );
   app.get("/", (_req, res) => res.type("html").send(dashboardHtml));
   app.use(express.static(webDir));
@@ -119,6 +131,13 @@ export function createServer(options: {
       // Windows app passwords must enter Credential Manager here or the
       // connection fails rather than silently degrading to persisted plaintext.
       const session = await sessionStore.createSecured(provider, label ?? `${provider} (${mode})`, config);
+      if (mode === "fixture") {
+        try { fixtureConnections.remember(provider); }
+        catch (error) {
+          await sessionStore.remove(session.id);
+          throw error;
+        }
+      }
       const policy = session.personalPolicy.snapshot();
       res.json({
         accountId: session.id,
@@ -154,7 +173,10 @@ export function createServer(options: {
   });
 
   app.delete("/api/accounts/:id", async (req: Request, res: Response) => {
-    await sessionStore.remove(req.params.id!);
+    const before = sessionStore.list();
+    fixtureConnections.synchronize(before.filter((session) => session.id !== req.params.id));
+    try { await sessionStore.remove(req.params.id!); }
+    catch (error) { fixtureConnections.synchronize(before); throw error; }
     res.status(204).send();
   });
 
@@ -276,7 +298,7 @@ export function createServer(options: {
             listUnsubscribePost: null,
           };
         }
-        if (!res.writableEnded && !res.destroyed) res.write(`data: ${JSON.stringify(progress)}\n\n`);
+        if (!res.writableEnded && !res.destroyed) res.write(`data: ${JSON.stringify(publicScanProgress(progress as ScanProgress))}\n\n`);
       } else if (message.type === "complete") {
         terminalEventSent = true;
         writeEvent("scan-complete", {});
@@ -364,8 +386,8 @@ export function createServer(options: {
     const session = sessionStore.get(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
     let action;
-    try { action = sessionStore.resolveReviewAction(session, (req.body as { token?: unknown }).token); }
-    catch (error) { return res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); }
+    try { action = sessionStore.claimReviewAction(session, (req.body as { token?: unknown }).token, "mark_safe"); }
+    catch (error) { const detail = reviewActionError(error); return res.status(detail.status).json({ error: detail.message }); }
 
     try {
       sessionStore.mutateAndPersistPersonalPolicy(session, (policy) => policy.approveException(action.exceptionKey));
@@ -378,6 +400,7 @@ export function createServer(options: {
         token: action.token,
       });
     } catch (error) {
+      sessionStore.releaseReviewAction(action, "mark_safe");
       res.status(500).json({ error: `Message approval was not saved: ${error instanceof Error ? error.message : String(error)}` });
     }
   });
@@ -386,9 +409,12 @@ export function createServer(options: {
     const session = sessionStore.get(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
     let action;
-    try { action = sessionStore.resolveReviewAction(session, (req.body as { token?: unknown }).token); }
-    catch (error) { return res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); }
-    if (!action.senderAddress) return res.status(400).json({ error: "This message does not contain a usable sender address." });
+    try { action = sessionStore.claimReviewAction(session, (req.body as { token?: unknown }).token, "trust_sender"); }
+    catch (error) { const detail = reviewActionError(error); return res.status(detail.status).json({ error: detail.message }); }
+    if (!action.senderAddress) {
+      sessionStore.releaseReviewAction(action, "trust_sender");
+      return res.status(400).json({ error: "This message does not contain a usable sender address." });
+    }
 
     try {
       sessionStore.mutateAndPersistPersonalPolicy(session, (policy) => policy.trustSender(action.senderAddress!));
@@ -401,6 +427,7 @@ export function createServer(options: {
         token: action.token,
       });
     } catch (error) {
+      sessionStore.releaseReviewAction(action, "trust_sender");
       res.status(500).json({ error: `Trusted sender was not saved: ${error instanceof Error ? error.message : String(error)}` });
     }
   });
@@ -409,8 +436,8 @@ export function createServer(options: {
     const session = sessionStore.get(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
     let action;
-    try { action = sessionStore.resolveReviewAction(session, (req.body as { token?: unknown }).token); }
-    catch (error) { return res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); }
+    try { action = sessionStore.claimReviewAction(session, (req.body as { token?: unknown }).token, "report_scam"); }
+    catch (error) { const detail = reviewActionError(error); return res.status(detail.status).json({ error: detail.message }); }
 
     const blockSender = (req.body as { blockSender?: unknown }).blockSender === true;
     try {
@@ -419,6 +446,7 @@ export function createServer(options: {
         if (blockSender && action.senderAddress) policy.blockSender(action.senderAddress);
       });
     } catch (error) {
+      sessionStore.releaseReviewAction(action, "report_scam");
       return res.status(500).json({ error: `Local scam protection was not saved: ${error instanceof Error ? error.message : String(error)}` });
     }
 
@@ -455,15 +483,23 @@ export function createServer(options: {
   app.post("/api/accounts/:id/messages/trash", async (req: Request, res: Response) => {
     const session = sessionStore.get(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
-    const { providerNativeIds } = req.body as { providerNativeIds: string[] };
+    let action;
+    try { action = sessionStore.claimReviewAction(session, (req.body as { token?: unknown }).token, "trash"); }
+    catch (error) { const detail = reviewActionError(error); return res.status(detail.status).json({ error: detail.message }); }
     const ac = new AbortController();
     const adapter = createAdapter(session.config);
+    let committed = false;
     try {
       await adapter.connect(ac.signal);
-      const result = await moveMessagesToTrash(adapter, providerNativeIds, ac.signal);
-      res.json(result);
+      const result = await moveMessagesToTrash(adapter, [action.providerNativeId], ac.signal);
+      committed = result.moved === 1 && result.failed.length === 0;
+      if (!committed) return res.status(502).json({ ...result, error: result.failed[0]?.reason ?? "The provider did not confirm the Trash move.", accountId: session.id, token: action.token });
+      res.json({ ...result, success: true, accountId: session.id, token: action.token });
+    } catch (error) {
+      res.status(502).json({ error: `Move to Trash failed: ${error instanceof Error ? error.message : String(error)}`, accountId: session.id, token: action.token });
     } finally {
-      await adapter.disconnect();
+      if (!committed) sessionStore.releaseReviewAction(action, "trash");
+      await adapter.disconnect().catch(() => undefined);
     }
   });
 
@@ -473,17 +509,20 @@ export function createServer(options: {
 
     let action;
     try {
-      action = sessionStore.resolveReviewAction(session, (req.body as { token?: unknown }).token);
+      action = sessionStore.claimReviewAction(session, (req.body as { token?: unknown }).token, "report_spam");
     } catch (error) {
-      return res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+      const detail = reviewActionError(error);
+      return res.status(detail.status).json({ error: detail.message });
     }
     if (action.normalizedFolder === "spam") {
+      sessionStore.releaseReviewAction(action, "report_spam");
       return res.status(409).json({ error: "This message is already in the provider Spam/Junk folder." });
     }
 
     const ac = new AbortController();
     const timeout = setTimeout(() => ac.abort(), 35_000);
     const adapter = createAdapter(session.config);
+    let committed = false;
     try {
       await adapter.connect(ac.signal);
       const result = await reportMessagesAsSpam(adapter, [action.providerNativeId], ac.signal);
@@ -495,6 +534,7 @@ export function createServer(options: {
           token: action.token,
         });
       }
+      committed = true;
       res.json({
         ...result,
         success: true,
@@ -508,6 +548,7 @@ export function createServer(options: {
         token: action.token,
       });
     } finally {
+      if (!committed) sessionStore.releaseReviewAction(action, "report_spam");
       clearTimeout(timeout);
       await adapter.disconnect();
     }

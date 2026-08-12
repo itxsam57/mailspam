@@ -9,6 +9,8 @@ import { ensureManagedDataDirectory } from "./security/managedDataDirectory.js";
 import { getRuntimeCredentialVault } from "./security/credentialVaultFactory.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { FileFixtureConnectionPersistence } from "./api/fixtureConnectionPersistence.js";
+import { sessionStore } from "./api/sessionStore.js";
 
 const PORT = Number(process.env.PORT ?? 4173);
 const HOST = process.env.HOST ?? "127.0.0.1";
@@ -17,7 +19,8 @@ if (!["127.0.0.1", "localhost", "::1"].includes(HOST)) {
   throw new Error("The Email Shield desktop server may bind only to a loopback host.");
 }
 
-ensureManagedDataDirectory(process.env.EMAIL_SHIELD_DATA_DIR?.trim() || join(homedir(), ".email-shield"));
+const dataDirectory = process.env.EMAIL_SHIELD_DATA_DIR?.trim() || join(homedir(), ".email-shield");
+ensureManagedDataDirectory(dataDirectory);
 
 // Resolve or migrate protected local encryption keys before the desktop API
 // becomes reachable. One native runtime vault is shared across every protected
@@ -29,9 +32,12 @@ await initializeDefaultScanStateRepository({ credentialVault });
 await initializeDefaultRelationshipHistoryRepository({ credentialVault });
 await initializeDefaultBackgroundProtectionRepository({ credentialVault });
 
+const fixtureConnections = new FileFixtureConnectionPersistence(dataDirectory);
+fixtureConnections.restore(sessionStore);
+
 const backgroundProtection = createBackgroundProtectionCoordinator(communityNetwork);
 backgroundProtection.start();
-const app = createLocalDesktopServer({ backgroundProtection });
+const app = createLocalDesktopServer({ backgroundProtection, fixtureConnections });
 app.listen(PORT, HOST, () => {
   console.log(`Email Shield listening on http://${HOST}:${PORT}`);
 });

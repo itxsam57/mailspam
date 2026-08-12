@@ -45,6 +45,11 @@
     const campaignProtected = action.scamAlreadyReported === true;
     const senderBlock = actions.querySelector('[data-action="block-sender"]');
     const domainBlock = actions.querySelector('[data-action="block-domain"]');
+    const trash = actions.querySelector('[data-action="trash"]');
+    if (trash instanceof HTMLButtonElement) {
+      trash.dataset.reviewToken = action.token;
+      delete trash.dataset.nativeId;
+    }
 
     if (senderBlock instanceof HTMLButtonElement && action.senderBlocked === true) {
       senderBlock.dataset.action = 'unblock-sender';

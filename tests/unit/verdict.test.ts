@@ -120,6 +120,21 @@ describe("computeVerdict — structural safety guarantee", () => {
     expect(result.verdict).toBe("high_risk");
   });
 
+  it("does not let negative or trusted context erase independent risk evidence", () => {
+    const result = computeVerdict({
+      parseStatus: "complete",
+      layerResults: [{
+        layer: "mixed",
+        applicable: true,
+        incomplete: false,
+        evidence: [evidence("DMARC_FAIL", 3), evidence("CREDENTIAL_PHISH_INTENT", 3), evidence("TRUSTED_SENDER", -10)],
+      }],
+      confirmedByRule: false,
+    });
+    expect(result.score).toBe(6);
+    expect(result.verdict).toBe("high_risk");
+  });
+
   it("returns Safe when parsing is complete and evidence is below Review", () => {
     const result = computeVerdict({
       parseStatus: "complete",

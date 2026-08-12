@@ -5,6 +5,7 @@ import {
   hasAuthenticatedOrganizationalIdentity,
 } from "./identitySignals.js";
 import { transportAuthLayer } from "./layers/transportAuth.js";
+import { providerContextLayer } from "./layers/providerContext.js";
 import { identityImpersonationLayer } from "./layers/identityImpersonation.js";
 import { messageIntentLayer } from "./layers/messageIntent.js";
 import { linkStructureLayer } from "./layers/linkStructure.js";
@@ -64,6 +65,7 @@ export function scanMessage(
   const { result: globalResult, confirmedByGlobalRule } = globalIntelligenceLayer(envelope, deps.threatFeed);
 
   const layerResults = [
+    providerContextLayer(envelope),
     transportAuthLayer(envelope),
     identityImpersonationLayer(envelope),
     messageIntentLayer(envelope),

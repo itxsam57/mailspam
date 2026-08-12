@@ -81,6 +81,60 @@ describe("exact-message review decisions", () => {
 });
 
 describe("provider-independent classification regressions", () => {
+  it("uses normalized Spam/Junk placement as corroborating evidence without confirming a threat", () => {
+    const policy = new InMemoryPersonalPolicyStore();
+    const result = scanMessage(envelope({ folder: "spam", providerFolderName: "Junk Email" }), { personalPolicy: policy, threatFeed });
+    expect(result.scored.evidence).toContainEqual(expect.objectContaining({ code: "PROVIDER_SPAM_JUNK_PLACEMENT" }));
+    expect(result.scored.verdict).toBe("review");
+    expect(result.action).toBe("none");
+  });
+
+  it("keeps authentication and credential-phishing evidence high risk for a trusted sender", () => {
+    const policy = new InMemoryPersonalPolicyStore();
+    const message = envelope({
+      from: { displayName: "Account Security", address: "no-reply@accounts-verify-secure.com", domain: "accounts-verify-secure.com" },
+      authentication: {
+        spf: "fail",
+        dkim: "fail",
+        dmarc: "fail",
+        arc: "none",
+        providerTrust: "trusted",
+        rawHeader: "mx.receiver.example; dmarc=fail; spf=fail; dkim=fail",
+      },
+      subject: "Verify your account",
+      textPreview: "Enter your password within 24 hours or your account will be suspended.",
+    });
+    policy.trustSender(message.from.address!);
+    const result = scanMessage(message, { personalPolicy: policy, threatFeed });
+    expect(result.scored.evidence).toContainEqual(expect.objectContaining({ code: "TRUSTED_SENDER", scoreContribution: 0 }));
+    expect(result.scored.score).toBeGreaterThanOrEqual(6);
+    expect(result.scored.verdict).toBe("high_risk");
+  });
+
+  it("normalizes compatibility and invisible-character credential obfuscation", () => {
+    const result = messageIntentLayer(envelope({
+      subject: "V\u200berify your account",
+      textPreview: "Enter your pаssword within 24 hours or your account will be suspended.",
+    }));
+    expect(result.evidence).toContainEqual(expect.objectContaining({ code: "CREDENTIAL_PHISH_INTENT" }));
+  });
+
+  it("detects multilingual credential pressure as combined concepts", () => {
+    const result = messageIntentLayer(envelope({
+      subject: "تصدیق کریں",
+      textPreview: "اپنا پاس ورڈ فوری درج کریں، ورنہ اکاؤنٹ بند ہو جائے گا۔",
+    }));
+    expect(result.evidence).toContainEqual(expect.objectContaining({ code: "MULTILINGUAL_CREDENTIAL_PHISH_INTENT" }));
+  });
+
+  it("does not flag a translated account noun without pressure or an action request", () => {
+    const result = messageIntentLayer(envelope({
+      subject: "آپ کا اکاؤنٹ",
+      textPreview: "آپ کے ماہانہ اکاؤنٹ کی رپورٹ تیار ہے۔",
+    }));
+    expect(result.evidence.some((item) => item.code.startsWith("MULTILINGUAL_"))).toBe(false);
+  });
+
   it("does not treat a short ordinary verb as an organization identity", () => {
     const result = identityImpersonationLayer(envelope({
       from: { displayName: "Find My", address: "noreply@identity.example", domain: "identity.example" },

@@ -155,6 +155,28 @@
     }
   }
 
+  window.addEventListener('email-shield-workspace-restored', (event) => {
+    const detail = event instanceof CustomEvent ? event.detail : null;
+    const presentation = detail?.presentation;
+    if (!presentation || detail.selectedAccountId !== selectedAccountId()) return;
+    diagnosticRows = Array.isArray(presentation.diagnosticSummaries)
+      ? presentation.diagnosticSummaries.slice(-500)
+      : [];
+    renderDiagnostics();
+    if (presentation.counters && typeof window.renderCounters === 'function') {
+      window.renderCounters(presentation.counters);
+    }
+    if (Array.isArray(presentation.suspiciousCards) && typeof window.renderCard === 'function') {
+      cards.innerHTML = presentation.suspiciousCards.slice(0, 200).map(window.renderCard).join('');
+      if (typeof window.wireCardActions === 'function') window.wireCardActions();
+    }
+    const restoredAt = Number(presentation.updatedAt);
+    const time = Number.isFinite(restoredAt)
+      ? (window.emailShieldI18n?.formatDate(restoredAt) || new Date(restoredAt).toLocaleString())
+      : 'this process';
+    setStatus(`Restored the last privacy-bounded ${presentation.type || 'mailbox'} scan view from ${time}. Status: ${presentation.status || 'unknown'}.`, presentation.status === 'completed' ? 'complete' : '');
+  });
+
   async function start(type, options = {}) {
     const resumeScanId = typeof options?.resumeScanId === 'string' ? options.resumeScanId : null;
     const requestedAccountId = selectedAccountId();
@@ -353,13 +375,13 @@
     event.stopImmediatePropagation();
 
     const id = selectedAccountId();
-    const providerNativeId = button.dataset.nativeId;
+    const token = button.dataset.reviewToken;
     const card = button.closest('.card');
     const subject = card?.querySelector('.card-subject')?.textContent?.trim() || '(no subject)';
     const sender = card?.querySelector('.card-from')?.textContent?.trim() || 'unknown sender';
 
-    if (!id || !providerNativeId) {
-      setStatus('Move failed: the account or provider message identifier is missing.', 'error');
+    if (!id || !token) {
+      setStatus('Move failed: the account or protected action token is missing.', 'error');
       return;
     }
 
@@ -387,14 +409,14 @@
       const response = await fetch(`/api/accounts/${encodeURIComponent(id)}/messages/trash`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ providerNativeIds: [providerNativeId] }),
+        body: JSON.stringify({ token }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || `Server returned HTTP ${response.status}`);
       const failedReason = Array.isArray(result.failed) && result.failed.length
         ? result.failed[0]?.reason
         : null;
-      if (result.requested !== 1 || result.moved !== 1 || failedReason) {
+      if (result.success !== true || result.accountId !== id || result.token !== token || result.requested !== 1 || result.moved !== 1 || failedReason) {
         throw new Error(failedReason || `Provider reported moved ${result.moved ?? 0} of ${result.requested ?? 1}.`);
       }
 

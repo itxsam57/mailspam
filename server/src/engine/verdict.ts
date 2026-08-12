@@ -54,7 +54,10 @@ export function computeVerdict(params: {
   } = params;
 
   const evidence = layerResults.flatMap((layer) => layer.evidence);
-  const score = evidence.reduce((sum, item) => sum + item.scoreContribution, 0);
+  // Risk evidence is monotonic. Personal trust is useful context, but it must
+  // never cancel independent transport, intent, link, or attachment evidence.
+  // Exact-message approval remains an explicit precedence decision below.
+  const score = evidence.reduce((sum, item) => sum + Math.max(0, item.scoreContribution), 0);
   const parseBlocksSafe = parseStatus !== "complete" && !boundedContentAllowsSafe;
   const hasUnavailableContent =
     parseBlocksSafe ||

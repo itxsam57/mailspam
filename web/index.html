@@ -337,14 +337,15 @@ const t = (key, values) => i18n?.t(key, values) || key;
 const formatNumber = (value) => i18n?.formatNumber(value) || String(Number(value) || 0);
 
 const LAYER_ORDER = [
-  'transport_auth', 'identity_impersonation', 'message_intent', 'link_structure',
-  'destination_classification', 'attachment_qr', 'relationship_context',
+  'provider_context', 'transport_auth', 'identity_impersonation', 'message_intent', 'link_structure',
+  'destination_classification', 'attachment_qr', 'html_interaction', 'relationship_context',
   'personal_rules', 'global_intelligence'
 ];
 const LAYER_LABEL = {
   transport_auth: 'Transport/Auth', identity_impersonation: 'Identity/Impersonation',
-  message_intent: 'Message Intent', link_structure: 'Link Structure',
+  provider_context: 'Provider Spam/Junk Context', message_intent: 'Message Intent', link_structure: 'Link Structure',
   destination_classification: 'Destination (Analyze Links only)', attachment_qr: 'Attachment/QR',
+  html_interaction: 'HTML Interaction',
   relationship_context: 'Relationship Context', personal_rules: 'Personal Rules',
   global_intelligence: 'Global Intelligence'
 };
@@ -384,14 +385,27 @@ async function refreshAccounts() {
   }
 }
 
-function selectAccount(id) {
+function selectAccount(id, options = {}) {
   currentAccountId = id;
   scanPanel.style.display = 'block';
   countersEl.innerHTML = '';
   cardsEl.innerHTML = '';
   connectStatus.textContent = 'Selected account changed. Scan controls are ready.';
   refreshAccounts();
+  if (options.remember !== false) {
+    void fetch(`${API}/api/accounts/workspace`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accountId: id }),
+    }).catch(() => undefined);
+  }
 }
+
+Object.defineProperty(window, 'emailShieldSelectAccount', {
+  value: (id, options = {}) => selectAccount(id, options),
+  writable: false,
+  configurable: false,
+});
 
 function renderCredentialFields() {
   if (modeSelect.value === 'fixture') { credentialFields.innerHTML = ''; return; }
@@ -484,7 +498,7 @@ function renderCard(result) {
       <div class="card-actions">
         <button data-action="block-sender" data-address="${escapeHtml(env.from.address || '')}">Block sender</button>
         <button data-action="block-domain" data-domain="${escapeHtml(env.from.domain || '')}">Block domain</button>
-        <button data-action="trash" data-native-id="${escapeHtml(env.providerNativeId)}">Move to Trash</button>
+        <button data-action="trash">Move to Trash</button>
       </div>
     </article>
   `;
@@ -538,12 +552,6 @@ function wireCardActions() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ domain: btn.dataset.domain })
     }).then(() => { btn.textContent = 'Blocked'; btn.disabled = true; });
-  });
-  cardsEl.querySelectorAll('[data-action="trash"]').forEach(btn => {
-    btn.onclick = () => fetch(`${API}/api/accounts/${currentAccountId}/messages/trash`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ providerNativeIds: [btn.dataset.nativeId] })
-    }).then(() => { btn.textContent = 'Moved'; btn.disabled = true; });
   });
 }
 
