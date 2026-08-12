@@ -7,6 +7,7 @@ import {
   WorkerBackgroundProtectionExecutor,
 } from "./api/backgroundProtection.js";
 import { createConsumerDesktopServer } from "./api/consumerDesktopServer.js";
+import { createDefaultLiveConnectionPersistence } from "./api/liveConnectionPersistence.js";
 import { communityNetwork } from "./community/network.js";
 import { ensureManagedDataDirectory } from "./security/managedDataDirectory.js";
 import { getRuntimeCredentialVault } from "./security/credentialVaultFactory.js";
@@ -47,9 +48,23 @@ const inboundEventRepository = await createDefaultInboundEventStateRepository({
   credentialVault,
   dataDirectory,
 });
+const liveConnections = await createDefaultLiveConnectionPersistence({
+  credentialVault,
+  dataDirectory,
+});
 
 const accountPlatform = getAccountPlatformService();
 const deviceIdentity = getDesktopDeviceIdentity();
+
+// Consumer mailbox authorization is one-time by default. The encrypted local
+// registry contains only provider identity/config metadata and OS-vault handles;
+// refresh tokens/app passwords remain in the native vault. Restore live sessions
+// before either scheduled or realtime protection starts so restart does not
+// create an unprotected gap. If the platform cannot persist vault-backed state,
+// Email Shield still starts for Scam Check but refuses new durable live connects.
+sessionStore.configureLiveConnectionPersistence(liveConnections, { required: true });
+sessionStore.restoreLiveConnections();
+
 const fixtureConnections = new FileFixtureConnectionPersistence(dataDirectory);
 fixtureConnections.restore(sessionStore);
 
