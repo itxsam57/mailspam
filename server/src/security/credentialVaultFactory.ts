@@ -4,13 +4,7 @@ import { LinuxSecretServiceVault } from "./linuxSecretServiceVault.js";
 import { MacOSKeychainVault } from "./macosKeychainVault.js";
 import { WindowsCredentialManagerVault } from "./windowsCredentialManagerVault.js";
 
-/**
- * Return only a real operating-system protected backend. There is intentionally
- * no plaintext, environment-variable or local-file fallback. A platform whose
- * native user-session service is absent reports unavailable and callers retain
- * the existing fail-closed / memory-only behavior.
- */
-export function createCredentialVault(platform: NodeJS.Platform = process.platform): CredentialVault {
+function createPlatformCredentialVault(platform: NodeJS.Platform): CredentialVault {
   if (platform === "win32") return new WindowsCredentialManagerVault();
   if (platform === "darwin") return new MacOSKeychainVault();
   if (platform === "linux") return new LinuxSecretServiceVault();
@@ -22,10 +16,20 @@ let runtimeCredentialVault: CredentialVault | null = null;
 /**
  * The desktop runtime has one credential-custody boundary. Sharing the native
  * backend prevents repeated helper initialization across encrypted local
- * repositories and provider-session credentials while preserving isolated
- * createCredentialVault() instances for tests and explicit callers.
+ * repositories and provider-session credentials.
  */
 export function getRuntimeCredentialVault(): CredentialVault {
-  runtimeCredentialVault ??= createCredentialVault();
+  runtimeCredentialVault ??= createPlatformCredentialVault(process.platform);
   return runtimeCredentialVault;
+}
+
+/**
+ * With no explicit platform, return the process runtime vault. Supplying a
+ * platform deliberately creates an isolated backend, which keeps unit tests,
+ * migration probes and explicit callers independent from runtime state.
+ * There is intentionally no plaintext, environment-variable or local-file
+ * fallback.
+ */
+export function createCredentialVault(platform?: NodeJS.Platform): CredentialVault {
+  return platform === undefined ? getRuntimeCredentialVault() : createPlatformCredentialVault(platform);
 }
