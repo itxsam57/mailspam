@@ -15,6 +15,7 @@ import { defaultEmailShieldDataDirectory } from "./security/dataDirectory.js";
 import { FileFixtureConnectionPersistence } from "./api/fixtureConnectionPersistence.js";
 import { sessionStore } from "./api/sessionStore.js";
 import {
+  getAccountLifecycleService,
   getAccountPlatformService,
   getDesktopDeviceIdentity,
   initializeDefaultAccountPlatform,
@@ -54,6 +55,7 @@ const liveConnections = await createDefaultLiveConnectionPersistence({
 });
 
 const accountPlatform = getAccountPlatformService();
+const accountLifecycle = getAccountLifecycleService();
 const deviceIdentity = getDesktopDeviceIdentity();
 
 // Consumer mailbox authorization is one-time by default. The encrypted local
@@ -92,6 +94,7 @@ const app = createConsumerDesktopServer({
   backgroundProtection,
   fixtureConnections,
   accountPlatform,
+  accountLifecycle,
   deviceIdentity,
   developmentEntitlementsEnabled: process.env.EMAIL_SHIELD_ENABLE_DEVELOPMENT_ENTITLEMENTS === "1",
 });
