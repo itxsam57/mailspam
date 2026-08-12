@@ -11,11 +11,13 @@ describe("durable protection browser wiring", () => {
     expect(scripts).toContain('"/protection-learning.js"');
   });
 
-  it("intercepts Block before the legacy raw-address handler and submits only the opaque scan token", () => {
+  it("intercepts Block before the legacy raw-address handler and submits opaque token plus explicit family choice only", () => {
     expect(source).toContain("event.stopImmediatePropagation()");
-    expect(source).toContain("`block-${scope}`, { token }");
+    expect(source).toContain("`block-${scope}`, { token, shareWithFamily }");
+    expect(source).toContain("Cancel keeps the ${scope} block personal");
     expect(source).not.toMatch(/`block-\$\{scope\}`\s*,\s*\{[^}]*address/s);
     expect(source).not.toMatch(/`block-\$\{scope\}`\s*,\s*\{[^}]*domain/s);
+    expect(source).not.toMatch(/`block-\$\{scope\}`\s*,\s*\{[^}]*subject/s);
   });
 
   it("owns Report Scam before the legacy handler and sends only token plus the explicit sender-block choice", () => {
@@ -24,6 +26,7 @@ describe("durable protection browser wiring", () => {
     expect(source).toContain("post(accountId, 'report-scam', { token, blockSender })");
     expect(source).not.toContain("post(accountId, 'trash', { token })");
     expect(source).toContain("future matches will auto-Trash");
+    expect(source).toContain("Family Shield updated");
   });
 
   it("reports partial external failures without undoing durable local campaign protection", () => {
@@ -31,6 +34,7 @@ describe("durable protection browser wiring", () => {
     expect(source).toContain("Local protection is still active");
     expect(source).toContain("result.movedCurrent === true");
     expect(source).toContain("result.communityAccepted === true");
+    expect(source).toContain("Local protection remains active");
   });
 
   it("sends positive learning only after Safe or Trust succeeds", () => {
