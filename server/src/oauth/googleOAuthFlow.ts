@@ -33,6 +33,7 @@ export interface GoogleOAuthTokenResult {
 export interface GoogleOAuthRuntime {
   exchangeAuthorizationCode(input: {
     clientId: string;
+    /** Optional for Google installed/desktop OAuth clients. */
     clientSecret?: string;
     code: string;
     codeVerifier: string;
@@ -184,16 +185,18 @@ export class DefaultGoogleOAuthRuntime implements GoogleOAuthRuntime {
     redirectUri: string;
   }): Promise<GoogleOAuthTokenResult> {
     const clientSecret = resolveGoogleClientSecret(input.clientSecret);
-    if (!clientSecret) throw new Error("Google OAuth client secret is not configured.");
-
     const body = new URLSearchParams({
       client_id: input.clientId,
-      client_secret: clientSecret,
       code: input.code,
       code_verifier: input.codeVerifier,
       grant_type: "authorization_code",
       redirect_uri: input.redirectUri,
     });
+    // Google installed/desktop applications are public clients and cannot keep
+    // this value confidential. Some client registrations include one, others do
+    // not. PKCE is the security boundary, so send the value only when present.
+    if (clientSecret) body.set("client_secret", clientSecret);
+
     const response = await fetch(GOOGLE_TOKEN_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -434,7 +437,7 @@ export class GoogleOAuthFlowManager {
       } catch {
         throw new GoogleOAuthStageError(
           "ES-GOOGLE-01",
-          "Google token exchange could not be completed (ES-GOOGLE-01). Confirm the matching Desktop OAuth client credentials and try again.",
+          "Google token exchange could not be completed (ES-GOOGLE-01). Confirm the matching Desktop OAuth client ID/redirect configuration and try again.",
         );
       }
 
@@ -449,12 +452,16 @@ export class GoogleOAuthFlowManager {
         );
       }
 
+      // The installed-app client secret is app configuration and cannot be
+      // confidential on a desktop device. Do not attach it to the per-mailbox
+      // secure session; the refresh token + stable Google subject are enough to
+      // restore the mailbox after restart. The transient validation path also
+      // works for a public Desktop OAuth client without a client secret.
       const config: AdapterConfig = {
         provider: "gmail",
         mode: "live",
         credentials: {
           clientId: this.options.clientId.trim(),
-          clientSecret: clientSecret || undefined,
           refreshToken: tokens.refreshToken,
           accountSubject: identity.sub,
         },

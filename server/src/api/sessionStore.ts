@@ -15,11 +15,18 @@ import {
   secureAdapterConfig,
   secureAdapterConfigInMemory,
   type SecureAdapterConfig,
+  type SecretHandle,
 } from "../security/secureAdapterConfig.js";
 import type { UnsubscribeMethod } from "../workflows/unsubscribe.js";
 import type { ScanActionContext, ScanCounters } from "../workflows/scanWorkflows.js";
 import type { AdapterConfig } from "./adapterConfig.js";
 import { defaultPersonalPolicyRepository } from "./defaultPolicyRepository.js";
+import {
+  noLiveConnectionPersistence,
+  policyAccountKeyFromPersistentConnection,
+  secureConfigFromPersistentConnection,
+  type LiveConnectionPersistence,
+} from "./liveConnectionPersistence.js";
 import {
   InMemoryPolicyRepository,
   policyAccountKey,
@@ -98,6 +105,30 @@ function credentialReferenceKey(reference: CredentialReference): string {
   return `${reference.kind}:${reference.id}`;
 }
 
+function handleReference(handle: SecretHandle | undefined): CredentialReference[] {
+  return handle?.storage === "vault" ? [{ ...handle.reference }] : [];
+}
+
+function secureConfigReferences(config: SecureAdapterConfig): CredentialReference[] {
+  if (config.mode !== "live") return [];
+  switch (config.provider) {
+    case "gmail":
+      return [
+        ...handleReference(config.credentials.refreshToken),
+        ...handleReference(config.credentials.clientSecret),
+      ];
+    case "outlook":
+      return [
+        ...handleReference(config.credentials.refreshToken),
+        ...handleReference(config.credentials.clientSecret),
+      ];
+    case "icloud":
+    case "yahoo":
+    case "imap":
+      return handleReference(config.credentials.appPassword);
+  }
+}
+
 export class SessionStore {
   private sessions = new Map<string, AccountSession>();
   private policyStores = new Map<string, InMemoryPersonalPolicyStore>();
@@ -105,6 +136,8 @@ export class SessionStore {
   private vaultLifecycleTail: Promise<void> = Promise.resolve();
   private selectedWorkspaceSessionId: string | null = null;
   private workspacePresentations = new Map<string, WorkspaceScanPresentation>();
+  private liveConnectionPersistence: LiveConnectionPersistence = noLiveConnectionPersistence;
+  private persistentLiveConnectionsRequired = false;
 
   constructor(
     private readonly policyRepository: PersonalPolicyRepository = new InMemoryPolicyRepository(),
@@ -116,6 +149,53 @@ export class SessionStore {
     return this.policyRepository.persistent;
   }
 
+  liveConnectionsPersistent(): boolean {
+    return this.liveConnectionPersistence.persistent;
+  }
+
+  /**
+   * Runtime startup injects the encrypted connection registry after the native
+   * credential vault has initialized. Consumer live connections are then
+   * required to be restart-restorable instead of silently degrading to memory.
+   */
+  configureLiveConnectionPersistence(
+    persistence: LiveConnectionPersistence,
+    options: { required?: boolean } = {},
+  ): void {
+    if (this.sessions.size !== 0) {
+      throw new Error("Live connection persistence must be configured before mailbox sessions are created or restored.");
+    }
+    this.liveConnectionPersistence = persistence;
+    this.persistentLiveConnectionsRequired = options.required === true;
+    if (this.persistentLiveConnectionsRequired && !persistence.persistent) {
+      // Startup may still proceed so users can use local Scam Check. Any new
+      // live mailbox connection will fail closed with a specific message.
+      return;
+    }
+  }
+
+  /**
+   * Restore only encrypted metadata + OS-vault handles. No provider secret is
+   * materialized here, and the provider is contacted only when protection runs.
+   */
+  restoreLiveConnections(): AccountSession[] {
+    const restored: AccountSession[] = [];
+    for (const connection of this.liveConnectionPersistence.list()) {
+      const accountKey = policyAccountKeyFromPersistentConnection(connection);
+      if (this.list().some((session) => session.policyAccountKey === accountKey)) continue;
+      const config = secureConfigFromPersistentConnection(connection);
+      const session = this.createFromSecured(
+        connection.provider,
+        connection.label,
+        config,
+        accountKey,
+        secureConfigReferences(config),
+      );
+      restored.push(session);
+    }
+    return restored;
+  }
+
   create(provider: string, label: string, config: AdapterConfig): AccountSession {
     const secured = secureAdapterConfigInMemory(config);
     return this.createFromSecured(provider, label, secured.config, policyAccountKey(config), secured.vaultReferences);
@@ -124,7 +204,8 @@ export class SessionStore {
   /**
    * Production connection path. A native vault that advertises availability is
    * authoritative: write failure aborts session creation rather than falling
-   * back to plaintext or long-lived raw AdapterConfig storage.
+   * back to plaintext or long-lived raw AdapterConfig storage. When production
+   * runtime persistence is required, connection-registry failure also aborts.
    */
   async createSecured(provider: string, label: string, config: AdapterConfig): Promise<AccountSession> {
     return this.withVaultLifecycle(() => this.createSecuredWithinLifecycle(provider, label, config));
@@ -157,11 +238,24 @@ export class SessionStore {
     label: string,
     config: AdapterConfig,
   ): Promise<AccountSession> {
+    const isLive = config.mode === "live";
+    if (isLive && this.persistentLiveConnectionsRequired && !this.liveConnectionPersistence.persistent) {
+      throw new Error("Persistent live mailbox protection is unavailable because the native credential vault/connection registry is not durable on this device.");
+    }
+
     const accountKey = policyAccountKey(config);
+    // Same-account overlap is intentional during credential rotation/reconnect.
+    // Session creation is serialized with disconnect/revocation; the persistent
+    // registry itself stores only the newest descriptor for the mailbox key.
+
     const secured = await secureAdapterConfig(config, this.credentialVault);
+    let session: AccountSession | null = null;
     try {
-      return this.createFromSecured(provider, label, secured.config, accountKey, secured.vaultReferences);
+      session = this.createFromSecured(provider, label, secured.config, accountKey, secured.vaultReferences);
+      if (isLive) this.liveConnectionPersistence.remember(session);
+      return session;
     } catch (error) {
+      if (session) this.rollbackCreatedSession(session);
       try {
         for (const reference of secured.vaultReferences) {
           if ((this.vaultReferenceCounts.get(credentialReferenceKey(reference)) ?? 0) === 0) {
@@ -172,6 +266,20 @@ export class SessionStore {
         throw new Error("Account session initialization failed and protected credential cleanup also failed.");
       }
       throw error;
+    }
+  }
+
+  private rollbackCreatedSession(session: AccountSession): void {
+    this.clearScanActions(session);
+    this.workspacePresentations.delete(session.id);
+    if (this.selectedWorkspaceSessionId === session.id) this.selectedWorkspaceSessionId = null;
+    this.sessions.delete(session.id);
+    releaseMemorySecrets(session.config);
+    for (const reference of session.vaultReferences) {
+      const key = credentialReferenceKey(reference);
+      const remaining = (this.vaultReferenceCounts.get(key) ?? 0) - 1;
+      if (remaining > 0) this.vaultReferenceCounts.set(key, remaining);
+      else this.vaultReferenceCounts.delete(key);
     }
   }
 
@@ -420,6 +528,7 @@ export class SessionStore {
     const session = this.sessions.get(id);
     if (!session || session.closing) return;
     session.closing = true;
+    let persistentDescriptorRemoved = false;
 
     try {
       if (session.activeScanWorker) {
@@ -431,6 +540,11 @@ export class SessionStore {
         const finalProviderAccountSession = ![...this.sessions.values()].some(
           (other) => other.id !== session.id && other.policyAccountKey === session.policyAccountKey,
         );
+
+        if (finalProviderAccountSession && session.config.mode === "live") {
+          this.liveConnectionPersistence.remove(session.policyAccountKey);
+          persistentDescriptorRemoved = true;
+        }
 
         if (finalProviderAccountSession && this.credentialRevoker.requiresRevocation(session.config)) {
           await this.credentialRevoker.revoke(session.config, this.credentialVault);
@@ -458,6 +572,12 @@ export class SessionStore {
       });
     } catch (error) {
       session.closing = false;
+      if (persistentDescriptorRemoved && session.config.mode === "live") {
+        try { this.liveConnectionPersistence.remember(session); }
+        catch {
+          throw new Error("Account disconnect failed and Email Shield could not restore the encrypted persistent connection descriptor. Reconnect this mailbox before relying on restart protection.");
+        }
+      }
       throw error;
     }
   }
