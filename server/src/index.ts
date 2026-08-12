@@ -10,6 +10,11 @@ import { getRuntimeCredentialVault } from "./security/credentialVaultFactory.js"
 import { defaultEmailShieldDataDirectory } from "./security/dataDirectory.js";
 import { FileFixtureConnectionPersistence } from "./api/fixtureConnectionPersistence.js";
 import { sessionStore } from "./api/sessionStore.js";
+import {
+  getAccountPlatformService,
+  getDesktopDeviceIdentity,
+  initializeDefaultAccountPlatform,
+} from "./platform/defaultAccountPlatform.js";
 
 const PORT = Number(process.env.PORT ?? 4173);
 const HOST = process.env.HOST ?? "127.0.0.1";
@@ -30,13 +35,22 @@ await initializeDefaultPersonalPolicyRepository({ credentialVault });
 await initializeDefaultScanStateRepository({ credentialVault });
 await initializeDefaultRelationshipHistoryRepository({ credentialVault });
 await initializeDefaultBackgroundProtectionRepository({ credentialVault });
+await initializeDefaultAccountPlatform({ credentialVault, dataDirectory });
 
+const accountPlatform = getAccountPlatformService();
+const deviceIdentity = getDesktopDeviceIdentity();
 const fixtureConnections = new FileFixtureConnectionPersistence(dataDirectory);
 fixtureConnections.restore(sessionStore);
 
 const backgroundProtection = createBackgroundProtectionCoordinator(communityNetwork);
 backgroundProtection.start();
-const app = createLocalDesktopServer({ backgroundProtection, fixtureConnections });
+const app = createLocalDesktopServer({
+  backgroundProtection,
+  fixtureConnections,
+  accountPlatform,
+  deviceIdentity,
+  developmentEntitlementsEnabled: process.env.EMAIL_SHIELD_ENABLE_DEVELOPMENT_ENTITLEMENTS === "1",
+});
 app.listen(PORT, HOST, () => {
   console.log(`Email Shield listening on http://${HOST}:${PORT}`);
 });
