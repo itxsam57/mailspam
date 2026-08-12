@@ -2,7 +2,10 @@ import { initializeDefaultPersonalPolicyRepository } from "./api/defaultPolicyRe
 import { initializeDefaultScanStateRepository } from "./api/defaultScanStateRepository.js";
 import { initializeDefaultRelationshipHistoryRepository } from "./api/defaultRelationshipHistoryRepository.js";
 import { initializeDefaultBackgroundProtectionRepository } from "./api/defaultBackgroundProtectionRepository.js";
-import { createBackgroundProtectionCoordinator } from "./api/backgroundProtection.js";
+import {
+  BackgroundProtectionCoordinator,
+  WorkerBackgroundProtectionExecutor,
+} from "./api/backgroundProtection.js";
 import { createConsumerDesktopServer } from "./api/consumerDesktopServer.js";
 import { communityNetwork } from "./community/network.js";
 import { ensureManagedDataDirectory } from "./security/managedDataDirectory.js";
@@ -15,6 +18,9 @@ import {
   getDesktopDeviceIdentity,
   initializeDefaultAccountPlatform,
 } from "./platform/defaultAccountPlatform.js";
+import { createDefaultInboundEventStateRepository } from "./realtime/inboundEventPersistence.js";
+import { RealtimeProtectionProcessor } from "./realtime/realtimeProtectionProcessor.js";
+import { RealtimeProtectionService } from "./realtime/realtimeProtectionService.js";
 
 const PORT = Number(process.env.PORT ?? 4173);
 const HOST = process.env.HOST ?? "127.0.0.1";
@@ -36,14 +42,34 @@ await initializeDefaultScanStateRepository({ credentialVault });
 await initializeDefaultRelationshipHistoryRepository({ credentialVault });
 await initializeDefaultBackgroundProtectionRepository({ credentialVault });
 await initializeDefaultAccountPlatform({ credentialVault, dataDirectory });
+const inboundEventRepository = await createDefaultInboundEventStateRepository({
+  credentialVault,
+  dataDirectory,
+});
 
 const accountPlatform = getAccountPlatformService();
 const deviceIdentity = getDesktopDeviceIdentity();
 const fixtureConnections = new FileFixtureConnectionPersistence(dataDirectory);
 fixtureConnections.restore(sessionStore);
 
-const backgroundProtection = createBackgroundProtectionCoordinator(communityNetwork, accountPlatform);
+// Scheduled and realtime protection deliberately share one Worker executor so
+// there is one implementation of bounded Quick scanning, relationship history,
+// personal policy, Family Shield and verified community intelligence.
+const protectionExecutor = new WorkerBackgroundProtectionExecutor(communityNetwork, accountPlatform);
+const backgroundProtection = new BackgroundProtectionCoordinator({
+  sessions: sessionStore,
+  executor: protectionExecutor,
+});
 backgroundProtection.start();
+
+const realtimeProcessor = new RealtimeProtectionProcessor(sessionStore, protectionExecutor);
+const realtimeProtection = new RealtimeProtectionService({
+  sessions: sessionStore,
+  repository: inboundEventRepository,
+  processor: realtimeProcessor,
+});
+realtimeProtection.start();
+
 const app = createConsumerDesktopServer({
   backgroundProtection,
   fixtureConnections,
