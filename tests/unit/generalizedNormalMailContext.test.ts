@@ -228,7 +228,7 @@ describe("subscription and coverage context", () => {
     expect(evidenceCodes(result)).toContain("FREE_REWARD_LURE");
   });
 
-  it("keeps untrusted bounded MIME Unknown but outside the threat-warning feed", async () => {
+  it("keeps untrusted bounded MIME Unknown and surfaces it as an attention card", async () => {
     const bounded = envelope({
       authentication: { providerTrust: "unknown", spf: "pass", dkim: "pass", dmarc: "pass", arc: "none" },
       parseStatus: "partial",
@@ -264,7 +264,9 @@ describe("subscription and coverage context", () => {
     )) pages.push(page);
 
     expect(pages).toHaveLength(1);
+    expect(pages[0]!.counters).toMatchObject({ examined: 1, unknown: 1, review: 0 });
     expect(pages[0]!.diagnosticSummaries[0]).toMatchObject({
+      verdict: "unknown",
       parseStatus: "bounded sufficient",
       contentCoverage: "bounded_sufficient",
       parseNotes: [],
@@ -272,6 +274,7 @@ describe("subscription and coverage context", () => {
         "Bounded content requires an authenticated sender identity before it can be classified Safe.",
       ]),
     });
-    expect(pages[0]!.suspiciousCards).toHaveLength(0);
+    expect(pages[0]!.suspiciousCards).toHaveLength(1);
+    expect(pages[0]!.suspiciousCards[0]!.scored.verdict).toBe("unknown");
   });
 });
