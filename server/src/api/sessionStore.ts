@@ -244,9 +244,9 @@ export class SessionStore {
     }
 
     const accountKey = policyAccountKey(config);
-    if (isLive && this.list().some((session) => session.policyAccountKey === accountKey)) {
-      throw new Error("This mailbox is already connected to Email Shield.");
-    }
+    // Same-account overlap is intentional during credential rotation/reconnect.
+    // Session creation is serialized with disconnect/revocation; the persistent
+    // registry itself stores only the newest descriptor for the mailbox key.
 
     const secured = await secureAdapterConfig(config, this.credentialVault);
     let session: AccountSession | null = null;
