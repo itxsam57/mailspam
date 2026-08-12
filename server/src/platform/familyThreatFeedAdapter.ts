@@ -1,7 +1,6 @@
 import type { SignedFeedEntry } from "../engine/layers/globalIntelligence.js";
 import type { FamilyThreatSnapshot } from "./accountFamilyTypes.js";
-
-export const FAMILY_FEED_RULE_PREFIX = "family-circle:";
+import { FAMILY_FEED_RULE_PREFIX } from "./familyThreatProtocol.js";
 
 /**
  * Converts a privacy-reduced, already-authenticated Family Shield snapshot into
