@@ -9,7 +9,9 @@
     path.startsWith('/api/accounts') ||
     path.startsWith('/api/dev') ||
     path.startsWith('/api/operations') ||
+    path.startsWith('/api/scam-check') ||
     path.startsWith('/api/security');
+  const analysisOnlyPath = (path) => path.startsWith('/api/scam-check/');
   const unsafeMethod = (method) => !['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase());
 
   function requestMethod(input, init) {
@@ -79,7 +81,7 @@
     const isNonceRequest = url.pathname === '/api/security/mutation-token';
     const token = requestActionToken(init);
 
-    if (unsafeMethod(method) && !isNonceRequest) {
+    if (unsafeMethod(method) && !isNonceRequest && !analysisOnlyPath(url.pathname)) {
       headers.set('X-Email-Shield-Nonce', await mutationNonce());
     }
 

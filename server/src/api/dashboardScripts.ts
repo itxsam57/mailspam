@@ -18,6 +18,7 @@ const DESKTOP_ONLY_SCRIPTS = [
   "/account-plan.js",
   "/family-shield.js",
   "/app-shell.js",
+  "/scam-check.js",
 ] as const;
 
 function scriptTags(paths: readonly string[]): string {
@@ -26,10 +27,9 @@ function scriptTags(paths: readonly string[]): string {
 
 /**
  * The API server is the sole owner of browser module composition. Card
- * enhancers are ordered from the base scan renderer outwards and loaded once;
- * browser modules must never inject sibling scripts themselves. The desktop
- * application shell loads last so it can reorganize existing proven panels
- * without changing their IDs or event listeners.
+ * enhancers are ordered from the base scan renderer outwards and loaded once.
+ * The desktop shell reorganizes the proven panels first; post-shell consumer
+ * modules may then mount new surfaces only into explicit shell containers.
  */
 export function dashboardScriptTags(desktop: boolean): string {
   return scriptTags(desktop
