@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   applyProtectionSensitivity,
   defaultProtectionSensitivityPreference,
+  evidenceContainsHardSecuritySignal,
   normalizeProtectionSensitivityPreference,
   type ProtectionSensitivityProfile,
 } from "../../server/src/consumer/protectionSensitivity.js";
+import type { CanonicalEnvelope } from "../../server/src/canonical/envelope.js";
+import { relationshipContextLayer } from "../../server/src/engine/layers/relationshipContext.js";
 import type { Evidence, ScoredMessage, Verdict } from "../../server/src/engine/verdict.js";
 
 function result(params: {
@@ -22,6 +25,36 @@ function result(params: {
     layerResults: [],
   };
   return { scored, action: params.action ?? "none" };
+}
+
+function relationshipEnvelope(threadContext: CanonicalEnvelope["threadContext"]): CanonicalEnvelope {
+  return {
+    provider: "gmail",
+    accountProof: "account",
+    messageId: "message",
+    providerNativeId: "native",
+    folder: "inbox",
+    providerFolderName: "INBOX",
+    from: { displayName: "Known Sender", address: "sender@example.com", domain: "example.com" },
+    replyTo: null,
+    subject: "Normal subject",
+    date: "2026-08-13T00:00:00.000Z",
+    authentication: { spf: "pass", dkim: "pass", dmarc: "pass", arc: "none", providerTrust: "trusted" },
+    textPreview: "Normal message",
+    htmlSignals: null,
+    links: [],
+    attachments: [],
+    listHeaders: { listId: null, listUnsubscribe: null, listUnsubscribePost: null },
+    threadContext,
+    parseStatus: "complete",
+    parseNotes: [],
+    diagnostics: {
+      fetchedAt: "2026-08-13T00:00:00.000Z",
+      sizeBytes: 64,
+      encoding: "plain",
+      contentCoverage: "complete",
+    },
+  };
 }
 
 const profiles: ProtectionSensitivityProfile[] = ["high", "balanced", "low_noise"];
@@ -62,13 +95,24 @@ describe("protection sensitivity", () => {
     ["BLOCKED_SENDER", "personal_rule", 10],
     ["GLOBAL_CONFIRMED_MATCH", "signed_feed", 10],
     ["FAMILY_CONFIRMED_MATCH", "signed_feed", 10],
-    ["RELATIONSHIP_AUTHENTICATION_DOWNGRADE", "local", 3],
   ] as const)("keeps hard signal %s alerting even in Low Noise", (code, source, contribution) => {
     const decision = applyProtectionSensitivity(result({
       verdict: "review",
       evidence: [{ layer: "test", code, description: code, scoreContribution: contribution, source }],
     }), "low_noise");
     expect(decision).toMatchObject({ attention: "alert", hardSecuritySignal: true, reason: "hard_security" });
+  });
+
+  it.each([
+    [{ isFirstContact: false, threadContinuityBroken: true, replyToChangedMidThread: false }, "THREAD_CONTINUITY_BROKEN"],
+    [{ isFirstContact: false, threadContinuityBroken: false, replyToChangedMidThread: true }, "REPLY_TO_CHANGED_MID_THREAD"],
+    [{ isFirstContact: false, threadContinuityBroken: false, replyToChangedMidThread: false, relationshipAuthenticationDowngrade: true }, "RELATIONSHIP_AUTH_DOWNGRADE"],
+    [{ isFirstContact: false, threadContinuityBroken: false, replyToChangedMidThread: false, replyToChangedFromRelationshipHistory: true }, "RELATIONSHIP_REPLY_TO_CHANGE"],
+  ] as const)("treats real relationship evidence %s as non-suppressible", (threadContext, expectedCode) => {
+    const layer = relationshipContextLayer(relationshipEnvelope(threadContext));
+    expect(layer.evidence.some((item) => item.code === expectedCode)).toBe(true);
+    expect(evidenceContainsHardSecuritySignal(layer.evidence)).toBe(true);
+    expect(applyProtectionSensitivity(result({ verdict: "review", evidence: layer.evidence }), "low_noise").attention).toBe("alert");
   });
 
   it("changes only attention for soft Review results", () => {
