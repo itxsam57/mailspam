@@ -3,6 +3,10 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { createLocalDesktopServer } from "../../server/src/api/localDesktopServer.js";
 import { LocalSecurityManager } from "../../server/src/api/localSecurity.js";
+import {
+  PERSONAL_POLICY_EXPORT_SCHEMA,
+  PERSONAL_POLICY_EXPORT_VERSION,
+} from "../../server/src/api/policyManagement.js";
 
 interface BrowserContext {
   baseUrl: string;
@@ -75,8 +79,25 @@ describe("reversible personal blocks", () => {
     const address = `undo-${Date.now()}@example.com`;
     const domain = "undo-policy.example.com";
 
-    expect((await mutate(context, `/api/accounts/${accountId}/messages/block-sender`, { address })).status).toBe(200);
-    expect((await mutate(context, `/api/accounts/${accountId}/messages/block-domain`, { domain })).status).toBe(200);
+    // This test verifies undo semantics. Seed the durable policy through the
+    // protected import-management API instead of bypassing the new token-only
+    // message Block contract with raw browser-supplied sender/domain identity.
+    const seeded = await mutate(context, `/api/accounts/${accountId}/personal-policy/import`, {
+      mode: "replace",
+      document: {
+        schema: PERSONAL_POLICY_EXPORT_SCHEMA,
+        version: PERSONAL_POLICY_EXPORT_VERSION,
+        policy: {
+          blockedSenders: [address],
+          blockedDomains: [domain],
+          trustedSenders: [],
+          approvedExceptions: [],
+          unsubscribedActions: [],
+          reportedCampaigns: [],
+        },
+      },
+    });
+    expect(seeded.status).toBe(200);
 
     let policyResponse = await fetch(`${context.baseUrl}/api/accounts/${accountId}/personal-policy`, {
       headers: protectedHeaders(context),
