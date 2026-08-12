@@ -5,6 +5,7 @@ import {
   normalizeSenderAddress,
   normalizeSenderDomain,
 } from "../workflows/blockAndCleanup.js";
+import { registerProtectionActionRoutes } from "./protectionActions.js";
 import { sessionStore } from "./sessionStore.js";
 
 export const PERSONAL_POLICY_EXPORT_SCHEMA = "email-shield-personal-policy" as const;
@@ -224,6 +225,8 @@ function saveOrFail(
 }
 
 export function registerPolicyManagementRoutes(app: Express): void {
+  registerProtectionActionRoutes(app);
+
   app.get("/api/accounts/:id/personal-policy/export", (req: Request, res: Response) => {
     const session = accountSession(req, res);
     if (!session) return;
