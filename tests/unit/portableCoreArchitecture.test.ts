@@ -18,7 +18,8 @@ describe("portable shared-core architecture", () => {
     expect(core).not.toMatch(/from ["']node:/);
     expect(workflow).toContain("scanMessageThroughPortableCore");
     expect(workflow).not.toContain("scanMessage(envelope, deps)");
-    expect(checker).toContain("Portable core dependency boundary passed");
+    expect(checker).toContain("Portable scanner/account/family dependency boundary passed");
+    expect(checker).toContain('server/src/platform/accountFamilyService.ts');
     expect(checker).toContain("forbiddenPathSegments");
     expect(gate).toContain('"portable-core"');
     expect(gate).toContain('"check:core"');
