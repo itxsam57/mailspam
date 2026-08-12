@@ -5,14 +5,19 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createServer } from "./server.js";
 import { localSecurity, type LocalSecurityManager } from "./localSecurity.js";
+import { requestActiveScanStop } from "./scanStream.js";
 import {
-  createResumeScanStreamHandler,
-  createScanStreamHandler,
-  requestActiveScanStop,
-} from "./scanStream.js";
+  createFamilyAwareResumeScanStreamHandler,
+  createFamilyAwareScanStreamHandler,
+} from "./familyAwareScanStream.js";
 import { defaultScanStateRepository } from "./defaultScanStateRepository.js";
 import { sessionStore } from "./sessionStore.js";
 import { registerPolicyManagementRoutes } from "./policyManagement.js";
+import { registerProtectionActionRoutes } from "./protectionActions.js";
+import {
+  registerAccountPlatformRoutes,
+  type AccountPlatformRouteDependencies,
+} from "./accountPlatformRoutes.js";
 import { communityNetwork, type CommunityNetwork } from "../community/network.js";
 import { GoogleOAuthFlowManager, GOOGLE_GMAIL_MODIFY_SCOPE } from "../oauth/googleOAuthFlow.js";
 import { MicrosoftOAuthFlowManager } from "../oauth/microsoftOAuthFlow.js";
@@ -37,6 +42,12 @@ import {
   type FixtureConnectionPersistence,
 } from "./fixtureConnectionPersistence.js";
 import { dashboardScriptTags } from "./dashboardScripts.js";
+import { AccountPlatformService } from "../platform/accountFamilyService.js";
+import { InMemoryAccountPlatformRepository } from "../platform/accountFamilyPersistence.js";
+import {
+  EphemeralDesktopDeviceIdentityProvider,
+  NodeAccountPlatformRuntime,
+} from "../platform/desktopDeviceIdentity.js";
 
 function escapeAttribute(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({
@@ -74,6 +85,9 @@ export function createLocalDesktopServer(options: {
   destinationAnalyzer?: DestinationAnalysisCoordinator;
   backgroundProtection?: BackgroundProtectionCoordinator;
   fixtureConnections?: FixtureConnectionPersistence;
+  accountPlatform?: AccountPlatformService;
+  deviceIdentity?: AccountPlatformRouteDependencies["deviceIdentity"];
+  developmentEntitlementsEnabled?: boolean;
 } = {}) {
   const app = express();
   const security = options.security ?? localSecurity;
@@ -89,6 +103,12 @@ export function createLocalDesktopServer(options: {
     sessionStore,
   });
   const fixtureConnections = options.fixtureConnections ?? noFixtureConnectionPersistence;
+  const accountPlatform = options.accountPlatform ?? new AccountPlatformService(
+    new InMemoryAccountPlatformRepository(),
+    new NodeAccountPlatformRuntime(),
+  );
+  const deviceIdentity = options.deviceIdentity ?? new EphemeralDesktopDeviceIdentityProvider();
+  const developmentEntitlementsEnabled = options.developmentEntitlementsEnabled ?? false;
   const inner = createServer({ community, destinationAnalyzer, fixtureConnections });
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const webDir = join(__dirname, "../../../web");
@@ -189,9 +209,33 @@ export function createLocalDesktopServer(options: {
     security.requireMutation()(req, res, next);
   });
 
+  app.use("/api/profile", (req: Request, res: Response, next) => {
+    if (req.method === "GET" || req.method === "HEAD") {
+      security.requireProtectedRead()(req, res, next);
+      return;
+    }
+    security.requireMutation()(req, res, next);
+  });
+
   app.use("/api/accounts/connect", (req: Request, res: Response, next) => {
     if (!security.enforceRouteLimit(req, res, "account-connect", 12)) return;
     next();
+  });
+
+  registerAccountPlatformRoutes(app, {
+    service: accountPlatform,
+    deviceIdentity,
+    developmentEntitlementsEnabled,
+    resolveMailboxAccountKey: (sessionId) => sessionStore.get(sessionId)?.policyAccountKey ?? null,
+  });
+
+  // Register the token-authoritative Block/Report implementation on the outer
+  // protected desktop server before the legacy inner API. This ensures the
+  // live product path uses durable Trash semantics, stale-action 409 handling,
+  // community learning and Family Shield sharing rather than raw-address routes.
+  registerProtectionActionRoutes(app, {
+    community,
+    familyThreats: accountPlatform,
   });
 
   app.get("/api/accounts/workspace", (_req: Request, res: Response) => {
@@ -332,8 +376,8 @@ export function createLocalDesktopServer(options: {
     }
   });
 
-  app.get("/api/accounts/:id/scan/resume/:scanId", createResumeScanStreamHandler({ community }));
-  app.get("/api/accounts/:id/scan/:type", createScanStreamHandler({ community }));
+  app.get("/api/accounts/:id/scan/resume/:scanId", createFamilyAwareResumeScanStreamHandler({ community, accountPlatform }));
+  app.get("/api/accounts/:id/scan/:type", createFamilyAwareScanStreamHandler({ community, accountPlatform }));
 
   app.post("/api/accounts/:id/scan/stop", (req: Request, res: Response) => {
     const session = sessionStore.get(req.params.id!);
