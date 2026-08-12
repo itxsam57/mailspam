@@ -37,11 +37,13 @@ describe("relationship history architecture", () => {
     expect(checkpointCommit).toBeGreaterThan(relationshipCommit);
   });
 
-  it("initializes encrypted relationship history before the desktop server starts", () => {
+  it("initializes encrypted relationship history through the shared runtime vault before the desktop server starts", () => {
     const index = read("server/src/index.ts");
-    const initialize = index.indexOf("await initializeDefaultRelationshipHistoryRepository()");
+    const vault = index.indexOf("const credentialVault = getRuntimeCredentialVault()");
+    const initialize = index.indexOf("await initializeDefaultRelationshipHistoryRepository({ credentialVault })");
     const listen = index.indexOf("app.listen(");
-    expect(initialize).toBeGreaterThanOrEqual(0);
+    expect(vault).toBeGreaterThanOrEqual(0);
+    expect(initialize).toBeGreaterThan(vault);
     expect(listen).toBeGreaterThan(initialize);
   });
 
