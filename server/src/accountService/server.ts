@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import express from "express";
 import type { NextFunction, Request, Response } from "express";
 import type { DevicePublicIdentity, VerifiedEntitlement } from "../platform/accountFamilyTypes.js";
@@ -88,10 +89,15 @@ function authProof(body: unknown): AccountServiceAuthProof {
 }
 
 function errorStatus(message: string): number {
-  if (/unknown|not registered|signature|authentication|recovery proof/i.test(message)) return 401;
+  if (/unknown|not registered|signature|authentication|recovery proof|device proof/i.test(message)) return 401;
   if (/already|seat|member|owner|family|entitlement|expired|revoked/i.test(message)) return 409;
   if (/capacity|temporarily full/i.test(message)) return 503;
   return 400;
+}
+
+function adminAuthorized(candidate: string, expected: string | undefined): boolean {
+  if (!expected || expected.length < 32 || candidate.length !== expected.length) return false;
+  return timingSafeEqual(Buffer.from(candidate, "utf8"), Buffer.from(expected, "utf8"));
 }
 
 export function createAccountServiceServer(service: SharedAccountFamilyService, options: {
@@ -159,14 +165,20 @@ export function createAccountServiceServer(service: SharedAccountFamilyService, 
 
   app.post("/v1/accounts/recover", limited("recover", 5, 15 * 60_000), (req, res) => {
     try {
-      const body = req.body as { username?: unknown; recoveryCode?: unknown; device?: unknown };
-      if (typeof body.username !== "string" || typeof body.recoveryCode !== "string" || !body.device || typeof body.device !== "object") {
-        throw new Error("Username, recovery code and new device identity are required.");
+      const body = req.body as { username?: unknown; recoveryCode?: unknown; device?: unknown; deviceProof?: unknown };
+      if (
+        typeof body.username !== "string" ||
+        typeof body.recoveryCode !== "string" ||
+        !body.device || typeof body.device !== "object" ||
+        typeof body.deviceProof !== "string"
+      ) {
+        throw new Error("Username, recovery code, new device identity and device proof are required.");
       }
       const result = service.recoverAccount({
         username: body.username,
         recoveryCode: body.recoveryCode,
         device: body.device as DevicePublicIdentity,
+        deviceProof: body.deviceProof,
       });
       noStore(res);
       res.json({
@@ -272,7 +284,7 @@ export function createAccountServiceServer(service: SharedAccountFamilyService, 
   app.put("/v1/internal/entitlements/:accountId", limited("entitlement-admin", 120, 60_000), (req, res) => {
     try {
       const token = req.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
-      if (!options.adminToken || token.length < 32 || token !== options.adminToken) {
+      if (!adminAuthorized(token, options.adminToken)) {
         noStore(res);
         return res.status(401).json({ error: "Account entitlement administration is not authorized." });
       }
