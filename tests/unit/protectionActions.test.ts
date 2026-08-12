@@ -45,7 +45,7 @@ function actionContext(senderAddress = "scammer@fraud.example") {
     exceptionKey: `message:${"b".repeat(64)}`,
     senderAddress,
     normalizedFolder: "inbox" as const,
-    unsubscribe: { available: false, method: "none" as const, target: null, actionKey: null },
+    unsubscribe: { available: false, method: "none" as const, target: null, source: "none" as const, actionKey: null },
     communityReport: structuredClone(report),
   };
 }
