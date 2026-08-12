@@ -172,7 +172,7 @@ export interface ScanResumeInput {
 
 export interface ScanProgress {
   counters: ScanCounters;
-  /** Only warning+ verdicts are included here; Safe stays in the compact audit. */
+  /** Warning, threat and Unknown verdicts are surfaced here; Safe stays in the compact audit. */
   suspiciousCards: ScanResult[];
   /** Privacy-reduced local audit plus opaque user-action tokens added by the API layer. */
   diagnosticSummaries: ScanDiagnosticSummary[];
@@ -198,7 +198,8 @@ function scanWithPortableCore(envelope: CanonicalEnvelope, deps: ScanDeps): Scan
 function isSuspicious(result: ScanResult): boolean {
   return result.scored.verdict === "review" ||
     result.scored.verdict === "high_risk" ||
-    result.scored.verdict === "confirmed_threat";
+    result.scored.verdict === "confirmed_threat" ||
+    result.scored.verdict === "unknown";
 }
 
 function stableScanHash(namespace: string, value: string): string {
