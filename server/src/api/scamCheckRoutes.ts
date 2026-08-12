@@ -109,7 +109,6 @@ export function registerScamCheckRoutes(app: Express, deps: ScamCheckRouteDepend
           intelligenceEntries: deps.community.getVerifiedEntries(),
         }, {
           visualTextExtractor: deps.visualTextExtractor,
-          signal: req.signal,
         });
         noStore(res);
         res.json(result);
