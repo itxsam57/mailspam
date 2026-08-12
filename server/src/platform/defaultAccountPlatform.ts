@@ -3,6 +3,7 @@ import { getRuntimeCredentialVault } from "../security/credentialVaultFactory.js
 import { defaultEmailShieldDataDirectory } from "../security/dataDirectory.js";
 import { AccountPlatformService } from "./accountFamilyService.js";
 import { createDefaultAccountPlatformRepository } from "./accountFamilyPersistence.js";
+import { AccountLifecycleService } from "./accountLifecycleService.js";
 import {
   DesktopDeviceIdentityProvider,
   EphemeralDesktopDeviceIdentityProvider,
@@ -12,6 +13,7 @@ import {
 export type DefaultDesktopDeviceIdentity = DesktopDeviceIdentityProvider | EphemeralDesktopDeviceIdentityProvider;
 
 let service: AccountPlatformService | null = null;
+let lifecycle: AccountLifecycleService | null = null;
 let deviceIdentity: DefaultDesktopDeviceIdentity | null = null;
 
 export async function initializeDefaultAccountPlatform(options: {
@@ -19,7 +21,7 @@ export async function initializeDefaultAccountPlatform(options: {
   dataDirectory?: string;
   platform?: NodeJS.Platform;
 } = {}): Promise<void> {
-  if (service && deviceIdentity) return;
+  if (service && lifecycle && deviceIdentity) return;
   const platform = options.platform ?? process.platform;
   const dataDirectory = options.dataDirectory ?? defaultEmailShieldDataDirectory();
   const vault = options.credentialVault ?? getRuntimeCredentialVault();
@@ -32,13 +34,20 @@ export async function initializeDefaultAccountPlatform(options: {
     ? new DesktopDeviceIdentityProvider(vault, dataDirectory, platform)
     : new EphemeralDesktopDeviceIdentityProvider();
   await identity.initialize();
-  service = new AccountPlatformService(repository, new NodeAccountPlatformRuntime());
+  const runtime = new NodeAccountPlatformRuntime();
+  service = new AccountPlatformService(repository, runtime);
+  lifecycle = new AccountLifecycleService(repository, runtime);
   deviceIdentity = identity;
 }
 
 export function getAccountPlatformService(): AccountPlatformService {
   if (!service) throw new Error("Email Shield account platform has not been initialized.");
   return service;
+}
+
+export function getAccountLifecycleService(): AccountLifecycleService {
+  if (!lifecycle) throw new Error("Email Shield account lifecycle has not been initialized.");
+  return lifecycle;
 }
 
 export function getDesktopDeviceIdentity(): DefaultDesktopDeviceIdentity {
