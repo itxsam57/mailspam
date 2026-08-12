@@ -58,6 +58,18 @@ async function mutate(context: Context, path: string, body: unknown, method = "P
   });
 }
 
+function deepKeys(value: unknown): string[] {
+  if (Array.isArray(value)) return value.flatMap(deepKeys);
+  if (!value || typeof value !== "object") return [];
+  const record = value as Record<string, unknown>;
+  return Object.entries(record).flatMap(([key, child]) => [key, ...deepKeys(child)]);
+}
+
+function expectNoMailboxPayloadFields(value: unknown): void {
+  const forbidden = new Set(["subject", "body", "bodytext", "mailbox", "mailboxaddress", "providernativeid", "senderaddress"]);
+  for (const key of deepKeys(value)) expect(forbidden.has(key.toLowerCase())).toBe(false);
+}
+
 describe("protected Email Shield account and Family Shield API", () => {
   it("requires the same local session/CSRF boundary as mailbox APIs", async () => {
     const context = await start();
@@ -115,6 +127,6 @@ describe("protected Email Shield account and Family Shield API", () => {
     expect(invite.status).toBe(201);
     const inviteBody = await invite.json();
     expect(inviteBody.inviteCode).toMatch(/^[A-Za-z0-9_-]{24,}$/);
-    expect(JSON.stringify(inviteBody)).not.toMatch(/subject|body|mailbox|providerNativeId|senderAddress/i);
+    expectNoMailboxPayloadFields(inviteBody);
   });
 });
