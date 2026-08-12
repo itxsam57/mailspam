@@ -1,5 +1,5 @@
 import type { CanonicalEnvelope } from "../canonical/envelope.js";
-import { computeVerdict, type ScoredMessage, type Verdict } from "./verdict.js";
+import { computeVerdict, type LayerResult, type ScoredMessage, type Verdict } from "./verdict.js";
 import {
   authenticationPassed,
   hasAuthenticatedOrganizationalIdentity,
@@ -57,6 +57,31 @@ function boundedContentAllowsSafe(envelope: CanonicalEnvelope): boolean {
   return listIdentity && visibleLength >= 160;
 }
 
+function adaptiveLegitimateAllowsSafe(
+  envelope: CanonicalEnvelope,
+  layerResults: LayerResult[],
+  personalResult: LayerResult,
+  globalResult: LayerResult,
+): boolean {
+  if (!authenticationPassed(envelope) || envelope.folder === "spam" || envelope.folder === "trash") return false;
+
+  const learnedLegitimate = personalResult.evidence.some((item) => item.code === "TRUSTED_SENDER") ||
+    globalResult.evidence.some((item) => item.code === "GLOBAL_LEGITIMATE_CONSENSUS");
+  if (!learnedLegitimate) return false;
+
+  const positiveRisk = layerResults.flatMap((layer) => layer.evidence)
+    .filter((item) => item.scoreContribution > 0);
+  const totalRisk = positiveRisk.reduce((sum, item) => sum + item.scoreContribution, 0);
+
+  // Learning can remove repeated nuisance Review decisions only when every
+  // remaining risk item is weak context. A single >=2 security contribution,
+  // a community warning, provider Junk placement, auth failure, scam intent,
+  // suspicious link/attachment, or High-Risk total remains authoritative.
+  return totalRisk >= 2 && totalRisk <= 3 &&
+    positiveRisk.length > 0 &&
+    positiveRisk.every((item) => item.scoreContribution <= 1);
+}
+
 export function scanMessage(
   envelope: CanonicalEnvelope,
   deps: { personalPolicy: PersonalPolicyStore; threatFeed: ThreatFeedCache },
@@ -87,6 +112,7 @@ export function scanMessage(
     confirmedByRule: confirmedByPersonalBlock || confirmedByGlobalRule,
     boundedContentAllowsSafe: boundedContentAllowsSafe(envelope),
     exactMessageApprovedByUser,
+    adaptiveLegitimateAllowsSafe: adaptiveLegitimateAllowsSafe(envelope, layerResults, personalResult, globalResult),
   });
 
   return { envelope, scored, action: responsePolicy(scored.verdict) };
