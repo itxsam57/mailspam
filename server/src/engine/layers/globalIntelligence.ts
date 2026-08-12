@@ -1,4 +1,5 @@
 import type { CanonicalEnvelope } from "../../canonical/envelope.js";
+import { LEGITIMATE_RULE_PREFIX } from "../../community/feedback.js";
 import {
   authenticationPassed,
   authenticatedSenderIdentityDomains,
@@ -135,6 +136,20 @@ export function globalIntelligenceLayer(
     if (entry.type === "campaign" && expected === messageCampaignFingerprint) hit = true;
 
     if (hit) {
+      const legitimateConsensus = entry.type === "campaign" &&
+        entry.confirmedThreat === false &&
+        entry.ruleId.startsWith(LEGITIMATE_RULE_PREFIX);
+      if (legitimateConsensus) {
+        evidence.push({
+          layer: "global_intelligence",
+          code: "GLOBAL_LEGITIMATE_CONSENSUS",
+          description: `Matched privacy-reduced legitimate campaign consensus${entry.independentReports ? ` from ${entry.independentReports} independent confirmations` : ""}. This can suppress only weak contextual Review evidence; security evidence still wins.`,
+          scoreContribution: 0,
+          source: "signed_feed",
+        });
+        continue;
+      }
+
       if (entry.confirmedThreat) confirmed = true;
       evidence.push({
         layer: "global_intelligence",
