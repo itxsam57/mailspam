@@ -3,7 +3,7 @@ import { initializeDefaultScanStateRepository } from "./api/defaultScanStateRepo
 import { initializeDefaultRelationshipHistoryRepository } from "./api/defaultRelationshipHistoryRepository.js";
 import { initializeDefaultBackgroundProtectionRepository } from "./api/defaultBackgroundProtectionRepository.js";
 import { createBackgroundProtectionCoordinator } from "./api/backgroundProtection.js";
-import { createLocalDesktopServer } from "./api/localDesktopServer.js";
+import { createConsumerDesktopServer } from "./api/consumerDesktopServer.js";
 import { communityNetwork } from "./community/network.js";
 import { ensureManagedDataDirectory } from "./security/managedDataDirectory.js";
 import { getRuntimeCredentialVault } from "./security/credentialVaultFactory.js";
@@ -44,7 +44,7 @@ fixtureConnections.restore(sessionStore);
 
 const backgroundProtection = createBackgroundProtectionCoordinator(communityNetwork, accountPlatform);
 backgroundProtection.start();
-const app = createLocalDesktopServer({
+const app = createConsumerDesktopServer({
   backgroundProtection,
   fixtureConnections,
   accountPlatform,
