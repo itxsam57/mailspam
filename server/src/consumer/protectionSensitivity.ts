@@ -21,6 +21,11 @@ export interface ProtectionPresentationDecision {
   reason: "safe" | "unknown" | "soft_review" | "hard_security" | "high_risk" | "confirmed_threat";
 }
 
+/**
+ * Evidence classes that Low Noise is never allowed to hide. Keep these names
+ * aligned to evidence emitted by the authoritative engine; regression tests
+ * exercise the real layer producers for relationship-compromise signals.
+ */
 const HARD_SECURITY_CODES = new Set([
   "DMARC_FAIL",
   "SPF_DKIM_BOTH_FAIL",
@@ -30,8 +35,10 @@ const HARD_SECURITY_CODES = new Set([
   "GLOBAL_CONFIRMED_MATCH",
   "FAMILY_CONFIRMED_MATCH",
   "SIGNED_IDENTITY_DOMAIN_MISMATCH",
-  "RELATIONSHIP_AUTHENTICATION_DOWNGRADE",
-  "RELATIONSHIP_REPLY_TO_CHANGED",
+  "THREAD_CONTINUITY_BROKEN",
+  "REPLY_TO_CHANGED_MID_THREAD",
+  "RELATIONSHIP_AUTH_DOWNGRADE",
+  "RELATIONSHIP_REPLY_TO_CHANGE",
 ]);
 
 export function normalizeProtectionSensitivityProfile(value: unknown): ProtectionSensitivityProfile {
