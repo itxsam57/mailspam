@@ -1,5 +1,6 @@
-import type { CanonicalEnvelope } from "../canonical/envelope.js";
-import { sha256Hex } from "../core/sha256.js";
+import { createHash } from "node:crypto";
+import type { CanonicalEnvelope, LinkInfo } from "../canonical/envelope.js";
+import { analyzeHtmlInteractions } from "../util/htmlInteraction.js";
 import {
   analyzeQrImages,
   isSupportedQrImageMimeType,
@@ -66,7 +67,10 @@ function normalizedImageName(value: string | undefined): string {
 }
 
 function submittedIdentity(kind: string, content: Buffer): string {
-  return sha256Hex(Buffer.concat([Buffer.from(`email-shield-scam-check-${kind}-v1\0`, "utf8"), content]));
+  return createHash("sha256")
+    .update(`email-shield-scam-check-${kind}-v1\0`, "utf8")
+    .update(content)
+    .digest("hex");
 }
 
 function forceSubmittedTransportUntrusted(envelope: CanonicalEnvelope): CanonicalEnvelope {
@@ -116,6 +120,19 @@ function boundedVisualText(extraction: VisualTextExtraction): { text: string | n
   return { text, complete: extraction.complete && !truncated, limitations };
 }
 
+function mergeLinks(primary: readonly LinkInfo[], secondary: readonly LinkInfo[]): LinkInfo[] {
+  const seen = new Set<string>();
+  const result: LinkInfo[] = [];
+  for (const link of [...primary, ...secondary]) {
+    const key = `${link.interaction ?? "navigation"}\0${link.normalizedUrl || link.rawUrl}\0${link.visibleText ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(link);
+    if (result.length >= 256) break;
+  }
+  return result;
+}
+
 function buildImageEnvelope(params: {
   content: Buffer;
   mimeType: SupportedQrMimeType;
@@ -125,12 +142,18 @@ function buildImageEnvelope(params: {
   visualLimitations: string[];
 }): { envelope: CanonicalEnvelope; limitations: string[] } {
   const qr = analyzeQrImages([{ name: params.name, mimeType: params.mimeType, content: params.content }]);
+  const visualInteractions = analyzeHtmlInteractions(null, params.visualText);
+  const links = mergeLinks(qr.links, visualInteractions.links);
   const id = submittedIdentity("image", params.content);
-  const parseNotes = [...qr.incompleteReasons, ...params.visualLimitations];
+  const parseNotes = [
+    ...qr.incompleteReasons,
+    ...visualInteractions.incompleteReasons,
+    ...params.visualLimitations,
+  ];
   if (!params.visualTextComplete) {
     parseNotes.push("Visible image text was not fully available to the local deterministic text-analysis layers.");
   }
-  const incomplete = qr.incomplete || !params.visualTextComplete;
+  const incomplete = qr.incomplete || visualInteractions.incomplete || !params.visualTextComplete;
 
   const envelope: CanonicalEnvelope = {
     provider: "imap",
@@ -152,7 +175,7 @@ function buildImageEnvelope(params: {
     },
     textPreview: params.visualText,
     htmlSignals: null,
-    links: qr.links,
+    links,
     attachments: [],
     listHeaders: { listId: null, listUnsubscribe: null, listUnsubscribePost: null },
     threadContext: { isFirstContact: true, threadContinuityBroken: false, replyToChangedMidThread: false },
@@ -161,7 +184,8 @@ function buildImageEnvelope(params: {
     diagnostics: {
       fetchedAt: new Date(0).toISOString(),
       sizeBytes: params.content.length,
-      encoding: params.mimeType,
+      // Canonical diagnostics describes message transfer encoding, not media type.
+      encoding: "unknown",
       contentCoverage: incomplete ? "insufficient" : "complete",
       qrInspection: {
         supportedImages: 1,
@@ -183,6 +207,7 @@ function buildImageEnvelope(params: {
     limitations.push("Image QR codes are checked locally, but visible screenshot/image text is not considered fully inspected unless a supported local visual-text extractor is available.");
   }
   if (qr.incomplete) limitations.push(...qr.incompleteReasons);
+  if (visualInteractions.incomplete) limitations.push(...visualInteractions.incompleteReasons);
   return { envelope, limitations };
 }
 
