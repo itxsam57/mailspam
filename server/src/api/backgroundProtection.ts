@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { Worker } from "node:worker_threads";
 import type { CommunityNetwork } from "../community/network.js";
 import type { ScanProgress } from "../workflows/scanWorkflows.js";
+import type { AccountPlatformService } from "../platform/accountFamilyService.js";
+import { mergeVerifiedAndFamilyIntelligence } from "../platform/familyThreatFeedAdapter.js";
 import { defaultRelationshipHistoryRepository } from "./defaultRelationshipHistoryRepository.js";
 import { defaultScanStateRepository } from "./defaultScanStateRepository.js";
 import {
@@ -215,7 +217,10 @@ export class BackgroundProtectionCoordinator {
 }
 
 export class WorkerBackgroundProtectionExecutor implements BackgroundProtectionExecutor {
-  constructor(private readonly community: CommunityNetwork) {}
+  constructor(
+    private readonly community: CommunityNetwork,
+    private readonly accountPlatform?: Pick<AccountPlatformService, "familyThreatSnapshot">,
+  ) {}
 
   async execute(session: AccountSession): Promise<void> {
     if (session.activeScanWorker) throw new BackgroundProtectionRunError("scan_conflict", "An account scan is already active.");
@@ -248,7 +253,13 @@ export class WorkerBackgroundProtectionExecutor implements BackgroundProtectionE
     const liveImap = session.config.mode === "live" && ["icloud", "yahoo", "imap"].includes(session.provider);
     const pageSize = liveImap ? LIVE_IMAP_PAGE_SIZE : DEFAULT_PAGE_SIZE;
     const maxMessages = liveImap ? LIVE_IMAP_MESSAGE_LIMIT : DEFAULT_PAGE_SIZE;
-    const threatFeedEntries = snapshotVerifiedFeedAndRefresh(this.community);
+    const globalThreatFeedEntries = snapshotVerifiedFeedAndRefresh(this.community);
+    const threatFeedEntries = this.accountPlatform
+      ? mergeVerifiedAndFamilyIntelligence(
+          globalThreatFeedEntries,
+          this.accountPlatform.familyThreatSnapshot(session.policyAccountKey),
+        )
+      : globalThreatFeedEntries;
     const workerUrl = new URL("../workers/scanWorker.js", import.meta.url);
     let worker: Worker;
     try {
@@ -364,10 +375,13 @@ export class WorkerBackgroundProtectionExecutor implements BackgroundProtectionE
   }
 }
 
-export function createBackgroundProtectionCoordinator(community: CommunityNetwork): BackgroundProtectionCoordinator {
+export function createBackgroundProtectionCoordinator(
+  community: CommunityNetwork,
+  accountPlatform?: Pick<AccountPlatformService, "familyThreatSnapshot">,
+): BackgroundProtectionCoordinator {
   return new BackgroundProtectionCoordinator({
     repository: defaultBackgroundProtectionRepository,
     sessions: sessionStore,
-    executor: new WorkerBackgroundProtectionExecutor(community),
+    executor: new WorkerBackgroundProtectionExecutor(community, accountPlatform),
   });
 }
