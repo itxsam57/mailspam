@@ -2,6 +2,10 @@ import type { Express, Request, Response } from "express";
 import { createAdapter } from "./adapterConfig.js";
 import { ReviewActionConflictError, sessionStore } from "./sessionStore.js";
 import { communityNetwork, type CommunityNetwork } from "../community/network.js";
+import {
+  USER_BLOCKED_MESSAGE_CODE,
+  USER_CONFIRMED_LEGITIMATE_CODE,
+} from "../community/feedback.js";
 import { isSharedMailboxDomain } from "../engine/identitySignals.js";
 import {
   moveMessagesToTrash,
@@ -9,9 +13,6 @@ import {
   normalizeSenderDomain,
 } from "../workflows/blockAndCleanup.js";
 import type { CommunityReportContext, CommunityReportReceipt } from "../community/types.js";
-
-const BLOCK_FEEDBACK_CODE = "USER_BLOCKED_MESSAGE";
-export const LEGITIMATE_FEEDBACK_CODE = "USER_CONFIRMED_LEGITIMATE";
 
 function actionError(error: unknown): { status: number; message: string } {
   return {
@@ -32,7 +33,7 @@ function senderDomain(address: string): string {
 function blockLearningContext(context: CommunityReportContext): CommunityReportContext {
   return {
     ...structuredClone(context),
-    evidenceCodes: [...new Set([...context.evidenceCodes, BLOCK_FEEDBACK_CODE])].sort(),
+    evidenceCodes: [...new Set([...context.evidenceCodes, USER_BLOCKED_MESSAGE_CODE])].sort(),
   };
 }
 
@@ -40,7 +41,7 @@ function legitimateLearningContext(context: CommunityReportContext): CommunityRe
   return {
     campaignFingerprint: context.campaignFingerprint,
     indicators: structuredClone(context.indicators),
-    evidenceCodes: [LEGITIMATE_FEEDBACK_CODE],
+    evidenceCodes: [USER_CONFIRMED_LEGITIMATE_CODE],
     evidenceScore: 0,
     verdict: "safe",
   };
