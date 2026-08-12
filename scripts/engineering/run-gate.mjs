@@ -28,7 +28,7 @@ function npmStep(id, name, script) {
 const steps = [
   npmStep("preflight", "Repository preflight", "preflight"),
   npmStep("typecheck", "Strict TypeScript typecheck", "typecheck"),
-  npmStep("portable-core", "Portable shared-core dependency boundary", "check:core"),
+  npmStep("portable-core", "Portable scanner/account/family dependency boundary", "check:core"),
   npmStep("build", "Production build", "build"),
   npmStep("core-vectors", "Versioned portable-core conformance vectors", "check:core-vectors"),
   npmStep("provider-compatibility", "Versioned provider compatibility contracts", "check:provider-compatibility"),
@@ -43,6 +43,7 @@ const steps = [
   npmStep("web", "Browser source, privacy and wiring checks", "check:web"),
   npmStep("desktop-smoke", "Compiled desktop server and API smoke", "smoke:server"),
   npmStep("community-smoke", "Compiled dedicated community service smoke", "smoke:community"),
+  npmStep("account-service-smoke", "Compiled account, entitlement and Family Shield service smoke", "smoke:account-service"),
   npmStep("background-smoke", "Compiled scheduled background protection smoke", "smoke:background"),
   npmStep("portable-package", "Reproducible portable package and bundled-runtime smoke", "package:verify"),
   npmStep("release-lifecycle", "Signed release install, activation and uninstall smoke", "smoke:release"),
