@@ -5,6 +5,7 @@ import {
   existsSync,
   fstatSync,
   ftruncateSync,
+  lstatSync,
   mkdirSync,
   openSync,
   writeSync,
@@ -353,6 +354,7 @@ export class EncryptedCommunityAggregateStore {
   private journalBytes = 0;
   private snapshotFingerprint: StorageFingerprint = MISSING_FINGERPRINT;
   private journalFingerprint: StorageFingerprint = MISSING_FINGERPRINT;
+  private journalDescriptor: number | null = null;
 
   constructor(
     private readonly dataDirectory: string,
@@ -370,7 +372,7 @@ export class EncryptedCommunityAggregateStore {
     const now = this.now();
     const nowMs = now.getTime();
     const report = validateSubmission(input, nowMs);
-    const database = this.loadDatabase(nowMs);
+    const database = this.loadDatabase(nowMs, false);
     const needsInitialSnapshot = !existsSync(this.databasePath);
     const existing = database.campaigns[report.campaignFingerprint];
     const activity = this.reporterActivity.get(report.reporterProof);
@@ -439,6 +441,12 @@ export class EncryptedCommunityAggregateStore {
       status,
       feedUpdated: status !== previousStatus,
     };
+  }
+
+  close(): void {
+    if (this.journalDescriptor === null) return;
+    closeSync(this.journalDescriptor);
+    this.journalDescriptor = null;
   }
 
   buildFeedPayload(now = this.now()): CommunityFeedPayload {
@@ -546,9 +554,9 @@ export class EncryptedCommunityAggregateStore {
     ]).toString("utf8"));
   }
 
-  private loadDatabase(nowMs: number): StoredCommunityDatabase {
+  private loadDatabase(nowMs: number, verifyStorage = true): StoredCommunityDatabase {
     if (this.databaseCache) {
-      this.assertAuthoritativeStorageUnchanged();
+      if (verifyStorage) this.assertAuthoritativeStorageUnchanged();
       if (nowMs >= this.nextPruneAt) {
         if (pruneExpired(this.databaseCache, nowMs)) {
           this.rebuildIndexes(this.databaseCache);
@@ -654,30 +662,41 @@ export class EncryptedCommunityAggregateStore {
   private appendJournal(line: string): void {
     this.ensureDirectory();
     const noFollow = process.platform === "win32" ? 0 : (fsConstants.O_NOFOLLOW ?? 0);
-    const descriptor = openSync(
-      this.journalPath,
-      fsConstants.O_WRONLY | fsConstants.O_APPEND | fsConstants.O_CREAT | noFollow,
-      0o600,
+    const descriptor = this.journalDescriptor ?? openSync(
+      this.journalPath, fsConstants.O_WRONLY | fsConstants.O_APPEND | fsConstants.O_CREAT | noFollow, 0o600,
     );
+    this.journalDescriptor = descriptor;
     const bytes = Buffer.from(line, "utf8");
     try {
       const initial = fstatSync(descriptor);
-      if (!initial.isFile() || initial.size !== this.journalBytes || initial.size + bytes.length > MAX_COMMUNITY_REPORT_JOURNAL_BYTES) {
+      const pathState = lstatSync(this.journalPath);
+      if (!initial.isFile() || pathState.isSymbolicLink() || !pathState.isFile() ||
+          initial.dev !== pathState.dev || initial.ino !== pathState.ino || initial.size !== this.journalBytes ||
+          pathState.size !== this.journalBytes || initial.size + bytes.length > MAX_COMMUNITY_REPORT_JOURNAL_BYTES) {
         throw new CommunityReportCapacityError();
       }
       let offset = 0;
       while (offset < bytes.length) offset += writeSync(descriptor, bytes, offset, bytes.length - offset);
-      if (fstatSync(descriptor).size !== initial.size + bytes.length) throw new Error("Community report journal changed while being written.");
+      const written = fstatSync(descriptor);
+      if (written.size !== initial.size + bytes.length) throw new Error("Community report journal changed while being written.");
+      try { chmodSync(this.journalPath, 0o600); } catch {}
+      const committed = lstatSync(this.journalPath);
+      this.journalFingerprint = {
+        exists: true, device: committed.dev, inode: committed.ino, size: committed.size,
+        modifiedMs: committed.mtimeMs, changedMs: committed.ctimeMs,
+      };
+    } catch (error) {
+      this.close();
+      throw error;
     } finally {
       bytes.fill(0);
-      closeSync(descriptor);
     }
-    try { chmodSync(this.journalPath, 0o600); } catch {}
     this.journalBytes += Buffer.byteLength(line, "utf8");
-    this.journalFingerprint = this.fileFingerprint(this.journalPath, "Community report journal");
   }
 
   private compact(database: StoredCommunityDatabase): void {
+    this.assertAuthoritativeStorageUnchanged();
+    this.close();
     this.writeDatabase(database);
     if (existsSync(this.journalPath)) {
       const noFollow = process.platform === "win32" ? 0 : (fsConstants.O_NOFOLLOW ?? 0);
@@ -695,6 +714,7 @@ export class EncryptedCommunityAggregateStore {
   }
 
   private truncateJournalTo(size: number, expectedCurrentSize: number): void {
+    this.close();
     const noFollow = process.platform === "win32" ? 0 : (fsConstants.O_NOFOLLOW ?? 0);
     const descriptor = openSync(this.journalPath, fsConstants.O_WRONLY | noFollow);
     try {

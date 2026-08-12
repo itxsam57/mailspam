@@ -31,12 +31,21 @@ writeFileSync(signedUpdatePath, `${JSON.stringify(envelope, null, 2)}\n`, { mode
 
 const runtime = join(packageRoot, runtimeRelativePath());
 const cli = join(packageRoot, "tools/release-cli.mjs");
+function lifecycleTimeout(command) {
+  const files = portableManifest.files.length;
+  const bytes = portableManifest.artifactBytes;
+  const verificationPasses = command === "install" ? 3 : command === "verify" ? 1 : 0;
+  const fixedMs = 30_000;
+  const workloadMs = verificationPasses * (files * 60 + Math.ceil(bytes / (512 * 1024)) * 1_000);
+  return Math.min(15 * 60_000, Math.max(120_000, fixedMs + workloadMs));
+}
+
 function run(args) {
   const result = spawnSync(runtime, [cli, ...args], {
     cwd: packageRoot,
     encoding: "utf8",
     windowsHide: true,
-    timeout: 120_000,
+    timeout: lifecycleTimeout(args[0]),
   });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`Packaged release lifecycle failed: ${result.stderr || result.stdout}`);

@@ -189,7 +189,10 @@ describe("signed release installation, update and rollback lifecycle", () => {
     expect(existsSync(installRoot)).toBe(true);
 
     const symlinked = buildFixture(root, "5.1.0", "c", privateKeyPem);
-    symlinkSync(join(symlinked.packageRoot, "app/server/dist/index.js"), join(symlinked.packageRoot, "unexpected-link"));
+    const linkTarget = process.platform === "win32"
+      ? join(symlinked.packageRoot, "app/server/dist")
+      : join(symlinked.packageRoot, "app/server/dist/index.js");
+    symlinkSync(linkTarget, join(symlinked.packageRoot, "unexpected-link"), process.platform === "win32" ? "junction" : "file");
     expect(() => verifyReleaseBundle({ packageRoot: symlinked.packageRoot, signedUpdatePath: symlinked.signedUpdatePath, trustStorePath }))
       .toThrow(/symlink/);
   });

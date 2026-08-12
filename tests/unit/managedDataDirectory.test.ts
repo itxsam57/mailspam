@@ -36,9 +36,10 @@ describe("managed desktop data-directory marker", () => {
 
     const linked = join(root(), "linked");
     mkdirSync(linked);
-    const target = join(root(), "target.json");
-    writeFileSync(target, "{}");
-    symlinkSync(target, join(linked, EMAIL_SHIELD_DATA_MARKER_FILE));
+    const target = process.platform === "win32" ? join(root(), "target-directory") : join(root(), "target.json");
+    if (process.platform === "win32") mkdirSync(target);
+    else writeFileSync(target, "{}");
+    symlinkSync(target, join(linked, EMAIL_SHIELD_DATA_MARKER_FILE), process.platform === "win32" ? "junction" : "file");
     expect(() => ensureManagedDataDirectory(linked)).toThrow(/invalid/);
     expect(existsSync(target)).toBe(true);
   });

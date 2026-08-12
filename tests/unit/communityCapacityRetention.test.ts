@@ -58,6 +58,7 @@ describe("community capacity, journal recovery and fixed retention", () => {
       expect(receipt.accepted).toBe(true);
       expect(receipt.independentReporters).toBe(index + 1);
     }
+    store.close();
 
     const journalPath = join(directory, COMMUNITY_REPORT_JOURNAL_FILE);
     expect(statSync(journalPath).size).toBeGreaterThan(0);
@@ -103,5 +104,16 @@ describe("community capacity, journal recovery and fixed retention", () => {
     expect(restarted.stats().campaigns).toBe(1);
     expect(statSync(journalPath).size).toBe(committedBytes);
     expect(restarted.accept(report(2, now))).toMatchObject({ independentReporters: 3, status: "warning" });
+  });
+
+  it("rejects an external journal mutation while the authoritative writer is active", () => {
+    const directory = temporaryDirectory();
+    const now = new Date("2026-08-11T00:00:00.000Z");
+    const store = new EncryptedCommunityAggregateStore(directory, undefined, { now: () => now });
+    store.accept(report(0, now));
+    appendFileSync(join(directory, COMMUNITY_REPORT_JOURNAL_FILE), "external-mutation\n", { encoding: "utf8" });
+
+    expect(() => store.accept(report(1, now))).toThrow();
+    store.close();
   });
 });
