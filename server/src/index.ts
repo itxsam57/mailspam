@@ -21,6 +21,7 @@ import {
 import { createDefaultInboundEventStateRepository } from "./realtime/inboundEventPersistence.js";
 import { RealtimeProtectionProcessor } from "./realtime/realtimeProtectionProcessor.js";
 import { RealtimeProtectionService } from "./realtime/realtimeProtectionService.js";
+import { SerialProtectionExecutor } from "./realtime/serialProtectionExecutor.js";
 
 const PORT = Number(process.env.PORT ?? 4173);
 const HOST = process.env.HOST ?? "127.0.0.1";
@@ -52,10 +53,12 @@ const deviceIdentity = getDesktopDeviceIdentity();
 const fixtureConnections = new FileFixtureConnectionPersistence(dataDirectory);
 fixtureConnections.restore(sessionStore);
 
-// Scheduled and realtime protection deliberately share one Worker executor so
-// there is one implementation of bounded Quick scanning, relationship history,
-// personal policy, Family Shield and verified community intelligence.
-const protectionExecutor = new WorkerBackgroundProtectionExecutor(communityNetwork, accountPlatform);
+// Scheduled and realtime protection deliberately share both one underlying
+// Worker implementation and one fail-fast execution gate. This keeps bounded
+// Quick scanning, relationship history, personal policy, Family Shield and
+// verified community intelligence on one path without creating a hidden queue.
+const workerProtectionExecutor = new WorkerBackgroundProtectionExecutor(communityNetwork, accountPlatform);
+const protectionExecutor = new SerialProtectionExecutor(workerProtectionExecutor);
 const backgroundProtection = new BackgroundProtectionCoordinator({
   sessions: sessionStore,
   executor: protectionExecutor,
