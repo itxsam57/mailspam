@@ -42,7 +42,7 @@ const deviceIdentity = getDesktopDeviceIdentity();
 const fixtureConnections = new FileFixtureConnectionPersistence(dataDirectory);
 fixtureConnections.restore(sessionStore);
 
-const backgroundProtection = createBackgroundProtectionCoordinator(communityNetwork);
+const backgroundProtection = createBackgroundProtectionCoordinator(communityNetwork, accountPlatform);
 backgroundProtection.start();
 const app = createLocalDesktopServer({
   backgroundProtection,
