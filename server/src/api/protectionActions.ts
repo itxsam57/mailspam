@@ -15,6 +15,7 @@ import {
   normalizeSenderDomain,
 } from "../workflows/blockAndCleanup.js";
 import type { CommunityReportContext, CommunityReportReceipt } from "../community/types.js";
+import { localOperationalMetrics } from "./localOperationalMetrics.js";
 
 export interface ProtectionActionRouteDependencies {
   sessions?: SessionStore;
@@ -179,6 +180,70 @@ export function registerProtectionActionRoutes(
 
   app.post("/api/accounts/:id/messages/block-sender", block("sender"));
   app.post("/api/accounts/:id/messages/block-domain", block("domain"));
+
+  app.post("/api/accounts/:id/messages/report-scam", async (req: Request, res: Response) => {
+    const session = sessions.get(req.params.id!);
+    if (!session) return res.status(404).json({ error: "Unknown account" });
+
+    let action;
+    try {
+      action = sessions.claimReviewAction(session, (req.body as { token?: unknown }).token, "report_scam");
+    } catch (error) {
+      const detail = actionError(error);
+      return res.status(detail.status).json({ error: detail.message });
+    }
+
+    const blockSender = (req.body as { blockSender?: unknown }).blockSender === true;
+    try {
+      sessions.mutateAndPersistPersonalPolicy(session, (policy) => {
+        policy.reportCampaign(action.communityReport.campaignFingerprint);
+        if (blockSender && action.senderAddress) policy.blockSender(action.senderAddress);
+      });
+    } catch (error) {
+      sessions.releaseReviewAction(action, "report_scam");
+      return res.status(500).json({
+        error: `Local scam protection was not saved: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+
+    // Local campaign protection is committed before any network/provider side
+    // effect. Even if either service is temporarily unavailable, every future
+    // matching message remains a local Confirmed Threat and will auto-Trash.
+    const move = await moveCurrentMessageToTrash(session, action.providerNativeId, dependencies.adapterFactory);
+
+    let receipt: CommunityReportReceipt | null = null;
+    let communityError: string | undefined;
+    try {
+      receipt = await community.submit(action.communityReport, session.policyAccountKey);
+      localOperationalMetrics.recordAbuseReport(true);
+    } catch (error) {
+      localOperationalMetrics.recordAbuseReport(false);
+      communityError = error instanceof Error ? error.message : String(error);
+    }
+
+    const complete = move.movedCurrent && receipt?.accepted === true;
+    noStore(res);
+    return res.status(complete ? 200 : 207).json({
+      success: true,
+      localProtected: true,
+      senderBlocked: Boolean(blockSender && action.senderAddress),
+      accountId: session.id,
+      token: action.token,
+      movedCurrent: move.movedCurrent,
+      moveError: move.moveError,
+      communityAccepted: receipt?.accepted === true,
+      communityError,
+      pendingReports: community.pendingReports(),
+      ...(receipt ?? {
+        accepted: false,
+        queued: false,
+        campaignFingerprint: action.communityReport.campaignFingerprint,
+        independentReporters: 0,
+        status: "candidate" as const,
+        feedUpdated: false,
+      }),
+    });
+  });
 
   app.post("/api/accounts/:id/messages/legitimate-feedback", async (req: Request, res: Response) => {
     const session = sessions.get(req.params.id!);
