@@ -2,6 +2,7 @@ const SHARED_DASHBOARD_SCRIPTS = [
   "/scan-monitor.js",
   "/unsubscribe-monitor.js",
   "/review-actions.js",
+  "/protection-learning.js",
   "/safe-audit.js",
 ] as const;
 
