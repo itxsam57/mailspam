@@ -8,7 +8,10 @@ import {
   UnsupportedCredentialVault,
   validateCredentialSecret,
 } from "../../server/src/security/credentialVault.js";
-import { createCredentialVault } from "../../server/src/security/credentialVaultFactory.js";
+import {
+  createCredentialVault,
+  getRuntimeCredentialVault,
+} from "../../server/src/security/credentialVaultFactory.js";
 import {
   PowerShellWindowsCredentialBridge,
   type WindowsCredentialBridge,
@@ -125,15 +128,28 @@ describe("credential vault contract", () => {
     }
   });
 
-  it("keeps runtime secrets off the PowerShell command line and disables shell execution", () => {
+  it("keeps one PowerShell helper alive across serialized operations without relaxing operation timeout", () => {
     const source = readFileSync(
       new URL("../../server/src/security/windowsCredentialManagerVault.ts", import.meta.url),
       "utf8",
     );
     expect(source).toContain('["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encodedCommand]');
-    expect(source).toContain('child.stdin.end(JSON.stringify(request), "utf8")');
+    expect(source).toContain("[Console]::In.ReadLine()");
+    expect(source).not.toContain("[Console]::In.ReadToEnd()");
+    expect(source).toContain("private child: ChildProcessWithoutNullStreams | null = null");
+    expect(source).toContain("private operationTail: Promise<void> = Promise.resolve()");
+    expect(source).toContain('child.stdin.write(`${JSON.stringify(request)}\\n`, "utf8"');
+    expect(source).toContain("const BRIDGE_OPERATION_TIMEOUT_MS = 10_000");
+    expect(source).toContain("const HELPER_STARTUP_TIMEOUT_MS = 30_000");
+    expect(source).not.toContain('child.stdin.end(JSON.stringify(request)');
     expect(source).not.toContain("shell: true");
     expect(source).toContain("child.stderr.resume()");
+  });
+
+  it("shares only the process runtime vault while explicit platform factories stay isolated", () => {
+    expect(getRuntimeCredentialVault()).toBe(getRuntimeCredentialVault());
+    expect(createCredentialVault()).toBe(getRuntimeCredentialVault());
+    expect(createCredentialVault("win32")).not.toBe(createCredentialVault("win32"));
   });
 
   it("selects native platform backends without a plaintext fallback", () => {
@@ -150,8 +166,9 @@ describe("credential vault contract", () => {
 
 if (process.platform === "win32") {
   describe("Windows Credential Manager integration", () => {
-    it("stores, retrieves and securely deletes an ephemeral real credential", async () => {
-      const vault = new WindowsCredentialManagerVault(new PowerShellWindowsCredentialBridge());
+    it("stores, retrieves and securely deletes multiple operations through one real helper", async () => {
+      const bridge = new PowerShellWindowsCredentialBridge();
+      const vault = new WindowsCredentialManagerVault(bridge);
       const liveReference: CredentialReference = {
         id: `ci-${randomUUID()}`,
         kind: "imap-app-password",
@@ -161,10 +178,11 @@ if (process.platform === "win32") {
       try {
         await vault.write(liveReference, secret);
         expect(await vault.read(liveReference)).toBe(secret);
-      } finally {
         await vault.delete(liveReference);
+        expect(await vault.read(liveReference)).toBeNull();
+      } finally {
+        try { await vault.delete(liveReference); } finally { bridge.close(); }
       }
-      expect(await vault.read(liveReference)).toBeNull();
-    }, 20_000);
+    }, 30_000);
   });
 }
