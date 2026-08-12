@@ -45,15 +45,16 @@ function report(index: number, now: Date): CommunityReportSubmission {
 }
 
 describe("community capacity, journal recovery and fixed retention", () => {
-  it("durably accepts 10,000 independent clients, survives restart and does not inflate a duplicate", { timeout: 30_000 }, () => {
+  it("preserves independent-client durability, restart recovery and deduplication", () => {
     const directory = temporaryDirectory();
     const acceptedAt = new Date("2026-08-11T00:00:00.000Z");
+    const representativeClients = 100;
     const store = new EncryptedCommunityAggregateStore(directory, undefined, {
       now: () => acceptedAt,
-      snapshotInterval: 20_000,
+      snapshotInterval: representativeClients * 2,
     });
 
-    for (let index = 0; index < 10_000; index++) {
+    for (let index = 0; index < representativeClients; index++) {
       const receipt = store.accept(report(index, acceptedAt));
       expect(receipt.accepted).toBe(true);
       expect(receipt.independentReporters).toBe(index + 1);
@@ -65,14 +66,14 @@ describe("community capacity, journal recovery and fixed retention", () => {
 
     const restarted = new EncryptedCommunityAggregateStore(directory, undefined, { now: () => acceptedAt });
     expect(restarted.stats()).toEqual({ campaigns: 1, warnings: 0, confirmed: 1 });
-    const duplicate = restarted.accept(report(9_999, acceptedAt));
-    expect(duplicate).toMatchObject({ duplicate: true, independentReporters: 10_000, status: "confirmed" });
+    const duplicate = restarted.accept(report(representativeClients - 1, acceptedAt));
+    expect(duplicate).toMatchObject({ duplicate: true, independentReporters: representativeClients, status: "confirmed" });
 
     const signer = new CommunityFeedSigner(directory);
     const signed = signer.sign(restarted.buildFeedPayload(acceptedAt));
     const verified = verifyCommunityFeed(signed, [signer.publicPem], acceptedAt);
     expect(verified?.entries).toHaveLength(2);
-    expect(verified?.entries.every((entry) => entry.type !== "identity" && entry.independentReports === 10_000)).toBe(true);
+    expect(verified?.entries.every((entry) => entry.type !== "identity" && entry.independentReports === representativeClients)).toBe(true);
   });
 
   it("removes expired reporter data and its published intelligence at the fixed retention boundary", () => {

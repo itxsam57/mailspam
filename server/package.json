@@ -10,6 +10,7 @@
     "build": "tsc -p tsconfig.build.json",
     "test": "npm run build && vitest run",
     "test:unit": "vitest run tests/unit",
+    "test:capacity": "vitest run tests/capacity",
     "test:integration": "vitest run tests/integration",
     "test:watch": "vitest",
     "test:report": "npm run build && vitest run --reporter=json --outputFile=../test-report.json && vitest run",

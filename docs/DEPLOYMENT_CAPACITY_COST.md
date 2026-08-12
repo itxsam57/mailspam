@@ -20,7 +20,7 @@ This document turns Email Shield’s code ceilings into an operator-owned sizing
 | Background scanning | 1 active; 20 messages/run (10 live IMAP); 30 min–24 h | scheduler/compiled Worker smoke |
 | Scan history / schedules | 40 records/account; 128 scheduled accounts | encrypted local stores |
 
-The blocking capacity regression accepts 10,000 independent reporters against the real validation/encrypted-journal/dedupe/restart/sign/consume path and proves a duplicate remains one reporter. This proves the scenario, not sustained 10,000-request concurrency, multi-region availability or a public throughput SLA. The community store is a single-service local encrypted state design; horizontal writers require a new consistency/storage architecture.
+The release-capacity regression accepts 10,000 independent reporters against the real validation/encrypted-journal/dedupe/restart/sign/consume path and proves a duplicate remains one reporter. It runs through `npm run test:capacity` during Linux CI and release signing, not inside the workstation unit suite. The ordinary unit suite keeps the same durability, restart, dedupe, retention, recovery and tamper invariants at a deterministic representative scale. This proves the 10,000-client scenario, not sustained 10,000-request concurrency, multi-region availability or a public throughput SLA. The community store is a single-service local encrypted state design; horizontal writers require a new consistency/storage architecture.
 
 The background smoke runs the compiled Worker under a 192 MiB V8 heap and blocks if the fixture scan exceeds 30 seconds or grows RSS by 128 MiB. Real mailbox latency and OS background policy still require platform acceptance.
 
@@ -40,7 +40,7 @@ npm run capacity:plan -- --compute-instance-hour <price> --storage-gib-month <pr
 
 The four prices use one operator-selected currency consistently. Compute uses 730 hours/month; traffic uses 30 days/month; GiB uses 1024³ bytes. Taxes, support, gateway/WAF, monitoring/log retention, DNS/TLS, secret manager, backup operations, staff/on-call, signing/notarization and mobile-store fees are outside the arithmetic and must be added separately.
 
-`npm run check:capacity` imports the compiled runtime constants, rejects baseline storage planning above 70% of the 192 MiB authoritative ceiling, locks concurrency/network budgets and verifies cost arithmetic. The full Engineering Gate also runs the 10,000-reporter test, low-heap background smoke and package size verification.
+`npm run check:capacity` imports the compiled runtime constants, rejects baseline storage planning above 70% of the 192 MiB authoritative ceiling, locks concurrency/network budgets and verifies cost arithmetic. Linux CI enables the 10,000-reporter qualification in the Engineering Gate; release signing runs it explicitly. Workstation gates run deterministic capacity invariants without imposing central-service stress work on consumer-app development. Every full gate retains the low-heap background smoke and package size verification.
 
 ## Production sizing and alerts
 

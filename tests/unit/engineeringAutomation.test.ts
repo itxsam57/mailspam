@@ -35,6 +35,7 @@ describe("AI Engineering Automation Kit installation", () => {
       preflight: expect.any(String),
       typecheck: expect.any(String),
       "test:unit": expect.any(String),
+      "test:capacity": expect.any(String),
       "test:integration": expect.any(String),
       "check:web": expect.any(String),
       "check:provider-compatibility": expect.any(String),
@@ -48,6 +49,7 @@ describe("AI Engineering Automation Kit installation", () => {
     });
     expect(serverPackage.scripts.typecheck).toContain("--noEmit");
     expect(serverPackage.scripts["test:unit"]).toContain("tests/unit");
+    expect(serverPackage.scripts["test:capacity"]).toContain("tests/capacity");
     expect(serverPackage.scripts["test:integration"]).toContain("tests/integration");
     expect(rootPackage.scripts).not.toHaveProperty("test:database");
     expect(rootPackage.scripts).not.toHaveProperty("test:playwright");
@@ -92,9 +94,23 @@ describe("AI Engineering Automation Kit installation", () => {
     expect(workflow).toContain("npm ci");
     expect(workflow).toContain("npm run gate");
     expect(workflow).toContain("ENGINEERING_AUDIT");
+    expect(workflow).toContain("ENGINEERING_CAPACITY_STRESS");
     expect(workflow).toContain("if: always()");
     expect(workflow).toContain("actions/upload-artifact@v4");
     expect(workflow).toContain("artifacts/engineering/");
+  });
+
+  it("keeps central-service stress qualification outside workstation unit tests", () => {
+    const unit = read("tests/unit/communityCapacityRetention.test.ts");
+    const stress = read("tests/capacity/communityCapacityStress.test.ts");
+    const gate = read("scripts/engineering/run-gate.mjs");
+
+    expect(unit).toContain("representativeClients = 100");
+    expect(unit).not.toContain("10_000");
+    expect(stress).toContain("CAPACITY_CLIENTS = 10_000");
+    expect(stress).toContain("independentReporters: CAPACITY_CLIENTS");
+    expect(gate).toContain('process.env.ENGINEERING_CAPACITY_STRESS === "1"');
+    expect(gate).toContain('"capacity-stress"');
   });
 
   it("keeps browser automation limited to source/API smoke and leaves visible/live acceptance to the owner", () => {

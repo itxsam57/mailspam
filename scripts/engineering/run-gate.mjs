@@ -34,6 +34,9 @@ const steps = [
   npmStep("provider-compatibility", "Versioned provider compatibility contracts", "check:provider-compatibility"),
   npmStep("regression-vault", "Approved anonymized Regression Vault", "check:regression-vault"),
   npmStep("capacity-budgets", "Deployment capacity and cost budgets", "check:capacity"),
+  ...(process.env.ENGINEERING_CAPACITY_STRESS === "1"
+    ? [npmStep("capacity-stress", "10,000-client release-capacity qualification", "test:capacity")]
+    : []),
   npmStep("public-docs", "Public privacy, security, threat, incident and deployment contracts", "check:public-docs"),
   npmStep("unit", "Unit, API and regression tests", "test:unit"),
   npmStep("integration", "Integration, corpus and Worker tests", "test:integration"),
@@ -116,6 +119,7 @@ const report = {
   durationMs: finishedAt.getTime() - startedAt.getTime(),
   overall,
   auditEnabled: process.env.ENGINEERING_AUDIT !== "0",
+  capacityStressEnabled: process.env.ENGINEERING_CAPACITY_STRESS === "1",
   workingTreeCleanBeforeArtifacts: workingTree === "",
   baseline: {
     auditedFunctionalCommit: "18d7a7b657762afb79d304f1cfac4cecdae7468b",

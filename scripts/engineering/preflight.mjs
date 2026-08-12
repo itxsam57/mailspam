@@ -91,7 +91,7 @@ requireCondition(lockfile.name === rootPackage.name, "package.json and package-l
 requireCondition(serverPackage.type === "module", "Server workspace must remain an ES module package.");
 
 for (const script of [
-  "preflight", "typecheck", "build", "test:unit", "test:integration",
+  "preflight", "typecheck", "build", "test:unit", "test:capacity", "test:integration",
   "check:web", "check:core", "generate:core-vectors", "check:core-vectors", "check:provider-compatibility", "check:regression-vault", "check:capacity", "check:public-docs", "vault", "capacity:plan", "smoke:server", "smoke:community", "smoke:background", "smoke:release", "audit:inventory", "audit:prod",
   "release:trust", "release:sign", "release:manage",
   "package:portable", "verify:package", "package:verify",
@@ -99,7 +99,7 @@ for (const script of [
 ]) {
   requireCondition(typeof rootPackage.scripts?.[script] === "string", `Required root npm script is missing: ${script}`);
 }
-for (const script of ["dev", "dev:community", "start", "start:community", "typecheck", "build"]) {
+for (const script of ["dev", "dev:community", "start", "start:community", "typecheck", "build", "test:capacity"]) {
   requireCondition(typeof serverPackage.scripts?.[script] === "string", `Required server npm script is missing: ${script}`);
 }
 

@@ -50,6 +50,7 @@ jobs:
         shell: bash
         env:
           ENGINEERING_AUDIT: '1'
+          ENGINEERING_CAPACITY_STRESS: '1'
         run: |
           dbus-run-session -- bash -lc '
             set -euo pipefail

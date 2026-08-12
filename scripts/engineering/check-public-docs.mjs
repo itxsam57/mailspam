@@ -7,7 +7,7 @@ const required = {
   "SECURITY.md": ["## Reporting a vulnerability", "security/advisories/new", "## Release and supply-chain requirements", "Production release signing keys"],
   "THREAT_MODEL.md": ["## Trust boundaries", "## Threats and controls", "## Out of scope / external controls", "Android/iOS full mailbox shells are not implemented"],
   "INCIDENT_RESPONSE.md": ["## Severity", "## Response sequence", "### Release signing key or distribution compromise", "### Privacy leak in logs/metrics/report schema"],
-  "docs/DEPLOYMENT_CAPACITY_COST.md": ["## Proven application boundaries", "npm run capacity:plan", "planning triggers", "not a throughput, latency, availability or cloud-price SLA"],
+  "docs/DEPLOYMENT_CAPACITY_COST.md": ["## Proven application boundaries", "npm run capacity:plan", "npm run test:capacity", "planning triggers", "not a throughput, latency, availability or cloud-price SLA"],
   "docs/THREE_MILESTONE_FINAL_RECONCILIATION.md": ["1 — cross-adapter protection core", "CODE-COMPLETE / EXTERNAL ACCEPTANCE OPEN", "Android/iOS mailbox application shells are not implemented", "The project must not be described as all three milestones formally closed"],
 };
 
