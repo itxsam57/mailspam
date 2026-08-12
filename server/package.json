@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "npm run build && node dist/index.js",
     "dev:community": "npm run build && node dist/communityIndex.js",
+    "dev:account-service": "npm run build && node dist/accountServiceIndex.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.build.json",
     "test": "npm run build && vitest run",
@@ -17,7 +18,8 @@
     "ops:community": "npm run build && node dist/communityOps.js",
     "recover:local-state": "npm run build && node dist/devtools/localStateRecoveryCli.js",
     "start": "node dist/index.js",
-    "start:community": "node dist/communityIndex.js"
+    "start:community": "node dist/communityIndex.js",
+    "start:account-service": "node dist/accountServiceIndex.js"
   },
   "dependencies": {
     "@azure/msal-node": "^5.5.0",
