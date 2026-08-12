@@ -8,7 +8,9 @@ import {
   type ScanResumeInput,
 } from "../workflows/scanWorkflows.js";
 import {
+  collectCommunityWarningQuarantineIds,
   collectDurableAutoTrashIds,
+  enforceCommunityWarningQuarantine,
   enforceDurableAutoTrash,
 } from "../workflows/durableProtection.js";
 import { InMemoryPersonalPolicyStore, type PersonalPolicySnapshot } from "../engine/layers/personalRules.js";
@@ -44,26 +46,37 @@ function buildDependencies() {
   };
 }
 
-async function enforceCollectedProtection(providerNativeIds: Set<string>): Promise<void> {
-  if (providerNativeIds.size === 0) return;
+async function enforceCollectedProtection(
+  trashIds: Set<string>,
+  quarantineIds: Set<string>,
+): Promise<void> {
+  // A local block/report or globally confirmed threat always wins over a
+  // warning-level quarantine if both signals happen to match the same mail.
+  for (const id of trashIds) quarantineIds.delete(id);
+  if (trashIds.size === 0 && quarantineIds.size === 0) return;
   if (controller.signal.aborted) throw new DOMException("Scan stopped by the user.", "AbortError");
 
   parentPort?.postMessage({
     type: "status",
     status: {
       phase: "enforcing_protection",
-      message: `Applying durable Email Shield protection to ${providerNativeIds.size} confirmed message(s)…`,
+      message: `Applying Email Shield protection: ${trashIds.size} confirmed message(s) to Trash, ${quarantineIds.size} signed-warning message(s) to Spam/Junk…`,
     },
   });
 
   // Enforcement deliberately starts only after mailbox enumeration has ended.
   // IMAP cursors are offsets over a live UID list; moving mail between scan
   // pages can shrink that list and skip unseen messages. A fresh adapter also
-  // separates read-only enumeration from the provider mutation transaction.
+  // separates read-only enumeration from provider mutation transactions.
   const adapter = createAdapter(data.config);
   try {
     await adapter.connect(controller.signal);
-    await enforceDurableAutoTrash(adapter, providerNativeIds, controller.signal);
+    if (quarantineIds.size) {
+      await enforceCommunityWarningQuarantine(adapter, quarantineIds, controller.signal);
+    }
+    if (trashIds.size) {
+      await enforceDurableAutoTrash(adapter, trashIds, controller.signal);
+    }
   } finally {
     await adapter.disconnect().catch(() => undefined);
   }
@@ -81,14 +94,16 @@ async function runScanAttempt(onProgress: () => void): Promise<boolean> {
 
   let emittedProgress = false;
   const autoTrashIds = new Set<string>();
+  const warningQuarantineIds = new Set<string>();
   for await (const progress of generator) {
     emittedProgress = true;
     onProgress();
     collectDurableAutoTrashIds(progress.suspiciousCards, autoTrashIds);
+    collectCommunityWarningQuarantineIds(progress.suspiciousCards, warningQuarantineIds);
     parentPort?.postMessage({ type: "progress", progress });
   }
 
-  await enforceCollectedProtection(autoTrashIds);
+  await enforceCollectedProtection(autoTrashIds, warningQuarantineIds);
   return emittedProgress;
 }
 
@@ -135,7 +150,7 @@ async function main() {
   parentPort?.postMessage({
     type: "status",
     status: emittedProgress
-      ? { phase: "complete", message: "Scan completed and durable protection actions were enforced." }
+      ? { phase: "complete", message: "Scan completed and signed/durable protection actions were enforced." }
       : { phase: "complete", message: "Scan completed, but the selected folder contained no additional readable messages." },
   });
   parentPort?.postMessage({ type: "complete" });
