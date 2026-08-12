@@ -70,7 +70,7 @@ describe("Windows native personal-policy key custody", () => {
         expect(protectedSecret).not.toBeNull();
         expect(Buffer.from(protectedSecret!, "base64")).toEqual(key);
       } finally {
-        await vault.delete(POLICY_KEY_REFERENCE);
+        try { await vault.delete(POLICY_KEY_REFERENCE); } finally { nativeBridge.close(); }
       }
     },
     30_000,
