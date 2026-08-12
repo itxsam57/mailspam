@@ -85,6 +85,8 @@ export interface ScanDiagnosticSummary {
   /** Machine-readable coverage remains separate from MIME parser integrity. */
   contentCoverage: ContentCoverage;
   parseNotes: string[];
+  /** Privacy-safe reasons explaining how uncertainty affected the decision. */
+  decisionNotes: string[];
   evidenceCodes: string[];
   /** Server-only until converted into opaque action tokens. */
   actionContext: ScanActionContext;
@@ -99,6 +101,31 @@ function diagnosticSummary(result: ScanResult): ScanDiagnosticSummary {
   const parseNotes = result.envelope.parseNotes.filter((note) =>
     !boundedSufficient || !/^Readable MIME content was bounded to \d+ decoded characters per alternative\.$/.test(note),
   );
+  const decisionNotes = new Set<string>();
+  const transport = result.scored.layerResults.find((layer) => layer.layer === "transport_auth");
+  const safetyBlockingLayers = result.scored.layerResults.filter(
+    (layer) => layer.incomplete && layer.blocksSafeVerdict && layer.incompleteReason,
+  );
+
+  if (result.scored.verdict === "unknown") {
+    if (result.envelope.diagnostics.contentCoverage === "insufficient") {
+      decisionNotes.add("Safe was withheld because readable message coverage was insufficient.");
+    }
+    for (const layer of safetyBlockingLayers) decisionNotes.add(layer.incompleteReason!);
+    if (boundedSufficient && transport?.incomplete) {
+      decisionNotes.add("Bounded content requires an authenticated sender identity before it can be classified Safe.");
+      if (transport.incompleteReason) decisionNotes.add(transport.incompleteReason);
+    }
+  }
+  if (
+    result.scored.evidence.some((item) => item.code === "CREDENTIAL_PHISH_INTENT") &&
+    transport?.incomplete
+  ) {
+    decisionNotes.add("Sender authentication could not be trusted, so identity-based intent suppression was not applied.");
+  }
+  if (result.scored.verdict === "safe" && result.scored.score > 0) {
+    decisionNotes.add("Low-confidence context remained below the Review threshold; no warning decision was made.");
+  }
 
   return {
     subject: result.envelope.subject || "(no subject)",
@@ -110,6 +137,7 @@ function diagnosticSummary(result: ScanResult): ScanDiagnosticSummary {
     parseStatus: boundedSufficient ? "bounded sufficient" : result.envelope.parseStatus,
     contentCoverage,
     parseNotes,
+    decisionNotes: [...decisionNotes],
     evidenceCodes: result.scored.evidence
       .filter((item) => item.scoreContribution !== 0)
       .map((item) => item.code),
@@ -168,7 +196,9 @@ function scanWithPortableCore(envelope: CanonicalEnvelope, deps: ScanDeps): Scan
 }
 
 function isSuspicious(result: ScanResult): boolean {
-  return result.scored.verdict !== "safe";
+  return result.scored.verdict === "review" ||
+    result.scored.verdict === "high_risk" ||
+    result.scored.verdict === "confirmed_threat";
 }
 
 function stableScanHash(namespace: string, value: string): string {

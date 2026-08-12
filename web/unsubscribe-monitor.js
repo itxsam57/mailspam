@@ -1,8 +1,7 @@
 (() => {
-  const safeAuditScript = document.createElement('script');
-  safeAuditScript.src = '/safe-audit.js';
-  safeAuditScript.async = false;
-  document.head.appendChild(safeAuditScript);
+  const installedModules = window.emailShieldInstalledModules ||= new Set();
+  if (installedModules.has('unsubscribe-monitor')) return;
+  installedModules.add('unsubscribe-monitor');
 
   const originalRenderCard = window.renderCard;
   if (typeof originalRenderCard !== 'function') return;
@@ -56,11 +55,6 @@
     actions.appendChild(button);
     return card.outerHTML;
   };
-
-  const reviewScript = document.createElement('script');
-  reviewScript.src = '/review-actions.js';
-  reviewScript.async = false;
-  document.head.appendChild(reviewScript);
 
   function actionContainer(button) {
     return button.closest('.card') || button.closest('[data-message-row="true"]');

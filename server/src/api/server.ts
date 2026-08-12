@@ -33,6 +33,7 @@ import {
   noFixtureConnectionPersistence,
   type FixtureConnectionPersistence,
 } from "./fixtureConnectionPersistence.js";
+import { dashboardScriptTags } from "./dashboardScripts.js";
 
 export function createServer(options: {
   community?: CommunityNetwork;
@@ -54,7 +55,7 @@ export function createServer(options: {
   const webDir = join(__dirname, "../../../web");
   const dashboardHtml = readFileSync(join(webDir, "index.html"), "utf8").replace(
     "</body>",
-    '<script src="/scan-monitor.js"></script><script src="/review-actions.js"></script><script src="/safe-audit.js"></script><script src="/unsubscribe-monitor.js"></script></body>',
+    `${dashboardScriptTags(false)}</body>`,
   );
   app.get("/", (_req, res) => res.type("html").send(dashboardHtml));
   app.use(express.static(webDir));

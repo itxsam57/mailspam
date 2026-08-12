@@ -1,4 +1,8 @@
 (() => {
+  const installedModules = window.emailShieldInstalledModules ||= new Set();
+  if (installedModules.has('review-actions')) return;
+  installedModules.add('review-actions');
+
   const originalRenderCard = window.renderCard;
   if (typeof originalRenderCard !== 'function') return;
 

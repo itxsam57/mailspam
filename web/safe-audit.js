@@ -1,4 +1,8 @@
 (() => {
+  const installedModules = window.emailShieldInstalledModules ||= new Set();
+  if (installedModules.has('safe-audit')) return;
+  installedModules.add('safe-audit');
+
   function installSafeAudit() {
     const diagnostics = document.getElementById('scanDiagnosticAudit');
     const diagnosticBody = diagnostics?.querySelector('tbody');

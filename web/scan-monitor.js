@@ -1,4 +1,8 @@
 (() => {
+  const installedModules = window.emailShieldInstalledModules ||= new Set();
+  if (installedModules.has('scan-monitor')) return;
+  installedModules.add('scan-monitor');
+
   const style = document.createElement('style');
   style.textContent = `
     .scan-monitor-status {
@@ -116,8 +120,12 @@
     diagnostics.querySelector('summary').textContent = `Diagnostic audit (${diagnosticRows.length} messages)`;
     const tbody = diagnostics.querySelector('tbody');
     tbody.innerHTML = diagnosticRows.map((item) => {
-      const evidence = item.evidenceCodes?.length ? item.evidenceCodes.join(', ') : 'none';
-      const notes = item.parseNotes?.length ? item.parseNotes.join(' | ') : 'none';
+      const evidenceCodes = item.evidenceCodes?.length ? item.evidenceCodes.join(', ') : 'none';
+      const evidence = item.verdict === 'safe' && Number(item.score) > 0
+        ? `context only: ${evidenceCodes}`
+        : evidenceCodes;
+      const allNotes = [...(item.parseNotes || []), ...(item.decisionNotes || [])];
+      const notes = allNotes.length ? [...new Set(allNotes)].join(' | ') : 'none';
       const review = item.reviewAction || {};
       const unsubscribe = item.unsubscribeAction || {};
       return `<tr data-message-row="true"

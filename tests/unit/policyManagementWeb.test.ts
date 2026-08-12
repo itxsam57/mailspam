@@ -11,9 +11,14 @@ describe("personal policy management browser boundary", () => {
       new URL("../../server/src/api/localDesktopServer.ts", import.meta.url),
       "utf8",
     );
+    const composition = readFileSync(
+      new URL("../../server/src/api/dashboardScripts.ts", import.meta.url),
+      "utf8",
+    );
 
     expect(desktop).toContain('registerPolicyManagementRoutes(app)');
-    expect(desktop).toContain('<script src="/policy-management.js"></script>');
+    expect(desktop).toContain('dashboardScriptTags(true)');
+    expect(composition).toContain('"/policy-management.js"');
     expect(source).toContain('/personal-policy/export');
     expect(source).toContain('/bulk-revoke');
     expect(source).toContain('/clear-category');

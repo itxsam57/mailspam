@@ -15,7 +15,7 @@ function loadEml(relPath: string): string {
 }
 
 describe("quickScan", () => {
-  it("only surfaces suspicious cards, never individual safe messages, and counts everything", async () => {
+  it("only surfaces warning verdicts as cards and counts every verdict", async () => {
     const messages: FixtureMessage[] = [
       { id: "1", rawEml: loadEml("brand_impersonation/malicious-plain.eml"), folder: "inbox", providerFolderName: "INBOX" },
       { id: "2", rawEml: loadEml("brand_impersonation/legit-plain.eml"), folder: "inbox", providerFolderName: "INBOX" },
@@ -31,7 +31,7 @@ describe("quickScan", () => {
     expect(final.counters.examined).toBe(2);
     expect(final.suspiciousCards).toHaveLength(1);
     expect(final.suspiciousCards[0]!.envelope.messageId).toBeDefined();
-    expect(final.suspiciousCards.every((c) => c.scored.verdict !== "safe")).toBe(true);
+    expect(final.suspiciousCards.every((c) => ["review", "high_risk", "confirmed_threat"].includes(c.scored.verdict))).toBe(true);
   });
 });
 

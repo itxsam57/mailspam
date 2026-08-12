@@ -69,5 +69,6 @@
   }
 
   refresh.addEventListener('click', load);
+  window.addEventListener('email-shield-scan-history-changed', load);
   void load();
 })();

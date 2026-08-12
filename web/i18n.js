@@ -27,7 +27,7 @@
     'education.heading': 'Safety guide',
     'education.intro': 'Email Shield explains deterministic evidence. It does not replace your provider, promise that every message is safe, or ask for passwords, payment, recovery codes, or seed phrases.',
     'education.verdicts.heading': 'Read the verdict carefully',
-    'education.verdicts.body': 'Safe means no meaningful warning was found in content that was successfully inspected. Unknown or partial means inspection was incomplete—retry it; never treat it as Safe.',
+    'education.verdicts.body': 'Safe means no meaningful warning was found in content that was successfully inspected. Unknown or partial means inspection was incomplete—retry it; never treat it as Safe. Unknown mail stays in the Diagnostic audit instead of being presented as a threat warning.',
     'education.actions.heading': 'Pause before you act',
     'education.actions.body': 'Do not reply, call a number in the message, pay, or share a password, one-time code, recovery code, or seed phrase. Open the known official provider or organization site yourself.',
     'education.controls.heading': 'Actions are separate',

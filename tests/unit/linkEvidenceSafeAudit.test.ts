@@ -121,9 +121,11 @@ const root = join(import.meta.dirname, "../..");
     const unsubscribeMonitor = readFileSync(join(root, "web/unsubscribe-monitor.js"), "utf8");
     const reviewActions = readFileSync(join(root, "web/review-actions.js"), "utf8");
     const safeAudit = readFileSync(join(root, "web/safe-audit.js"), "utf8");
+    const composition = readFileSync(join(root, "server/src/api/dashboardScripts.ts"), "utf8");
 
-    expect(unsubscribeMonitor).toContain("/safe-audit.js");
-    expect(unsubscribeMonitor).toContain("/review-actions.js");
+    expect(composition).toContain('"/safe-audit.js"');
+    expect(composition).toContain('"/review-actions.js"');
+    expect(unsubscribeMonitor).not.toContain("createElement('script')");
     expect(safeAudit).toContain("Safe messages (${sourceRows.length}) — click to review");
     expect(safeAudit).toContain("privacy-reduced community shield");
     expect(safeAudit).toContain('data-action="report-scam"');

@@ -18,6 +18,7 @@ function read(path) {
 const html = read("web/index.html");
 const server = read("server/src/api/server.ts");
 const desktopServer = read("server/src/api/localDesktopServer.ts");
+const dashboardScripts = read("server/src/api/dashboardScripts.ts");
 const scanStreamServer = read("server/src/api/scanStream.ts");
 const localSecurityServer = read("server/src/api/localSecurity.ts");
 const gmailOAuthServer = read("server/src/oauth/googleOAuthFlow.ts");
@@ -66,18 +67,21 @@ const injectedScripts = [
   "operations-dashboard.js",
 ];
 for (const script of injectedScripts) {
-  requireCondition(desktopServer.includes(`/${script}`), `Local desktop dashboard injection no longer includes /${script}.`);
+  const hasCompositionOwner = script === "local-security.js"
+    ? desktopServer.includes(`/${script}`)
+    : dashboardScripts.includes(`/${script}`);
+  requireCondition(hasCompositionOwner, `Local desktop dashboard injection no longer includes /${script}.`);
   requireCondition(browserFiles.includes(script), `Injected browser script is missing: web/${script}.`);
 }
 
-const dynamicDependencies = [
-  ["web/unsubscribe-monitor.js", "safe-audit.js"],
-  ["web/unsubscribe-monitor.js", "review-actions.js"],
-];
-for (const [owner, dependency] of dynamicDependencies) {
-  requireCondition(read(owner).includes(`/${dependency}`), `${owner} no longer loads /${dependency}.`);
-  requireCondition(browserFiles.includes(dependency), `Dynamic browser dependency is missing: web/${dependency}.`);
+for (const dependency of ["safe-audit.js", "review-actions.js"]) {
+  requireCondition(dashboardScripts.includes(`/${dependency}`), `Dashboard composition no longer loads /${dependency}.`);
+  requireCondition(browserFiles.includes(dependency), `Browser dependency is missing: web/${dependency}.`);
 }
+const unsubscribeMonitor = read("web/unsubscribe-monitor.js");
+requireCondition(!unsubscribeMonitor.includes("createElement('script')"), "Unsubscribe actions must not inject sibling browser modules.");
+requireCondition(desktopServer.includes("dashboardScriptTags(true)"), "Local desktop server no longer uses the shared dashboard composition owner.");
+requireCondition(server.includes("dashboardScriptTags(false)"), "API server no longer uses the shared dashboard composition owner.");
 
 const endpointContracts = [
   ["web/scan-monitor.js", "/scan/stop", 'app.post("/api/accounts/:id/scan/stop"'],

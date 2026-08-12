@@ -228,8 +228,9 @@ describe("subscription and coverage context", () => {
     expect(evidenceCodes(result)).toContain("FREE_REWARD_LURE");
   });
 
-  it("presents safely bounded MIME as bounded sufficient without repeating the cap note", async () => {
+  it("keeps untrusted bounded MIME Unknown but outside the threat-warning feed", async () => {
     const bounded = envelope({
+      authentication: { providerTrust: "unknown", spf: "pass", dkim: "pass", dmarc: "pass", arc: "none" },
       parseStatus: "partial",
       parseNotes: ["Readable MIME content was bounded to 24576 decoded characters per alternative."],
       diagnostics: {
@@ -267,6 +268,10 @@ describe("subscription and coverage context", () => {
       parseStatus: "bounded sufficient",
       contentCoverage: "bounded_sufficient",
       parseNotes: [],
+      decisionNotes: expect.arrayContaining([
+        "Bounded content requires an authenticated sender identity before it can be classified Safe.",
+      ]),
     });
+    expect(pages[0]!.suspiciousCards).toHaveLength(0);
   });
 });

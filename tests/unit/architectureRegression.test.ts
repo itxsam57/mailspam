@@ -6,6 +6,49 @@ const root = join(import.meta.dirname, "../..");
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 describe("transport architecture regressions", () => {
+  it("has one explicit owner and one deterministic order for browser modules", () => {
+    const composition = read("server/src/api/dashboardScripts.ts");
+    const server = read("server/src/api/server.ts");
+    const desktopServer = read("server/src/api/localDesktopServer.ts");
+    const unsubscribe = read("web/unsubscribe-monitor.js");
+
+    const scanIndex = composition.indexOf('"/scan-monitor.js"');
+    const unsubscribeIndex = composition.indexOf('"/unsubscribe-monitor.js"');
+    const reviewIndex = composition.indexOf('"/review-actions.js"');
+    const safeAuditIndex = composition.indexOf('"/safe-audit.js"');
+    expect(scanIndex).toBeGreaterThan(-1);
+    expect(unsubscribeIndex).toBeGreaterThan(scanIndex);
+    expect(reviewIndex).toBeGreaterThan(unsubscribeIndex);
+    expect(safeAuditIndex).toBeGreaterThan(reviewIndex);
+    expect(composition.match(/"\/review-actions\.js"/g)).toHaveLength(1);
+    expect(composition.match(/"\/safe-audit\.js"/g)).toHaveLength(1);
+    expect(server).toContain("dashboardScriptTags(false)");
+    expect(desktopServer).toContain("dashboardScriptTags(true)");
+    expect(unsubscribe).not.toContain("createElement('script')");
+    expect(unsubscribe).not.toContain("/review-actions.js");
+    expect(unsubscribe).not.toContain("/safe-audit.js");
+  });
+
+  it("makes every shared browser module installation idempotent", () => {
+    for (const [path, moduleName] of [
+      ["web/scan-monitor.js", "scan-monitor"],
+      ["web/unsubscribe-monitor.js", "unsubscribe-monitor"],
+      ["web/review-actions.js", "review-actions"],
+      ["web/safe-audit.js", "safe-audit"],
+    ] as const) {
+      const source = read(path);
+      expect(source).toContain("window.emailShieldInstalledModules ||= new Set()");
+      expect(source).toContain(`installedModules.has('${moduleName}')`);
+      expect(source).toContain(`installedModules.add('${moduleName}')`);
+    }
+  });
+
+  it("refreshes operational health from the scan lifecycle instead of leaving a stale snapshot", () => {
+    const operations = read("web/operations-dashboard.js");
+    expect(operations).toContain("email-shield-scan-history-changed");
+    expect(operations).toContain("window.addEventListener('email-shield-scan-history-changed', load)");
+  });
+
   it("isolates scans in a killable worker without cancelling on request completion", () => {
     const server = read("server/src/api/server.ts");
     expect(server).toContain("new Worker");

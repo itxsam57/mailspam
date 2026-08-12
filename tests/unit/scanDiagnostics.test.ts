@@ -40,6 +40,7 @@ describe("scan diagnostic summaries", () => {
         score: expect.any(Number),
         parseStatus: expect.any(String),
         parseNotes: expect.any(Array),
+        decisionNotes: expect.any(Array),
         evidenceCodes: expect.any(Array),
       }));
       expect(item).not.toHaveProperty("textPreview");

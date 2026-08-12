@@ -36,6 +36,7 @@ import {
   noFixtureConnectionPersistence,
   type FixtureConnectionPersistence,
 } from "./fixtureConnectionPersistence.js";
+import { dashboardScriptTags } from "./dashboardScripts.js";
 
 function escapeAttribute(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({
@@ -111,7 +112,7 @@ export function createLocalDesktopServer(options: {
       .replace(/<script>(\s*const API\s*=)/, `<script nonce="${nonce}">$1`)
       .replace(
         "</body>",
-        '<script src="/scan-monitor.js"></script><script src="/review-actions.js"></script><script src="/safe-audit.js"></script><script src="/unsubscribe-monitor.js"></script><script src="/workspace-restore.js"></script><script src="/scan-history.js"></script><script src="/background-protection.js"></script><script src="/gmail-oauth.js"></script><script src="/outlook-oauth.js"></script><script src="/account-disconnect.js"></script><script src="/policy-management.js"></script><script src="/operations-dashboard.js"></script></body>',
+        `${dashboardScriptTags(true)}</body>`,
       );
 
     res.setHeader("Referrer-Policy", "same-origin");
