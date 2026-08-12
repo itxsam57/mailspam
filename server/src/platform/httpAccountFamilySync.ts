@@ -1,4 +1,10 @@
-import { deriveDeviceId, type FamilyThreatSnapshot, type PublicAccountPlatformSnapshot } from "./accountFamilyTypes.js";
+import { accountRegistrationStatement } from "../accountService/protocol.js";
+import {
+  deriveDeviceId,
+  hashRecoveryCode,
+  type FamilyThreatSnapshot,
+  type PublicAccountPlatformSnapshot,
+} from "./accountFamilyTypes.js";
 import type { DeviceIdentityPort, FamilySyncPort } from "./accountFamilyPorts.js";
 
 export interface AccountFamilySyncSnapshot {
@@ -37,6 +43,34 @@ export class HttpAccountFamilySyncClient implements FamilySyncPort {
     const body = await response.json().catch(() => ({})) as Record<string, unknown>;
     if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : `Account service returned HTTP ${response.status}.`);
     return body;
+  }
+
+  async registerAccount(username: string, recoveryCode: string): Promise<PublicAccountPlatformSnapshot> {
+    const identity = await this.deviceIdentity.currentPublicIdentity();
+    const deviceId = deriveDeviceId(identity);
+    const recoveryCodeHash = hashRecoveryCode(recoveryCode);
+    const statement = accountRegistrationStatement({
+      accountId: this.accountId,
+      username,
+      recoveryCodeHash,
+      deviceId,
+    });
+    const deviceProof = await this.deviceIdentity.signChallenge(statement);
+    const result = await this.request("/v1/accounts/register", {
+      method: "POST",
+      body: JSON.stringify({
+        accountId: this.accountId,
+        username,
+        recoveryCodeHash,
+        device: identity,
+        deviceProof,
+      }),
+    });
+    const snapshot = result.snapshot as PublicAccountPlatformSnapshot | undefined;
+    if (!snapshot?.account || snapshot.account.accountId !== this.accountId || snapshot.deviceId !== deviceId) {
+      throw new Error("Account service returned an invalid registration snapshot.");
+    }
+    return structuredClone(snapshot);
   }
 
   private async authenticated(
