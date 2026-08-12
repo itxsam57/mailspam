@@ -5,9 +5,12 @@ import {
   quickScan,
   fullMailboxAudit,
   spamJunkScan,
-  type ScanProgress,
   type ScanResumeInput,
 } from "../workflows/scanWorkflows.js";
+import {
+  collectDurableAutoTrashIds,
+  enforceDurableAutoTrash,
+} from "../workflows/durableProtection.js";
 import { InMemoryPersonalPolicyStore, type PersonalPolicySnapshot } from "../engine/layers/personalRules.js";
 import type { SignedFeedEntry } from "../engine/layers/globalIntelligence.js";
 import type { RelationshipHistoryWorkerSnapshot } from "../engine/relationshipHistory.js";
@@ -28,14 +31,6 @@ const data = workerData as WorkData;
 const controller = new AbortController();
 parentPort?.on("message", (message) => { if (message?.type === "cancel") controller.abort(); });
 
-const MAX_DURABLE_AUTO_TRASH_IDS = 5_000;
-const DURABLE_AUTO_TRASH_EVIDENCE = new Set([
-  "BLOCKED_SENDER",
-  "BLOCKED_DOMAIN",
-  "LOCALLY_REPORTED_SCAM_CAMPAIGN",
-  "GLOBAL_CONFIRMED_MATCH",
-]);
-
 function buildDependencies() {
   const personalPolicy = new InMemoryPersonalPolicyStore();
   personalPolicy.restore(data.personalPolicy ?? {});
@@ -49,20 +44,7 @@ function buildDependencies() {
   };
 }
 
-function collectDurableAutoTrashIds(progress: ScanProgress, target: Set<string>): void {
-  for (const result of progress.suspiciousCards) {
-    if (result.scored.verdict !== "confirmed_threat") continue;
-    if (!result.scored.evidence.some((item) => DURABLE_AUTO_TRASH_EVIDENCE.has(item.code))) continue;
-    const providerNativeId = result.envelope.providerNativeId?.trim();
-    if (!providerNativeId || target.has(providerNativeId)) continue;
-    if (target.size >= MAX_DURABLE_AUTO_TRASH_IDS) {
-      throw new Error(`Automatic Trash protection exceeded the bounded limit of ${MAX_DURABLE_AUTO_TRASH_IDS} messages in one scan. No partial automatic move was attempted; run another bounded scan.`);
-    }
-    target.add(providerNativeId);
-  }
-}
-
-async function enforceDurableAutoTrash(providerNativeIds: Set<string>): Promise<void> {
+async function enforceCollectedProtection(providerNativeIds: Set<string>): Promise<void> {
   if (providerNativeIds.size === 0) return;
   if (controller.signal.aborted) throw new DOMException("Scan stopped by the user.", "AbortError");
 
@@ -81,7 +63,7 @@ async function enforceDurableAutoTrash(providerNativeIds: Set<string>): Promise<
   const adapter = createAdapter(data.config);
   try {
     await adapter.connect(controller.signal);
-    await adapter.moveToTrash([...providerNativeIds], controller.signal);
+    await enforceDurableAutoTrash(adapter, providerNativeIds, controller.signal);
   } finally {
     await adapter.disconnect().catch(() => undefined);
   }
@@ -102,11 +84,11 @@ async function runScanAttempt(onProgress: () => void): Promise<boolean> {
   for await (const progress of generator) {
     emittedProgress = true;
     onProgress();
-    collectDurableAutoTrashIds(progress, autoTrashIds);
+    collectDurableAutoTrashIds(progress.suspiciousCards, autoTrashIds);
     parentPort?.postMessage({ type: "progress", progress });
   }
 
-  await enforceDurableAutoTrash(autoTrashIds);
+  await enforceCollectedProtection(autoTrashIds);
   return emittedProgress;
 }
 
