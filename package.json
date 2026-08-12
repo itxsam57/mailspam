@@ -39,8 +39,10 @@
     "verify": "npm run gate",
     "dev": "npm run dev -w server",
     "dev:community": "npm run dev:community -w server",
+    "dev:account-service": "npm run dev:account-service -w server",
     "recover:local-state": "npm run recover:local-state -w server",
     "start": "npm run start -w server",
-    "start:community": "npm run start:community -w server"
+    "start:community": "npm run start:community -w server",
+    "start:account-service": "npm run start:account-service -w server"
   }
 }
