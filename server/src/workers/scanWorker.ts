@@ -28,6 +28,7 @@ const data = workerData as WorkData;
 const controller = new AbortController();
 parentPort?.on("message", (message) => { if (message?.type === "cancel") controller.abort(); });
 
+const MAX_DURABLE_AUTO_TRASH_IDS = 5_000;
 const DURABLE_AUTO_TRASH_EVIDENCE = new Set([
   "BLOCKED_SENDER",
   "BLOCKED_DOMAIN",
@@ -48,32 +49,41 @@ function buildDependencies() {
   };
 }
 
-function durableAutoTrashIds(progress: ScanProgress): string[] {
-  const ids = new Set<string>();
+function collectDurableAutoTrashIds(progress: ScanProgress, target: Set<string>): void {
   for (const result of progress.suspiciousCards) {
     if (result.scored.verdict !== "confirmed_threat") continue;
     if (!result.scored.evidence.some((item) => DURABLE_AUTO_TRASH_EVIDENCE.has(item.code))) continue;
     const providerNativeId = result.envelope.providerNativeId?.trim();
-    if (providerNativeId) ids.add(providerNativeId);
+    if (!providerNativeId || target.has(providerNativeId)) continue;
+    if (target.size >= MAX_DURABLE_AUTO_TRASH_IDS) {
+      throw new Error(`Automatic Trash protection exceeded the bounded limit of ${MAX_DURABLE_AUTO_TRASH_IDS} messages in one scan. No partial automatic move was attempted; run another bounded scan.`);
+    }
+    target.add(providerNativeId);
   }
-  return [...ids];
 }
 
-async function enforceDurableAutoTrash(
-  adapter: ReturnType<typeof createAdapter>,
-  progress: ScanProgress,
-): Promise<void> {
-  const ids = durableAutoTrashIds(progress);
-  if (ids.length === 0) return;
+async function enforceDurableAutoTrash(providerNativeIds: Set<string>): Promise<void> {
+  if (providerNativeIds.size === 0) return;
+  if (controller.signal.aborted) throw new DOMException("Scan stopped by the user.", "AbortError");
 
-  await adapter.moveToTrash(ids, controller.signal);
-  const moved = new Set(ids);
-  for (const summary of progress.diagnosticSummaries) {
-    if (!moved.has(summary.actionContext.providerNativeId)) continue;
-    summary.decisionNotes = [
-      ...summary.decisionNotes,
-      "Automatically moved to Trash because a durable personal block/report or signed globally confirmed threat matched this message.",
-    ];
+  parentPort?.postMessage({
+    type: "status",
+    status: {
+      phase: "enforcing_protection",
+      message: `Applying durable Email Shield protection to ${providerNativeIds.size} confirmed message(s)…`,
+    },
+  });
+
+  // Enforcement deliberately starts only after mailbox enumeration has ended.
+  // IMAP cursors are offsets over a live UID list; moving mail between scan
+  // pages can shrink that list and skip unseen messages. A fresh adapter also
+  // separates read-only enumeration from the provider mutation transaction.
+  const adapter = createAdapter(data.config);
+  try {
+    await adapter.connect(controller.signal);
+    await adapter.moveToTrash([...providerNativeIds], controller.signal);
+  } finally {
+    await adapter.disconnect().catch(() => undefined);
   }
 }
 
@@ -88,12 +98,15 @@ async function runScanAttempt(onProgress: () => void): Promise<boolean> {
       : fullMailboxAudit(adapter, deps, controller.signal, { pageSize, resume: data.resume });
 
   let emittedProgress = false;
+  const autoTrashIds = new Set<string>();
   for await (const progress of generator) {
     emittedProgress = true;
     onProgress();
-    await enforceDurableAutoTrash(adapter, progress);
+    collectDurableAutoTrashIds(progress, autoTrashIds);
     parentPort?.postMessage({ type: "progress", progress });
   }
+
+  await enforceDurableAutoTrash(autoTrashIds);
   return emittedProgress;
 }
 
@@ -140,7 +153,7 @@ async function main() {
   parentPort?.postMessage({
     type: "status",
     status: emittedProgress
-      ? { phase: "complete", message: "Scan completed." }
+      ? { phase: "complete", message: "Scan completed and durable protection actions were enforced." }
       : { phase: "complete", message: "Scan completed, but the selected folder contained no additional readable messages." },
   });
   parentPort?.postMessage({ type: "complete" });
