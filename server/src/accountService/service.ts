@@ -26,6 +26,7 @@ import {
   type VerifiedEntitlement,
 } from "../platform/accountFamilyTypes.js";
 import { NodeAccountPlatformRuntime } from "../platform/desktopDeviceIdentity.js";
+import { accountRecoveryDeviceStatement, accountRegistrationStatement } from "./protocol.js";
 import type { AccountServiceStore } from "./store.js";
 import {
   ACCOUNT_SERVICE_CHALLENGE_TTL_MS,
@@ -56,13 +57,13 @@ function recoveryHash(value: unknown): string {
   return value;
 }
 
-function normalizeRegistrationDevice(input: RegisteredDevice, now: number): RegisteredDevice {
+function normalizeRegistrationDevice(input: RegisteredDevice | DevicePublicIdentity, now: number): RegisteredDevice {
   if (!input || typeof input !== "object") throw new Error("Device registration is required.");
   if (!["ed25519", "p256"].includes(input.algorithm)) throw new Error("Device key algorithm is invalid.");
   if (!["desktop", "ios", "android"].includes(input.platform)) throw new Error("Device platform is invalid.");
   const publicKeySpki = normalizePublicKeySpki(input.publicKeySpki);
   const expectedDeviceId = deriveDeviceId({ algorithm: input.algorithm, publicKeySpki });
-  if (input.deviceId !== expectedDeviceId) throw new Error("Device ID does not match its cryptographic public key.");
+  if ("deviceId" in input && input.deviceId !== expectedDeviceId) throw new Error("Device ID does not match its cryptographic public key.");
   return {
     deviceId: expectedDeviceId,
     algorithm: input.algorithm,
@@ -132,12 +133,12 @@ function verifyDeviceSignature(device: RegisteredDevice, challenge: string, sign
   }
 }
 
-function publicFamilyThreatSnapshot(state: AccountServiceState, account: EmailShieldAccount): FamilyThreatSnapshot | null {
+function publicFamilyThreatSnapshot(state: AccountServiceState, account: EmailShieldAccount, now: number): FamilyThreatSnapshot | null {
   if (!account.familyCircleId) return null;
   const circle = state.familyCircles.find((candidate) => candidate.familyCircleId === account.familyCircleId);
   if (!circle) return null;
   const owner = state.accounts.find((candidate) => candidate.accountId === circle.ownerAccountId);
-  if (!owner || familySeatLimit(owner.entitlement, Date.now()) < 2) return null;
+  if (!owner || familySeatLimit(owner.entitlement, now) < 2) return null;
   return {
     familyCircleId: circle.familyCircleId,
     accountId: account.accountId,
@@ -164,15 +165,26 @@ export class SharedAccountFamilyService {
     if (state.accounts.length >= MAX_ACCOUNTS) throw new Error("Account service capacity has been reached.");
     const normalizedAccountId = accountId(input.accountId);
     const username = normalizeUsername(input.username);
+    const normalizedRecoveryHash = recoveryHash(input.recoveryCodeHash);
     if (state.accounts.some((candidate) => candidate.accountId === normalizedAccountId)) throw new Error("Email Shield account already exists.");
     if (state.accounts.some((candidate) => candidate.username === username)) throw new Error("Email Shield username is already registered.");
     const now = this.now();
+    const device = normalizeRegistrationDevice(input.device, now);
+    const statement = accountRegistrationStatement({
+      accountId: normalizedAccountId,
+      username,
+      recoveryCodeHash: normalizedRecoveryHash,
+      deviceId: device.deviceId,
+    });
+    if (!verifyDeviceSignature(device, statement, input.deviceProof)) {
+      throw new Error("Device registration proof could not be verified.");
+    }
     const account: EmailShieldAccount = {
       accountId: normalizedAccountId,
       username,
       createdAt: now,
-      recoveryCodeHash: recoveryHash(input.recoveryCodeHash),
-      devices: [normalizeRegistrationDevice(input.device, now)],
+      recoveryCodeHash: normalizedRecoveryHash,
+      devices: [device],
       entitlement: defaultFreeEntitlement(now),
       familyCircleId: null,
     };
@@ -184,11 +196,17 @@ export class SharedAccountFamilyService {
     username: string;
     recoveryCode: string;
     device: DevicePublicIdentity;
+    deviceProof: string;
   }): { recoveryCode: string; snapshot: PublicAccountPlatformSnapshot } {
     const state = this.store.load();
     const username = normalizeUsername(input.username);
     const account = state.accounts.find((candidate) => candidate.username === username);
     if (!account) throw new Error("The Email Shield recovery proof is invalid.");
+    const proposedDevice = normalizeRegistrationDevice(input.device, this.now());
+    const statement = accountRecoveryDeviceStatement({ username, deviceId: proposedDevice.deviceId });
+    if (!verifyDeviceSignature(proposedDevice, statement, input.deviceProof)) {
+      throw new Error("Recovery device proof could not be verified.");
+    }
     return this.scoped(account.accountId).recoverAccount(username, input.recoveryCode, input.device);
   }
 
@@ -311,14 +329,16 @@ export class SharedAccountFamilyService {
       threat.familyBlockerAccountIds = [...new Set([...threat.familyBlockerAccountIds, normalizedAccountId])];
     }
     this.store.save(state);
-    return publicFamilyThreatSnapshot(this.store.load(), account);
+    const refreshed = this.store.load();
+    const refreshedAccount = refreshed.accounts.find((candidate) => candidate.accountId === normalizedAccountId);
+    return refreshedAccount ? publicFamilyThreatSnapshot(refreshed, refreshedAccount, this.now()) : null;
   }
 
   familyThreatSnapshot(accountIdInput: string): FamilyThreatSnapshot | null {
     const normalizedAccountId = accountId(accountIdInput);
     const state = this.store.load();
     const account = state.accounts.find((candidate) => candidate.accountId === normalizedAccountId);
-    return account ? publicFamilyThreatSnapshot(state, account) : null;
+    return account ? publicFamilyThreatSnapshot(state, account, this.now()) : null;
   }
 
   applyVerifiedEntitlement(accountIdInput: string, entitlement: VerifiedEntitlement): PublicAccountPlatformSnapshot {
