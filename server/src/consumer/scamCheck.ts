@@ -15,6 +15,7 @@ const MAX_SENDER_CHARS = 4_096;
 export type ScamCheckKind = "message" | "url";
 export type EvidenceStrength = "limited" | "moderate" | "strong";
 
+/** Untrusted user-submitted content only. Trusted policy/intelligence are injected separately. */
 export interface ConsumerScamCheckRequestV1 {
   schemaVersion: 1;
   kind: ScamCheckKind;
@@ -26,10 +27,13 @@ export interface ConsumerScamCheckRequestV1 {
     displayName?: string | null;
     address?: string | null;
   };
+}
+
+export interface ConsumerScamCheckDependencies {
+  /** Account-local policy from the trusted local repository, never from request JSON. */
   personalPolicy?: PersonalPolicySnapshot;
-  intelligence?:
-    | { state: "verified"; entries: SignedFeedEntry[] }
-    | { state: "unavailable"; entries: null };
+  /** Already-verified signed feed entries from the trusted feed cache, or null when unavailable. */
+  intelligenceEntries?: SignedFeedEntry[] | null;
 }
 
 export interface ConsumerScamExplanationV1 {
@@ -83,28 +87,6 @@ function validSender(value: unknown): boolean {
     && (value.address === undefined || value.address === null || (typeof value.address === "string" && value.address.length <= MAX_SENDER_CHARS));
 }
 
-function validPolicy(value: unknown): value is PersonalPolicySnapshot {
-  if (value === undefined) return true;
-  if (!isRecord(value)) return false;
-  const fields = [
-    "blockedSenders",
-    "blockedDomains",
-    "trustedSenders",
-    "approvedExceptions",
-    "unsubscribedActions",
-    "reportedCampaigns",
-  ];
-  if (Object.keys(value).some((key) => !fields.includes(key)) || fields.some((key) => !Object.hasOwn(value, key))) return false;
-  return fields.every((field) => Array.isArray(value[field]) && (value[field] as unknown[]).every((item) => typeof item === "string"));
-}
-
-function validIntelligence(value: unknown): boolean {
-  if (value === undefined) return true;
-  if (!isRecord(value) || !Object.hasOwn(value, "state") || !Object.hasOwn(value, "entries") || Object.keys(value).some((key) => key !== "state" && key !== "entries")) return false;
-  if (value.state === "unavailable") return value.entries === null;
-  return value.state === "verified" && Array.isArray(value.entries);
-}
-
 export function assertConsumerScamCheckRequest(input: unknown): asserts input is ConsumerScamCheckRequestV1 {
   let serialized: string;
   try { serialized = JSON.stringify(input); }
@@ -113,7 +95,7 @@ export function assertConsumerScamCheckRequest(input: unknown): asserts input is
     throw new ConsumerScamCheckError("request_too_large");
   }
   if (!isRecord(input)) throw new ConsumerScamCheckError("invalid_request");
-  const allowed = new Set(["schemaVersion", "kind", "text", "html", "subject", "url", "sender", "personalPolicy", "intelligence"]);
+  const allowed = new Set(["schemaVersion", "kind", "text", "html", "subject", "url", "sender"]);
   if (Object.keys(input).some((key) => !allowed.has(key))) throw new ConsumerScamCheckError("invalid_request");
   if (input.schemaVersion !== CONSUMER_SCAM_CHECK_SCHEMA_VERSION || (input.kind !== "message" && input.kind !== "url")) {
     throw new ConsumerScamCheckError("invalid_request");
@@ -122,9 +104,7 @@ export function assertConsumerScamCheckRequest(input: unknown): asserts input is
     || !boundedOptionalString(input.html, MAX_HTML_INTERACTION_CHARS)
     || !boundedOptionalString(input.subject, MAX_SUBJECT_CHARS)
     || !boundedOptionalString(input.url, MAX_URL_CHARS)
-    || !validSender(input.sender)
-    || !validPolicy(input.personalPolicy)
-    || !validIntelligence(input.intelligence)) {
+    || !validSender(input.sender)) {
     throw new ConsumerScamCheckError("invalid_request");
   }
   const hasMessageContent = Boolean(
@@ -154,7 +134,7 @@ function directUrlLink(raw: string): LinkInfo {
   const value = raw.trim();
   let normalized = value;
   try { normalized = new URL(/^www\./i.test(value) ? `https://${value}` : value).toString(); }
-  catch { /* link layer will retain malformed input as evidence */ }
+  catch { /* Link analysis retains malformed input as bounded evidence. */ }
   return {
     visibleText: value,
     rawUrl: value,
@@ -206,6 +186,8 @@ function buildSubmittedEnvelope(input: ConsumerScamCheckRequestV1): CanonicalEnv
     : null;
 
   return {
+    // Submitted content is deliberately routed through the least-trusting
+    // canonical provider context. It never fabricates provider authentication.
     provider: "imap",
     accountProof: `submitted:${id}`,
     messageId: `submitted:${id}`,
@@ -354,14 +336,19 @@ function explanation(params: {
   };
 }
 
-export function evaluateConsumerScamCheck(input: unknown): ConsumerScamCheckResponseV1 {
+export function evaluateConsumerScamCheck(
+  input: unknown,
+  deps: ConsumerScamCheckDependencies = {},
+): ConsumerScamCheckResponseV1 {
   assertConsumerScamCheckRequest(input);
   const envelope = buildSubmittedEnvelope(input);
   const policy = new InMemoryPersonalPolicyStore();
-  if (input.personalPolicy) policy.restore(structuredClone(input.personalPolicy));
-  const intelligenceEntries = input.intelligence?.state === "verified"
-    ? structuredClone(input.intelligence.entries)
-    : null;
+  if (deps.personalPolicy) policy.restore(structuredClone(deps.personalPolicy));
+  const intelligenceEntries = deps.intelligenceEntries === undefined
+    ? null
+    : deps.intelligenceEntries === null
+      ? null
+      : structuredClone(deps.intelligenceEntries);
   const result = scanMessage(envelope, {
     personalPolicy: policy,
     threatFeed: { getVerifiedEntries: () => intelligenceEntries },
