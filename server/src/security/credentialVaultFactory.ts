@@ -16,3 +16,16 @@ export function createCredentialVault(platform: NodeJS.Platform = process.platfo
   if (platform === "linux") return new LinuxSecretServiceVault();
   return new UnsupportedCredentialVault(platform);
 }
+
+let runtimeCredentialVault: CredentialVault | null = null;
+
+/**
+ * The desktop runtime has one credential-custody boundary. Sharing the native
+ * backend prevents repeated helper initialization across encrypted local
+ * repositories and provider-session credentials while preserving isolated
+ * createCredentialVault() instances for tests and explicit callers.
+ */
+export function getRuntimeCredentialVault(): CredentialVault {
+  runtimeCredentialVault ??= createCredentialVault();
+  return runtimeCredentialVault;
+}
