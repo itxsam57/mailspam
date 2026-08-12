@@ -8,7 +8,7 @@ const familyAware = readFileSync(join(root, "server/src/api/familyAwareScanStrea
 const background = readFileSync(join(root, "server/src/api/backgroundProtection.ts"), "utf8");
 const startup = readFileSync(join(root, "server/src/index.ts"), "utf8");
 
-describe("Family Shield manual/background scan parity", () => {
+describe("Family Shield manual/background/realtime scan parity", () => {
   it("uses account-scoped family-aware handlers for both new and resumed manual scans", () => {
     expect(localDesktop).toContain("createFamilyAwareScanStreamHandler({ community, accountPlatform })");
     expect(localDesktop).toContain("createFamilyAwareResumeScanStreamHandler({ community, accountPlatform })");
@@ -17,13 +17,16 @@ describe("Family Shield manual/background scan parity", () => {
     expect(familyAware).not.toContain("community.getVerifiedEntries =");
   });
 
-  it("injects the same account platform into scheduled background protection", () => {
-    expect(startup).toContain("createBackgroundProtectionCoordinator(communityNetwork, accountPlatform)");
+  it("injects the same account platform into the Worker shared by scheduled and realtime protection", () => {
+    expect(startup).toContain("new WorkerBackgroundProtectionExecutor(communityNetwork, accountPlatform)");
+    expect(startup).toContain("const protectionExecutor = new SerialProtectionExecutor(workerProtectionExecutor)");
+    expect(startup).toContain("executor: protectionExecutor");
+    expect(startup).toContain("new RealtimeProtectionProcessor(sessionStore, protectionExecutor)");
     expect(background).toContain("this.accountPlatform.familyThreatSnapshot(session.policyAccountKey)");
     expect(background).toContain("mergeVerifiedAndFamilyIntelligence");
   });
 
-  it("keeps a failed global signed feed fail-closed in both paths", () => {
+  it("keeps a failed global signed feed fail-closed in manual, scheduled and realtime paths", () => {
     expect(familyAware).toContain("mergeVerifiedAndFamilyIntelligence");
     expect(background).toContain("mergeVerifiedAndFamilyIntelligence");
     const adapter = readFileSync(join(root, "server/src/platform/familyThreatFeedAdapter.ts"), "utf8");
