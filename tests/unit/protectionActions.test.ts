@@ -180,4 +180,52 @@ describe("durable block action API", () => {
     const staleThreat = await post(test.baseUrl, test.session.id, "legitimate-feedback", { token: registration.token });
     expect(staleThreat.response.status).toBe(409);
   });
+
+  it("makes Report Scam one server-side transaction: local campaign rule, optional sender block, community report, and current Trash", async () => {
+    const test = await fixture();
+    const registration = test.sessions.registerReviewAction(test.session, actionContext());
+    const result = await post(test.baseUrl, test.session.id, "report-scam", {
+      token: registration.token,
+      blockSender: true,
+    });
+
+    expect(result.response.status).toBe(200);
+    expect(result.body).toMatchObject({
+      success: true,
+      localProtected: true,
+      senderBlocked: true,
+      movedCurrent: true,
+      communityAccepted: true,
+      accepted: true,
+      independentReporters: 1,
+    });
+    expect(test.session.personalPolicy.isReportedCampaign(campaignFingerprint)).toBe(true);
+    expect(test.session.personalPolicy.isBlockedSender("scammer@fraud.example")).toBe(true);
+    expect(test.trashCalls).toEqual([["provider-native-1"]]);
+
+    const stale = await post(test.baseUrl, test.session.id, "report-scam", { token: registration.token });
+    expect(stale.response.status).toBe(409);
+    expect(test.trashCalls).toEqual([["provider-native-1"]]);
+  });
+
+  it("keeps Report Scam local protection authoritative when the current Trash move fails", async () => {
+    const test = await fixture({ failMove: true });
+    const registration = test.sessions.registerReviewAction(test.session, actionContext());
+    const result = await post(test.baseUrl, test.session.id, "report-scam", { token: registration.token });
+
+    expect(result.response.status).toBe(207);
+    expect(result.body).toMatchObject({
+      success: true,
+      localProtected: true,
+      movedCurrent: false,
+      communityAccepted: true,
+      accepted: true,
+    });
+    expect(test.session.personalPolicy.isReportedCampaign(campaignFingerprint)).toBe(true);
+    expect(test.trashCalls).toEqual([["provider-native-1"]]);
+
+    // Reporting itself is committed and cannot be replayed from a stale tab.
+    const stale = await post(test.baseUrl, test.session.id, "report-scam", { token: registration.token });
+    expect(stale.response.status).toBe(409);
+  });
 });
