@@ -6,7 +6,7 @@ import {
 } from "../../server/src/realtime/realtimeProtectionProcessor.js";
 import type { CanonicalInboundEventV1 } from "../../server/src/realtime/inboundEvents.js";
 
-function session(accountKey = "a".repeat(64), provider = "gmail", active = false): AccountSession {
+function session(accountKey = "a".repeat(64), provider: "gmail" | "outlook" = "gmail", active = false): AccountSession {
   return {
     id: `session-${provider}`,
     provider,
