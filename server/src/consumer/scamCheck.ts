@@ -270,10 +270,14 @@ function evidenceStrength(verdict: Verdict, confirmedByRule: boolean, evidence: 
   return "limited";
 }
 
-function limitations(layerResults: LayerResult[]): string[] {
+function limitations(layerResults: LayerResult[], additionalLimitations: readonly string[] = []): string[] {
   const result = [
     "This check analyzes only the content you submitted; it does not have trusted mailbox transport/authentication provenance unless the item came through a connected mailbox scan.",
   ];
+  for (const limitation of additionalLimitations) {
+    const normalized = limitation.trim();
+    if (normalized && !result.includes(normalized)) result.push(normalized);
+  }
   for (const layer of layerResults) {
     if (!layer.incomplete || !layer.incompleteReason) continue;
     if (!result.includes(layer.incompleteReason)) result.push(layer.incompleteReason);
@@ -306,6 +310,7 @@ function explanation(params: {
   confirmedByRule: boolean;
   evidence: Evidence[];
   layerResults: LayerResult[];
+  additionalLimitations?: readonly string[];
 }): ConsumerScamExplanationV1 {
   const strongest = [...params.evidence]
     .filter((item) => item.scoreContribution > 0)
@@ -331,17 +336,21 @@ function explanation(params: {
     scamCategory: category,
     evidenceStrength: evidenceStrength(params.verdict, params.confirmedByRule, params.evidence),
     strongestSignals: strongest,
-    limitations: limitations(params.layerResults),
+    limitations: limitations(params.layerResults, params.additionalLimitations),
     safeNextActions: safeNextActions(params.verdict),
   };
 }
 
-export function evaluateConsumerScamCheck(
-  input: unknown,
+/**
+ * Shared authoritative evaluator for every Scam Check input type. Input-specific
+ * modules may normalize text, URLs, images, QR codes or EML into a canonical
+ * envelope, but scoring/explanation remains one path.
+ */
+export function evaluateConsumerScamEnvelope(
+  envelope: CanonicalEnvelope,
   deps: ConsumerScamCheckDependencies = {},
+  additionalLimitations: readonly string[] = [],
 ): ConsumerScamCheckResponseV1 {
-  assertConsumerScamCheckRequest(input);
-  const envelope = buildSubmittedEnvelope(input);
   const policy = new InMemoryPersonalPolicyStore();
   if (deps.personalPolicy) policy.restore(structuredClone(deps.personalPolicy));
   const intelligenceEntries = deps.intelligenceEntries === undefined
@@ -366,6 +375,15 @@ export function evaluateConsumerScamCheck(
       confirmedByRule: result.scored.confirmedByRule,
       evidence: result.scored.evidence,
       layerResults: result.scored.layerResults,
+      additionalLimitations,
     }),
   };
+}
+
+export function evaluateConsumerScamCheck(
+  input: unknown,
+  deps: ConsumerScamCheckDependencies = {},
+): ConsumerScamCheckResponseV1 {
+  assertConsumerScamCheckRequest(input);
+  return evaluateConsumerScamEnvelope(buildSubmittedEnvelope(input), deps);
 }
