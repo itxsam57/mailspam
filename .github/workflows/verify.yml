@@ -71,6 +71,21 @@ jobs:
         env:
           ENGINEERING_AUDIT: '0'
 
+      - name: Persist unit failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          mkdir -p artifacts/engineering
+          set +e
+          npm run test:unit > artifacts/engineering/unit-failure.log 2>&1
+          status=$?
+          {
+            echo "diagnostic rerun exit: ${status}"
+            echo "runner: ${RUNNER_OS}"
+            echo "commit: ${GITHUB_SHA}"
+          } > artifacts/engineering/unit-failure-metadata.txt
+          exit 0
+
       - name: Upload verification and browser handoff
         if: always()
         uses: actions/upload-artifact@v4
@@ -122,3 +137,9 @@ jobs:
             echo "No verification reports were downloaded." >&2
             exit 1
           fi
+
+          while IFS= read -r diagnostic; do
+            echo ""
+            echo "===== UNIT FAILURE DIAGNOSTIC: ${diagnostic} ====="
+            tail -n 240 "${diagnostic}"
+          done < <(find gate-artifacts -name unit-failure.log -type f | sort)
