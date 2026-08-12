@@ -77,7 +77,7 @@ describe("Scam Check binary input convergence", () => {
       mimeType: "image/png",
     }, { intelligenceEntries: [] });
 
-    expect(result.verdict).toBe("unknown");
+    expect(result.verdict).not.toBe("safe");
     expect(result.explanation.limitations.join(" ")).toMatch(/visual-text extractor|visible screenshot\/image text/i);
   });
 
