@@ -24,11 +24,27 @@ function noStore(res: Response): void {
   res.setHeader("Cache-Control", "no-store, max-age=0");
 }
 
+function parserStatus(error: unknown): number | null {
+  if (!error || typeof error !== "object") return null;
+  const item = error as { status?: unknown; type?: unknown };
+  if (item.status === 413 || item.type === "entity.too.large") return 413;
+  if (item.status === 400 || item.type === "entity.parse.failed") return 400;
+  return null;
+}
+
 function publicInputError(error: unknown): { status: number; message: string } {
-  if (error instanceof ConsumerScamCheckError || error instanceof ConsumerScamInputError) {
-    return { status: error.code === "request_too_large" || error.code === "input_too_large" ? 413 : 400, message: error.message };
+  const bodyParserStatus = parserStatus(error);
+  if (bodyParserStatus === 413) return { status: 413, message: "Scam Check input exceeds the accepted local resource limit." };
+  if (bodyParserStatus === 400) return { status: 400, message: "Scam Check request body is invalid." };
+  if (error instanceof ConsumerScamCheckError) {
+    return { status: error.code === "request_too_large" ? 413 : 400, message: error.message };
   }
-  if (error instanceof SyntaxError) return { status: 400, message: "Scam Check request body is invalid." };
+  if (error instanceof ConsumerScamInputError) {
+    return {
+      status: error.code === "input_too_large" ? 413 : error.code === "unsupported_image" ? 415 : 400,
+      message: error.message,
+    };
+  }
   return { status: 500, message: "Scam Check could not complete the local analysis." };
 }
 
@@ -52,6 +68,15 @@ function routeLimit(deps: ScamCheckRouteDependencies, key: string) {
     if (!deps.security.enforceRouteLimit(req, res, key, MAX_REQUESTS_PER_MINUTE)) return;
     next();
   };
+}
+
+function imageContentType(req: Request, _res: Response, next: NextFunction): void {
+  const contentType = String(req.get("content-type") ?? "").split(";", 1)[0]!.trim().toLowerCase();
+  if (contentType !== "image/png" && contentType !== "image/jpeg") {
+    next(new ConsumerScamInputError("unsupported_image"));
+    return;
+  }
+  next();
 }
 
 /**
@@ -101,6 +126,7 @@ export function registerScamCheckRoutes(app: Express, deps: ScamCheckRouteDepend
     "/api/scam-check/v1/image",
     ...protectedRead(deps),
     routeLimit(deps, "scam-check-image"),
+    imageContentType,
     express.raw({ limit: MAX_QR_IMAGE_BYTES, type: ["image/png", "image/jpeg"] }),
     async (req: Request, res: Response) => {
       try {
