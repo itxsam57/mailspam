@@ -28,6 +28,12 @@ import {
 } from "./aggregateState.js";
 import { CommunityReportCapacityError, CommunityReportRateLimitError, CommunityReportValidationError } from "./errors.js";
 import {
+  hasBlockFeedback,
+  hasLegitimateFeedback,
+  LEGITIMATE_CONSENSUS_REPORTERS,
+  LEGITIMATE_RULE_PREFIX,
+} from "./feedback.js";
+import {
   COMMUNITY_STORAGE_KEY_BYTES,
   MAX_COMMUNITY_AGGREGATE_DATABASE_BYTES,
   MAX_COMMUNITY_REPORT_JOURNAL_BYTES,
@@ -51,6 +57,7 @@ const MAX_REPORT_AGE_MS = 30 * 24 * 60 * 60_000;
 export const COMMUNITY_REPORT_RETENTION_MS = 90 * 24 * 60 * 60_000;
 const MAX_FUTURE_SKEW_MS = 5 * 60_000;
 const HUMAN_REPORT_BASE_WEIGHT = 5;
+const BLOCK_FEEDBACK_BASE_WEIGHT = 2;
 const DEFAULT_SNAPSHOT_INTERVAL = 500;
 const REPORT_VERDICTS = new Set(["safe", "unknown", "review", "high_risk", "confirmed_threat"]);
 const REPORT_INDICATOR_TYPES = new Set(["sender", "reply_to_domain", "url_domain", "attachment_hash", "campaign"]);
@@ -138,25 +145,19 @@ function verdictBonus(verdict: CommunityReportSubmission["verdict"]): number {
   }
 }
 
-function reporterWeight(record: Pick<StoredCommunityReporterRecord, "evidenceScore" | "verdict">): number {
-  return HUMAN_REPORT_BASE_WEIGHT + clampScore(record.evidenceScore) + verdictBonus(record.verdict);
+function isLegitimate(record: Pick<StoredCommunityReporterRecord, "evidenceCodes">): boolean {
+  return hasLegitimateFeedback(record.evidenceCodes);
+}
+
+function reporterWeight(record: Pick<StoredCommunityReporterRecord, "evidenceScore" | "verdict" | "evidenceCodes">): number {
+  if (isLegitimate(record)) return 0;
+  const base = hasBlockFeedback(record.evidenceCodes) ? BLOCK_FEEDBACK_BASE_WEIGHT : HUMAN_REPORT_BASE_WEIGHT;
+  return base + clampScore(record.evidenceScore) + verdictBonus(record.verdict);
 }
 
 function isStrong(record: StoredCommunityReporterRecord): boolean {
+  if (isLegitimate(record)) return false;
   return record.verdict === "confirmed_threat" || record.verdict === "high_risk" || record.evidenceScore >= 6;
-}
-
-function statusFor(record: StoredCommunityCampaignRecord, thresholds: CommunityThresholds): CommunityCampaignStatus {
-  const reporters = Object.values(record.reporters);
-  const weight = reporters.reduce((sum, item) => sum + reporterWeight(item), 0);
-  const strong = reporters.filter(isStrong).length;
-  if (
-    reporters.length >= thresholds.confirmedReporters &&
-    strong >= thresholds.confirmedStrongReporters &&
-    weight >= thresholds.confirmedWeight
-  ) return "confirmed";
-  if (reporters.length >= thresholds.warningReporters && weight >= thresholds.warningWeight) return "warning";
-  return "candidate";
 }
 
 interface CampaignMetrics {
@@ -165,13 +166,25 @@ interface CampaignMetrics {
   strong: number;
 }
 
-function metricsFor(record: StoredCommunityCampaignRecord): CampaignMetrics {
-  const reporters = Object.values(record.reporters);
+const ZERO_METRICS: CampaignMetrics = { reporters: 0, weight: 0, strong: 0 };
+
+function reporterContribution(record: StoredCommunityReporterRecord | undefined): CampaignMetrics {
+  if (!record || isLegitimate(record)) return ZERO_METRICS;
   return {
-    reporters: reporters.length,
-    weight: reporters.reduce((sum, item) => sum + reporterWeight(item), 0),
-    strong: reporters.filter(isStrong).length,
+    reporters: 1,
+    weight: reporterWeight(record),
+    strong: isStrong(record) ? 1 : 0,
   };
+}
+
+function metricsFor(record: StoredCommunityCampaignRecord): CampaignMetrics {
+  return Object.values(record.reporters).reduce<CampaignMetrics>((metrics, reporter) => {
+    const contribution = reporterContribution(reporter);
+    metrics.reporters += contribution.reporters;
+    metrics.weight += contribution.weight;
+    metrics.strong += contribution.strong;
+    return metrics;
+  }, { ...ZERO_METRICS });
 }
 
 function statusFromMetrics(metrics: CampaignMetrics, thresholds: CommunityThresholds): CommunityCampaignStatus {
@@ -184,12 +197,34 @@ function statusFromMetrics(metrics: CampaignMetrics, thresholds: CommunityThresh
   return "candidate";
 }
 
+function statusFor(record: StoredCommunityCampaignRecord, thresholds: CommunityThresholds): CommunityCampaignStatus {
+  return statusFromMetrics(metricsFor(record), thresholds);
+}
+
+function legitimateReporterCount(record: StoredCommunityCampaignRecord | undefined): number {
+  return record ? Object.values(record.reporters).filter(isLegitimate).length : 0;
+}
+
 function indicatorKey(indicator: CommunityIndicator): string {
   return `${indicator.type}\0${indicator.value.toLowerCase()}`;
 }
 
 function ruleId(campaign: string, indicator: CommunityIndicator): string {
   return `community:${createHash("sha256").update(`${campaign}\0${indicator.type}\0${indicator.value}`).digest("hex").slice(0, 24)}`;
+}
+
+function legitimateRuleId(campaign: string): string {
+  return `${LEGITIMATE_RULE_PREFIX}${createHash("sha256").update(`legitimate\0${campaign}`).digest("hex").slice(0, 24)}`;
+}
+
+function observedWindow(reporters: StoredCommunityReporterRecord[], fallback: StoredCommunityCampaignRecord): { firstSeen: string; lastSeen: string } {
+  if (!reporters.length) return { firstSeen: fallback.firstSeen, lastSeen: fallback.lastSeen };
+  const times = reporters.map((reporter) => Date.parse(reporter.reportedAt)).filter(Number.isFinite);
+  if (!times.length) return { firstSeen: fallback.firstSeen, lastSeen: fallback.lastSeen };
+  return {
+    firstSeen: new Date(Math.min(...times)).toISOString(),
+    lastSeen: new Date(Math.max(...times)).toISOString(),
+  };
 }
 
 function encryptedEnvelopeByteLength(plaintextBytes: number): number {
@@ -231,6 +266,11 @@ function validateSubmission(
   if (!input.evidenceCodes.every((code): code is string => typeof code === "string" && /^[A-Z0-9_]{2,80}$/.test(code))) {
     throw new CommunityReportValidationError("Community report evidence codes are invalid.");
   }
+  if (hasLegitimateFeedback(input.evidenceCodes) && (
+    input.evidenceCodes.length !== 1 || input.verdict !== "safe" || clampScore(input.evidenceScore) !== 0
+  )) {
+    throw new CommunityReportValidationError("Legitimate feedback must be an isolated zero-risk Safe judgment.");
+  }
   if (!Array.isArray(input.indicators) || input.indicators.length === 0 || input.indicators.length > MAX_INDICATORS_PER_REPORT) {
     throw new CommunityReportValidationError("Community report indicators are invalid.");
   }
@@ -270,21 +310,36 @@ function validateSubmission(
   };
 }
 
+function reporterFromReport(report: CommunityReportSubmission, acceptedAt: string): StoredCommunityReporterRecord {
+  return {
+    reportedAt: acceptedAt,
+    evidenceScore: report.evidenceScore,
+    verdict: report.verdict,
+    evidenceCodes: [...report.evidenceCodes],
+    indicators: [...report.indicators].sort((left, right) => indicatorKey(left).localeCompare(indicatorKey(right))),
+  };
+}
+
 function mergedReporter(
   prior: StoredCommunityReporterRecord | undefined,
   report: CommunityReportSubmission,
   acceptedAt: string,
 ): StoredCommunityReporterRecord {
+  const incoming = reporterFromReport(report, acceptedAt);
+  if (!prior || isLegitimate(prior) !== isLegitimate(incoming)) {
+    // Changing from legitimate to threat feedback (or the reverse) replaces
+    // the reporter's polarity. Contradictory judgments are never accumulated.
+    return incoming;
+  }
+  if (isLegitimate(incoming)) return incoming;
+
   return {
     reportedAt: acceptedAt,
-    evidenceScore: Math.max(prior?.evidenceScore ?? 0, report.evidenceScore),
-    verdict: reporterWeight({ evidenceScore: report.evidenceScore, verdict: report.verdict }) >=
-      reporterWeight(prior ?? { evidenceScore: 0, verdict: "safe" })
-      ? report.verdict
-      : prior!.verdict,
-    evidenceCodes: [...new Set([...(prior?.evidenceCodes ?? []), ...report.evidenceCodes])].sort(),
+    evidenceScore: Math.max(prior.evidenceScore, report.evidenceScore),
+    verdict: reporterWeight(incoming) >= reporterWeight(prior) ? report.verdict : prior.verdict,
+    evidenceCodes: [...new Set([...prior.evidenceCodes, ...report.evidenceCodes])].sort(),
     indicators: [...new Map(
-      [...(prior?.indicators ?? []), ...report.indicators].map((indicator) => [indicatorKey(indicator), indicator]),
+      [...prior.indicators, ...report.indicators].map((indicator) => [indicatorKey(indicator), indicator]),
     ).values()].sort((left, right) => indicatorKey(left).localeCompare(indicatorKey(right))),
   };
 }
@@ -382,8 +437,10 @@ export class EncryptedCommunityAggregateStore {
     if (!existing && Object.keys(database.campaigns).length >= MAX_CAMPAIGNS) throw new CommunityReportCapacityError();
 
     const acceptedAt = now.toISOString();
-    const previousMetrics = this.campaignMetrics.get(report.campaignFingerprint) ?? { reporters: 0, weight: 0, strong: 0 };
+    const previousMetrics = this.campaignMetrics.get(report.campaignFingerprint) ?? { ...ZERO_METRICS };
     const previousStatus = statusFromMetrics(previousMetrics, this.thresholds);
+    const previousLegitimate = legitimateReporterCount(existing);
+    const previousPositiveConsensus = previousLegitimate >= LEGITIMATE_CONSENSUS_REPORTERS && previousMetrics.reporters === 0;
     const priorReporter = existing?.reporters[report.reporterProof];
     const candidateReporter = mergedReporter(priorReporter, report, acceptedAt);
     let candidatePlaintextBytes: number;
@@ -412,12 +469,16 @@ export class EncryptedCommunityAggregateStore {
     applyReportToDatabase(database, report, acceptedAt);
     this.databaseCache = database;
     this.snapshotPlaintextBytes = candidatePlaintextBytes;
+    const priorContribution = reporterContribution(priorReporter);
+    const nextContribution = reporterContribution(candidateReporter);
     const nextMetrics: CampaignMetrics = {
-      reporters: previousMetrics.reporters + (priorReporter ? 0 : 1),
-      weight: previousMetrics.weight - (priorReporter ? reporterWeight(priorReporter) : 0) + reporterWeight(candidateReporter),
-      strong: previousMetrics.strong - (priorReporter && isStrong(priorReporter) ? 1 : 0) + (isStrong(candidateReporter) ? 1 : 0),
+      reporters: previousMetrics.reporters - priorContribution.reporters + nextContribution.reporters,
+      weight: previousMetrics.weight - priorContribution.weight + nextContribution.weight,
+      strong: previousMetrics.strong - priorContribution.strong + nextContribution.strong,
     };
     this.campaignMetrics.set(report.campaignFingerprint, nextMetrics);
+    const nextLegitimate = previousLegitimate - (priorReporter && isLegitimate(priorReporter) ? 1 : 0) + (isLegitimate(candidateReporter) ? 1 : 0);
+    const nextPositiveConsensus = nextLegitimate >= LEGITIMATE_CONSENSUS_REPORTERS && nextMetrics.reporters === 0;
     const reporterCampaigns = this.reporterActivity.get(report.reporterProof) ?? new Map<string, number>();
     reporterCampaigns.set(report.campaignFingerprint, nowMs);
     this.reporterActivity.set(report.reporterProof, reporterCampaigns);
@@ -437,9 +498,9 @@ export class EncryptedCommunityAggregateStore {
       duplicate,
       queued: false,
       campaignFingerprint: report.campaignFingerprint,
-      independentReporters: nextMetrics.reporters,
+      independentReporters: isLegitimate(candidateReporter) ? nextLegitimate : nextMetrics.reporters,
       status,
-      feedUpdated: status !== previousStatus,
+      feedUpdated: status !== previousStatus || previousPositiveConsensus !== nextPositiveConsensus,
     };
   }
 
@@ -453,11 +514,34 @@ export class EncryptedCommunityAggregateStore {
     const database = this.loadDatabase(now.getTime());
     const entries: SignedFeedEntry[] = [];
     for (const [fingerprint, campaign] of Object.entries(database.campaigns)) {
-      const status = statusFor(campaign, this.thresholds);
-      if (status === "candidate") continue;
+      const metrics = metricsFor(campaign);
+      const status = statusFromMetrics(metrics, this.thresholds);
+      const reporters = Object.entries(campaign.reporters);
+      const threatReporters = reporters.filter(([, reporter]) => !isLegitimate(reporter));
+      const legitimateReporters = reporters.filter(([, reporter]) => isLegitimate(reporter));
+
+      if (status === "candidate") {
+        // Positive learning is campaign-specific, requires a much larger
+        // independent consensus, and disappears as soon as any unresolved
+        // threat reporter exists. It is never emitted for sender/domain/url.
+        if (metrics.reporters === 0 && legitimateReporters.length >= LEGITIMATE_CONSENSUS_REPORTERS) {
+          const window = observedWindow(legitimateReporters.map(([, reporter]) => reporter), campaign);
+          entries.push({
+            type: "campaign",
+            value: fingerprint,
+            confirmedThreat: false,
+            ruleId: legitimateRuleId(fingerprint),
+            independentReports: legitimateReporters.length,
+            firstSeen: window.firstSeen,
+            lastSeen: window.lastSeen,
+          });
+        }
+        continue;
+      }
+
       const minimumSupport = status === "confirmed" ? this.thresholds.confirmedReporters : this.thresholds.warningReporters;
       const support = new Map<string, { indicator: CommunityIndicator; reporters: Set<string> }>();
-      for (const [proof, reporter] of Object.entries(campaign.reporters)) {
+      for (const [proof, reporter] of threatReporters) {
         for (const indicator of reporter.indicators) {
           const key = indicatorKey(indicator);
           const item = support.get(key) ?? { indicator, reporters: new Set<string>() };
@@ -465,16 +549,17 @@ export class EncryptedCommunityAggregateStore {
           support.set(key, item);
         }
       }
-      for (const { indicator, reporters } of support.values()) {
-        if (reporters.size < minimumSupport) continue;
+      const window = observedWindow(threatReporters.map(([, reporter]) => reporter), campaign);
+      for (const { indicator, reporters: supportingReporters } of support.values()) {
+        if (supportingReporters.size < minimumSupport) continue;
         entries.push({
           type: indicator.type,
           value: indicator.value,
           confirmedThreat: status === "confirmed",
           ruleId: ruleId(fingerprint, indicator),
-          independentReports: Object.keys(campaign.reporters).length,
-          firstSeen: campaign.firstSeen,
-          lastSeen: campaign.lastSeen,
+          independentReports: metrics.reporters,
+          firstSeen: window.firstSeen,
+          lastSeen: window.lastSeen,
         });
       }
     }
