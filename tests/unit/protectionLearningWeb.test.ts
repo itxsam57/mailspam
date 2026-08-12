@@ -18,10 +18,19 @@ describe("durable protection browser wiring", () => {
     expect(source).not.toMatch(/`block-\$\{scope\}`\s*,\s*\{[^}]*domain/s);
   });
 
-  it("moves a successfully reported scam to Trash only after local report protection succeeds", () => {
-    expect(source).toContain("Campaign protected locally ✓");
-    expect(source).toContain("if (kind === 'report') void trashReportedMessage(accountId, token, card)");
-    expect(source).toContain("post(accountId, 'trash', { token })");
+  it("owns Report Scam before the legacy handler and sends only token plus the explicit sender-block choice", () => {
+    expect(source).toContain("[data-action=\"report-scam\"]");
+    expect(source).toContain("await handleReportScam(button, accountId, token, card)");
+    expect(source).toContain("post(accountId, 'report-scam', { token, blockSender })");
+    expect(source).not.toContain("post(accountId, 'trash', { token })");
+    expect(source).toContain("future matches will auto-Trash");
+  });
+
+  it("reports partial external failures without undoing durable local campaign protection", () => {
+    expect(source).toContain("result.localProtected !== true");
+    expect(source).toContain("Local protection is still active");
+    expect(source).toContain("result.movedCurrent === true");
+    expect(source).toContain("result.communityAccepted === true");
   });
 
   it("sends positive learning only after Safe or Trust succeeds", () => {
