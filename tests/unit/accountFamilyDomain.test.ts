@@ -15,7 +15,7 @@ class Runtime implements AccountPlatformRuntime {
   nowValue = 1_900_000_000_000;
   private counter = 0;
   now() { return this.nowValue; }
-  id(prefix: "acct" | "family" | "invite") { return `${prefix}_test-${++this.counter}`; }
+  id(prefix: "acct" | "family" | "invite") { return `${prefix}_test-identifier-${++this.counter}`; }
   secret() { return `test-secret-${String(++this.counter).padStart(20, "0")}`; }
 }
 
