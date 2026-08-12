@@ -27,6 +27,8 @@ const counters = {
   highRisk: 0,
   confirmedThreat: 0,
   unknown: 0,
+  skipped: 0,
+  malformed: 0,
 };
 
 describe("SerialProtectionExecutor", () => {
