@@ -39,7 +39,12 @@ function errorHandler(error: unknown, _req: Request, res: Response, _next: NextF
 }
 
 function protectedRead(deps: ScamCheckRouteDependencies) {
-  return [deps.security.requireProtectedRead(), deps.security.requireSameOrigin()];
+  return [
+    deps.security.validateLoopbackRequest,
+    deps.security.securityHeaders,
+    deps.security.requireProtectedRead(),
+    deps.security.requireSameOrigin(),
+  ];
 }
 
 function routeLimit(deps: ScamCheckRouteDependencies, key: string) {
