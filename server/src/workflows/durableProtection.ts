@@ -10,6 +10,12 @@ const DURABLE_AUTO_TRASH_EVIDENCE = new Set([
   "BLOCKED_DOMAIN",
   "LOCALLY_REPORTED_SCAM_CAMPAIGN",
   "GLOBAL_CONFIRMED_MATCH",
+  "FAMILY_CONFIRMED_MATCH",
+]);
+
+const WARNING_QUARANTINE_EVIDENCE = new Set([
+  "GLOBAL_WARNING_MATCH",
+  "FAMILY_WARNING_MATCH",
 ]);
 
 export class DurableProtectionEnforcementError extends Error {
@@ -42,7 +48,7 @@ export function isDurableAutoTrashResult(result: ScanResult): boolean {
 export function isCommunityWarningQuarantineResult(result: ScanResult): boolean {
   if (result.envelope.folder === "spam" || result.envelope.folder === "trash") return false;
   if (result.scored.verdict === "confirmed_threat") return false;
-  return result.scored.evidence.some((item) => item.code === "GLOBAL_WARNING_MATCH");
+  return result.scored.evidence.some((item) => WARNING_QUARANTINE_EVIDENCE.has(item.code));
 }
 
 function collectProviderIds(
@@ -90,7 +96,7 @@ export function collectCommunityWarningQuarantineIds(
     isCommunityWarningQuarantineResult,
     maximum,
     (requested) => new CommunityWarningQuarantineError(
-      `Signed-warning quarantine exceeded the bounded limit of ${maximum} messages in one scan. No provider mutation was started for the overflowing message.`,
+      `Verified-warning quarantine exceeded the bounded limit of ${maximum} messages in one scan. No provider mutation was started for the overflowing message.`,
       requested,
       0,
     ),
@@ -143,10 +149,10 @@ export async function enforceDurableAutoTrash(
 }
 
 /**
- * Reversibly quarantine only cryptographically verified community warnings.
- * Local heuristics cannot reach this function. The provider's native Spam/Junk
- * action is used so a non-reporting user does not see a warning-level campaign
- * as ordinary Inbox mail while the campaign is still below global-confirmed.
+ * Reversibly quarantine only verified warning intelligence. Global community
+ * warnings are cryptographically signed; Family Shield warnings are accepted
+ * only from the shell's authenticated private-circle snapshot. Local heuristic
+ * scoring cannot reach this function.
  */
 export async function enforceCommunityWarningQuarantine(
   adapter: Pick<EmailAdapter, "reportSpam">,
@@ -169,7 +175,7 @@ export async function enforceCommunityWarningQuarantine(
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       throw new CommunityWarningQuarantineError(
-        `Signed-warning quarantine moved ${quarantined} of ${ids.length} messages before the provider rejected the next bounded batch: ${reason}`,
+        `Verified-warning quarantine moved ${quarantined} of ${ids.length} messages before the provider rejected the next bounded batch: ${reason}`,
         ids.length,
         quarantined,
       );
