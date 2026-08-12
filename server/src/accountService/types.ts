@@ -1,8 +1,8 @@
 import type {
+  DevicePublicIdentity,
   EmailShieldAccount,
   FamilyCircle,
   PublicAccountPlatformSnapshot,
-  RegisteredDevice,
   VerifiedEntitlement,
 } from "../platform/accountFamilyTypes.js";
 
@@ -30,7 +30,7 @@ export interface AccountRegistrationInput {
   accountId: string;
   username: string;
   recoveryCodeHash: string;
-  device: RegisteredDevice;
+  device: DevicePublicIdentity;
   deviceProof: string;
 }
 
