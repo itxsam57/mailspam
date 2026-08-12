@@ -5,6 +5,7 @@ import {
   quickScan,
   fullMailboxAudit,
   spamJunkScan,
+  type ScanProgress,
   type ScanResumeInput,
 } from "../workflows/scanWorkflows.js";
 import { InMemoryPersonalPolicyStore, type PersonalPolicySnapshot } from "../engine/layers/personalRules.js";
@@ -27,6 +28,13 @@ const data = workerData as WorkData;
 const controller = new AbortController();
 parentPort?.on("message", (message) => { if (message?.type === "cancel") controller.abort(); });
 
+const DURABLE_AUTO_TRASH_EVIDENCE = new Set([
+  "BLOCKED_SENDER",
+  "BLOCKED_DOMAIN",
+  "LOCALLY_REPORTED_SCAM_CAMPAIGN",
+  "GLOBAL_CONFIRMED_MATCH",
+]);
+
 function buildDependencies() {
   const personalPolicy = new InMemoryPersonalPolicyStore();
   personalPolicy.restore(data.personalPolicy ?? {});
@@ -38,6 +46,35 @@ function buildDependencies() {
       ? structuredClone(data.relationshipHistory)
       : undefined,
   };
+}
+
+function durableAutoTrashIds(progress: ScanProgress): string[] {
+  const ids = new Set<string>();
+  for (const result of progress.suspiciousCards) {
+    if (result.scored.verdict !== "confirmed_threat") continue;
+    if (!result.scored.evidence.some((item) => DURABLE_AUTO_TRASH_EVIDENCE.has(item.code))) continue;
+    const providerNativeId = result.envelope.providerNativeId?.trim();
+    if (providerNativeId) ids.add(providerNativeId);
+  }
+  return [...ids];
+}
+
+async function enforceDurableAutoTrash(
+  adapter: ReturnType<typeof createAdapter>,
+  progress: ScanProgress,
+): Promise<void> {
+  const ids = durableAutoTrashIds(progress);
+  if (ids.length === 0) return;
+
+  await adapter.moveToTrash(ids, controller.signal);
+  const moved = new Set(ids);
+  for (const summary of progress.diagnosticSummaries) {
+    if (!moved.has(summary.actionContext.providerNativeId)) continue;
+    summary.decisionNotes = [
+      ...summary.decisionNotes,
+      "Automatically moved to Trash because a durable personal block/report or signed globally confirmed threat matched this message.",
+    ];
+  }
 }
 
 async function runScanAttempt(onProgress: () => void): Promise<boolean> {
@@ -54,6 +91,7 @@ async function runScanAttempt(onProgress: () => void): Promise<boolean> {
   for await (const progress of generator) {
     emittedProgress = true;
     onProgress();
+    await enforceDurableAutoTrash(adapter, progress);
     parentPort?.postMessage({ type: "progress", progress });
   }
   return emittedProgress;
