@@ -13,17 +13,16 @@ const URL_QR_PNG = Buffer.from(
 );
 
 function eml(body: string, auth = ""): Buffer {
-  return Buffer.from([
+  const headers = [
     "From: Billing Team <billing@example.net>",
     "To: owner@example.com",
     "Subject: Subscription renewed",
     "Message-ID: <submitted-message@example.net>",
     "Date: Wed, 12 Aug 2026 20:00:00 +0000",
-    auth,
+    ...(auth ? [auth] : []),
     "Content-Type: text/plain; charset=utf-8",
-    "",
-    body,
-  ].filter((line) => line !== "").join("\r\n") + "\r\n", "utf8");
+  ];
+  return Buffer.from(`${headers.join("\r\n")}\r\n\r\n${body}\r\n`, "utf8");
 }
 
 describe("Scam Check binary input convergence", () => {
