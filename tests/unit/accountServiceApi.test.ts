@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { generateKeyPairSync, sign } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
+import { accountRegistrationStatement } from "../../server/src/accountService/protocol.js";
 import { createAccountServiceServer } from "../../server/src/accountService/server.js";
 import { SharedAccountFamilyService } from "../../server/src/accountService/service.js";
 import { InMemoryAccountServiceStore } from "../../server/src/accountService/store.js";
@@ -34,6 +35,25 @@ function device(label: string) {
     revokedAt: null,
   };
   return { pair, identity, registered };
+}
+
+function registrationBody(
+  accountId: string,
+  username: string,
+  recoveryCode: string,
+  deviceValue: ReturnType<typeof device>,
+) {
+  const recoveryCodeHash = hashRecoveryCode(recoveryCode);
+  const deviceId = deriveDeviceId(deviceValue.identity);
+  const statement = accountRegistrationStatement({ accountId, username, recoveryCodeHash, deviceId });
+  const deviceProof = sign(null, Buffer.from(statement, "utf8"), deviceValue.pair.privateKey).toString("base64");
+  return {
+    accountId,
+    username,
+    recoveryCodeHash,
+    device: deviceValue.identity,
+    deviceProof,
+  };
 }
 
 async function start() {
@@ -101,22 +121,18 @@ describe("shared account and Family Shield service", () => {
   it("registers app-key devices, rejects hardware/mail content fields, and exposes no mailbox content", async () => {
     const test = await start();
     const owner = device("Owner phone");
-    const registration = await json(test.baseUrl, "/v1/accounts/register", {
-      accountId: "acct_owner-00000001",
-      username: "owner.family",
-      recoveryCodeHash: hashRecoveryCode("owner-recovery-code-123456789"),
-      device: owner.registered,
-    });
+    const registration = await json(
+      test.baseUrl,
+      "/v1/accounts/register",
+      registrationBody("acct_owner-00000001", "owner.family", "owner-recovery-code-123456789", owner),
+    );
     expect(registration.response.status).toBe(201);
     expect(registration.body.snapshot.account.entitlement.plan).toBe("free");
     const serialized = JSON.stringify(registration.body);
     expect(serialized).not.toMatch(/recoveryCodeHash|privateKey|mailbox|subject|bodyText/i);
 
     const rejected = await json(test.baseUrl, "/v1/accounts/register", {
-      accountId: "acct_bad-00000001",
-      username: "bad.family",
-      recoveryCodeHash: hashRecoveryCode("bad-recovery-code-123456789"),
-      device: owner.registered,
+      ...registrationBody("acct_bad-00000001", "bad.family", "bad-recovery-code-123456789", owner),
       subject: "this must never enter account sync",
     });
     expect(rejected.response.status).toBe(400);
@@ -126,12 +142,11 @@ describe("shared account and Family Shield service", () => {
   it("requires a device signature, consumes challenges once, and scopes a challenge to one operation", async () => {
     const test = await start();
     const owner = device("Owner phone");
-    await json(test.baseUrl, "/v1/accounts/register", {
-      accountId: "acct_auth-00000001",
-      username: "auth.family",
-      recoveryCodeHash: hashRecoveryCode("auth-recovery-code-123456789"),
-      device: owner.registered,
-    });
+    await json(
+      test.baseUrl,
+      "/v1/accounts/register",
+      registrationBody("acct_auth-00000001", "auth.family", "auth-recovery-code-123456789", owner),
+    );
 
     const first = await signed(test.baseUrl, "acct_auth-00000001", owner, "snapshot", "/v1/sync/snapshot");
     expect(first.response.status).toBe(200);
@@ -167,12 +182,11 @@ describe("shared account and Family Shield service", () => {
       { id: ownerId, username: "cloud.owner", device: owner },
       { id: memberId, username: "cloud.member", device: member },
     ]) {
-      const registered = await json(test.baseUrl, "/v1/accounts/register", {
-        accountId: entry.id,
-        username: entry.username,
-        recoveryCodeHash: hashRecoveryCode(`${entry.username}-recovery-code-123456789`),
-        device: entry.device.registered,
-      });
+      const registered = await json(
+        test.baseUrl,
+        "/v1/accounts/register",
+        registrationBody(entry.id, entry.username, `${entry.username}-recovery-code-123456789`, entry.device),
+      );
       expect(registered.response.status).toBe(201);
     }
 
