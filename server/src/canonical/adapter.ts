@@ -56,8 +56,10 @@ export interface EmailAdapter {
   /**
    * Report/move messages into the provider Spam or Junk folder. The adapter
    * must use the provider-native spam label when one exists; generic IMAP
-   * moves to the discovered special-use Junk folder. This is an explicit
-   * user action and must never be called automatically from heuristic scores.
+   * moves to the discovered special-use Junk folder. This may be called for an
+   * explicit user action or a cryptographically verified signed community
+   * warning that crossed the independent-reporter warning threshold. It must
+   * never be called automatically from local heuristic scores alone.
    */
   reportSpam(messageIds: string[], signal: AbortSignal): Promise<SpamReportResult>;
 
