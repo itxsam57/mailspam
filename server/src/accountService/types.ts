@@ -31,6 +31,7 @@ export interface AccountRegistrationInput {
   username: string;
   recoveryCodeHash: string;
   device: RegisteredDevice;
+  deviceProof: string;
 }
 
 export interface AccountServiceChallenge {
