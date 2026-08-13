@@ -103,11 +103,29 @@
     void refreshCurrentPlan();
   }
 
-  const observer = new MutationObserver(() => {
+  function accountVisible() {
+    const signedIn = document.getElementById('accountSignedIn');
+    const route = signedIn?.closest('.app-route');
+    return route ? !route.hidden && route.dataset.route === 'account' : location.hash === '#account';
+  }
+
+  function mountWhenVisible() {
     enforceDeveloperVisibility();
-    mount();
-  });
+    if (accountVisible()) mount();
+  }
+
+  const observer = new MutationObserver(mountWhenVisible);
   observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden'] });
-  window.addEventListener('email-shield-profile-changed', () => { enforceDeveloperVisibility(); void refreshCurrentPlan(); });
-  setTimeout(mount, 350);
+  window.addEventListener('email-shield-profile-changed', () => {
+    enforceDeveloperVisibility();
+    if (accountVisible()) {
+      mount();
+      if (document.getElementById('consumerBillingCard')) void refreshCurrentPlan();
+    }
+  });
+  window.addEventListener('email-shield-route-changed', (event) => {
+    if (event.detail?.route === 'account') mountWhenVisible();
+  });
+  if (location.hash === '#account') queueMicrotask(mountWhenVisible);
+  else enforceDeveloperVisibility();
 })();
