@@ -50,4 +50,27 @@ describe("browser boot architecture", () => {
     expect(publicNavigation).toBeGreaterThan(-1);
     expect(observer).toBeGreaterThan(publicNavigation);
   });
+
+  it("retains the user-gesture-owned unsubscribe tab through asynchronous URL resolution", () => {
+    const source = read("web/unsubscribe-monitor.js");
+    expect(source).toContain("window.open('about:blank', '_blank')");
+    expect(source).toContain("pendingWindow.opener = null");
+    expect(source).toContain("pendingWindow.location.replace(result.target)");
+    expect(source).not.toContain("else window.open(result.target");
+    expect(source).not.toContain("window.open('about:blank', '_blank', 'noopener,noreferrer')");
+  });
+
+  it("exposes the existing protected resume owner beside Stop Scan", () => {
+    const source = read("web/scan-history.js");
+    expect(source).toContain("resumeScanButton.id = 'resumeScanBtn'");
+    expect(source).toContain("stopScanButton?.insertAdjacentElement('afterend', resumeScanButton)");
+    expect(source).toContain("const starter = window.emailShieldStartScan");
+    expect(source).toContain("resumeScanId: scanId");
+  });
+
+  it("keeps destructive account action text readable on the danger background", () => {
+    const source = read("web/account-lifecycle.js");
+    expect(source).toContain("button.danger{border-color:var(--confirmed);background:var(--confirmed);color:#fff}");
+    expect(source).not.toContain("button.danger{border-color:var(--confirmed);color:var(--confirmed)}");
+  });
 });
