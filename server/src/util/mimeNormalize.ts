@@ -241,6 +241,21 @@ export async function normalizeRawMessage(raw: string | Buffer, opts: NormalizeO
   const pendingReferences = pendingThreadReferences(mail);
   if (pendingReferences) threadContext.pendingThreadReferences = pendingReferences;
 
+  const diagnostics: CanonicalEnvelope["diagnostics"] = {
+    fetchedAt: new Date().toISOString(),
+    sizeBytes: typeof raw === "string" ? Buffer.byteLength(raw) : raw.length,
+    encoding: mail.html ? "multipart" : "plain",
+    contentCoverage: parseStatus === "complete" ? "complete" : "insufficient",
+    qrInspection: {
+      supportedImages: qrInputs.length,
+      decodedUrlCount: qrAnalysis.links.length,
+      incomplete: qrAnalysis.incomplete,
+      incompleteReasons: [...qrAnalysis.incompleteReasons],
+    },
+    attachmentHashInspection: attachmentHashInspection(attachments),
+  };
+  if (attachments.length > 0) diagnostics.attachmentSecurityInspection = attachmentSecurityInspection(attachments);
+
   return {
     provider: opts.provider,
     accountProof: opts.accountProof,
@@ -274,20 +289,7 @@ export async function normalizeRawMessage(raw: string | Buffer, opts: NormalizeO
     threadContext,
     parseStatus,
     parseNotes,
-    diagnostics: {
-      fetchedAt: new Date().toISOString(),
-      sizeBytes: typeof raw === "string" ? Buffer.byteLength(raw) : raw.length,
-      encoding: mail.html ? "multipart" : "plain",
-      contentCoverage: parseStatus === "complete" ? "complete" : "insufficient",
-      qrInspection: {
-        supportedImages: qrInputs.length,
-        decodedUrlCount: qrAnalysis.links.length,
-        incomplete: qrAnalysis.incomplete,
-        incompleteReasons: [...qrAnalysis.incompleteReasons],
-      },
-      attachmentHashInspection: attachmentHashInspection(attachments),
-      attachmentSecurityInspection: attachmentSecurityInspection(attachments),
-    },
+    diagnostics,
   };
 }
 
@@ -319,7 +321,6 @@ function malformedEnvelope(opts: NormalizeOptions, reason: string): CanonicalEnv
       contentCoverage: "insufficient",
       qrInspection: { supportedImages: 0, decodedUrlCount: 0, incomplete: false, incompleteReasons: [] },
       attachmentHashInspection: { attachments: 0, hashed: 0, incomplete: false, incompleteReasons: [] },
-      attachmentSecurityInspection: { inspected: 0, incomplete: 0, encryptedArchives: 0, resourceLimitedArchives: 0 },
     },
   };
 }
