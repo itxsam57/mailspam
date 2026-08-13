@@ -33,8 +33,8 @@ for (const match of declarationSource.matchAll(/<button\b[^>]*\bid=["']([^"']+)[
 
 for (const id of [...buttonIds].sort()) {
   const escaped = escapeRegExp(id);
-  const directLookup = new RegExp(`getElementById\\(\\s*["'\\`]${escaped}["'\\`]\\s*\\)`);
-  const selectorLookup = new RegExp(`querySelector(?:All)?\\(\\s*["'\\`][^"'\\`]*#${escaped}(?:[^"'\\`]*)["'\\`]\\s*\\)`);
+  const directLookup = new RegExp(`getElementById\\(\\s*["']${escaped}["']\\s*\\)`);
+  const selectorLookup = new RegExp(`querySelector(?:All)?\\(\\s*["'][^"']*#${escaped}(?:[^"']*)["']\\s*\\)`);
   if (!directLookup.test(executableSource) && !selectorLookup.test(executableSource)) {
     fail(`Button #${id} is rendered but has no browser lookup/handler reference.`);
   }
