@@ -28,7 +28,7 @@ import {
 } from "../consumer/protectionSensitivity.js";
 import type { CommunityNetwork } from "../community/network.js";
 import { communityNetwork } from "../community/network.js";
-import type { ConsumerMailboxRule, ConsumerRuleType } from "./consumerStatePersistence.js";
+import type { ConsumerRuleType } from "./consumerStatePersistence.js";
 import type { Provider } from "../canonical/envelope.js";
 
 const HEALTH_TIMEOUT_MS = 190_000;
@@ -90,7 +90,7 @@ function runHealthWorker(
     const worker = new Worker(new URL("../workers/consumerHealthWorker.js", import.meta.url), {
       workerData: {
         config: session.config,
-        provider: session.provider,
+        provider: session.config.provider,
         mode,
         cleanup,
         relationshipHistory: defaultRelationshipHistoryRepository.workerSnapshot(session.policyAccountKey),
@@ -172,7 +172,7 @@ export function registerConsumerProtectionRoutes(
       defaultConsumerStateRepository.appendActivity(session.policyAccountKey, {
         kind: "settings",
         severity: "info",
-        provider: session.provider,
+        provider: session.config.provider,
         title: "Protection profile changed",
         detail: `Protection attention profile changed to ${profile.replace(/_/g, " ")}. Hard security signals remain locked and cannot be suppressed.`,
         reasonCodes: ["SENSITIVITY_CHANGED"],
@@ -217,7 +217,9 @@ export function registerConsumerProtectionRoutes(
     try {
       const body = req.body as Record<string, unknown>;
       const type = body.type as ConsumerRuleType;
-      if (!(["trash_after_unsubscribe", "mute_notifications", "read_later", "screen_first_contact"] as const).includes(type)) throw new Error("Consumer rule type is invalid.");
+      if (!(["mute_notifications", "read_later", "screen_first_contact"] as const).includes(type as "mute_notifications" | "read_later" | "screen_first_contact")) {
+        throw new Error("Consumer attention rule type is invalid. Catch & Trash is managed through its dedicated encrypted personal-policy endpoint.");
+      }
       const selector = normalizedSelector(body);
       if (type !== "screen_first_contact" && !selector.senderAddress && !selector.senderDomain) throw new Error("This rule requires a sender address or domain.");
       const expiresAt = body.expiresAt === null || body.expiresAt === undefined
@@ -234,11 +236,9 @@ export function registerConsumerProtectionRoutes(
       defaultConsumerStateRepository.appendActivity(session.policyAccountKey, {
         kind: "settings",
         severity: "info",
-        provider: session.provider,
-        title: "Local mailbox rule saved",
-        detail: type === "trash_after_unsubscribe"
-          ? "Future matching mail will be moved to Trash only because you explicitly enabled a post-unsubscribe catch rule."
-          : `Local ${type.replace(/_/g, " ")} preference saved. It does not weaken hard threat detection.`,
+        provider: session.config.provider,
+        title: "Local mailbox attention rule saved",
+        detail: `Local ${type.replace(/_/g, " ")} preference saved. It does not weaken hard threat detection or create a destructive mailbox action.`,
         reasonCodes: [`RULE_${type.toUpperCase()}`],
         undo: null,
       });
@@ -265,7 +265,7 @@ export function registerConsumerProtectionRoutes(
       defaultConsumerStateRepository.appendActivity(session.policyAccountKey, {
         kind: "health_check",
         severity: (result.mailboxHealth as any)?.state === "critical" ? "critical" : (result.mailboxHealth as any)?.state === "attention" ? "warning" : "info",
-        provider: session.provider,
+        provider: session.config.provider,
         title: "Inbox & Mailbox Health checked",
         detail: "Email Shield completed a bounded local mailbox inventory and compromise-indicator check. Unsupported provider settings remain explicitly unavailable, not safe.",
         reasonCodes: ["CONSUMER_HEALTH_CHECK"],
@@ -292,11 +292,12 @@ export function registerConsumerProtectionRoutes(
         olderThanDays,
         keepNewest,
       }) as CleanupWorkerResult;
-      const canUndo = result.providerNativeIds.length > 0 && restoreSupported(session.provider, session.config.mode === "fixture");
+      const provider = session.config.provider;
+      const canUndo = result.providerNativeIds.length > 0 && restoreSupported(provider, session.config.mode === "fixture");
       const activity = defaultConsumerStateRepository.appendActivity(session.policyAccountKey, {
         kind: "cleanup",
         severity: "info",
-        provider: session.provider,
+        provider,
         title: "Mailbox cleanup moved messages to Trash",
         detail: `${result.movedToTrash} matching message(s) were moved to Trash after explicit confirmation.${result.bounded ? " The operation was bounded; additional matching mail may remain." : ""}`,
         reasonCodes: ["BULK_CLEANUP_TO_TRASH"],
@@ -341,7 +342,7 @@ export function registerConsumerProtectionRoutes(
       defaultConsumerStateRepository.appendActivity(session.policyAccountKey, {
         kind: "restored",
         severity: "info",
-        provider: session.provider,
+        provider: session.config.provider,
         title: "Protection action undone",
         detail: `${result.restored} message(s) were restored to Inbox using the provider's stable message identity.`,
         reasonCodes: ["PROVIDER_RESTORE_TO_INBOX"],
@@ -463,7 +464,7 @@ export function registerConsumerProtectionRoutes(
   app.get("/api/consumer/v1/support-bundle", (_req, res) => {
     try {
       const connected = sessions.list().map((session) => ({
-        provider: session.provider,
+        provider: session.config.provider,
         mode: session.config.mode,
         credentialStorage: session.config.mode === "live" ? "native_vault_reference" : "fixture",
       }));
