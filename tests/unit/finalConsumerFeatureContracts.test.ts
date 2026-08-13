@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import { createLocalDesktopServer } from "../../server/src/api/localDesktopServer.js";
+import { createConsumerDesktopServer } from "../../server/src/api/consumerDesktopServer.js";
 import { LocalSecurityManager } from "../../server/src/api/localSecurity.js";
 import {
   campaignRadar,
@@ -29,7 +29,7 @@ afterEach(async () => {
 });
 
 async function startDesktop(): Promise<string> {
-  const app = createLocalDesktopServer({ security: new LocalSecurityManager() });
+  const app = createConsumerDesktopServer({ security: new LocalSecurityManager() });
   const server = app.listen(0, "127.0.0.1");
   servers.push(server);
   await new Promise<void>((resolve) => server.once("listening", resolve));
