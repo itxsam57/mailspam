@@ -123,8 +123,8 @@ export function relationshipPositiveConfidence(
  * Review/High Risk/Confirmed Threat is allowed, and the clean history must
  * still carry sufficient time-decayed confidence.
  *
- * `asOf` defaults to the most recent observation for backwards-compatible
- * structural callers. Live annotation always passes the current message time.
+ * Structural callers that omit `asOf` preserve the historical meaning of this
+ * helper. Live annotation always supplies a trusted local scan timestamp.
  */
 export function hasEstablishedRelationship(
   profile: RelationshipProfile | undefined,
@@ -156,11 +156,6 @@ function messageReferenceKey(
   messageId: string,
 ): string {
   return relationshipIdentityKey(snapshot.indexKey, "message", `${envelope.provider}\0${messageId}`);
-}
-
-function envelopeObservationTime(envelope: CanonicalEnvelope): number {
-  const parsed = Date.parse(envelope.date);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : Date.now();
 }
 
 /**
@@ -205,10 +200,15 @@ function consumeThreadReferences(
  * is converted to an HMAC fingerprint inside the Worker. Established history
  * does not mutate `isFirstContact`; first-contact-specific threat rules stay
  * active even if a known sender account is later compromised.
+ *
+ * `observedAt` is local scan time. The RFC Date header is attacker-controlled
+ * input and must never decide whether positive relationship familiarity has
+ * decayed.
  */
 export function annotateRelationshipHistory(
   envelope: CanonicalEnvelope,
   snapshot: RelationshipHistoryWorkerSnapshot | undefined,
+  observedAt = Date.now(),
 ): string | null {
   const threadReferences = consumeThreadReferences(envelope, snapshot);
   const address = envelope.from.address?.trim().toLowerCase() ?? "";
@@ -218,7 +218,7 @@ export function annotateRelationshipHistory(
   const profile = snapshot.records[senderKey];
   const suspicious = profile ? relationshipSuspiciousMessages(profile) : 0;
   const structurallyEstablished = structurallyEstablishedRelationship(profile);
-  const established = hasEstablishedRelationship(profile, envelopeObservationTime(envelope));
+  const established = hasEstablishedRelationship(profile, observedAt);
 
   envelope.threadContext.relationshipPriorMessages = profile?.messagesSeen ?? 0;
   envelope.threadContext.relationshipPriorAuthenticatedMessages = profile?.authenticatedMessages ?? 0;
