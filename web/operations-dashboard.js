@@ -9,6 +9,8 @@
   const i18n = window.emailShieldI18n;
   const t = (key, values) => i18n?.t(key, values) || key;
   const number = (value) => i18n?.formatNumber(value) || String(Number(value) || 0);
+  let loaded = false;
+  let dirty = true;
 
   function cell(value, scope) {
     const element = document.createElement(scope ? 'th' : 'td');
@@ -61,14 +63,32 @@
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || t('operations.failed'));
       render(body);
+      loaded = true;
+      dirty = false;
     } catch (error) {
+      dirty = true;
       status.textContent = error instanceof Error ? error.message : t('operations.failed');
     } finally {
       refresh.disabled = false;
     }
   }
 
+  function communityVisible() {
+    const route = panel.closest('.app-route');
+    return route ? !route.hidden && route.dataset.route === 'community' : location.hash === '#community';
+  }
+
+  function loadWhenVisible() {
+    if (communityVisible() && (!loaded || dirty)) void load();
+  }
+
   refresh.addEventListener('click', load);
-  window.addEventListener('email-shield-scan-history-changed', load);
-  void load();
+  window.addEventListener('email-shield-scan-history-changed', () => {
+    dirty = true;
+    loadWhenVisible();
+  });
+  window.addEventListener('email-shield-route-changed', (event) => {
+    if (event.detail?.route === 'community') loadWhenVisible();
+  });
+  if (location.hash === '#community') queueMicrotask(loadWhenVisible);
 })();
