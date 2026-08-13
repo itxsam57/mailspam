@@ -16,6 +16,7 @@ const DESKTOP_ONLY_SCRIPTS = [
   "/policy-management.js",
   "/operations-dashboard.js",
   "/account-plan.js",
+  "/account-lifecycle.js",
   "/family-shield.js",
   "/app-shell.js",
   "/scam-check.js",

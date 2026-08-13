@@ -1,4 +1,6 @@
 import { accountRegistrationStatement } from "../accountService/protocol.js";
+import type { AccountServiceOperation } from "../accountService/types.js";
+import type { PrivacySafeAccountExportV1 } from "./accountLifecycleService.js";
 import {
   deriveDeviceId,
   hashRecoveryCode,
@@ -13,6 +15,15 @@ export interface AccountFamilySyncSnapshot {
   familyThreats: FamilyThreatSnapshot | null;
   synchronizedAt: number;
 }
+
+const LIFECYCLE_OPERATIONS = new Set<AccountServiceOperation>([
+  "account:export",
+  "account:delete",
+  "recovery:rotate",
+  "devices:revoke-others",
+  "devices:signout-everywhere",
+  "family:delete",
+]);
 
 export class HttpAccountFamilySyncClient implements FamilySyncPort {
   constructor(
@@ -74,13 +85,16 @@ export class HttpAccountFamilySyncClient implements FamilySyncPort {
   }
 
   private async authenticated(
-    operation: "snapshot" | "family:create" | "family:invite" | "family:join" | "family:leave" | "family:strict" | "family:remove-member" | "family:threat",
+    operation: AccountServiceOperation,
     path: string,
     extra: Record<string, unknown> = {},
   ): Promise<Record<string, unknown>> {
     const identity = await this.deviceIdentity.currentPublicIdentity();
     const deviceId = deriveDeviceId(identity);
-    const challenge = await this.request("/v1/auth/challenge", {
+    const challengePath = LIFECYCLE_OPERATIONS.has(operation)
+      ? "/v1/lifecycle/auth/challenge"
+      : "/v1/auth/challenge";
+    const challenge = await this.request(challengePath, {
       method: "POST",
       body: JSON.stringify({ accountId: this.accountId, deviceId, operation }),
     });
@@ -151,5 +165,35 @@ export class HttpAccountFamilySyncClient implements FamilySyncPort {
 
   async removeMember(memberAccountId: string): Promise<PublicAccountPlatformSnapshot> {
     return await this.authenticated("family:remove-member", "/v1/family/remove-member", { memberAccountId }) as unknown as PublicAccountPlatformSnapshot;
+  }
+
+  async exportAccountMetadata(): Promise<PrivacySafeAccountExportV1> {
+    return await this.authenticated("account:export", "/v1/lifecycle/account/export") as unknown as PrivacySafeAccountExportV1;
+  }
+
+  async rotateRecoveryCode(): Promise<{ recoveryCode: string; recoveryCodeNotice: string }> {
+    return await this.authenticated("recovery:rotate", "/v1/lifecycle/recovery/rotate") as unknown as {
+      recoveryCode: string;
+      recoveryCodeNotice: string;
+    };
+  }
+
+  async revokeOtherDevices(): Promise<{ revoked: number }> {
+    return await this.authenticated("devices:revoke-others", "/v1/lifecycle/devices/revoke-others") as unknown as { revoked: number };
+  }
+
+  async signOutEverywhere(): Promise<{ revoked: number; recoveryRequired: true }> {
+    return await this.authenticated("devices:signout-everywhere", "/v1/lifecycle/signout-everywhere") as unknown as {
+      revoked: number;
+      recoveryRequired: true;
+    };
+  }
+
+  async deleteFamily(): Promise<Record<string, unknown>> {
+    return await this.authenticated("family:delete", "/v1/lifecycle/family/delete", { confirmation: "DELETE FAMILY" });
+  }
+
+  async deleteAccount(): Promise<Record<string, unknown>> {
+    return await this.authenticated("account:delete", "/v1/lifecycle/account/delete", { confirmation: "DELETE ACCOUNT" });
   }
 }

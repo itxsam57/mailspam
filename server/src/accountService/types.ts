@@ -12,12 +12,18 @@ export const ACCOUNT_SERVICE_MAX_CHALLENGES = 10_000;
 
 export type AccountServiceOperation =
   | "snapshot"
+  | "account:export"
+  | "account:delete"
+  | "recovery:rotate"
+  | "devices:revoke-others"
+  | "devices:signout-everywhere"
   | "family:create"
   | "family:invite"
   | "family:join"
   | "family:leave"
   | "family:strict"
   | "family:remove-member"
+  | "family:delete"
   | "family:threat";
 
 export interface AccountServiceState {
