@@ -15,6 +15,21 @@ const BILLING_EVENT_TYPES: readonly BillingEventType[] = Object.freeze([
   "transfer",
 ]);
 
+const BILLING_EVIDENCE_FIELDS = new Set([
+  "store",
+  "eventId",
+  "eventType",
+  "productId",
+  "storeAccountReference",
+  "purchaseReference",
+  "occurredAt",
+  "expiresAt",
+  "graceUntil",
+  "originalPurchaseReference",
+  "familyTransferFromAccountReference",
+  "verificationPayload",
+]);
+
 export interface BillingEvidence {
   store: BillingStore;
   eventId: string;
@@ -95,7 +110,11 @@ function validTime(value: unknown, nullable = false): number | null {
 }
 
 export function validateBillingEvidence(input: BillingEvidence): BillingEvidence {
-  if (!input || typeof input !== "object") throw new Error("Billing evidence is required.");
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Billing evidence is required.");
+  const record = input as unknown as Record<string, unknown>;
+  if (Object.keys(record).some((key) => !BILLING_EVIDENCE_FIELDS.has(key))) {
+    throw new Error("Billing evidence contains unsupported fields.");
+  }
   if (input.store !== "apple" && input.store !== "google" && input.store !== "web") throw new Error("Billing store is invalid.");
   if (!BILLING_EVENT_TYPES.includes(input.eventType)) throw new Error("Billing event type is invalid.");
   return {
