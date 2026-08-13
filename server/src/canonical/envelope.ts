@@ -46,6 +46,33 @@ export interface LinkInfo {
   interaction?: "navigation" | "form_action" | "automatic_redirect";
 }
 
+export type AttachmentMagicType = "pe_executable" | "elf_executable" | "zip" | "pdf" | "png" | "jpeg" | "ole_compound" | "rtf" | "text_or_unknown";
+
+export interface ArchiveSecurityInspection {
+  format: "zip";
+  entryCount: number;
+  encryptedEntries: number;
+  executableOrScriptEntries: number;
+  macroCapableEntries: number;
+  nestedArchiveEntries: number;
+  declaredCompressedBytes: number;
+  declaredUncompressedBytes: number;
+  maximumCompressionRatio: number;
+  overResourceLimit: boolean;
+  incomplete: boolean;
+  reasons: string[];
+}
+
+export interface AttachmentSecurityInspection {
+  magicType: AttachmentMagicType;
+  extensionMismatch: boolean;
+  executableOrScript: boolean;
+  macroCapable: boolean;
+  archive: ArchiveSecurityInspection | null;
+  incomplete: boolean;
+  reasons: string[];
+}
+
 export interface AttachmentInfo {
   name: string;
   mimeType: string;
@@ -54,6 +81,8 @@ export interface AttachmentInfo {
   /** SHA-256 of the complete locally decoded attachment bytes, or null when those bytes were not safely available. */
   sha256: string | null;
   suspiciousNamePattern: boolean;
+  /** Transient-byte local static inspection; contains metadata only, never attachment bytes. */
+  securityInspection?: AttachmentSecurityInspection;
 }
 
 export interface ListHeaders {
@@ -169,6 +198,13 @@ export interface CanonicalEnvelope {
       hashed: number;
       incomplete: boolean;
       incompleteReasons: string[];
+    };
+    /** Privacy-reduced local static/archive inspection coverage. */
+    attachmentSecurityInspection?: {
+      inspected: number;
+      incomplete: number;
+      encryptedArchives: number;
+      resourceLimitedArchives: number;
     };
   };
 }
