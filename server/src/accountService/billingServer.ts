@@ -82,7 +82,7 @@ export function createAccountBillingServer(
       const body = req.body as Record<string, unknown>;
       if (Object.keys(body).some((key) => !ALLOWED_REQUEST_FIELDS.has(key))) throw new Error("Billing verification request contains unsupported fields.");
       const id = accountId(body.accountId);
-      service.authenticate(id, "billing:verify", proof(body.auth));
+      const authenticated = service.authenticate(id, "billing:verify", proof(body.auth));
       if (!body.evidence || typeof body.evidence !== "object" || Array.isArray(body.evidence)) throw new Error("Store billing evidence is required.");
       const result = await coordinator.process(id, body.evidence as BillingEvidence, new AbortController().signal);
       noStore(res);
@@ -90,7 +90,7 @@ export function createAccountBillingServer(
         verified: true,
         duplicateEvent: result.duplicate,
         entitlement: result.entitlement,
-        snapshot: service.snapshot(id),
+        snapshot: service.snapshot(id, authenticated.device.deviceId),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
