@@ -21,6 +21,7 @@ const DESKTOP_ONLY_SCRIPTS = [
   "/app-shell.js",
   "/scam-check.js",
   "/consumer-product.js",
+  "/consumer-onboarding.js",
   "/billing-plan-ui.js",
   "/family-guardian-preferences.js",
 ] as const;
