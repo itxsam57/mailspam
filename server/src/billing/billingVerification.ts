@@ -70,7 +70,7 @@ export interface BillingEntitlementPolicy {
 }
 
 export const DEFAULT_BILLING_ENTITLEMENT_POLICY: BillingEntitlementPolicy = Object.freeze({
-  productPlan(productId: string) {
+  productPlan(productId: string): { plan: EmailShieldPlan; seatLimit: number } | null {
     const normalized = productId.trim().toLowerCase();
     if (/\b(?:individual|premium|pro)\b/.test(normalized)) return { plan: "individual", seatLimit: 1 };
     if (/\bfamily\b/.test(normalized)) return { plan: "family", seatLimit: 6 };
