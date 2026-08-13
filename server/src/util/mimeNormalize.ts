@@ -13,6 +13,7 @@ import {
   MAX_ATTACHMENT_HASH_BYTES,
   MAX_ATTACHMENT_HASHES_PER_MESSAGE,
 } from "./attachmentHash.js";
+import { inspectAttachmentSecurity } from "./attachmentSecurity.js";
 import { analyzeHtmlInteractions, MAX_HTML_INTERACTION_CHARS } from "./htmlInteraction.js";
 import {
   extractOneClickDkimSignatures,
@@ -132,6 +133,9 @@ function extractAttachments(mail: ParsedMail): AttachmentInfo[] {
       extension,
       sha256: hashEligible ? attachmentSha256(content!) : null,
       suspiciousNamePattern,
+      securityInspection: content
+        ? inspectAttachmentSecurity(name, attachment.contentType ?? "application/octet-stream", content)
+        : undefined,
     };
   });
 }
@@ -154,6 +158,16 @@ function attachmentHashInspection(attachments: AttachmentInfo[]): NonNullable<Ca
     hashed,
     incomplete,
     incompleteReasons,
+  };
+}
+
+function attachmentSecurityInspection(attachments: AttachmentInfo[]): NonNullable<CanonicalEnvelope["diagnostics"]["attachmentSecurityInspection"]> {
+  const inspected = attachments.filter((attachment) => attachment.securityInspection).length;
+  return {
+    inspected,
+    incomplete: attachments.filter((attachment) => attachment.securityInspection?.incomplete === true || !attachment.securityInspection).length,
+    encryptedArchives: attachments.filter((attachment) => (attachment.securityInspection?.archive?.encryptedEntries ?? 0) > 0).length,
+    resourceLimitedArchives: attachments.filter((attachment) => attachment.securityInspection?.archive?.overResourceLimit === true).length,
   };
 }
 
@@ -272,6 +286,7 @@ export async function normalizeRawMessage(raw: string | Buffer, opts: NormalizeO
         incompleteReasons: [...qrAnalysis.incompleteReasons],
       },
       attachmentHashInspection: attachmentHashInspection(attachments),
+      attachmentSecurityInspection: attachmentSecurityInspection(attachments),
     },
   };
 }
@@ -304,6 +319,7 @@ function malformedEnvelope(opts: NormalizeOptions, reason: string): CanonicalEnv
       contentCoverage: "insufficient",
       qrInspection: { supportedImages: 0, decodedUrlCount: 0, incomplete: false, incompleteReasons: [] },
       attachmentHashInspection: { attachments: 0, hashed: 0, incomplete: false, incompleteReasons: [] },
+      attachmentSecurityInspection: { inspected: 0, incomplete: 0, encryptedArchives: 0, resourceLimitedArchives: 0 },
     },
   };
 }
