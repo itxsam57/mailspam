@@ -7,6 +7,7 @@ import { communityNetwork } from "../community/network.js";
 import { registerAccountLifecycleRoutes } from "./accountLifecycleRoutes.js";
 import { registerConsumerCatchTrashRoutes } from "./consumerCatchTrashRoutes.js";
 import { registerConsumerProtectionRoutes } from "./consumerProtectionRoutes.js";
+import { registerFamilyGuardianPreferenceRoutes } from "./familyGuardianPreferenceRoutes.js";
 import { registerMediaAuthenticityRoute } from "./mediaAuthenticityRoute.js";
 import { createLocalDesktopServer } from "./localDesktopServer.js";
 import { localSecurity } from "./localSecurity.js";
@@ -88,6 +89,12 @@ export function createConsumerDesktopServer(options: ConsumerDesktopServerOption
     destinationAnalyzer: localOptions.destinationAnalyzer,
     exposureLookup,
   });
+  if (localOptions.accountPlatform && localOptions.deviceIdentity) {
+    registerFamilyGuardianPreferenceRoutes(app, {
+      accountPlatform: localOptions.accountPlatform,
+      deviceIdentity: localOptions.deviceIdentity,
+    });
+  }
 
   app.use(createLocalDesktopServer({
     ...localOptions,
