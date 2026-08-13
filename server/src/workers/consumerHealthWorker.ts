@@ -4,6 +4,7 @@ import type { SecureAdapterConfig } from "../security/secureAdapterConfig.js";
 import type { CanonicalEnvelope, Provider } from "../canonical/envelope.js";
 import { analyzeInboxHealth } from "../consumer/inboxHealth.js";
 import { analyzeMailboxHealth } from "../consumer/mailboxHealth.js";
+import { discoverDigitalAccountFootprint } from "../consumer/digitalFootprint.js";
 
 interface CleanupCriteria {
   senderAddress?: string;
@@ -101,7 +102,8 @@ async function inspect(adapter: ReturnType<typeof createAdapter>) {
     envelopes: collected.envelopes,
     signal: controller.signal,
   });
-  return { inboxHealth, mailboxHealth };
+  const digitalFootprint = discoverDigitalAccountFootprint(collected.envelopes);
+  return { inboxHealth, mailboxHealth, digitalFootprint };
 }
 
 async function cleanup(adapter: ReturnType<typeof createAdapter>) {
