@@ -1,5 +1,8 @@
 import type { AccountPlatformRepository, AccountPlatformRuntime } from "../platform/accountFamilyPorts.js";
-import { ACCOUNT_PLATFORM_SCHEMA_VERSION } from "../platform/accountFamilyTypes.js";
+import {
+  ACCOUNT_PLATFORM_SCHEMA_VERSION,
+  type AccountPlatformState,
+} from "../platform/accountFamilyTypes.js";
 import {
   AccountLifecycleService,
   type AccountDeletionResult,
@@ -20,7 +23,7 @@ class ScopedLifecycleRepository implements AccountPlatformRepository {
     this.persistent = store.persistent;
   }
 
-  load() {
+  load(): AccountPlatformState {
     const state = this.store.load();
     return {
       schemaVersion: ACCOUNT_PLATFORM_SCHEMA_VERSION,
@@ -31,7 +34,7 @@ class ScopedLifecycleRepository implements AccountPlatformRepository {
     };
   }
 
-  save(state: ReturnType<ScopedLifecycleRepository["load"]>): void {
+  save(state: AccountPlatformState): void {
     if (state.mailboxLinks.length !== 0) throw new Error("Shared account lifecycle must never persist mailbox-profile links.");
     if (state.currentAccountId !== null && state.currentAccountId !== this.selectedAccountId) {
       throw new Error("Shared account lifecycle attempted to switch authorization context.");
