@@ -2,6 +2,7 @@ import type {
   EmailAdapter,
   FetchPage,
   FolderDescriptor,
+  RestoreToInboxResult,
   SpamReportResult,
 } from "../../canonical/adapter.js";
 import type { AuthenticationSignals, Provider, NormalizedFolder } from "../../canonical/envelope.js";
@@ -62,10 +63,6 @@ export class FixtureAdapter implements EmailAdapter {
       }
     }
 
-    // A real mailbox can expose an empty special-use folder. Fixtures must do
-    // the same so a Spam/Junk scan tests an empty folder truthfully instead of
-    // failing folder discovery merely because the current fixture has no row
-    // in that folder.
     for (const descriptor of [
       { providerFolderName: "INBOX", normalized: "inbox" as const, includedByDefault: true },
       { providerFolderName: "Spam", normalized: "spam" as const, includedByDefault: true },
@@ -108,9 +105,9 @@ export class FixtureAdapter implements EmailAdapter {
     return { envelopes, nextCursor: nextIndex < inFolder.length ? String(nextIndex) : null, done: nextIndex >= inFolder.length };
   }
 
-  private moveFixtureMessages(messageIds: string[], target: Extract<NormalizedFolder, "trash" | "spam">): number {
+  private moveFixtureMessages(messageIds: string[], target: Extract<NormalizedFolder, "inbox" | "trash" | "spam">): number {
     const targetProviderFolderName = this.messages.find((message) => message.folder === target)?.providerFolderName
-      ?? (target === "trash" ? "Trash" : "Spam");
+      ?? (target === "trash" ? "Trash" : target === "spam" ? "Spam" : "INBOX");
     const idSet = new Set(messageIds);
     let moved = 0;
     for (const message of this.messages) {
@@ -135,6 +132,12 @@ export class FixtureAdapter implements EmailAdapter {
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
     const reported = this.moveFixtureMessages(messageIds, "spam");
     return { requested: messageIds.length, reported, mode: "fixture_junk_move" };
+  }
+
+  async restoreToInbox(messageIds: string[], signal: AbortSignal): Promise<RestoreToInboxResult> {
+    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+    const restored = this.moveFixtureMessages(messageIds, "inbox");
+    return { requested: messageIds.length, restored, supported: true, mode: "fixture_restore" };
   }
 
   async disconnect(): Promise<void> {
