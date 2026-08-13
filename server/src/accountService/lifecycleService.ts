@@ -7,6 +7,7 @@ import {
   AccountLifecycleService,
   type AccountDeletionResult,
   type FamilyDeletionResult,
+  type FamilyOwnershipTransferResult,
   type PrivacySafeAccountExportV1,
 } from "../platform/accountLifecycleService.js";
 import { NodeAccountPlatformRuntime } from "../platform/desktopDeviceIdentity.js";
@@ -91,6 +92,10 @@ export class SharedAccountLifecycleService {
 
   signOutEverywhere(accountId: string, deviceId: string): { revoked: number } {
     return this.scoped(accountId).signOutEverywhere(deviceId);
+  }
+
+  transferFamilyOwnership(accountId: string, deviceId: string, targetAccountId: unknown): FamilyOwnershipTransferResult {
+    return this.scoped(accountId).transferFamilyOwnership(deviceId, targetAccountId);
   }
 
   deleteFamily(accountId: string, deviceId: string): FamilyDeletionResult {
