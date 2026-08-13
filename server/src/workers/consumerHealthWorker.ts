@@ -5,6 +5,11 @@ import type { CanonicalEnvelope, Provider } from "../canonical/envelope.js";
 import { analyzeInboxHealth } from "../consumer/inboxHealth.js";
 import { analyzeMailboxHealth } from "../consumer/mailboxHealth.js";
 import { discoverDigitalAccountFootprint } from "../consumer/digitalFootprint.js";
+import {
+  annotateRelationshipHistory,
+  relationshipIdentityKey,
+  type RelationshipHistoryWorkerSnapshot,
+} from "../engine/relationshipHistory.js";
 
 interface CleanupCriteria {
   senderAddress?: string;
@@ -18,6 +23,7 @@ interface HealthWorkerData {
   provider: Provider;
   mode: "inspect" | "cleanup";
   cleanup?: CleanupCriteria;
+  relationshipHistory?: RelationshipHistoryWorkerSnapshot;
 }
 
 const data = workerData as HealthWorkerData;
@@ -59,6 +65,16 @@ function matchesCleanup(envelope: CanonicalEnvelope, criteria: CleanupCriteria, 
   return envelope.folder === "inbox" || envelope.folder === "archive";
 }
 
+function applyRelationshipContext(envelope: CanonicalEnvelope): void {
+  const snapshot = data.relationshipHistory;
+  const address = envelope.from.address?.trim().toLowerCase() ?? "";
+  if (snapshot && address) {
+    const key = relationshipIdentityKey(snapshot.indexKey, "sender", address);
+    envelope.threadContext.isFirstContact = !snapshot.records[key] || snapshot.records[key]!.messagesSeen === 0;
+  }
+  annotateRelationshipHistory(envelope, snapshot);
+}
+
 async function collectMailbox(adapter: ReturnType<typeof createAdapter>): Promise<{ envelopes: CanonicalEnvelope[]; incomplete: boolean; reasons: string[] }> {
   await adapter.connect(controller.signal);
   const folders = await adapter.listFolders(controller.signal);
@@ -78,7 +94,10 @@ async function collectMailbox(adapter: ReturnType<typeof createAdapter>): Promis
       const requestSize = Math.min(pageSize, maxMessages - envelopes.length);
       const previous = cursor;
       const page = await adapter.fetchPage(folder, cursor, requestSize, controller.signal);
-      envelopes.push(...page.envelopes.slice(0, requestSize));
+      for (const envelope of page.envelopes.slice(0, requestSize)) {
+        applyRelationshipContext(envelope);
+        envelopes.push(envelope);
+      }
       done = page.done || !page.nextCursor || envelopes.length >= maxMessages;
       cursor = done ? null : page.nextCursor;
       if (!done && page.envelopes.length === 0 && page.nextCursor === previous) throw new Error("Provider health inspection cursor did not advance.");
@@ -121,6 +140,7 @@ async function cleanup(adapter: ReturnType<typeof createAdapter>) {
     movedToTrash: ids.length,
     keptNewest: data.cleanup.keepNewest === true && matches.length > 0,
     bounded: collected.incomplete || selected.length > ids.length,
+    providerNativeIds: ids,
   };
 }
 
