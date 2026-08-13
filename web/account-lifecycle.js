@@ -8,7 +8,8 @@
 
   const style = document.createElement('style');
   style.textContent = `
-    .account-lifecycle-card{margin:0 0 14px}.account-lifecycle-actions{display:flex;gap:8px;flex-wrap:wrap}.account-lifecycle-actions button.danger{border-color:var(--confirmed);color:var(--confirmed)}
+    .account-lifecycle-card{margin:0 0 14px}.account-lifecycle-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.account-lifecycle-actions button.danger{border-color:var(--confirmed);color:var(--confirmed)}
+    .account-lifecycle-actions select{max-width:260px;padding:7px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)}
     .account-lifecycle-help{margin:0;color:var(--text-muted);font-size:11px;line-height:1.55}.account-lifecycle-status{min-height:18px;font-size:11px;color:var(--text-muted)}.account-lifecycle-status.error{color:var(--confirmed)}.account-lifecycle-status.ok{color:var(--safe)}
     .account-lifecycle-recovery{border:1px solid var(--review);background:rgba(232,178,61,.08);padding:10px;border-radius:7px;font-size:11px;line-height:1.5}.account-lifecycle-recovery code{display:block;margin:7px 0;overflow-wrap:anywhere;font-size:12px}
   `;
@@ -24,9 +25,12 @@
       <button id="accountRevokeOthers" type="button">Revoke other devices</button>
       <button id="accountExportMetadata" type="button">Export account metadata</button>
       <button id="accountSignOutEverywhere" type="button">Sign out everywhere</button>
+      <select id="accountTransferTarget" aria-label="New Family Shield owner" hidden></select>
+      <button id="accountTransferFamily" type="button" hidden>Transfer Family Shield</button>
       <button id="accountDeleteFamily" class="danger" type="button" hidden>Delete Family Shield</button>
       <button id="accountDeleteProfile" class="danger" type="button">Delete Email Shield account</button>
     </div>
+    <p id="accountTransferHelp" class="account-lifecycle-help" hidden>The new owner must already be a member and have an active Family plan with enough seats. Store subscriptions are never reassigned automatically.</p>
     <div id="accountLifecycleStatus" class="account-lifecycle-status" role="status" aria-live="polite"></div>
     <div id="accountLifecycleRecovery" class="account-lifecycle-recovery" hidden></div>
   `;
@@ -36,6 +40,9 @@
   const revokeOthers = card.querySelector('#accountRevokeOthers');
   const exportMetadata = card.querySelector('#accountExportMetadata');
   const signOutEverywhere = card.querySelector('#accountSignOutEverywhere');
+  const transferTarget = card.querySelector('#accountTransferTarget');
+  const transferFamily = card.querySelector('#accountTransferFamily');
+  const transferHelp = card.querySelector('#accountTransferHelp');
   const deleteFamily = card.querySelector('#accountDeleteFamily');
   const deleteProfile = card.querySelector('#accountDeleteProfile');
   const status = card.querySelector('#accountLifecycleStatus');
@@ -62,10 +69,30 @@
     return Boolean(accountId && value?.family?.members?.some((member) => member.accountId === accountId && member.role === 'owner'));
   }
 
+  function renderTransferTargets(value) {
+    transferTarget.replaceChildren();
+    const accountId = value?.account?.accountId;
+    const members = Array.isArray(value?.family?.members)
+      ? value.family.members.filter((member) => member.accountId && member.accountId !== accountId && member.role === 'member')
+      : [];
+    for (const member of members) {
+      const option = document.createElement('option');
+      option.value = member.accountId;
+      option.textContent = member.username || 'Family member';
+      transferTarget.append(option);
+    }
+    return members.length;
+  }
+
   function render() {
     const active = snapshot?.signedIn === true && snapshot.account;
+    const owner = active && currentIsOwner(snapshot);
+    const transferTargets = owner ? renderTransferTargets(snapshot) : 0;
     card.hidden = !active;
-    deleteFamily.hidden = !active || !currentIsOwner(snapshot);
+    deleteFamily.hidden = !owner;
+    transferTarget.hidden = !owner || transferTargets === 0;
+    transferFamily.hidden = !owner || transferTargets === 0;
+    transferHelp.hidden = !owner || transferTargets === 0;
   }
 
   function showRecovery(code, notice) {
@@ -157,6 +184,23 @@
       setStatus(`${result.revoked || 0} device${result.revoked === 1 ? '' : 's'} signed out. Reloading…`, 'ok');
       window.setTimeout(() => window.location.reload(), 250);
     } catch (error) { setStatus(error.message || String(error), 'error'); signOutEverywhere.disabled = false; }
+  });
+
+  transferFamily.addEventListener('click', async () => {
+    const targetAccountId = transferTarget.value;
+    const targetName = transferTarget.options[transferTarget.selectedIndex]?.textContent || 'the selected member';
+    if (!targetAccountId) return setStatus('Choose a Family Shield member first.', 'error');
+    const typed = prompt(`Transfer Family Shield ownership to ${targetName}?\n\nThe member must already have an active Family plan with enough seats. Your store subscription is not transferred.\n\nType TRANSFER FAMILY to continue.`);
+    if (typed === null) return;
+    if (typed !== 'TRANSFER FAMILY') return setStatus('Family Shield ownership was not transferred because the confirmation text did not match.', 'error');
+    transferFamily.disabled = true;
+    try {
+      const result = await post('/api/profile/v1/family/transfer', { targetAccountId, confirmation: typed });
+      setStatus(`Family Shield ownership transferred to ${targetName}. Seat limit: ${result.seatLimit}.`, 'ok');
+      refreshAccountPanel();
+      window.dispatchEvent(new CustomEvent('email-shield-family-changed'));
+    } catch (error) { setStatus(error.message || String(error), 'error'); }
+    finally { transferFamily.disabled = false; }
   });
 
   deleteFamily.addEventListener('click', async () => {
