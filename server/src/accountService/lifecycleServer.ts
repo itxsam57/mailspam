@@ -11,6 +11,7 @@ const LIFECYCLE_OPERATIONS = new Set<AccountServiceOperation>([
   "recovery:rotate",
   "devices:revoke-others",
   "devices:signout-everywhere",
+  "family:transfer",
   "family:delete",
 ]);
 
@@ -68,13 +69,21 @@ function accountId(body: unknown): string {
   return value;
 }
 
+function targetAccountId(body: unknown): string {
+  const value = (body as { targetAccountId?: unknown })?.targetAccountId;
+  if (typeof value !== "string" || value.trim().length < 1 || value.trim().length > 128) {
+    throw new Error("Family Shield transfer target account is required.");
+  }
+  return value.trim();
+}
+
 function confirmation(body: unknown, expected: string): void {
   if ((body as { confirmation?: unknown })?.confirmation !== expected) throw new Error(`Type ${expected} to confirm this destructive action.`);
 }
 
 function statusFor(message: string): number {
   if (/signature|authentication|not registered|trusted device|unknown account/i.test(message)) return 401;
-  if (/owner|family|already|must|confirm/i.test(message)) return 409;
+  if (/owner|family|already|must|confirm|seat|target/i.test(message)) return 409;
   return 400;
 }
 
@@ -151,6 +160,10 @@ export function createAccountLifecycleServer(
   app.post("/v1/lifecycle/recovery/rotate", ...authenticated("recovery:rotate", (_req, _res, context) => ({ ...lifecycle.rotateRecovery(context.accountId, context.deviceId), recoveryCodeNotice: "The previous recovery code is invalid. Store this replacement securely." })));
   app.post("/v1/lifecycle/devices/revoke-others", ...authenticated("devices:revoke-others", (_req, _res, context) => lifecycle.revokeOtherDevices(context.accountId, context.deviceId)));
   app.post("/v1/lifecycle/signout-everywhere", ...authenticated("devices:signout-everywhere", (_req, _res, context) => ({ ...lifecycle.signOutEverywhere(context.accountId, context.deviceId), recoveryRequired: true })));
+  app.post("/v1/lifecycle/family/transfer", ...authenticated("family:transfer", (req, _res, context) => {
+    confirmation(req.body, "TRANSFER FAMILY");
+    return lifecycle.transferFamilyOwnership(context.accountId, context.deviceId, targetAccountId(req.body));
+  }));
   app.post("/v1/lifecycle/family/delete", ...authenticated("family:delete", (req, _res, context) => { confirmation(req.body, "DELETE FAMILY"); return lifecycle.deleteFamily(context.accountId, context.deviceId); }));
   app.post("/v1/lifecycle/account/delete", ...authenticated("account:delete", (req, _res, context) => { confirmation(req.body, "DELETE ACCOUNT"); return { ...lifecycle.deleteAccount(context.accountId, context.deviceId), mailboxContentDeleted: false, mailboxIdentityStoredByService: false }; }));
 
