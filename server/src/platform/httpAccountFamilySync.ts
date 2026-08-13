@@ -1,7 +1,7 @@
 import { accountRegistrationStatement } from "../accountService/protocol.js";
 import type { AccountServiceOperation } from "../accountService/types.js";
 import type { BillingEvidence } from "../billing/billingVerification.js";
-import type { PrivacySafeAccountExportV1 } from "./accountLifecycleService.js";
+import type { FamilyOwnershipTransferResult, PrivacySafeAccountExportV1 } from "./accountLifecycleService.js";
 import {
   deriveDeviceId,
   hashRecoveryCode,
@@ -31,6 +31,7 @@ const LIFECYCLE_OPERATIONS = new Set<AccountServiceOperation>([
   "recovery:rotate",
   "devices:revoke-others",
   "devices:signout-everywhere",
+  "family:transfer",
   "family:delete",
 ]);
 
@@ -214,6 +215,24 @@ export class HttpAccountFamilySyncClient implements FamilySyncPort {
       revoked: number;
       recoveryRequired: true;
     };
+  }
+
+  async transferFamilyOwnership(targetAccountId: string): Promise<FamilyOwnershipTransferResult> {
+    const result = await this.authenticated("family:transfer", "/v1/lifecycle/family/transfer", {
+      targetAccountId,
+      confirmation: "TRANSFER FAMILY",
+    });
+    const transferred = result as unknown as FamilyOwnershipTransferResult;
+    if (
+      typeof transferred.familyCircleId !== "string"
+      || transferred.previousOwnerAccountId !== this.accountId
+      || transferred.newOwnerAccountId !== targetAccountId
+      || !Number.isSafeInteger(transferred.seatLimit)
+      || transferred.seatLimit < 2
+    ) {
+      throw new Error("Account service returned an invalid Family Shield ownership transfer response.");
+    }
+    return structuredClone(transferred);
   }
 
   async deleteFamily(): Promise<Record<string, unknown>> {
