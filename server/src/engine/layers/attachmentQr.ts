@@ -4,17 +4,12 @@ import type { LayerResult } from "../verdict.js";
 const DANGEROUS_EXTENSIONS = new Set([
   "exe", "scr", "bat", "cmd", "com", "pif", "vbs", "vbe", "js", "jse",
   "wsf", "wsh", "msi", "msp", "hta", "jar", "ps1", "psm1", "reg", "cpl",
-  "dll", "iso", "img", "vhd", "lnk",
+  "dll", "iso", "img", "vhd", "lnk", "apk",
 ]);
 
-const MACRO_ENABLED_EXTENSIONS = new Set(["docm", "xlsm", "pptm", "dotm", "xltm"]);
+const MACRO_ENABLED_EXTENSIONS = new Set(["docm", "xlsm", "pptm", "dotm", "xltm", "xlam", "ppam"]);
 const ARCHIVE_EXTENSIONS = new Set(["zip", "rar", "7z", "iso", "img", "cab"]);
 
-/**
- * Media types are sender-supplied metadata, so they are risk evidence rather
- * than proof of file contents. They matter when a dangerous payload is renamed
- * to a harmless-looking extension, which the former filename-only layer missed.
- */
 const DANGEROUS_MEDIA_TYPES = new Set([
   "application/vnd.microsoft.portable-executable",
   "application/x-dosexec",
@@ -82,7 +77,6 @@ function mediaTypeOf(raw: string): string {
   return raw.split(";", 1)[0]!.trim().toLowerCase();
 }
 
-/** invoice.pdf.exe — more than one extension-like segment before the true extension. */
 function hasDoubleExtension(name: string): boolean {
   const parts = normalizedFilename(name).split(".");
   if (parts.length < 3) return false;
@@ -92,6 +86,7 @@ function hasDoubleExtension(name: string): boolean {
 
 export function attachmentQrLayer(envelope: CanonicalEnvelope): LayerResult {
   const evidence: LayerResult["evidence"] = [];
+  const incompleteReasons: string[] = [];
 
   for (const att of envelope.attachments) {
     const ext = extOf(att.name) || att.extension?.trim().toLowerCase() || "";
@@ -100,8 +95,27 @@ export function attachmentQrLayer(envelope: CanonicalEnvelope): LayerResult {
     const dangerousExtension = DANGEROUS_EXTENSIONS.has(ext);
     const macroExtension = MACRO_ENABLED_EXTENSIONS.has(ext);
     const archiveExtension = ARCHIVE_EXTENSIONS.has(ext);
+    const security = att.securityInspection;
 
-    if (dangerousExtension) {
+    if (security?.extensionMismatch) {
+      evidence.push({
+        layer: "attachment_qr",
+        code: "ATTACHMENT_MAGIC_EXTENSION_MISMATCH",
+        description: `Attachment "${displayName}" has local file-signature bytes that do not match its displayed filename extension.`,
+        scoreContribution: 6,
+        source: "local",
+      });
+    }
+
+    if (security?.executableOrScript && !dangerousExtension) {
+      evidence.push({
+        layer: "attachment_qr",
+        code: "OBSERVED_EXECUTABLE_ATTACHMENT",
+        description: `Attachment "${displayName}" is executable/script-capable based on locally observed file bytes or active-content structure.`,
+        scoreContribution: 7,
+        source: "local",
+      });
+    } else if (dangerousExtension) {
       evidence.push({
         layer: "attachment_qr",
         code: "DANGEROUS_EXECUTABLE_ATTACHMENT",
@@ -119,7 +133,15 @@ export function attachmentQrLayer(envelope: CanonicalEnvelope): LayerResult {
       });
     }
 
-    if (macroExtension) {
+    if (security?.macroCapable && !macroExtension) {
+      evidence.push({
+        layer: "attachment_qr",
+        code: "OBSERVED_MACRO_CAPABLE_ATTACHMENT",
+        description: `Attachment "${displayName}" contains a locally observed macro-capable document/container indicator.`,
+        scoreContribution: 5,
+        source: "local",
+      });
+    } else if (macroExtension) {
       evidence.push({
         layer: "attachment_qr",
         code: "MACRO_ENABLED_DOCUMENT",
@@ -137,11 +159,49 @@ export function attachmentQrLayer(envelope: CanonicalEnvelope): LayerResult {
       });
     }
 
+    const archive = security?.archive;
+    if ((archive?.executableOrScriptEntries ?? 0) > 0) {
+      evidence.push({
+        layer: "attachment_qr",
+        code: "ARCHIVE_CONTAINS_EXECUTABLE",
+        description: `Attachment "${displayName}" has ${archive!.executableOrScriptEntries} executable/script-capable archive entr${archive!.executableOrScriptEntries === 1 ? "y" : "ies"} in its bounded local container directory.`,
+        scoreContribution: 7,
+        source: "local",
+      });
+    }
+    if ((archive?.encryptedEntries ?? 0) > 0) {
+      evidence.push({
+        layer: "attachment_qr",
+        code: "ENCRYPTED_ARCHIVE_CONTENT",
+        description: `Attachment "${displayName}" contains encrypted/password-protected archive entries that could not be inspected without a secret.`,
+        scoreContribution: 2,
+        source: "local",
+      });
+    }
+    if (archive?.overResourceLimit) {
+      evidence.push({
+        layer: "attachment_qr",
+        code: "ARCHIVE_RESOURCE_LIMIT_EXCEEDED",
+        description: `Attachment "${displayName}" declares archive size/compression characteristics above Email Shield's anti-decompression-bomb safety limits.`,
+        scoreContribution: 4,
+        source: "local",
+      });
+    }
+    if ((archive?.nestedArchiveEntries ?? 0) > 0) {
+      evidence.push({
+        layer: "attachment_qr",
+        code: "NESTED_ARCHIVE_CONTENT",
+        description: `Attachment "${displayName}" contains nested archive entries; nested payload bytes were not recursively expanded.`,
+        scoreContribution: 2,
+        source: "local",
+      });
+    }
+
     if (archiveExtension) {
       evidence.push({
         layer: "attachment_qr",
         code: "ARCHIVE_ATTACHMENT",
-        description: `Attachment "${displayName}" is an archive (.${ext}); contents were not extracted for scanning (spec: bounded local rules only).`,
+        description: `Attachment "${displayName}" is an archive (.${ext}); Email Shield inspects bounded container metadata without unbounded extraction.`,
         scoreContribution: 1,
         source: "local",
       });
@@ -149,7 +209,7 @@ export function attachmentQrLayer(envelope: CanonicalEnvelope): LayerResult {
       evidence.push({
         layer: "attachment_qr",
         code: "ARCHIVE_MEDIA_TYPE",
-        description: `Attachment "${displayName}" is declared as an archive (${mediaType}); contents were not extracted for scanning.`,
+        description: `Attachment "${displayName}" is declared as an archive (${mediaType}); bounded local container rules apply.`,
         scoreContribution: 1,
         source: "local",
       });
@@ -174,6 +234,8 @@ export function attachmentQrLayer(envelope: CanonicalEnvelope): LayerResult {
         source: "local",
       });
     }
+
+    if (security?.incomplete) incompleteReasons.push(...security.reasons);
   }
 
   const qrLinks = envelope.links.filter((link) => link.source === "qr");
@@ -190,12 +252,14 @@ export function attachmentQrLayer(envelope: CanonicalEnvelope): LayerResult {
   }
 
   const qrInspection = envelope.diagnostics.qrInspection;
+  if (qrInspection?.incomplete) incompleteReasons.push(...qrInspection.incompleteReasons);
+  const incomplete = incompleteReasons.length > 0;
   return {
     layer: "attachment_qr",
     applicable: true,
     evidence,
-    incomplete: qrInspection?.incomplete === true,
-    incompleteReason: qrInspection?.incompleteReasons.join(" ") || undefined,
-    blocksSafeVerdict: qrInspection?.incomplete === true,
+    incomplete,
+    incompleteReason: [...new Set(incompleteReasons)].join(" ") || undefined,
+    blocksSafeVerdict: incomplete,
   };
 }
