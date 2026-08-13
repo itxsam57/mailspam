@@ -10,7 +10,13 @@ import {
   type VerifiedBillingEvent,
 } from "../../server/src/billing/billingVerification.js";
 import { FileBillingEventLedger } from "../../server/src/billing/billingEventLedger.js";
+import { billingRuntimeConfigurationFromEnvironment } from "../../server/src/billing/billingRuntimeConfig.js";
 import { InMemoryConsumerStateRepository } from "../../server/src/api/consumerStatePersistence.js";
+import {
+  defaultFamilyGuardianPreferences,
+  familyGuardianPreferenceKey,
+  FileFamilyGuardianPreferencesRepository,
+} from "../../server/src/consumer/familyGuardianPreferences.js";
 
 describe("final consumer completion contracts", () => {
   it("persists billing idempotency across coordinator restart without storing receipt payloads", async () => {
@@ -87,6 +93,58 @@ describe("final consumer completion contracts", () => {
     }
   });
 
+  it("keeps paid plans free-only by default and requires exact configured SKUs when enabled", () => {
+    const disabled = billingRuntimeConfigurationFromEnvironment({});
+    expect(disabled.enabled).toBe(false);
+    expect(disabled.verifiers.size).toBe(0);
+    expect(disabled.policy.productPlan("anything-family-looking")).toBeNull();
+
+    expect(() => billingRuntimeConfigurationFromEnvironment({
+      EMAIL_SHIELD_PAID_PLANS_ENABLED: "1",
+    })).toThrow(/verifier/i);
+
+    const enabled = billingRuntimeConfigurationFromEnvironment({
+      EMAIL_SHIELD_PAID_PLANS_ENABLED: "1",
+      EMAIL_SHIELD_BILLING_VERIFIER_URL: "https://billing.example.test",
+      EMAIL_SHIELD_BILLING_VERIFIER_TOKEN: "t".repeat(48),
+      EMAIL_SHIELD_BILLING_INDIVIDUAL_PRODUCT_IDS: "com.emailshield.individual.monthly",
+      EMAIL_SHIELD_BILLING_FAMILY_PRODUCT_IDS: "com.emailshield.family.monthly",
+    });
+    expect(enabled.enabled).toBe(true);
+    expect(enabled.verifiers.size).toBe(3);
+    expect(enabled.policy.productPlan("com.emailshield.individual.monthly")).toEqual({ plan: "individual", seatLimit: 1 });
+    expect(enabled.policy.productPlan("com.emailshield.family.monthly")).toEqual({ plan: "family", seatLimit: 6 });
+    expect(enabled.policy.productPlan("com.fake.family.monthly")).toBeNull();
+  });
+
+  it("stores Family Guardian preferences under a hashed account key and keeps high-risk mode opt-in", () => {
+    const directory = mkdtempSync(join(tmpdir(), "email-shield-family-guardian-"));
+    try {
+      const file = join(directory, "preferences.json");
+      const accountId = "acct_private-family-owner";
+      const repository = new FileFamilyGuardianPreferencesRepository(file);
+      expect(repository.load(accountId).highRiskMemberMode).toBe(false);
+
+      const preferences = defaultFamilyGuardianPreferences();
+      preferences.highRiskMemberMode = true;
+      preferences.notificationsPaused = true;
+      preferences.categories.banking = "all";
+      repository.save(accountId, preferences);
+
+      const restored = new FileFamilyGuardianPreferencesRepository(file).load(accountId);
+      expect(restored.highRiskMemberMode).toBe(true);
+      expect(restored.notificationsPaused).toBe(true);
+      expect(restored.categories.banking).toBe("all");
+
+      const raw = readFileSync(file, "utf8");
+      expect(raw).toContain(familyGuardianPreferenceKey(accountId));
+      expect(raw).not.toContain(accountId);
+      expect(raw).not.toMatch(/mailbox|subject|messageId|senderAddress|refreshToken|appPassword/i);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("never exposes reversible provider message IDs through public Activity", () => {
     const repository = new InMemoryConsumerStateRepository();
     const accountKey = "a".repeat(64);
@@ -117,9 +175,13 @@ describe("final consumer completion contracts", () => {
 
   it("keeps the normal consumer shell on provider sign-in cards and out of browser secret storage", () => {
     const source = readFileSync(new URL("../../web/consumer-product.js", import.meta.url), "utf8");
+    const billing = readFileSync(new URL("../../web/billing-plan-ui.js", import.meta.url), "utf8");
+    const guardian = readFileSync(new URL("../../web/family-guardian-preferences.js", import.meta.url), "utf8");
     const composition = readFileSync(new URL("../../server/src/api/dashboardScripts.ts", import.meta.url), "utf8");
 
     expect(composition).toContain('"/consumer-product.js"');
+    expect(composition).toContain('"/billing-plan-ui.js"');
+    expect(composition).toContain('"/family-guardian-preferences.js"');
     expect(source).toContain("Continue with Google");
     expect(source).toContain("Continue with Microsoft");
     expect(source).toContain("Add iCloud Mail");
@@ -129,10 +191,15 @@ describe("final consumer completion contracts", () => {
     expect(source).toContain("Check Inbox & Mailbox Health");
     expect(source).toContain("Protection Activity");
     expect(source).toContain("Family Guardian");
-    expect(source).not.toContain("localStorage");
-    expect(source).not.toContain("sessionStorage");
-    expect(source).not.toContain("refreshToken");
-    expect(source).not.toContain("accessToken");
-    expect(source).not.toContain("appPassword:");
+    expect(billing).toContain("emailShieldBillingBridge");
+    expect(billing).toContain("server-verified Email Shield entitlement");
+    expect(guardian).toContain("High-risk-member mode");
+    for (const browserSource of [source, billing, guardian]) {
+      expect(browserSource).not.toContain("localStorage");
+      expect(browserSource).not.toContain("sessionStorage");
+      expect(browserSource).not.toContain("refreshToken");
+      expect(browserSource).not.toContain("accessToken");
+      expect(browserSource).not.toContain("appPassword:");
+    }
   });
 });
