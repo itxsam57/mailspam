@@ -67,6 +67,16 @@ async function observe<T>(provider: Provider, operation: AdapterOperation, task:
   }
 }
 
+function unsupportedRestore(messageIds: string[]): RestoreToInboxResult {
+  return {
+    requested: messageIds.length,
+    restored: 0,
+    supported: false,
+    mode: "unsupported",
+    reason: "This provider transport does not guarantee a stable message identifier after moving mail, so Email Shield will not guess an Undo target.",
+  };
+}
+
 class OperationalAdapter implements EmailAdapter {
   readonly provider: Provider;
 
@@ -86,7 +96,8 @@ class OperationalAdapter implements EmailAdapter {
     return observe(this.provider, "report_spam", () => this.delegate.reportSpam(messageIds, signal));
   }
   restoreToInbox(messageIds: string[], signal: AbortSignal): Promise<RestoreToInboxResult> {
-    return observe(this.provider, "move_to_inbox", () => this.delegate.restoreToInbox(messageIds, signal));
+    if (!this.delegate.restoreToInbox) return Promise.resolve(unsupportedRestore(messageIds));
+    return observe(this.provider, "move_to_inbox", () => this.delegate.restoreToInbox!(messageIds, signal));
   }
   disconnect(): Promise<void> { return observe(this.provider, "disconnect", () => this.delegate.disconnect()); }
 }
@@ -150,7 +161,9 @@ class SecureConfigAdapter implements EmailAdapter {
   }
 
   async restoreToInbox(messageIds: string[], signal: AbortSignal): Promise<RestoreToInboxResult> {
-    return this.connected().restoreToInbox(messageIds, signal);
+    const delegate = this.connected();
+    if (!delegate.restoreToInbox) return unsupportedRestore(messageIds);
+    return delegate.restoreToInbox(messageIds, signal);
   }
 
   async disconnect(): Promise<void> {
