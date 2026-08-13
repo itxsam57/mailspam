@@ -7,7 +7,7 @@
 
   function enforceDeveloperVisibility() {
     const devPlans = document.getElementById('accountDevPlans');
-    if (devPlans && !developerMode) devPlans.hidden = true;
+    if (devPlans && !developerMode && !devPlans.hidden) devPlans.hidden = true;
   }
 
   function billingBridge() {
@@ -114,8 +114,10 @@
     if (accountVisible()) mount();
   }
 
-  const observer = new MutationObserver(mountWhenVisible);
-  observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden'] });
+  // Billing visibility is driven by explicit application state changes. Do not
+  // observe the entire document for `hidden` mutations: this module itself owns
+  // `accountDevPlans.hidden`, so a global attribute observer can feed its own
+  // write back into the microtask queue and starve the renderer indefinitely.
   window.addEventListener('email-shield-profile-changed', () => {
     enforceDeveloperVisibility();
     if (accountVisible()) {
