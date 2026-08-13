@@ -23,6 +23,14 @@ export interface SpamReportResult {
   mode: SpamReportMode;
 }
 
+export interface RestoreToInboxResult {
+  requested: number;
+  restored: number;
+  supported: boolean;
+  mode: "provider_label_restore" | "provider_folder_move" | "fixture_restore" | "unsupported";
+  reason?: string;
+}
+
 /**
  * Every cancellation-capable call takes an AbortSignal and MUST respect it:
  * - stop issuing new provider requests once aborted
@@ -62,6 +70,13 @@ export interface EmailAdapter {
    * never be called automatically from local heuristic scores alone.
    */
   reportSpam(messageIds: string[], signal: AbortSignal): Promise<SpamReportResult>;
+
+  /**
+   * Restore a previously protected message to Inbox only when the provider
+   * preserves a stable identifier across the move. Adapters that cannot prove
+   * a safe inverse MUST return supported:false instead of guessing.
+   */
+  restoreToInbox(messageIds: string[], signal: AbortSignal): Promise<RestoreToInboxResult>;
 
   /** Release any open sockets/connections. Safe to call multiple times. */
   disconnect(): Promise<void>;
