@@ -5,6 +5,7 @@ import {
   quickScan,
   fullMailboxAudit,
   spamJunkScan,
+  type ScanDiagnosticSummary,
   type ScanResumeInput,
 } from "../workflows/scanWorkflows.js";
 import {
@@ -16,6 +17,7 @@ import {
 import { InMemoryPersonalPolicyStore, type PersonalPolicySnapshot } from "../engine/layers/personalRules.js";
 import type { SignedFeedEntry } from "../engine/layers/globalIntelligence.js";
 import type { RelationshipHistoryWorkerSnapshot } from "../engine/relationshipHistory.js";
+import type { ConsumerMailboxRule } from "../api/consumerStatePersistence.js";
 import { runWithSingleRetry } from "./retryPolicy.js";
 
 interface WorkData {
@@ -27,6 +29,7 @@ interface WorkData {
   personalPolicy?: Partial<PersonalPolicySnapshot>;
   threatFeedEntries?: SignedFeedEntry[] | null;
   relationshipHistory?: RelationshipHistoryWorkerSnapshot;
+  consumerRules?: ConsumerMailboxRule[];
 }
 
 const data = workerData as WorkData;
@@ -46,12 +49,44 @@ function buildDependencies() {
   };
 }
 
+function activeConsumerRules(): ConsumerMailboxRule[] {
+  const now = Date.now();
+  return (data.consumerRules ?? []).filter((rule) =>
+    rule.enabled === true && (rule.expiresAt === null || rule.expiresAt > now),
+  );
+}
+
+function ruleMatchesSummary(rule: ConsumerMailboxRule, summary: ScanDiagnosticSummary): boolean {
+  const senderAddress = summary.actionContext.senderAddress?.trim().toLowerCase() ?? "";
+  const senderDomain = summary.fromDomain?.trim().toLowerCase() ?? "";
+  if (rule.senderAddress && senderAddress !== rule.senderAddress) return false;
+  if (rule.senderDomain && senderDomain !== rule.senderDomain) return false;
+  return Boolean(rule.senderAddress || rule.senderDomain);
+}
+
+function collectConsumerRuleActions(
+  summaries: readonly ScanDiagnosticSummary[],
+  trashIds: Set<string>,
+): { catchTrash: number; screened: number } {
+  const rules = activeConsumerRules();
+  let catchTrash = 0;
+  let screened = 0;
+  for (const summary of summaries) {
+    for (const rule of rules) {
+      if (rule.type === "trash_after_unsubscribe" && ruleMatchesSummary(rule, summary)) {
+        if (!trashIds.has(summary.actionContext.providerNativeId)) catchTrash += 1;
+        trashIds.add(summary.actionContext.providerNativeId);
+      }
+      if (rule.type === "screen_first_contact" && summary.firstContact === true) screened += 1;
+    }
+  }
+  return { catchTrash, screened };
+}
+
 async function enforceCollectedProtection(
   trashIds: Set<string>,
   quarantineIds: Set<string>,
 ): Promise<void> {
-  // A local block/report or globally confirmed threat always wins over a
-  // warning-level quarantine if both signals happen to match the same mail.
   for (const id of trashIds) quarantineIds.delete(id);
   if (trashIds.size === 0 && quarantineIds.size === 0) return;
   if (controller.signal.aborted) throw new DOMException("Scan stopped by the user.", "AbortError");
@@ -60,14 +95,10 @@ async function enforceCollectedProtection(
     type: "status",
     status: {
       phase: "enforcing_protection",
-      message: `Applying Email Shield protection: ${trashIds.size} confirmed message(s) to Trash, ${quarantineIds.size} signed-warning message(s) to Spam/Junk…`,
+      message: `Applying Email Shield protection: ${trashIds.size} confirmed/explicit-rule message(s) to Trash, ${quarantineIds.size} signed-warning message(s) to Spam/Junk…`,
     },
   });
 
-  // Enforcement deliberately starts only after mailbox enumeration has ended.
-  // IMAP cursors are offsets over a live UID list; moving mail between scan
-  // pages can shrink that list and skip unseen messages. A fresh adapter also
-  // separates read-only enumeration from provider mutation transactions.
   const adapter = createAdapter(data.config);
   try {
     await adapter.connect(controller.signal);
@@ -95,14 +126,25 @@ async function runScanAttempt(onProgress: () => void): Promise<boolean> {
   let emittedProgress = false;
   const autoTrashIds = new Set<string>();
   const warningQuarantineIds = new Set<string>();
+  let consumerCatchTrash = 0;
+  let screened = 0;
   for await (const progress of generator) {
     emittedProgress = true;
     onProgress();
     collectDurableAutoTrashIds(progress.suspiciousCards, autoTrashIds);
     collectCommunityWarningQuarantineIds(progress.suspiciousCards, warningQuarantineIds);
+    const consumerActions = collectConsumerRuleActions(progress.diagnosticSummaries, autoTrashIds);
+    consumerCatchTrash += consumerActions.catchTrash;
+    screened += consumerActions.screened;
     parentPort?.postMessage({ type: "progress", progress });
   }
 
+  if (consumerCatchTrash || screened) {
+    parentPort?.postMessage({
+      type: "consumer-rule-summary",
+      summary: { catchTrash: consumerCatchTrash, screened },
+    });
+  }
   await enforceCollectedProtection(autoTrashIds, warningQuarantineIds);
   return emittedProgress;
 }
