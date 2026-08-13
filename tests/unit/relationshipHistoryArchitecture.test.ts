@@ -40,11 +40,15 @@ describe("relationship history architecture", () => {
   it("initializes encrypted relationship history through the shared runtime vault before the desktop server starts", () => {
     const index = read("server/src/index.ts");
     const vault = index.indexOf("const credentialVault = getRuntimeCredentialVault()");
-    const initialize = index.indexOf("await initializeDefaultRelationshipHistoryRepository({ credentialVault })");
+    const concurrentPhase = index.indexOf("const initialized = await Promise.all([");
+    const initialize = index.indexOf("initializeDefaultRelationshipHistoryRepository({ credentialVault })", concurrentPhase);
+    const concurrentPhaseEnd = index.indexOf("] as const);", initialize);
     const listen = index.indexOf("app.listen(");
     expect(vault).toBeGreaterThanOrEqual(0);
-    expect(initialize).toBeGreaterThan(vault);
-    expect(listen).toBeGreaterThan(initialize);
+    expect(concurrentPhase).toBeGreaterThan(vault);
+    expect(initialize).toBeGreaterThan(concurrentPhase);
+    expect(concurrentPhaseEnd).toBeGreaterThan(initialize);
+    expect(listen).toBeGreaterThan(concurrentPhaseEnd);
   });
 
   it("never turns established history into a global first-contact bypass", () => {
