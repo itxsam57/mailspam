@@ -73,15 +73,27 @@ function validStringArray(value: unknown, maxItems: number, maxChars: number): v
 }
 
 function validPersonalPolicy(value: unknown): value is PersonalPolicySnapshot {
-  if (!isRecord(value) || !hasExactFields(value, [
+  if (!isRecord(value)) return false;
+  const legacyFields = [
     "blockedSenders",
     "blockedDomains",
     "trustedSenders",
     "approvedExceptions",
     "unsubscribedActions",
     "reportedCampaigns",
-  ])) return false;
-  return Object.values(value).every((items) => validStringArray(items, MAX_POLICY_VALUES_PER_CLASS, MAX_POLICY_VALUE_CHARS));
+  ];
+  const extendedFields = [
+    ...legacyFields,
+    "catchTrashSenders",
+    "catchTrashDomains",
+  ];
+  if (!hasExactFields(value, legacyFields) && !hasExactFields(value, extendedFields)) return false;
+  for (const field of legacyFields) {
+    if (!validStringArray(value[field], MAX_POLICY_VALUES_PER_CLASS, MAX_POLICY_VALUE_CHARS)) return false;
+  }
+  if (value.catchTrashSenders !== undefined && !validStringArray(value.catchTrashSenders, MAX_POLICY_VALUES_PER_CLASS, MAX_POLICY_VALUE_CHARS)) return false;
+  if (value.catchTrashDomains !== undefined && !validStringArray(value.catchTrashDomains, MAX_POLICY_VALUES_PER_CLASS, MAX_POLICY_VALUE_CHARS)) return false;
+  return true;
 }
 
 function validFeedEntry(value: unknown): value is SignedFeedEntry {
@@ -147,9 +159,61 @@ function validLink(value: unknown): boolean {
     && (value.interaction === undefined || ["navigation", "form_action", "automatic_redirect"].includes(String(value.interaction)));
 }
 
+function validNonNegativeInteger(value: unknown, maximum: number): boolean {
+  return Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= maximum;
+}
+
+function validArchiveSecurityInspection(value: unknown): boolean {
+  if (!isRecord(value) || !hasExactFields(value, [
+    "format",
+    "entryCount",
+    "encryptedEntries",
+    "executableOrScriptEntries",
+    "macroCapableEntries",
+    "nestedArchiveEntries",
+    "declaredCompressedBytes",
+    "declaredUncompressedBytes",
+    "maximumCompressionRatio",
+    "overResourceLimit",
+    "incomplete",
+    "reasons",
+  ])) return false;
+  return value.format === "zip"
+    && validNonNegativeInteger(value.entryCount, 10_000)
+    && validNonNegativeInteger(value.encryptedEntries, 10_000)
+    && validNonNegativeInteger(value.executableOrScriptEntries, 10_000)
+    && validNonNegativeInteger(value.macroCapableEntries, 10_000)
+    && validNonNegativeInteger(value.nestedArchiveEntries, 10_000)
+    && validNonNegativeInteger(value.declaredCompressedBytes, Number.MAX_SAFE_INTEGER)
+    && validNonNegativeInteger(value.declaredUncompressedBytes, Number.MAX_SAFE_INTEGER)
+    && typeof value.maximumCompressionRatio === "number"
+    && Number.isFinite(value.maximumCompressionRatio)
+    && value.maximumCompressionRatio >= 0
+    && value.maximumCompressionRatio <= Number.MAX_SAFE_INTEGER
+    && typeof value.overResourceLimit === "boolean"
+    && typeof value.incomplete === "boolean"
+    && validStringArray(value.reasons, 16, 1_024);
+}
+
+function validAttachmentSecurityInspection(value: unknown): boolean {
+  if (!isRecord(value) || !hasExactFields(value, [
+    "magicType",
+    "extensionMismatch",
+    "executableOrScript",
+    "macroCapable",
+    "archive",
+    "incomplete",
+    "reasons",
+  ])) return false;
+  if (!["pe_executable", "elf_executable", "zip", "pdf", "png", "jpeg", "ole_compound", "rtf", "text_or_unknown"].includes(String(value.magicType))) return false;
+  if (typeof value.extensionMismatch !== "boolean" || typeof value.executableOrScript !== "boolean" || typeof value.macroCapable !== "boolean" || typeof value.incomplete !== "boolean") return false;
+  if (value.archive !== null && !validArchiveSecurityInspection(value.archive)) return false;
+  return validStringArray(value.reasons, 16, 1_024);
+}
+
 function validAttachment(value: unknown): boolean {
   return isRecord(value)
-    && hasExactFields(value, ["name", "mimeType", "sizeBytes", "extension", "sha256", "suspiciousNamePattern"])
+    && hasExactFields(value, ["name", "mimeType", "sizeBytes", "extension", "sha256", "suspiciousNamePattern"], ["securityInspection"])
     && boundedString(value.name, 4_096)
     && boundedString(value.mimeType, 256)
     && Number.isSafeInteger(value.sizeBytes)
@@ -157,7 +221,8 @@ function validAttachment(value: unknown): boolean {
     && Number(value.sizeBytes) <= 2 * 1024 * 1024 * 1024
     && boundedString(value.extension, 256, true)
     && (value.sha256 === null || (typeof value.sha256 === "string" && /^[a-f0-9]{64}$/i.test(value.sha256)))
-    && typeof value.suspiciousNamePattern === "boolean";
+    && typeof value.suspiciousNamePattern === "boolean"
+    && (value.securityInspection === undefined || validAttachmentSecurityInspection(value.securityInspection));
 }
 
 function validListHeaders(value: unknown): boolean {
@@ -207,9 +272,18 @@ function validCountDiagnostic(value: unknown, fields: string[]): boolean {
   return true;
 }
 
+function validAttachmentSecurityDiagnostic(value: unknown): boolean {
+  return isRecord(value)
+    && hasExactFields(value, ["inspected", "incomplete", "encryptedArchives", "resourceLimitedArchives"])
+    && validNonNegativeInteger(value.inspected, 10_000)
+    && validNonNegativeInteger(value.incomplete, 10_000)
+    && validNonNegativeInteger(value.encryptedArchives, 10_000)
+    && validNonNegativeInteger(value.resourceLimitedArchives, 10_000);
+}
+
 function validDiagnostics(value: unknown): boolean {
   return isRecord(value)
-    && hasExactFields(value, ["fetchedAt", "sizeBytes", "encoding", "contentCoverage"], ["qrInspection", "attachmentHashInspection"])
+    && hasExactFields(value, ["fetchedAt", "sizeBytes", "encoding", "contentCoverage"], ["qrInspection", "attachmentHashInspection", "attachmentSecurityInspection"])
     && boundedString(value.fetchedAt, 64)
     && Number.isSafeInteger(value.sizeBytes)
     && Number(value.sizeBytes) >= 0
@@ -217,7 +291,8 @@ function validDiagnostics(value: unknown): boolean {
     && ["plain", "base64", "quoted-printable", "multipart", "mixed", "unknown"].includes(String(value.encoding))
     && ["complete", "bounded_sufficient", "insufficient"].includes(String(value.contentCoverage))
     && (value.qrInspection === undefined || validCountDiagnostic(value.qrInspection, ["supportedImages", "decodedUrlCount", "incomplete", "incompleteReasons"]))
-    && (value.attachmentHashInspection === undefined || validCountDiagnostic(value.attachmentHashInspection, ["attachments", "hashed", "incomplete", "incompleteReasons"]));
+    && (value.attachmentHashInspection === undefined || validCountDiagnostic(value.attachmentHashInspection, ["attachments", "hashed", "incomplete", "incompleteReasons"]))
+    && (value.attachmentSecurityInspection === undefined || validAttachmentSecurityDiagnostic(value.attachmentSecurityInspection));
 }
 
 function validEnvelope(value: unknown): value is CanonicalEnvelope {
