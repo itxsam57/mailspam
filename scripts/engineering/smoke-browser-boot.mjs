@@ -2,7 +2,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 const root = process.cwd();
 const host = "127.0.0.1";
@@ -13,7 +13,10 @@ const smokeHtmlPath = join(webDir, "__email-shield-browser-smoke.html");
 const monitorPath = join(webDir, "__email-shield-browser-smoke-monitor.js");
 const probePath = join(webDir, "__email-shield-browser-smoke-probe.js");
 let server;
+let browser;
+let cdpSocket;
 let serverStderr = "";
+let browserStderr = "";
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -35,23 +38,23 @@ async function freePort() {
   });
 }
 
-async function waitForServer(baseUrl, timeoutMs = 20_000) {
+async function waitForHttp(url, processRef, stderr, timeoutMs = 20_000) {
   const deadline = Date.now() + timeoutMs;
   let lastError;
   while (Date.now() < deadline) {
-    if (server?.exitCode !== null) {
-      throw new Error(`Server exited before browser smoke readiness with code ${server.exitCode}.\n${serverStderr}`);
+    if (processRef?.exitCode !== null) {
+      throw new Error(`Process exited before ${url} became ready with code ${processRef.exitCode}.\n${stderr()}`);
     }
     try {
-      const response = await fetch(baseUrl, { signal: AbortSignal.timeout(2_000) });
-      if (response.ok) return;
+      const response = await fetch(url, { signal: AbortSignal.timeout(2_000) });
+      if (response.ok) return response;
       lastError = new Error(`HTTP ${response.status}`);
     } catch (error) {
       lastError = error;
     }
-    await sleep(150);
+    await sleep(100);
   }
-  throw new Error(`Server did not become ready for browser smoke: ${lastError?.message ?? "unknown error"}\n${serverStderr}`);
+  throw new Error(`Timed out waiting for ${url}: ${lastError?.message ?? "unknown error"}\n${stderr()}`);
 }
 
 function findOnPath(command) {
@@ -96,7 +99,6 @@ function findBrowser() {
 
   const direct = candidates.find((candidate) => existsSync(candidate));
   if (direct) return direct;
-
   const commands = process.platform === "win32"
     ? ["chrome.exe", "msedge.exe"]
     : ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "microsoft-edge"];
@@ -118,34 +120,77 @@ function buildProbePage(dashboardHtml, cookie) {
   return withProbe;
 }
 
-function runBrowser(browser, url) {
-  const result = spawnSync(browser, [
-    "--headless=new",
-    `--user-data-dir=${browserProfile}`,
-    "--no-first-run",
-    "--no-default-browser-check",
-    "--disable-background-networking",
-    "--disable-component-update",
-    "--disable-default-apps",
-    "--disable-sync",
-    "--disable-dev-shm-usage",
-    "--metrics-recording-only",
-    "--dump-dom",
-    url,
-  ], {
-    cwd: dirname(browser),
-    encoding: "utf8",
-    timeout: 30_000,
-    maxBuffer: 16 * 1024 * 1024,
+async function connectWebSocket(url, timeoutMs = 10_000) {
+  assert(typeof WebSocket === "function", "Node.js WebSocket support is required for the browser boot gate.");
+  return await new Promise((resolveSocket, reject) => {
+    const socket = new WebSocket(url);
+    const timer = setTimeout(() => reject(new Error(`Timed out connecting to DevTools: ${url}`)), timeoutMs);
+    socket.addEventListener("open", () => {
+      clearTimeout(timer);
+      resolveSocket(socket);
+    }, { once: true });
+    socket.addEventListener("error", () => {
+      clearTimeout(timer);
+      reject(new Error(`Could not connect to DevTools: ${url}`));
+    }, { once: true });
   });
-  assert(!result.error, `Headless browser failed to execute: ${result.error?.message ?? "unknown error"}`);
-  assert(result.status === 0, `Headless browser exited ${result.status}.\n${result.stderr || ""}`);
-  return result.stdout;
+}
+
+function createCdpClient(socket) {
+  let nextId = 1;
+  const pending = new Map();
+  const listeners = new Map();
+
+  socket.addEventListener("message", (event) => {
+    let message;
+    try { message = JSON.parse(String(event.data)); }
+    catch { return; }
+    if (typeof message.id === "number") {
+      const waiter = pending.get(message.id);
+      if (!waiter) return;
+      pending.delete(message.id);
+      if (message.error) waiter.reject(new Error(`${waiter.method}: ${message.error.message ?? "DevTools error"}`));
+      else waiter.resolve(message.result ?? {});
+      return;
+    }
+    for (const listener of listeners.get(message.method) ?? []) listener(message.params ?? {});
+  });
+
+  return {
+    on(method, listener) {
+      const bucket = listeners.get(method) ?? new Set();
+      bucket.add(listener);
+      listeners.set(method, bucket);
+      return () => bucket.delete(listener);
+    },
+    send(method, params = {}, timeoutMs = 10_000) {
+      const id = nextId++;
+      return new Promise((resolveResult, reject) => {
+        const timer = setTimeout(() => {
+          pending.delete(id);
+          reject(new Error(`DevTools command timed out: ${method}`));
+        }, timeoutMs);
+        pending.set(id, {
+          method,
+          resolve: (value) => { clearTimeout(timer); resolveResult(value); },
+          reject: (error) => { clearTimeout(timer); reject(error); },
+        });
+        socket.send(JSON.stringify({ id, method, params }));
+      });
+    },
+  };
+}
+
+async function evaluate(client, expression) {
+  const result = await client.send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true });
+  if (result.exceptionDetails) throw new Error(`Browser evaluation failed: ${result.exceptionDetails.text ?? "unknown exception"}`);
+  return result.result?.value;
 }
 
 try {
   const port = await freePort();
-  assert(Number.isInteger(port), "Could not allocate an isolated browser-smoke server port.");
+  const debugPort = await freePort();
+  assert(Number.isInteger(port) && Number.isInteger(debugPort), "Could not allocate isolated server/browser ports.");
   const baseUrl = `http://${host}:${port}`;
 
   server = spawn(process.execPath, [resolve(root, "server/dist/index.js")], {
@@ -163,7 +208,7 @@ try {
   });
   server.stderr.setEncoding("utf8");
   server.stderr.on("data", (chunk) => { serverStderr += chunk; });
-  await waitForServer(baseUrl);
+  await waitForHttp(baseUrl, server, () => serverStderr);
 
   const dashboardResponse = await fetch(baseUrl, { signal: AbortSignal.timeout(5_000) });
   const dashboardHtml = await dashboardResponse.text();
@@ -172,20 +217,70 @@ try {
   assert(cookie.startsWith("email_shield_local_session="), "Browser smoke could not obtain the protected local dashboard session.");
 
   writeFileSync(monitorPath, `window.__emailShieldBrowserSmokeErrors=[];\nwindow.addEventListener('error',(event)=>window.__emailShieldBrowserSmokeErrors.push(String(event.error?.stack||event.message||'browser error')));\nwindow.addEventListener('unhandledrejection',(event)=>window.__emailShieldBrowserSmokeErrors.push(String(event.reason?.stack||event.reason||'unhandled rejection')));\n`);
-  writeFileSync(probePath, `(() => {\n  const errors = Array.isArray(window.__emailShieldBrowserSmokeErrors) ? window.__emailShieldBrowserSmokeErrors : ['error monitor missing'];\n  let singleOwner = false; let scanOk = false; let scanVisible = false; let homeOk = false; let homeVisible = false;\n  try {\n    singleOwner = typeof window.emailShieldNavigate === 'function' && window.emailShieldRouter && window.emailShieldNavigate === window.emailShieldRouter.navigate;\n    scanOk = window.emailShieldNavigate?.('scan', { focus: false }) === true;\n    scanVisible = document.querySelector('.app-route[data-route="scan"]')?.hidden === false;\n    homeOk = window.emailShieldNavigate?.('home', { focus: false }) === true;\n    homeVisible = document.querySelector('.app-route[data-route="home"]')?.hidden === false;\n  } catch (error) { errors.push(String(error?.stack || error)); }\n  const pass = errors.length === 0 && singleOwner && scanOk && scanVisible && homeOk && homeVisible;\n  document.documentElement.dataset.emailShieldBrowserSmoke = pass ? 'pass' : 'fail';\n  document.documentElement.dataset.emailShieldBrowserSmokeErrors = String(errors.length);\n  document.documentElement.dataset.emailShieldBrowserSmokeSingleOwner = String(Boolean(singleOwner));\n  document.documentElement.dataset.emailShieldBrowserSmokeRouting = String(Boolean(scanOk && scanVisible && homeOk && homeVisible));\n})();\n`);
+  writeFileSync(probePath, `(() => {\n  const errors = Array.isArray(window.__emailShieldBrowserSmokeErrors) ? window.__emailShieldBrowserSmokeErrors : ['error monitor missing'];\n  let singleOwner = false; let scanOk = false; let scanVisible = false; let homeOk = false; let homeVisible = false;\n  try {\n    singleOwner = typeof window.emailShieldNavigate === 'function' && window.emailShieldRouter && window.emailShieldNavigate === window.emailShieldRouter.navigate;\n    scanOk = window.emailShieldNavigate?.('scan', { focus: false }) === true;\n    scanVisible = document.querySelector('.app-route[data-route="scan"]')?.hidden === false;\n    homeOk = window.emailShieldNavigate?.('home', { focus: false }) === true;\n    homeVisible = document.querySelector('.app-route[data-route="home"]')?.hidden === false;\n  } catch (error) { errors.push(String(error?.stack || error)); }\n  window.__emailShieldBrowserSmokeResult = { pass: errors.length === 0 && singleOwner && scanOk && scanVisible && homeOk && homeVisible, errors, singleOwner: Boolean(singleOwner), routing: Boolean(scanOk && scanVisible && homeOk && homeVisible), shell: Boolean(document.querySelector('.app-sidebar') && document.getElementById('homePanel')) };\n})();\n`);
   writeFileSync(smokeHtmlPath, buildProbePage(dashboardHtml, cookie));
 
-  const browser = findBrowser();
-  const rendered = runBrowser(browser, `${baseUrl}/__email-shield-browser-smoke.html`);
-  assert(rendered.includes('data-email-shield-browser-smoke="pass"'), "The executable dashboard boot contract failed in a real browser.");
-  assert(rendered.includes('data-email-shield-browser-smoke-errors="0"'), "The executable dashboard boot produced an uncaught JavaScript error or unhandled rejection.");
-  assert(rendered.includes('data-email-shield-browser-smoke-single-owner="true"'), "The real browser does not have one authoritative navigation function; app-shell/ui-router ownership regressed.");
-  assert(rendered.includes('data-email-shield-browser-smoke-routing="true"'), "The real browser could not navigate Scan -> Home through the public router.");
-  assert(rendered.includes('class="app-sidebar"') && rendered.includes('id="homePanel"'), "The real browser did not construct the application shell.");
+  const browserExecutable = findBrowser();
+  const args = [
+    "--headless=new",
+    `--remote-debugging-port=${debugPort}`,
+    "--remote-debugging-address=127.0.0.1",
+    `--user-data-dir=${browserProfile}`,
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--disable-background-networking",
+    "--disable-component-update",
+    "--disable-default-apps",
+    "--disable-sync",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "about:blank",
+  ];
+  browser = spawn(browserExecutable, args, { stdio: ["ignore", "ignore", "pipe"] });
+  browser.stderr.setEncoding("utf8");
+  browser.stderr.on("data", (chunk) => { browserStderr += chunk; });
 
-  console.log(`Executable browser boot smoke passed with ${browser}.`);
+  await waitForHttp(`http://${host}:${debugPort}/json/version`, browser, () => browserStderr, 15_000);
+  const targets = await (await fetch(`http://${host}:${debugPort}/json/list`, { signal: AbortSignal.timeout(5_000) })).json();
+  const target = Array.isArray(targets) ? targets.find((candidate) => candidate.type === "page" && candidate.webSocketDebuggerUrl) : null;
+  assert(target?.webSocketDebuggerUrl, `Browser DevTools exposed no page target.\n${browserStderr}`);
+
+  cdpSocket = await connectWebSocket(target.webSocketDebuggerUrl);
+  const client = createCdpClient(cdpSocket);
+  await Promise.all([client.send("Page.enable"), client.send("Runtime.enable")]);
+
+  let loadedResolve;
+  const loaded = new Promise((resolveLoaded) => { loadedResolve = resolveLoaded; });
+  const removeLoaded = client.on("Page.loadEventFired", () => loadedResolve());
+  const navigation = await client.send("Page.navigate", { url: `${baseUrl}/__email-shield-browser-smoke.html` }, 15_000);
+  assert(!navigation.errorText, `Browser navigation failed: ${navigation.errorText}`);
+  await Promise.race([
+    loaded,
+    sleep(15_000).then(() => { throw new Error("Browser page load event timed out."); }),
+  ]);
+  removeLoaded();
+
+  let result;
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    result = await evaluate(client, "window.__emailShieldBrowserSmokeResult ?? null");
+    if (result) break;
+    await sleep(100);
+  }
+  assert(result, "The final browser boot probe never executed.");
+  assert(result.pass === true, `Executable dashboard boot failed: ${JSON.stringify(result)}`);
+  assert(result.errors?.length === 0, `Dashboard boot produced uncaught browser errors: ${JSON.stringify(result.errors)}`);
+  assert(result.singleOwner === true, "Browser navigation global no longer has one authoritative router owner.");
+  assert(result.routing === true, "Real browser Scan -> Home route navigation failed.");
+  assert(result.shell === true, "Real browser application shell did not render.");
+
+  console.log(`Executable browser boot smoke passed with ${browserExecutable}.`);
   console.log("Uncaught-error capture, single navigation ownership, shell rendering, and Scan/Home routing passed.");
 } finally {
+  try { cdpSocket?.close(); } catch {}
+  if (browser && browser.exitCode === null) {
+    try { browser.kill(); } catch {}
+  }
   if (server && server.exitCode === null) {
     try { server.kill(); } catch {}
   }
