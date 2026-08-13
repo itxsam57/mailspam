@@ -72,11 +72,11 @@ export interface EmailAdapter {
   reportSpam(messageIds: string[], signal: AbortSignal): Promise<SpamReportResult>;
 
   /**
-   * Restore a previously protected message to Inbox only when the provider
-   * preserves a stable identifier across the move. Adapters that cannot prove
-   * a safe inverse MUST return supported:false instead of guessing.
+   * Optional inverse used by Unified Activity Undo. It exists only when the
+   * provider preserves a message identifier strongly enough to restore the
+   * exact protected item. Absence means Undo is truthfully unsupported.
    */
-  restoreToInbox(messageIds: string[], signal: AbortSignal): Promise<RestoreToInboxResult>;
+  restoreToInbox?(messageIds: string[], signal: AbortSignal): Promise<RestoreToInboxResult>;
 
   /** Release any open sockets/connections. Safe to call multiple times. */
   disconnect(): Promise<void>;
