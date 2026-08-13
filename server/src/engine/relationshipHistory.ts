@@ -45,6 +45,9 @@ interface ThreadReferenceState {
 
 const INDEX_KEY_BYTES = 32;
 const MAX_REPLY_TO_KEYS_PER_PROFILE = 8;
+export const RELATIONSHIP_FULL_CONFIDENCE_AGE_MS = 90 * 24 * 60 * 60 * 1_000;
+export const RELATIONSHIP_ZERO_CONFIDENCE_AGE_MS = 365 * 24 * 60 * 60 * 1_000;
+const ESTABLISHED_CONFIDENCE_THRESHOLD = 0.5;
 
 function decodeIndexKey(indexKey: string): Buffer {
   const normalized = indexKey.trim();
@@ -86,18 +89,48 @@ export function relationshipSuspiciousMessages(profile: RelationshipProfile): nu
   return profile.reviewMessages + profile.highRiskMessages + profile.confirmedThreatMessages;
 }
 
-/**
- * Establishment is intentionally conservative. Merely seeing an address before
- * is never enough to trust it. At least three prior observations, two locally
- * Safe messages and two authenticated messages are required, and any prior
- * Review/High Risk/Confirmed Threat finding prevents the relationship reward.
- */
-export function hasEstablishedRelationship(profile: RelationshipProfile | undefined): boolean {
+function structurallyEstablishedRelationship(profile: RelationshipProfile | undefined): boolean {
   if (!profile) return false;
   return profile.messagesSeen >= 3
     && profile.safeMessages >= 2
     && profile.authenticatedMessages >= 2
     && relationshipSuspiciousMessages(profile) === 0;
+}
+
+/**
+ * Positive familiarity decays with inactivity. This function never reduces or
+ * deletes negative history; it only controls whether old clean history is still
+ * recent enough to earn the soft "established relationship" context.
+ */
+export function relationshipPositiveConfidence(
+  profile: RelationshipProfile | undefined,
+  asOf: number,
+): number {
+  if (!profile || !structurallyEstablishedRelationship(profile)) return 0;
+  const reference = Math.max(profile.lastObservedAt, profile.lastAuthenticatedAt ?? 0);
+  if (!Number.isFinite(reference) || reference <= 0 || !Number.isFinite(asOf) || asOf <= 0) return 0;
+  const age = Math.max(0, asOf - reference);
+  if (age <= RELATIONSHIP_FULL_CONFIDENCE_AGE_MS) return 1;
+  if (age >= RELATIONSHIP_ZERO_CONFIDENCE_AGE_MS) return 0;
+  const span = RELATIONSHIP_ZERO_CONFIDENCE_AGE_MS - RELATIONSHIP_FULL_CONFIDENCE_AGE_MS;
+  return Math.max(0, Math.min(1, 1 - ((age - RELATIONSHIP_FULL_CONFIDENCE_AGE_MS) / span)));
+}
+
+/**
+ * Establishment is intentionally conservative. Merely seeing an address before
+ * is never enough to trust it. At least three prior observations, two locally
+ * Safe messages and two authenticated messages are required, no prior
+ * Review/High Risk/Confirmed Threat is allowed, and the clean history must
+ * still carry sufficient time-decayed confidence.
+ *
+ * `asOf` defaults to the most recent observation for backwards-compatible
+ * structural callers. Live annotation always passes the current message time.
+ */
+export function hasEstablishedRelationship(
+  profile: RelationshipProfile | undefined,
+  asOf = profile ? Math.max(profile.lastObservedAt, profile.lastAuthenticatedAt ?? 0) : Date.now(),
+): boolean {
+  return relationshipPositiveConfidence(profile, asOf) >= ESTABLISHED_CONFIDENCE_THRESHOLD;
 }
 
 function explicitAuthenticationFailure(envelope: CanonicalEnvelope): boolean {
@@ -123,6 +156,11 @@ function messageReferenceKey(
   messageId: string,
 ): string {
   return relationshipIdentityKey(snapshot.indexKey, "message", `${envelope.provider}\0${messageId}`);
+}
+
+function envelopeObservationTime(envelope: CanonicalEnvelope): number {
+  const parsed = Date.parse(envelope.date);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : Date.now();
 }
 
 /**
@@ -179,7 +217,8 @@ export function annotateRelationshipHistory(
   const senderKey = relationshipIdentityKey(snapshot.indexKey, "sender", address);
   const profile = snapshot.records[senderKey];
   const suspicious = profile ? relationshipSuspiciousMessages(profile) : 0;
-  const established = hasEstablishedRelationship(profile);
+  const structurallyEstablished = structurallyEstablishedRelationship(profile);
+  const established = hasEstablishedRelationship(profile, envelopeObservationTime(envelope));
 
   envelope.threadContext.relationshipPriorMessages = profile?.messagesSeen ?? 0;
   envelope.threadContext.relationshipPriorAuthenticatedMessages = profile?.authenticatedMessages ?? 0;
@@ -187,12 +226,13 @@ export function annotateRelationshipHistory(
   envelope.threadContext.relationshipPriorSuspiciousMessages = suspicious;
   envelope.threadContext.hasEstablishedSenderHistory = established;
 
+  // Negative evidence does not age out merely because positive familiarity did.
   envelope.threadContext.relationshipAuthenticationDowngrade = Boolean(
-    established && explicitAuthenticationFailure(envelope),
+    structurallyEstablished && explicitAuthenticationFailure(envelope),
   );
 
   if (
-    established
+    structurallyEstablished
     && threadReferences.knownInReplyTo
     && threadReferences.hasReferenceChain
     && !threadReferences.inReplyToIncludedInReferences
@@ -205,7 +245,7 @@ export function annotateRelationshipHistory(
     ? relationshipIdentityKey(snapshot.indexKey, "reply-to", envelope.replyTo.address)
     : null;
   const replyToChanged = Boolean(
-    established
+    structurallyEstablished
       && historicalReplyTo
       && currentReplyTo
       && !timingSafeEqual(Buffer.from(historicalReplyTo, "hex"), Buffer.from(currentReplyTo, "hex")),
