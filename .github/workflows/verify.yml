@@ -71,19 +71,31 @@ jobs:
         env:
           ENGINEERING_AUDIT: '0'
 
-      - name: Persist unit failure diagnostics
+      - name: Persist failure diagnostics
         if: failure()
         shell: bash
         run: |
           mkdir -p artifacts/engineering
           set +e
+          npm run typecheck > artifacts/engineering/typecheck-failure.log 2>&1
+          typecheck_status=$?
+          npm run build > artifacts/engineering/build-failure.log 2>&1
+          build_status=$?
+          npm run check:core > artifacts/engineering/portable-core-failure.log 2>&1
+          core_status=$?
+          npm run check:core-vectors > artifacts/engineering/core-vectors-failure.log 2>&1
+          vectors_status=$?
           npm run test:unit > artifacts/engineering/unit-failure.log 2>&1
-          status=$?
+          unit_status=$?
           {
-            echo "diagnostic rerun exit: ${status}"
             echo "runner: ${RUNNER_OS}"
             echo "commit: ${GITHUB_SHA}"
-          } > artifacts/engineering/unit-failure-metadata.txt
+            echo "typecheck diagnostic rerun exit: ${typecheck_status}"
+            echo "build diagnostic rerun exit: ${build_status}"
+            echo "portable-core diagnostic rerun exit: ${core_status}"
+            echo "core-vectors diagnostic rerun exit: ${vectors_status}"
+            echo "unit diagnostic rerun exit: ${unit_status}"
+          } > artifacts/engineering/failure-diagnostics-metadata.txt
           exit 0
 
       - name: Upload verification and browser handoff
@@ -140,6 +152,6 @@ jobs:
 
           while IFS= read -r diagnostic; do
             echo ""
-            echo "===== UNIT FAILURE DIAGNOSTIC: ${diagnostic} ====="
+            echo "===== FAILURE DIAGNOSTIC: ${diagnostic} ====="
             tail -n 240 "${diagnostic}"
-          done < <(find gate-artifacts -name unit-failure.log -type f | sort)
+          done < <(find gate-artifacts \( -name '*-failure.log' -o -name 'failure-diagnostics-metadata.txt' \) -type f | sort)
