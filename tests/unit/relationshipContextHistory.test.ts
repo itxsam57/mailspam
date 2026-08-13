@@ -2,12 +2,18 @@ import { describe, expect, it } from "vitest";
 import type { CanonicalEnvelope } from "../../server/src/canonical/envelope.js";
 import {
   annotateRelationshipHistory,
+  RELATIONSHIP_FULL_CONFIDENCE_AGE_MS,
+  RELATIONSHIP_ZERO_CONFIDENCE_AGE_MS,
   relationshipIdentityKey,
+  relationshipPositiveConfidence,
   type RelationshipHistoryWorkerSnapshot,
   type RelationshipProfile,
 } from "../../server/src/engine/relationshipHistory.js";
 import { relationshipContextLayer } from "../../server/src/engine/layers/relationshipContext.js";
 import { messageIntentLayer } from "../../server/src/engine/layers/messageIntent.js";
+
+const TEST_NOW = Date.parse("2026-08-13T00:00:00.000Z");
+const RECENT_HISTORY = TEST_NOW - 24 * 60 * 60 * 1_000;
 
 function profile(overrides: Partial<RelationshipProfile> = {}): RelationshipProfile {
   return {
@@ -18,9 +24,9 @@ function profile(overrides: Partial<RelationshipProfile> = {}): RelationshipProf
     highRiskMessages: 0,
     confirmedThreatMessages: 0,
     unknownMessages: 0,
-    firstObservedAt: 1_700_000_000_000,
-    lastObservedAt: 1_700_000_010_000,
-    lastAuthenticatedAt: 1_700_000_010_000,
+    firstObservedAt: RECENT_HISTORY - 10_000,
+    lastObservedAt: RECENT_HISTORY,
+    lastAuthenticatedAt: RECENT_HISTORY,
     folderCounts: { inbox: 4 },
     replyToCounts: {},
     ...overrides,
@@ -38,7 +44,7 @@ function envelope(overrides: Partial<CanonicalEnvelope> = {}): CanonicalEnvelope
     from: { displayName: "Known Sender", address: "known@example.com", domain: "example.com" },
     replyTo: null,
     subject: "Routine account update",
-    date: new Date().toISOString(),
+    date: new Date(TEST_NOW).toISOString(),
     authentication: { providerTrust: "trusted", spf: "pass", dkim: "pass", dmarc: "pass", arc: "unknown" },
     textPreview: "This is a routine readable account message with no unusual request or pressure.",
     htmlSignals: null,
@@ -49,7 +55,7 @@ function envelope(overrides: Partial<CanonicalEnvelope> = {}): CanonicalEnvelope
     parseStatus: "complete",
     parseNotes: [],
     diagnostics: {
-      fetchedAt: new Date().toISOString(),
+      fetchedAt: new Date(TEST_NOW).toISOString(),
       sizeBytes: 500,
       encoding: "plain",
       contentCoverage: "complete",
@@ -88,6 +94,41 @@ describe("durable relationship context", () => {
     const result = relationshipContextLayer(current);
     expect(result.evidence.some((item) => item.code === "ESTABLISHED_LOCAL_SENDER_HISTORY" && item.scoreContribution === 0)).toBe(true);
     expect(result.evidence.some((item) => item.code === "FIRST_CONTACT")).toBe(false);
+  });
+
+  it("decays only the positive familiarity reward after prolonged inactivity", () => {
+    const fresh = profile({
+      lastObservedAt: TEST_NOW - RELATIONSHIP_FULL_CONFIDENCE_AGE_MS,
+      lastAuthenticatedAt: TEST_NOW - RELATIONSHIP_FULL_CONFIDENCE_AGE_MS,
+    });
+    const stale = profile({
+      lastObservedAt: TEST_NOW - RELATIONSHIP_ZERO_CONFIDENCE_AGE_MS - 1,
+      lastAuthenticatedAt: TEST_NOW - RELATIONSHIP_ZERO_CONFIDENCE_AGE_MS - 1,
+    });
+
+    expect(relationshipPositiveConfidence(fresh, TEST_NOW)).toBe(1);
+    expect(relationshipPositiveConfidence(stale, TEST_NOW)).toBe(0);
+
+    const current = envelope();
+    annotateRelationshipHistory(current, snapshotFor("known@example.com", stale));
+    expect(current.threadContext.hasEstablishedSenderHistory).toBe(false);
+    expect(relationshipContextLayer(current).evidence.some((item) => item.code === "FIRST_CONTACT")).toBe(true);
+  });
+
+  it("retains authentication-downgrade risk even after positive familiarity has decayed", () => {
+    const stale = profile({
+      lastObservedAt: TEST_NOW - RELATIONSHIP_ZERO_CONFIDENCE_AGE_MS - 1,
+      lastAuthenticatedAt: TEST_NOW - RELATIONSHIP_ZERO_CONFIDENCE_AGE_MS - 1,
+    });
+    const current = envelope({
+      authentication: { providerTrust: "trusted", spf: "fail", dkim: "fail", dmarc: "fail", arc: "unknown" },
+    });
+    annotateRelationshipHistory(current, snapshotFor("known@example.com", stale));
+    const result = relationshipContextLayer(current);
+
+    expect(current.threadContext.hasEstablishedSenderHistory).toBe(false);
+    expect(current.threadContext.relationshipAuthenticationDowngrade).toBe(true);
+    expect(result.evidence.some((item) => item.code === "RELATIONSHIP_AUTH_DOWNGRADE" && item.scoreContribution > 0)).toBe(true);
   });
 
   it("detects an explicit authentication downgrade after established authenticated history", () => {
