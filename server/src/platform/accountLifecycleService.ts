@@ -1,5 +1,6 @@
 import type { AccountPlatformRepository, AccountPlatformRuntime } from "./accountFamilyPorts.js";
 import {
+  familySeatLimit,
   hashRecoveryCode,
   type AccountPlatformState,
   type EmailShieldAccount,
@@ -53,12 +54,28 @@ export interface FamilyDeletionResult {
   removedThreatCampaigns: number;
 }
 
+export interface FamilyOwnershipTransferResult {
+  familyCircleId: string;
+  previousOwnerAccountId: string;
+  newOwnerAccountId: string;
+  seatLimit: number;
+}
+
 function cloneState(state: AccountPlatformState): AccountPlatformState {
   return structuredClone(state);
 }
 
 function activeDevice(account: EmailShieldAccount, deviceId: string): RegisteredDevice | null {
   return account.devices.find((device) => device.deviceId === deviceId && device.revokedAt === null) ?? null;
+}
+
+function normalizeTransferTarget(value: unknown): string {
+  if (typeof value !== "string") throw new Error("A Family Shield member account is required for ownership transfer.");
+  const accountId = value.trim();
+  if (accountId.length < 1 || accountId.length > 128 || /[\u0000-\u001f\u007f]/.test(accountId)) {
+    throw new Error("The Family Shield transfer target is invalid.");
+  }
+  return accountId;
 }
 
 /**
@@ -138,6 +155,47 @@ export class AccountLifecycleService {
     state.currentAccountId = null;
     this.write(state);
     return { revoked };
+  }
+
+  transferFamilyOwnership(currentDeviceId: string, targetAccountIdInput: unknown): FamilyOwnershipTransferResult {
+    const state = this.read();
+    const account = this.current(state);
+    this.requireCurrentDevice(account, currentDeviceId);
+    const circle = this.circleForAccount(state, account);
+    if (!circle || circle.ownerAccountId !== account.accountId) {
+      throw new Error("Only the current Family Shield owner can transfer ownership.");
+    }
+
+    const targetAccountId = normalizeTransferTarget(targetAccountIdInput);
+    if (targetAccountId === account.accountId) throw new Error("Family Shield ownership is already assigned to this account.");
+    const targetMember = circle.members.find((member) => member.accountId === targetAccountId);
+    if (!targetMember) throw new Error("Family Shield ownership can be transferred only to an existing family member.");
+    const targetAccount = state.accounts.find((candidate) => candidate.accountId === targetAccountId);
+    if (!targetAccount || targetAccount.familyCircleId !== circle.familyCircleId) {
+      throw new Error("The Family Shield transfer target is no longer an active family member.");
+    }
+    if (!targetAccount.devices.some((device) => device.revokedAt === null)) {
+      throw new Error("The new Family Shield owner must have at least one active trusted device.");
+    }
+
+    const seatLimit = familySeatLimit(targetAccount.entitlement, this.runtime.now());
+    if (seatLimit < 2) throw new Error("The new Family Shield owner must have an active Family entitlement.");
+    if (seatLimit < circle.members.length) {
+      throw new Error("The new Family Shield owner's plan does not have enough seats for the current family.");
+    }
+
+    const previousOwnerAccountId = account.accountId;
+    circle.ownerAccountId = targetAccountId;
+    for (const member of circle.members) {
+      member.role = member.accountId === targetAccountId ? "owner" : "member";
+    }
+    this.write(state);
+    return {
+      familyCircleId: circle.familyCircleId,
+      previousOwnerAccountId,
+      newOwnerAccountId: targetAccountId,
+      seatLimit,
+    };
   }
 
   deleteFamilyCircle(currentDeviceId: string): FamilyDeletionResult {
