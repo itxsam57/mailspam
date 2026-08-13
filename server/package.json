@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "npm run build && node dist/index.js",
-    "dev:community": "npm run build && node dist/communityIndex.js",
-    "dev:account-service": "npm run build && node dist/accountServiceIndex.js",
+    "dev": "tsx src/index.ts",
+    "dev:community": "tsx src/communityIndex.ts",
+    "dev:account-service": "tsx src/accountServiceIndex.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.build.json",
     "test": "npm run build && vitest run",
