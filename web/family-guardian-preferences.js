@@ -16,6 +16,8 @@
     ['shopping', 'Shopping'],
     ['other', 'Other'],
   ];
+  let loaded = false;
+  let dirty = true;
 
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, (character) => ({
@@ -76,7 +78,10 @@
       }
       if (!body.available && status) status.textContent = 'Create or join a Family Shield circle before saving Guardian preferences.';
       else if (status) status.textContent = 'Preferences are stored using a hashed internal account key; no mailbox identity or message content is stored here.';
+      loaded = true;
+      dirty = false;
     } catch (error) {
+      dirty = true;
       if (status) status.textContent = error.message || String(error);
     }
   }
@@ -100,14 +105,29 @@
         }),
       }));
       if (status) status.textContent = result.saved ? 'Family Guardian preferences saved.' : 'Preferences were not saved.';
+      if (result.saved) dirty = false;
     } catch (error) {
       if (status) status.textContent = escapeHtml(error.message || String(error));
     }
   }
 
+  function familyVisible() {
+    const host = document.getElementById('consumerFamilyGuardianPanel');
+    const route = host?.closest('.app-route');
+    return route ? !route.hidden && route.dataset.route === 'family' : location.hash === '#family';
+  }
+
+  function loadWhenVisible() {
+    if (familyVisible() && (!loaded || dirty)) void load();
+  }
+
   document.addEventListener('click', (event) => {
     if (event.target instanceof HTMLElement && event.target.id === 'familyGuardianSave') void save();
   });
-  window.addEventListener('email-shield-profile-changed', () => { void load(); });
-  setTimeout(() => { void load(); }, 600);
+  window.addEventListener('email-shield-profile-changed', () => { dirty = true; loadWhenVisible(); });
+  window.addEventListener('email-shield-family-changed', () => { dirty = true; loadWhenVisible(); });
+  window.addEventListener('email-shield-route-changed', (event) => {
+    if (event.detail?.route === 'family') loadWhenVisible();
+  });
+  if (location.hash === '#family') queueMicrotask(loadWhenVisible);
 })();
