@@ -27,6 +27,19 @@ function exactConfirmation(body: unknown, expected: string): void {
   }
 }
 
+function transferRequest(body: unknown): string {
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("Choose a Family Shield member and type TRANSFER FAMILY to confirm.");
+  const value = body as Record<string, unknown>;
+  if (Object.keys(value).some((key) => key !== "confirmation" && key !== "targetAccountId")
+    || value.confirmation !== "TRANSFER FAMILY"
+    || typeof value.targetAccountId !== "string") {
+    throw new Error("Choose a Family Shield member and type TRANSFER FAMILY to confirm.");
+  }
+  const target = value.targetAccountId.trim();
+  if (target.length < 1 || target.length > 128) throw new Error("The Family Shield transfer target is invalid.");
+  return target;
+}
+
 function protectedRead(dependencies: AccountLifecycleRouteDependencies) {
   return [
     dependencies.security.validateLoopbackRequest,
@@ -116,6 +129,23 @@ export function registerAccountLifecycleRoutes(app: Express, dependencies: Accou
           signedOut: true,
           recoveryRequired: true,
         });
+      } catch (error) {
+        errorResponse(res, error);
+      }
+    },
+  );
+
+  app.post(
+    "/api/profile/v1/family/transfer",
+    ...protectedMutation(dependencies),
+    routeLimit(dependencies, "account-lifecycle-transfer-family"),
+    express.json({ limit: "2kb", strict: true }),
+    async (req: Request, res: Response) => {
+      try {
+        const targetAccountId = transferRequest(req.body);
+        const currentDeviceId = await deviceIdentity.currentDeviceId();
+        noStore(res);
+        res.json(lifecycle.transferFamilyOwnership(currentDeviceId, targetAccountId));
       } catch (error) {
         errorResponse(res, error);
       }
