@@ -24,6 +24,7 @@ export type AccountServiceOperation =
   | "family:leave"
   | "family:strict"
   | "family:remove-member"
+  | "family:transfer"
   | "family:delete"
   | "family:threat";
 
