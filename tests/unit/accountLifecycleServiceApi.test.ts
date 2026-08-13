@@ -143,7 +143,10 @@ describe("device-signed account lifecycle service", () => {
       device: recoveredDevice.identity,
       deviceProof: proof,
     });
-    expect(oldAttempt.response.status).toBe(401);
+    // Established account-service contract classifies an invalid recovery code
+    // as a 400 validation failure. The security invariant is that it is rejected.
+    expect(oldAttempt.response.status).toBe(400);
+    expect(String(oldAttempt.body.error)).toMatch(/recovery code is invalid/i);
     const newAttempt = await json(test.baseUrl, "/v1/accounts/recover", {
       username: "lifecycle.owner",
       recoveryCode: rotated.body.recoveryCode,
