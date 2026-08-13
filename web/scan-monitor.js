@@ -54,11 +54,12 @@
   const diagnostics = document.createElement('details');
   diagnostics.id = 'scanDiagnosticAudit';
   diagnostics.className = 'scan-diagnostics';
+  diagnostics.open = true;
   diagnostics.innerHTML = `
-    <summary>Diagnostic audit (0 messages)</summary>
-    <div class="scan-diagnostics-note">Local test view only. Shows metadata, verdicts, evidence codes, and parse notes—never message bodies, raw HTML, credentials, unsubscribe destinations, or attachment content.</div>
+    <summary>Scanned messages (0)</summary>
+    <div class="scan-diagnostics-note">Local privacy-safe results. Shows verdict, subject, sender and inspection notes—never message bodies, raw HTML, credentials, unsubscribe destinations, or attachment content.</div>
     <div class="scan-diagnostics-scroll"><table>
-      <caption class="visually-hidden">Privacy-reduced diagnostic results for scanned messages</caption>
+      <caption class="visually-hidden">Privacy-safe scanned message results</caption>
       <thead><tr><th scope="col">Verdict</th><th scope="col">Score</th><th scope="col">Subject</th><th scope="col">Sender</th><th scope="col">Parse</th><th scope="col">Evidence / notes</th></tr></thead>
       <tbody></tbody>
     </table></div>`;
@@ -117,7 +118,7 @@
   }
 
   function renderDiagnostics() {
-    diagnostics.querySelector('summary').textContent = `Diagnostic audit (${diagnosticRows.length} messages)`;
+    diagnostics.querySelector('summary').textContent = `Scanned messages (${diagnosticRows.length})`;
     const tbody = diagnostics.querySelector('tbody');
     tbody.innerHTML = diagnosticRows.map((item) => {
       const evidenceCodes = item.evidenceCodes?.length ? item.evidenceCodes.join(', ') : 'none';
@@ -155,6 +156,7 @@
     setStatus(`Scanning… ${progress.counters.examined} messages examined. Last completed page is protected for resume.`, 'running');
     if (progress.diagnosticSummaries?.length) {
       diagnosticRows.push(...progress.diagnosticSummaries);
+      diagnostics.open = true;
       renderDiagnostics();
     }
     if (progress.suspiciousCards?.length && typeof window.renderCard === 'function') {
@@ -170,6 +172,7 @@
     diagnosticRows = Array.isArray(presentation.diagnosticSummaries)
       ? presentation.diagnosticSummaries.slice(-500)
       : [];
+    if (diagnosticRows.length) diagnostics.open = true;
     renderDiagnostics();
     if (presentation.counters && typeof window.renderCounters === 'function') {
       window.renderCounters(presentation.counters);
@@ -221,7 +224,7 @@
     counters.innerHTML = '';
     cards.innerHTML = '';
     diagnosticRows = [];
-    diagnostics.open = false;
+    diagnostics.open = true;
     renderDiagnostics();
     stopButton.disabled = false;
     setStatus(`${resumeScanId ? 'Resuming' : 'Starting'} ${type} scan…`, 'running');
@@ -254,7 +257,7 @@
       catch (error) { setStatus(`Could not render scan progress: ${error.message}`, 'error'); }
     };
     es.addEventListener('scan-complete', () => {
-      setStatus(counters.textContent.trim() ? 'Scan complete. Results are shown below and the privacy-reduced history record is saved.' : 'Scan complete. No additional readable messages were returned.', 'complete');
+      setStatus(counters.textContent.trim() ? 'Scan complete. Scanned messages are shown below and the privacy-reduced history record is saved.' : 'Scan complete. No additional readable messages were returned.', 'complete');
       finish();
       historyChanged();
     });
