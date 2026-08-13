@@ -41,6 +41,14 @@
   const list = panel.querySelector('#scanHistoryList');
   const persistence = panel.querySelector('#scanHistoryPersistence');
   const refreshButton = panel.querySelector('#scanHistoryRefreshBtn');
+  const stopScanButton = document.getElementById('stopScanBtn');
+  const resumeScanButton = document.createElement('button');
+  resumeScanButton.id = 'resumeScanBtn';
+  resumeScanButton.className = 'primary';
+  resumeScanButton.type = 'button';
+  resumeScanButton.textContent = 'Resume Scan';
+  resumeScanButton.disabled = true;
+  stopScanButton?.insertAdjacentElement('afterend', resumeScanButton);
   let lastAccountId = null;
   let refreshTimer = null;
   let refreshing = false;
@@ -57,6 +65,9 @@
 
   function render(history, persistent) {
     persistence.textContent = persistent ? 'Encrypted history: persistent' : 'History: this process only';
+    resumeScanButton.disabled = true;
+    resumeScanButton.dataset.scanHistoryResume = '';
+    resumeScanButton.dataset.scanType = '';
     if (!Array.isArray(history) || history.length === 0) {
       list.innerHTML = '<div class="scan-history-empty">No scan history for this connected account yet.</div>';
       return;
@@ -64,6 +75,11 @@
 
     list.innerHTML = '';
     const newestResumable = history.find((record) => record?.resumable === true);
+    if (newestResumable) {
+      resumeScanButton.disabled = false;
+      resumeScanButton.dataset.scanHistoryResume = String(newestResumable.scanId || '');
+      resumeScanButton.dataset.scanType = String(newestResumable.type || 'full');
+    }
     for (const record of history) {
       const row = document.createElement('div');
       row.className = 'scan-history-row';
@@ -122,6 +138,9 @@
     lastAccountId = id;
     if (!id) {
       panel.style.display = 'none';
+      resumeScanButton.disabled = true;
+      resumeScanButton.dataset.scanHistoryResume = '';
+      resumeScanButton.dataset.scanType = '';
       if (refreshTimer) clearTimeout(refreshTimer);
       refreshTimer = null;
       return;
@@ -141,6 +160,9 @@
       render(body.history, body.persistent === true);
       scheduleRunningRefresh(body.history);
     } catch (error) {
+      resumeScanButton.disabled = true;
+      resumeScanButton.dataset.scanHistoryResume = '';
+      resumeScanButton.dataset.scanType = '';
       list.innerHTML = '';
       const message = document.createElement('div');
       message.className = 'scan-history-empty';
@@ -154,6 +176,29 @@
 
   refreshButton.addEventListener('click', () => { void refresh(); });
 
+  async function resumeProtectedScan(button, scanId, scanType) {
+    if (!scanId) return;
+    const starter = window.emailShieldStartScan;
+    if (typeof starter !== 'function') {
+      window.alert('The scan monitor is not ready. Reload Email Shield and try again.');
+      return;
+    }
+    button.disabled = true;
+    try {
+      await starter(scanType || 'full', { resumeScanId: scanId });
+    } finally {
+      setTimeout(() => { void refresh(); }, 250);
+    }
+  }
+
+  resumeScanButton.addEventListener('click', () => {
+    void resumeProtectedScan(
+      resumeScanButton,
+      resumeScanButton.dataset.scanHistoryResume || '',
+      resumeScanButton.dataset.scanType || 'full',
+    );
+  });
+
   list.addEventListener('click', async (event) => {
     const target = event.target instanceof Element ? event.target.closest('button') : null;
     if (!(target instanceof HTMLButtonElement) || target.disabled) return;
@@ -161,17 +206,11 @@
     if (!id) return;
 
     if (target.dataset.scanHistoryResume) {
-      const starter = window.emailShieldStartScan;
-      if (typeof starter !== 'function') {
-        window.alert('The scan monitor is not ready. Reload Email Shield and try again.');
-        return;
-      }
-      target.disabled = true;
-      try {
-        await starter(target.dataset.scanType || 'full', { resumeScanId: target.dataset.scanHistoryResume });
-      } finally {
-        setTimeout(() => { void refresh(); }, 250);
-      }
+      await resumeProtectedScan(
+        target,
+        target.dataset.scanHistoryResume,
+        target.dataset.scanType || 'full',
+      );
       return;
     }
 

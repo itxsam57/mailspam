@@ -8,7 +8,7 @@
 
   const style = document.createElement('style');
   style.textContent = `
-    .account-lifecycle-card{margin:0 0 14px}.account-lifecycle-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.account-lifecycle-actions button.danger{border-color:var(--confirmed);color:var(--confirmed)}
+    .account-lifecycle-card{margin:0 0 14px}.account-lifecycle-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.account-lifecycle-actions button.danger{border-color:var(--confirmed);background:var(--confirmed);color:#fff}
     .account-lifecycle-actions select{max-width:260px;padding:7px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)}
     .account-lifecycle-help{margin:0;color:var(--text-muted);font-size:11px;line-height:1.55}.account-lifecycle-status{min-height:18px;font-size:11px;color:var(--text-muted)}.account-lifecycle-status.error{color:var(--confirmed)}.account-lifecycle-status.ok{color:var(--safe)}
     .account-lifecycle-recovery{border:1px solid var(--review);background:rgba(232,178,61,.08);padding:10px;border-radius:7px;font-size:11px;line-height:1.5}.account-lifecycle-recovery code{display:block;margin:7px 0;overflow-wrap:anywhere;font-size:12px}

@@ -42,6 +42,11 @@ const HARD_SECURITY_CODES = new Set([
 ]);
 
 export function normalizeProtectionSensitivityProfile(value: unknown): ProtectionSensitivityProfile {
+  // Consumer-facing controls use the descriptive "high_protection" value,
+  // while persistence and the engine intentionally keep the canonical "high"
+  // profile. Canonicalize only at this input boundary so stored/runtime state
+  // never gains a second spelling for the same protection policy.
+  if (value === "high_protection") return "high";
   if (value === "high" || value === "balanced" || value === "low_noise") return value;
   throw new Error("Protection sensitivity profile is invalid.");
 }

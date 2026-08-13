@@ -109,9 +109,22 @@
     );
     if (!confirmed) return;
 
+    // Manual link navigation must retain the WindowProxy created directly by
+    // the user's click. A second window.open after awaiting the server can be
+    // popup-blocked, and using noopener in the initial open may intentionally
+    // return null in modern browsers. Sever opener immediately instead.
     const pendingWindow = method === 'link_only'
-      ? window.open('about:blank', '_blank', 'noopener,noreferrer')
+      ? window.open('about:blank', '_blank')
       : null;
+    if (pendingWindow) {
+      try {
+        pendingWindow.opener = null;
+        const referrerPolicy = pendingWindow.document.createElement('meta');
+        referrerPolicy.name = 'referrer';
+        referrerPolicy.content = 'no-referrer';
+        pendingWindow.document.head?.appendChild(referrerPolicy);
+      } catch {}
+    }
     const previousText = button.textContent;
     button.disabled = true;
     button.textContent = method === 'one_click_post' ? 'Unsubscribing…' : 'Preparing…';
@@ -141,8 +154,10 @@
           throw new Error('The server returned an unexpected manual unsubscribe action.');
         }
         if (method === 'link_only') {
-          if (pendingWindow && !pendingWindow.closed) pendingWindow.location.replace(result.target);
-          else window.open(result.target, '_blank', 'noopener,noreferrer');
+          if (!pendingWindow || pendingWindow.closed) {
+            throw new Error('The browser blocked the unsubscribe tab. Allow pop-ups for Email Shield and try again.');
+          }
+          pendingWindow.location.replace(result.target);
           button.textContent = 'Open unsubscribe page again';
           if (actionStatus) {
             actionStatus.className = 'unsubscribe-action-status success';

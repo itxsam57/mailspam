@@ -4,6 +4,7 @@ import {
   defaultProtectionSensitivityPreference,
   evidenceContainsHardSecuritySignal,
   normalizeProtectionSensitivityPreference,
+  normalizeProtectionSensitivityProfile,
   type ProtectionSensitivityProfile,
 } from "../../server/src/consumer/protectionSensitivity.js";
 import type { CanonicalEnvelope } from "../../server/src/canonical/envelope.js";
@@ -65,6 +66,12 @@ describe("protection sensitivity", () => {
     expect(normalizeProtectionSensitivityPreference({ schemaVersion: 1, profile: "high" })).toEqual({ schemaVersion: 1, profile: "high" });
     expect(() => normalizeProtectionSensitivityPreference({ schemaVersion: 1, profile: "off" })).toThrow(/invalid/i);
     expect(() => normalizeProtectionSensitivityPreference({ schemaVersion: 1, profile: "balanced", bypassConfirmed: true })).toThrow(/invalid/i);
+  });
+
+  it("canonicalizes the consumer High Protection control to the single internal high profile", () => {
+    expect(normalizeProtectionSensitivityProfile("high_protection")).toBe("high");
+    expect(normalizeProtectionSensitivityPreference({ schemaVersion: 1, profile: "high_protection" })).toEqual({ schemaVersion: 1, profile: "high" });
+    expect(normalizeProtectionSensitivityProfile("high")).toBe("high");
   });
 
   it.each(profiles)("never changes confirmed-threat verdict/action in %s", (profile) => {
