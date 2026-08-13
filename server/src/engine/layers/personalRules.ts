@@ -6,6 +6,8 @@ import type { LayerResult } from "../verdict.js";
 export interface PersonalPolicySnapshot {
   blockedSenders: string[];
   blockedDomains: string[];
+  catchTrashSenders: string[];
+  catchTrashDomains: string[];
   trustedSenders: string[];
   approvedExceptions: string[];
   unsubscribedActions: string[];
@@ -15,6 +17,8 @@ export interface PersonalPolicySnapshot {
 export interface PersonalPolicyStore {
   isBlockedSender(address: string): boolean;
   isBlockedDomain(domain: string): boolean;
+  isCatchTrashSender(address: string): boolean;
+  isCatchTrashDomain(domain: string): boolean;
   isTrustedSender(address: string): boolean;
   isApprovedException(value: string): boolean;
   isUnsubscribedAction(actionKey: string): boolean;
@@ -24,6 +28,8 @@ export interface PersonalPolicyStore {
 export class InMemoryPersonalPolicyStore implements PersonalPolicyStore {
   private blockedSenders = new Set<string>();
   private blockedDomains = new Set<string>();
+  private catchTrashSenders = new Set<string>();
+  private catchTrashDomains = new Set<string>();
   private trustedSenders = new Set<string>();
   private approvedExceptions = new Set<string>();
   private unsubscribedActions = new Set<string>();
@@ -31,12 +37,16 @@ export class InMemoryPersonalPolicyStore implements PersonalPolicyStore {
 
   blockSender(address: string) { this.blockedSenders.add(address.toLowerCase()); }
   blockDomain(domain: string) { this.blockedDomains.add(domain.toLowerCase()); }
+  catchTrashSender(address: string) { this.catchTrashSenders.add(address.toLowerCase()); }
+  catchTrashDomain(domain: string) { this.catchTrashDomains.add(domain.toLowerCase()); }
   trustSender(address: string) { this.trustedSenders.add(address.toLowerCase()); }
   approveException(value: string) { this.approvedExceptions.add(value.toLowerCase()); }
   rememberUnsubscribed(actionKey: string) { this.unsubscribedActions.add(actionKey.toLowerCase()); }
   reportCampaign(fingerprint: string) { this.reportedCampaigns.add(fingerprint.toLowerCase()); }
   unblockSender(address: string) { this.blockedSenders.delete(address.toLowerCase()); }
   unblockDomain(domain: string) { this.blockedDomains.delete(domain.toLowerCase()); }
+  removeCatchTrashSender(address: string) { this.catchTrashSenders.delete(address.toLowerCase()); }
+  removeCatchTrashDomain(domain: string) { this.catchTrashDomains.delete(domain.toLowerCase()); }
   untrustSender(address: string) { this.trustedSenders.delete(address.toLowerCase()); }
   revokeException(value: string) { this.approvedExceptions.delete(value.toLowerCase()); }
   forgetUnsubscribed(actionKey: string) { this.unsubscribedActions.delete(actionKey.toLowerCase()); }
@@ -45,6 +55,8 @@ export class InMemoryPersonalPolicyStore implements PersonalPolicyStore {
   clear() {
     this.blockedSenders.clear();
     this.blockedDomains.clear();
+    this.catchTrashSenders.clear();
+    this.catchTrashDomains.clear();
     this.trustedSenders.clear();
     this.approvedExceptions.clear();
     this.unsubscribedActions.clear();
@@ -55,6 +67,8 @@ export class InMemoryPersonalPolicyStore implements PersonalPolicyStore {
     return {
       blockedSenders: [...this.blockedSenders],
       blockedDomains: [...this.blockedDomains],
+      catchTrashSenders: [...this.catchTrashSenders],
+      catchTrashDomains: [...this.catchTrashDomains],
       trustedSenders: [...this.trustedSenders],
       approvedExceptions: [...this.approvedExceptions],
       unsubscribedActions: [...this.unsubscribedActions],
@@ -65,6 +79,8 @@ export class InMemoryPersonalPolicyStore implements PersonalPolicyStore {
   restore(snapshot: Partial<PersonalPolicySnapshot>) {
     for (const value of snapshot.blockedSenders ?? []) this.blockSender(value);
     for (const value of snapshot.blockedDomains ?? []) this.blockDomain(value);
+    for (const value of snapshot.catchTrashSenders ?? []) this.catchTrashSender(value);
+    for (const value of snapshot.catchTrashDomains ?? []) this.catchTrashDomain(value);
     for (const value of snapshot.trustedSenders ?? []) this.trustSender(value);
     for (const value of snapshot.approvedExceptions ?? []) this.approveException(value);
     for (const value of snapshot.unsubscribedActions ?? []) this.rememberUnsubscribed(value);
@@ -78,6 +94,8 @@ export class InMemoryPersonalPolicyStore implements PersonalPolicyStore {
 
   isBlockedSender(address: string) { return this.blockedSenders.has(address.toLowerCase()); }
   isBlockedDomain(domain: string) { return this.blockedDomains.has(domain.toLowerCase()); }
+  isCatchTrashSender(address: string) { return this.catchTrashSenders.has(address.toLowerCase()); }
+  isCatchTrashDomain(domain: string) { return this.catchTrashDomains.has(domain.toLowerCase()); }
   isTrustedSender(address: string) { return this.trustedSenders.has(address.toLowerCase()); }
   isApprovedException(value: string) { return this.approvedExceptions.has(value.toLowerCase()); }
   isUnsubscribedAction(actionKey: string) { return this.unsubscribedActions.has(actionKey.toLowerCase()); }
@@ -111,6 +129,26 @@ export function personalRulesLayer(
       layer: "personal_rules",
       code: "BLOCKED_DOMAIN",
       description: "Sender domain matches the user's personal block list.",
+      scoreContribution: 10,
+      source: "personal_rule",
+    });
+  }
+  if (address && store.isCatchTrashSender(address)) {
+    confirmed = true;
+    evidence.push({
+      layer: "personal_rules",
+      code: "CATCH_TRASH_SENDER",
+      description: "The user explicitly enabled a post-unsubscribe Catch & Trash rule for this sender.",
+      scoreContribution: 10,
+      source: "personal_rule",
+    });
+  }
+  if (domain && store.isCatchTrashDomain(domain)) {
+    confirmed = true;
+    evidence.push({
+      layer: "personal_rules",
+      code: "CATCH_TRASH_DOMAIN",
+      description: "The user explicitly enabled a post-unsubscribe Catch & Trash rule for this sender domain.",
       scoreContribution: 10,
       source: "personal_rule",
     });
