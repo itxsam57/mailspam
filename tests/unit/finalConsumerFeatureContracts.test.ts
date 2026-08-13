@@ -24,6 +24,40 @@ import { assertBrowserProtectionRequest } from "../../server/src/consumer/browse
 
 const servers: Server[] = [];
 
+const FORBIDDEN_SUPPORT_KEYS = new Set([
+  "accesstoken",
+  "refreshtoken",
+  "apppassword",
+  "subject",
+  "body",
+  "bodytext",
+  "rawbody",
+  "senderaddress",
+  "mailboxaddress",
+  "recipientaddress",
+  "mailboxaccountkey",
+  "providernativeid",
+  "messageid",
+  "rawurl",
+  "deviceprivatekey",
+  "publickeyspki",
+  "recoverycode",
+  "recoverycodehash",
+]);
+
+function objectKeys(value: unknown, keys = new Set<string>()): Set<string> {
+  if (Array.isArray(value)) {
+    for (const item of value) objectKeys(item, keys);
+    return keys;
+  }
+  if (!value || typeof value !== "object") return keys;
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    keys.add(key.toLowerCase());
+    objectKeys(child, keys);
+  }
+  return keys;
+}
+
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
 });
@@ -217,9 +251,11 @@ describe("final consumer feature contracts", () => {
     const home = await fetch(baseUrl);
     const html = await home.text();
     const cookie = home.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
+    const sessionSecret = cookie.split("=", 2)[1] ?? "";
     const csrf = html.match(/<meta name="email-shield-csrf" content="([^"]+)"/)?.[1] ?? "";
     expect(home.status).toBe(200);
     expect(cookie).toMatch(/^email_shield_local_session=/);
+    expect(sessionSecret.length).toBeGreaterThanOrEqual(32);
     expect(csrf.length).toBeGreaterThanOrEqual(32);
     const response = await fetch(`${baseUrl}/api/consumer/v1/support-bundle`, {
       headers: {
@@ -234,7 +270,11 @@ describe("final consumer feature contracts", () => {
     const body = await response.json() as Record<string, unknown>;
     expect(body.schemaVersion).toBe(1);
     expect(body.privacy).toBe("no_credentials_tokens_mail_content_subject_sender_url_family_private_data_or_device_keys");
+
+    const keys = objectKeys(body);
+    expect([...keys].filter((key) => FORBIDDEN_SUPPORT_KEYS.has(key))).toEqual([]);
     const serialized = JSON.stringify(body);
-    expect(serialized).not.toMatch(/accessToken|refreshToken|appPassword|subject|senderAddress|mailboxAddress|rawUrl|devicePrivateKey/i);
+    expect(serialized).not.toContain(sessionSecret);
+    expect(serialized).not.toContain(csrf);
   });
 });
