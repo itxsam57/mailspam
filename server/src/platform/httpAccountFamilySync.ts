@@ -1,11 +1,13 @@
 import { accountRegistrationStatement } from "../accountService/protocol.js";
 import type { AccountServiceOperation } from "../accountService/types.js";
+import type { BillingEvidence } from "../billing/billingVerification.js";
 import type { PrivacySafeAccountExportV1 } from "./accountLifecycleService.js";
 import {
   deriveDeviceId,
   hashRecoveryCode,
   type FamilyThreatSnapshot,
   type PublicAccountPlatformSnapshot,
+  type VerifiedEntitlement,
 } from "./accountFamilyTypes.js";
 import type { DeviceIdentityPort, FamilySyncPort } from "./accountFamilyPorts.js";
 
@@ -14,6 +16,13 @@ export interface AccountFamilySyncSnapshot {
   account: PublicAccountPlatformSnapshot;
   familyThreats: FamilyThreatSnapshot | null;
   synchronizedAt: number;
+}
+
+export interface VerifiedBillingSyncResult {
+  verified: true;
+  duplicateEvent: boolean;
+  entitlement: VerifiedEntitlement;
+  snapshot: PublicAccountPlatformSnapshot;
 }
 
 const LIFECYCLE_OPERATIONS = new Set<AccountServiceOperation>([
@@ -125,6 +134,24 @@ export class HttpAccountFamilySyncClient implements FamilySyncPort {
   async snapshot(): Promise<AccountFamilySyncSnapshot> {
     const result = await this.authenticated("snapshot", "/v1/sync/snapshot");
     return result as unknown as AccountFamilySyncSnapshot;
+  }
+
+  async verifyBillingEvidence(evidence: BillingEvidence): Promise<VerifiedBillingSyncResult> {
+    const result = await this.authenticated("billing:verify", "/v1/billing/verify", { evidence });
+    const verified = result as unknown as VerifiedBillingSyncResult;
+    if (
+      verified.verified !== true
+      || typeof verified.duplicateEvent !== "boolean"
+      || !verified.entitlement
+      || !verified.snapshot?.account
+      || verified.snapshot.account.accountId !== this.accountId
+    ) {
+      throw new Error("Account service returned an invalid verified billing response.");
+    }
+    if (verified.entitlement.source === "development") {
+      throw new Error("Store billing verification returned an invalid development entitlement.");
+    }
+    return structuredClone(verified);
   }
 
   async publishThreat(input: {
