@@ -243,9 +243,6 @@
   const initial = location.hash.replace(/^#/, '');
   if (routeContainers.has(initial)) showRoute(initial, { focus: false });
 
-  Object.defineProperty(window, 'emailShieldNavigate', {
-    value: (route) => showRoute(route),
-    writable: false,
-    configurable: false,
-  });
+  // ui-router.js is the sole public navigation owner. Keeping this shell-local
+  // avoids a non-configurable global collision during deferred browser boot.
 })();
