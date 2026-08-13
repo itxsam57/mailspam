@@ -7,6 +7,7 @@
   const originalFetch = window.fetch.bind(window);
   const protectedPath = (path) =>
     path.startsWith('/api/accounts') ||
+    path.startsWith('/api/profile') ||
     path.startsWith('/api/dev') ||
     path.startsWith('/api/operations') ||
     path.startsWith('/api/scam-check') ||
