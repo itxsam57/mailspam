@@ -64,23 +64,21 @@ function ruleMatchesSummary(rule: ConsumerMailboxRule, summary: ScanDiagnosticSu
   return Boolean(rule.senderAddress || rule.senderDomain);
 }
 
-function collectConsumerRuleActions(
+function collectConsumerTrashRules(
   summaries: readonly ScanDiagnosticSummary[],
   trashIds: Set<string>,
-): { catchTrash: number; screened: number } {
-  const rules = activeConsumerRules();
-  let catchTrash = 0;
-  let screened = 0;
+): number {
+  const rules = activeConsumerRules().filter((rule) => rule.type === "trash_after_unsubscribe");
+  let added = 0;
   for (const summary of summaries) {
     for (const rule of rules) {
-      if (rule.type === "trash_after_unsubscribe" && ruleMatchesSummary(rule, summary)) {
-        if (!trashIds.has(summary.actionContext.providerNativeId)) catchTrash += 1;
-        trashIds.add(summary.actionContext.providerNativeId);
-      }
-      if (rule.type === "screen_first_contact" && summary.firstContact === true) screened += 1;
+      if (!ruleMatchesSummary(rule, summary)) continue;
+      if (!trashIds.has(summary.actionContext.providerNativeId)) added += 1;
+      trashIds.add(summary.actionContext.providerNativeId);
+      break;
     }
   }
-  return { catchTrash, screened };
+  return added;
 }
 
 async function enforceCollectedProtection(
@@ -127,22 +125,19 @@ async function runScanAttempt(onProgress: () => void): Promise<boolean> {
   const autoTrashIds = new Set<string>();
   const warningQuarantineIds = new Set<string>();
   let consumerCatchTrash = 0;
-  let screened = 0;
   for await (const progress of generator) {
     emittedProgress = true;
     onProgress();
     collectDurableAutoTrashIds(progress.suspiciousCards, autoTrashIds);
     collectCommunityWarningQuarantineIds(progress.suspiciousCards, warningQuarantineIds);
-    const consumerActions = collectConsumerRuleActions(progress.diagnosticSummaries, autoTrashIds);
-    consumerCatchTrash += consumerActions.catchTrash;
-    screened += consumerActions.screened;
+    consumerCatchTrash += collectConsumerTrashRules(progress.diagnosticSummaries, autoTrashIds);
     parentPort?.postMessage({ type: "progress", progress });
   }
 
-  if (consumerCatchTrash || screened) {
+  if (consumerCatchTrash) {
     parentPort?.postMessage({
       type: "consumer-rule-summary",
-      summary: { catchTrash: consumerCatchTrash, screened },
+      summary: { catchTrash: consumerCatchTrash },
     });
   }
   await enforceCollectedProtection(autoTrashIds, warningQuarantineIds);
