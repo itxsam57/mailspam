@@ -17,6 +17,7 @@ export type AccountServiceOperation =
   | "recovery:rotate"
   | "devices:revoke-others"
   | "devices:signout-everywhere"
+  | "billing:verify"
   | "family:create"
   | "family:invite"
   | "family:join"
