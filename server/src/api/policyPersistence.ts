@@ -65,8 +65,6 @@ function emptySnapshot(): PersonalPolicySnapshot {
   return {
     blockedSenders: [],
     blockedDomains: [],
-    catchTrashSenders: [],
-    catchTrashDomains: [],
     trustedSenders: [],
     approvedExceptions: [],
     unsubscribedActions: [],
@@ -93,29 +91,38 @@ export function sanitizePolicySnapshot(input: unknown): PersonalPolicySnapshot {
   const value = input && typeof input === "object"
     ? input as Partial<Record<keyof PersonalPolicySnapshot, unknown>>
     : {};
-  return {
+  const snapshot: PersonalPolicySnapshot = {
     blockedSenders: sanitizeList(value.blockedSenders),
     blockedDomains: sanitizeList(value.blockedDomains),
-    catchTrashSenders: sanitizeList(value.catchTrashSenders),
-    catchTrashDomains: sanitizeList(value.catchTrashDomains),
     trustedSenders: sanitizeList(value.trustedSenders),
     approvedExceptions: sanitizeList(value.approvedExceptions),
     unsubscribedActions: sanitizeList(value.unsubscribedActions),
     reportedCampaigns: sanitizeList(value.reportedCampaigns).filter((item) => /^[a-f0-9]{64}$/.test(item)),
   };
+  // Catch & Trash is a backward-compatible v1 extension. Preserve the legacy
+  // six-field serialized shape until either extension field is actually
+  // present. Once enabled, always persist both arrays as one atomic extension.
+  if (Object.hasOwn(value, "catchTrashSenders") || Object.hasOwn(value, "catchTrashDomains")) {
+    snapshot.catchTrashSenders = sanitizeList(value.catchTrashSenders);
+    snapshot.catchTrashDomains = sanitizeList(value.catchTrashDomains);
+  }
+  return snapshot;
 }
 
 function cloneSnapshot(snapshot: PersonalPolicySnapshot): PersonalPolicySnapshot {
-  return {
+  const cloned: PersonalPolicySnapshot = {
     blockedSenders: [...snapshot.blockedSenders],
     blockedDomains: [...snapshot.blockedDomains],
-    catchTrashSenders: [...snapshot.catchTrashSenders],
-    catchTrashDomains: [...snapshot.catchTrashDomains],
     trustedSenders: [...snapshot.trustedSenders],
     approvedExceptions: [...snapshot.approvedExceptions],
     unsubscribedActions: [...snapshot.unsubscribedActions],
     reportedCampaigns: [...snapshot.reportedCampaigns],
   };
+  if (snapshot.catchTrashSenders !== undefined || snapshot.catchTrashDomains !== undefined) {
+    cloned.catchTrashSenders = [...(snapshot.catchTrashSenders ?? [])];
+    cloned.catchTrashDomains = [...(snapshot.catchTrashDomains ?? [])];
+  }
+  return cloned;
 }
 
 export class InMemoryPolicyRepository implements PersonalPolicyRepository {
