@@ -19,6 +19,7 @@ const DESKTOP_ONLY_SCRIPTS = [
   "/account-lifecycle.js",
   "/family-shield.js",
   "/app-shell.js",
+  "/ui-router.js",
   "/scam-check.js",
   "/consumer-product.js",
   "/consumer-onboarding.js",
@@ -33,8 +34,9 @@ function scriptTags(paths: readonly string[]): string {
 /**
  * The API server is the sole owner of browser module composition. Card
  * enhancers are ordered from the base scan renderer outwards and loaded once.
- * The desktop shell reorganizes the proven panels first; post-shell consumer
- * modules then mount new surfaces only into explicit shell containers.
+ * The desktop shell constructs the visual route containers; ui-router then
+ * becomes the authoritative navigation/mount contract before any consumer
+ * feature module declares route-owned panels.
  */
 export function dashboardScriptTags(desktop: boolean): string {
   return scriptTags(desktop
