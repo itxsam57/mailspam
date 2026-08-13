@@ -5,6 +5,7 @@ import type {
   EmailAdapter,
   FetchPage,
   FolderDescriptor,
+  RestoreToInboxResult,
   SpamReportResult,
 } from "../../canonical/adapter.js";
 import type { CanonicalEnvelope, NormalizedFolder } from "../../canonical/envelope.js";
@@ -155,6 +156,21 @@ export class GmailAdapter implements EmailAdapter {
       reported: messageIds.length,
       mode: "provider_spam_label",
     };
+  }
+
+  async restoreToInbox(messageIds: string[], signal: AbortSignal): Promise<RestoreToInboxResult> {
+    if (!this.gmail) throw new Error("Not connected");
+    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+    if (messageIds.length === 0) return { requested: 0, restored: 0, supported: true, mode: "provider_label_restore" };
+    await this.gmail.users.messages.batchModify({
+      userId: "me",
+      requestBody: {
+        ids: messageIds,
+        addLabelIds: ["INBOX"],
+        removeLabelIds: ["TRASH", "SPAM"],
+      },
+    });
+    return { requested: messageIds.length, restored: messageIds.length, supported: true, mode: "provider_label_restore" };
   }
 
   async disconnect(): Promise<void> {
