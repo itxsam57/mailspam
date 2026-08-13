@@ -215,12 +215,18 @@ describe("final consumer feature contracts", () => {
   it("serves a no-store privacy-safe support bundle through the real desktop composition", async () => {
     const baseUrl = await startDesktop();
     const home = await fetch(baseUrl);
+    const html = await home.text();
     const cookie = home.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
+    const csrf = html.match(/<meta name="email-shield-csrf" content="([^"]+)"/)?.[1] ?? "";
+    expect(home.status).toBe(200);
+    expect(cookie).toMatch(/^email_shield_local_session=/);
+    expect(csrf.length).toBeGreaterThanOrEqual(32);
     const response = await fetch(`${baseUrl}/api/consumer/v1/support-bundle`, {
       headers: {
         Cookie: cookie,
         Origin: baseUrl,
         Referer: `${baseUrl}/`,
+        "X-Email-Shield-CSRF": csrf,
       },
     });
     expect(response.status).toBe(200);
