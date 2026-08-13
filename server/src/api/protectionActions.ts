@@ -23,6 +23,7 @@ import type {
   ConsumerActivityRecord,
   ConsumerStateRepository,
 } from "./consumerStatePersistence.js";
+import { defaultConsumerStateRepository } from "./defaultConsumerStateRepository.js";
 
 const ACTIVITY_UNDO_WINDOW_MS = 30 * 60 * 1_000;
 
@@ -85,9 +86,9 @@ function recordActivity(
   session: NonNullable<ReturnType<SessionStore["get"]>>,
   input: Omit<ConsumerActivityRecord, "activityId" | "createdAt" | "provider">,
 ): boolean {
-  if (!dependencies.consumerActivity) return false;
+  const activity = dependencies.consumerActivity ?? defaultConsumerStateRepository;
   try {
-    dependencies.consumerActivity.appendActivity(session.policyAccountKey, {
+    activity.appendActivity(session.policyAccountKey, {
       ...input,
       provider: session.config.provider,
     });
