@@ -9,6 +9,7 @@
   const style = document.createElement('style');
   style.textContent = `
     body.email-shield-shell{padding-left:218px}.email-shield-shell header{margin-left:0}
+    @media(min-width:901px){body.email-shield-shell>header{display:none}}
     .app-sidebar{position:fixed;inset:0 auto 0 0;width:218px;background:#0b0e13;border-right:1px solid var(--border);z-index:80;display:flex;flex-direction:column;padding:18px 12px;box-sizing:border-box}
     .app-sidebar-brand{display:flex;align-items:center;gap:10px;padding:4px 8px 18px;border-bottom:1px solid var(--border);margin-bottom:12px}.app-sidebar-brand strong{font-size:14px}.app-sidebar-brand span{display:block;font-size:10px;color:var(--text-faint);margin-top:2px}
     .app-nav{display:flex;flex-direction:column;gap:4px;overflow:auto}.app-nav button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:transparent;border:1px solid transparent;color:var(--text-muted);padding:9px 10px;border-radius:7px}.app-nav button:hover,.app-nav button:focus-visible{background:var(--panel-raised);color:var(--text)}.app-nav button[aria-current="page"]{background:#222a36;color:var(--text);border-color:#323b49}.app-nav-icon{width:18px;text-align:center;font-weight:700}.app-sidebar-foot{margin-top:auto;padding:12px 8px 0;border-top:1px solid var(--border);font-size:10px;color:var(--text-faint);line-height:1.45}
