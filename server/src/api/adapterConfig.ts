@@ -3,6 +3,7 @@ import type {
   EmailAdapter,
   FetchPage,
   FolderDescriptor,
+  RestoreToInboxResult,
   SpamReportResult,
 } from "../canonical/adapter.js";
 import { buildDemoMailbox } from "../adapters/fixtures/demoMailbox.js";
@@ -84,6 +85,9 @@ class OperationalAdapter implements EmailAdapter {
   reportSpam(messageIds: string[], signal: AbortSignal): Promise<SpamReportResult> {
     return observe(this.provider, "report_spam", () => this.delegate.reportSpam(messageIds, signal));
   }
+  restoreToInbox(messageIds: string[], signal: AbortSignal): Promise<RestoreToInboxResult> {
+    return observe(this.provider, "move_to_inbox", () => this.delegate.restoreToInbox(messageIds, signal));
+  }
   disconnect(): Promise<void> { return observe(this.provider, "disconnect", () => this.delegate.disconnect()); }
 }
 
@@ -143,6 +147,10 @@ class SecureConfigAdapter implements EmailAdapter {
 
   async reportSpam(messageIds: string[], signal: AbortSignal): Promise<SpamReportResult> {
     return this.connected().reportSpam(messageIds, signal);
+  }
+
+  async restoreToInbox(messageIds: string[], signal: AbortSignal): Promise<RestoreToInboxResult> {
+    return this.connected().restoreToInbox(messageIds, signal);
   }
 
   async disconnect(): Promise<void> {
