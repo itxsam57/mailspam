@@ -1,6 +1,7 @@
 import { createHmac, randomBytes } from "node:crypto";
 import type { CanonicalEnvelope } from "../canonical/envelope.js";
 import { classifyDestination, type DestinationResult } from "../engine/layers/destinationClassification.js";
+import { incidentNetworkControlsFromEnvironment } from "../operations/incidentControls.js";
 import { hardenedFetch, type HardenedFetchResult } from "../util/hardenedFetch.js";
 
 export const DESTINATION_ANALYSIS_CONCURRENCY = 4;
@@ -39,6 +40,7 @@ export interface DestinationAnalysisCoordinatorOptions {
   errorCacheTtlMs?: number;
   now?: () => number;
   cacheKey?: Buffer;
+  networkEnabled?: boolean;
 }
 
 interface CacheEntry {
@@ -62,6 +64,13 @@ const INTERNAL_ERROR_RESULT: CachedDestinationResult = {
   hasForm: false,
   hasPasswordField: false,
   detail: "Destination analysis failed without a trusted result; the destination was not treated as benign.",
+};
+
+const INCIDENT_DISABLED_RESULT: CachedDestinationResult = {
+  classification: "error",
+  hasForm: false,
+  hasPasswordField: false,
+  detail: "Destination network analysis is disabled by incident control. The link was not treated as benign; local message protection remains active.",
 };
 
 function positiveInteger(value: number, name: string): number {
@@ -106,6 +115,7 @@ export class DestinationAnalysisCoordinator {
   private readonly errorCacheTtlMs: number;
   private readonly now: () => number;
   private readonly cacheKey: Buffer;
+  private readonly networkEnabled: boolean;
   private readonly queue: QueuedJob[] = [];
   private readonly cache = new Map<string, CacheEntry>();
   private readonly inFlight = new Map<string, Promise<CachedDestinationResult>>();
@@ -128,6 +138,7 @@ export class DestinationAnalysisCoordinator {
     this.now = options.now ?? Date.now;
     this.cacheKey = Buffer.from(options.cacheKey ?? randomBytes(32));
     if (this.cacheKey.length !== 32) throw new Error("cacheKey must contain exactly 32 bytes.");
+    this.networkEnabled = options.networkEnabled ?? incidentNetworkControlsFromEnvironment().linkAnalysisNetworkEnabled;
   }
 
   async analyze(envelope: CanonicalEnvelope): Promise<AnalyzeLinksResult> {
@@ -138,6 +149,10 @@ export class DestinationAnalysisCoordinator {
       (result) => result.classification === "credential_trap" || result.classification === "malware",
     );
     return { results, escalatedToHighRisk };
+  }
+
+  networkAvailable(): boolean {
+    return this.networkEnabled;
   }
 
   telemetry(): DestinationAnalysisTelemetry {
@@ -156,6 +171,8 @@ export class DestinationAnalysisCoordinator {
   }
 
   private async analyzeDestination(url: string): Promise<DestinationResult> {
+    if (!this.networkEnabled) return withUrl(url, INCIDENT_DISABLED_RESULT);
+
     const token = this.tokenFor(url);
     const cached = this.readCache(token);
     if (cached) {
