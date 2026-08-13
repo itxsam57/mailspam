@@ -26,8 +26,23 @@ jobs:
     timeout-minutes: 35
 
     steps:
-      - name: Checkout
+      - name: Checkout immutable tested SHA
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: Assert immutable tested SHA
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$EXPECTED_SHA" || {
+            echo "Expected immutable test SHA $EXPECTED_SHA but checkout is $actual" >&2
+            exit 1
+          }
+          echo "Exact tested SHA: $actual"
 
       - name: Use Node.js 22
         uses: actions/setup-node@v4
@@ -87,9 +102,10 @@ jobs:
           vectors_status=$?
           npm run test:unit > artifacts/engineering/unit-failure.log 2>&1
           unit_status=$?
+          tested_sha="$(git rev-parse HEAD 2>/dev/null || printf unknown)"
           {
             echo "runner: ${RUNNER_OS}"
-            echo "commit: ${GITHUB_SHA}"
+            echo "commit: ${tested_sha}"
             echo "typecheck diagnostic rerun exit: ${typecheck_status}"
             echo "build diagnostic rerun exit: ${build_status}"
             echo "portable-core diagnostic rerun exit: ${core_status}"
