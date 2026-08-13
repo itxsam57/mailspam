@@ -1,45 +1,42 @@
 # Final Milestone Status Ledger
 
-This is the live status ledger for PR #69. The detailed acceptance contract is `docs/FINAL_CONSUMER_COMPLETION_MILESTONE.md`.
+This is the live code-status ledger for PR #73. The acceptance authority is `docs/FINAL_CONSUMER_COMPLETION_MILESTONE.md`.
 
-| Workstream | Current state |
-|---|---|
-| Final milestone authority / competitor benchmark / invariants | IMPLEMENTED |
-| Near-real-time inbound protection | PARTIAL — canonical replay-safe coordinator, encrypted checkpoints and Gmail/Graph/IMAP/poll trigger normalization are implemented; shared scan execution and live source runtimes remain |
-| Check Anything | IMPLEMENTED — text/link/.eml/PNG/JPEG QR paths share one deterministic evaluator; local OCR is a native/platform bridge |
-| Explainability | PARTIAL — Check Anything consumer explanations and safe-action guidance are implemented; connected-mailbox explanation unification remains |
-| Protection sensitivity profiles | NOT STARTED |
-| Family Guardian / trusted-person assistance | PARTIAL — Family Shield foundation exists |
-| Campaign radar | PARTIAL — community campaign intelligence exists; proactive advisory UX/feed missing |
-| Inbox Health | PARTIAL — unsubscribe/block/policy/history foundations exist |
-| Mailbox Health compromise indicators | NOT STARTED |
-| Browser/link-defense core | PARTIAL — hardened Analyze Links/destination intelligence exists |
-| Mobile scam-channel contracts | PARTIAL — portable/mobile account-family contract and Check Anything shareable input core exist; SMS/notification/share/calendar native contracts remain |
-| Remote-access/payment-risk intervention | NOT STARTED |
-| Attachment/malware expansion | PARTIAL — MIME/type/hash/QR exists |
-| Identity exposure foundation | NOT STARTED |
-| Account/privacy/subscription lifecycle | PARTIAL — account/device/recovery/family/entitlement foundation exists |
-| Unified protection activity / undo | PARTIAL — histories and some undo semantics exist |
-| Personalization safety | PARTIAL — relationship/personal policy learning exists |
-| Consumer onboarding/dashboard | PARTIAL — Check Anything is integrated into the consumer Scan route; full first-run flow remains |
-| Accessibility/localization completion | PARTIAL |
-| Privacy-safe support bundle | NOT STARTED |
-| Production service readiness | PARTIAL |
-| Competitive Regression Vault expansion | PARTIAL |
-| Release economics / entitlement packaging | PARTIAL |
-| Deepfake/voice-scam plugin contract | NOT STARTED |
-| Phone/callback verification | PARTIAL — callback scam intent detection and Check Anything guidance exist; trusted verification workflow missing |
-| Shopping/fake-store protection | PARTIAL — destination/brand evidence exists |
-| Digital Account Footprint | NOT STARTED |
-| Native Windows/macOS/Android/iOS wrapping | AFTER THIS MILESTONE |
+`IMPLEMENTED` means production-path repository code exists and blocking automated coverage exists. It does **not** mean a provider, operating-system, store, deployment, signing-key or owner-visible external acceptance step has been simulated or waived.
 
-Accepted final-milestone gate records so far:
+| Workstream | Repository state | Evidence boundary |
+|---|---|---|
+| A — Near-real-time inbound protection | IMPLEMENTED | Replay-safe encrypted event state, provider source normalization, serialized protection execution, family parity and realtime service/processor regressions. |
+| B — Check Anything | IMPLEMENTED | Message, URL, `.eml`, PNG/JPEG, QR and local visual-text bridge converge on deterministic analysis with bounded inputs. |
+| C — Explainability and safe action | IMPLEMENTED | Consumer explanation contract, provenance, limitations and independently sourced verification guidance are wired to Check Anything and protection surfaces. |
+| D — Protection sensitivity | IMPLEMENTED | High Protection, Balanced and Low Noise profiles exist with invariant tests proving hard threats cannot be downgraded. |
+| E — Family Guardian / trusted assistance | IMPLEMENTED | Privacy-safe family summary/preferences, high-risk categories, explicit trusted-assistance packet, revocation/ownership controls and Family-vs-global consensus separation. |
+| F — Campaign radar | IMPLEMENTED | Verified community trend/rate intelligence and consumer Family radar UI with fail-closed unavailable state. |
+| G — Inbox Health and cleanup | IMPLEMENTED | Subscription inventory, safe unsubscribe/catch-trash foundations, bounded explicit cleanup, local rules, activity and provider-safe Undo. |
+| H — Mailbox Health | IMPLEMENTED | Provider-capability compromise indicators and spam-bomb/security-alert checks report unsupported checks as unavailable, never safe. |
+| I — Browser/link defense | IMPLEMENTED | Explicit local URL verdict contract, hardened destination analysis, DNS-pinned transport and privacy-minimal future bridge. |
+| J — Mobile scam-channel contracts | IMPLEMENTED | SMS, notification, share-sheet, explicit clipboard, calendar and QR contracts with permission minimization and generic notification payload policy. |
+| K — Remote-access/payment-risk intervention | IMPLEMENTED | Local behavioral combination contract covers remote-support, transfer/crypto/gift-card pressure and callback verification guidance without endpoint surveillance claims. |
+| L — Attachment/malware expansion | IMPLEMENTED | MIME/type/hash/QR, magic mismatch, executable/script policy, bounded archive/decompression/nesting/password-protection handling and signed known-bad hash support. |
+| M — Identity exposure | IMPLEMENTED | Explicit-consent privacy-preserving prefix lookup interfaces for email/password exposure with no plaintext password upload. |
+| N — Account/privacy/subscription lifecycle | IMPLEMENTED | Device/recovery/sign-out/deletion/export/family lifecycle plus billing verification interfaces, idempotent event ledger, entitlement states and production development-switch boundary. |
+| O — Notifications/activity/undo/recovery | IMPLEMENTED | Unified privacy-safe local activity, generic notification policy and provider-capability-gated reversible actions. |
+| P — Personalization safety | IMPLEMENTED | Account-local relationship history remains evidence rather than trust; explicit feedback, drift/takeover handling and reset/export controls are bounded and private. |
+| Q — Consumer onboarding/dashboard | IMPLEMENTED | Canonical eight-step first-run journey now requires observed account/mailbox/scan/continuous-protection state, explicit successful sensitivity save, permission review and Family decision before Home completion. Local Scam Check remains available before connection. |
+| R — Accessibility/localization/safety education | IMPLEMENTED | Keyboard/focus/ARIA structure, narrow layout, forced colors, reduced motion, strict localization catalog and contextual safety education have blocking source/regression coverage. Owner assistive-technology review remains external. |
+| S — Privacy-safe support diagnostics | IMPLEMENTED | User-exported fixed-scope support bundle excludes credentials, tokens, subjects, sender addresses, raw URLs, Family private data and device secrets. |
+| T — Production service readiness | IMPLEMENTED | Configuration validation, gateway/reputation hooks, metrics, key separation/rotation/recovery runbooks and incident kill switches preserve local scanning. DNS/TLS/cloud deployment remains external. |
+| U — Competitive Regression Vault / red team | IMPLEMENTED | Adversarial scenario coverage includes calendar, download/extension lure, polished phishing, multilingual scams, known-contact takeover, BEC and image-only phishing plus the five-provider corpus/Vault. |
+| V — Release economics/plan packaging | IMPLEMENTED | Free/Individual/Family entitlement architecture and bounded local/network service boundaries exist without hardcoded commercial prices. |
+| W — Final pre-app acceptance | ENGINEERING CLOSURE IN PROGRESS | CI is pinned to the literal immutable PR head. A fresh Windows/macOS/Ubuntu exact-head gate and owner live acceptance are required before formal closure/merge. |
+| Native Windows/macOS/Android/iOS wrapping | AFTER THIS MILESTONE | Native shells, store packaging/signing/background entitlements and distribution acceptance intentionally begin only after W closes. |
 
-- Scam Check core: Gate #536, exact head `13227e720c74adae330fb73d6f699bd4d52dec49`.
-- Encrypted replay-safe inbound event state: Gate #540, exact head `12240221aa7aab7defa82a38d79387ab21b849d5`.
-- Provider inbound trigger normalization: Gate #542, exact head `8adc083c1882cda8e49df715442c151c04383251`.
-- Binary Check Anything convergence: Gate #548, exact head `e941b01c2116b26b56ac81c5b1d678991b83a1f6`.
-- Protected pre-parser Scam Check API: Gate #555, exact head `752bd58f49a7f03cf5a5aa1f5a8e83bbf90b8685`.
-- Check Anything consumer UI/security wiring: Gate #561, exact head `4cd08e976b9ba9b0fb90a7e72933f4d6c3346140`.
+## Closure evidence already established
 
-A row moves to IMPLEMENTED only when production-path code and blocking automated coverage exist. External/native acceptance remains separately marked and cannot be promoted by simulation.
+The final branch has repeatedly passed the full Engineering Gate during implementation. The latest pre-closure integration run (#665) passed Windows, macOS and Ubuntu and exercised the complete gate, including 851 unit/API/regression tests, six integration tests, 280 five-provider corpus scans, 10,000-client community capacity, compiled desktop/community/account/background smokes, portable package verification, signed release lifecycle and dependency audits. That run tested GitHub's synthetic PR merge ref, so it remains useful integration evidence but is **not** accepted as the final literal-head proof.
+
+PR #73 repairs that CI ownership defect: pull-request jobs explicitly checkout `github.event.pull_request.head.sha` and assert `git rev-parse HEAD` equals the expected immutable SHA before any gate work begins.
+
+## Formal completion rule
+
+The repository-buildable feature scope A–V is code-complete. W closes only after the unchanged final PR head passes the full Engineering Gate on Windows, macOS and Ubuntu, the generated release/browser handoff is clean, and the owner completes the visible/destructive/recovery acceptance checklist. External provider/deployment/store/native acceptance cannot be converted into a repository PASS by simulation.
