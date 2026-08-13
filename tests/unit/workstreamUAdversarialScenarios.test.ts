@@ -7,15 +7,10 @@ import { scanMessage } from "../../server/src/engine/pipeline.js";
 import { evaluateSubmittedImage, type VisualTextExtractor } from "../../server/src/consumer/scamCheckInputs.js";
 
 const require = createRequire(import.meta.url);
-const { PNG } = require("pngjs") as {
-  PNG: new (options: { width: number; height: number }) => { data: Buffer } & {
-    constructor: { sync?: never };
-  };
-};
 const pngModule = require("pngjs") as {
   PNG: {
+    new (options: { width: number; height: number }): { data: Buffer; width: number; height: number };
     sync: { write: (image: { data: Buffer; width: number; height: number }) => Buffer };
-    new(options: { width: number; height: number }): { data: Buffer; width: number; height: number };
   };
 };
 
