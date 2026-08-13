@@ -98,6 +98,22 @@ const RULES: IntentRule[] = [
     score: 2,
     description: "Shared-document notification uses urgency or forced-action language.",
   },
+  {
+    code: "CALENDAR_INVITE_SCAM_INTENT",
+    category: "calendar_invite",
+    intentPhrases: [/calendar (?:invite|invitation)/i, /meeting invitation/i, /event invitation/i, /invited you to (?:a |an )?(?:meeting|event|calendar)/i, /added you to (?:a |an )?calendar/i],
+    pressurePhrases: [/sign in to (?:view|join|accept)/i, /verify (?:your )?account/i, /enter (?:your )?(?:password|one[- ]time code|otp)/i, /pay (?:a |the )?(?:fee|deposit)/i, /send (?:a )?(?:gift card|bank transfer|wire transfer)/i],
+    score: 3,
+    description: "Calendar/meeting invitation is paired with a credential, payment, or value-transfer demand that should be verified outside the invitation.",
+  },
+  {
+    code: "BROWSER_EXTENSION_DOWNLOAD_LURE",
+    category: "malicious_download",
+    intentPhrases: [/browser extension/i, /chrome extension/i, /edge extension/i, /firefox add[- ]?on/i, /install (?:this |the )?extension/i, /download (?:this |the )?(?:installer|security tool|update)/i],
+    pressurePhrases: [/install (?:it |this |now )?(?:now|immediately|required)/i, /required to (?:view|open|continue|verify|secure)/i, /download and (?:run|open|install)/i, /disable (?:antivirus|security|protection)/i, /allow (?:unknown|unverified) (?:app|source)/i],
+    score: 3,
+    description: "Message pressures the recipient to install a browser extension or downloaded program as a prerequisite for access, verification, or security.",
+  },
 ];
 
 /**
