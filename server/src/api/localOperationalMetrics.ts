@@ -100,34 +100,38 @@ export class LocalOperationalMetrics {
   }
 
   recordFalsePositiveApproval(): void { this.falsePositiveApprovals += 1; }
-  recordAbuseReport(outcome: "accepted" | "failed"): void {
-    if (outcome === "accepted") this.abuseReportsAccepted += 1;
+  recordAbuseReport(accepted: boolean): void {
+    if (accepted) this.abuseReportsAccepted += 1;
     else this.abuseReportsFailed += 1;
   }
 
   snapshot() {
-    const providers = Object.fromEntries(PROVIDERS.map((provider) => {
-      const state = this.providers.get(provider)!;
-      return [provider, {
-        scansStarted: state.scansStarted,
-        scansCompleted: state.scansCompleted,
-        scansFailed: state.scansFailed,
-        scansStopped: state.scansStopped,
-        messagesExamined: state.messagesExamined,
-        verdicts: { ...state.verdicts },
-        skipped: state.skipped,
-        malformed: state.malformed,
-        operations: Object.fromEntries(OPERATIONS.map((operation) => [operation, { ...state.operations[operation] }])),
-      }];
-    }));
     return {
-      startedAt: new Date(this.startedAt).toISOString(),
-      generatedAt: new Date(this.now()).toISOString(),
-      providers,
-      falsePositiveApprovals: this.falsePositiveApprovals,
-      abuseReportsAccepted: this.abuseReportsAccepted,
-      abuseReportsFailed: this.abuseReportsFailed,
-      privacy: "aggregate_only_no_mailbox_identity_or_content",
+      schemaVersion: 1 as const,
+      uptimeSeconds: Math.max(0, (this.now() - this.startedAt) / 1000),
+      providers: Object.fromEntries(PROVIDERS.map((provider) => {
+        const health = this.providers.get(provider)!;
+        return [provider, {
+          scans: {
+            started: health.scansStarted,
+            completed: health.scansCompleted,
+            failed: health.scansFailed,
+            stopped: health.scansStopped,
+          },
+          messages: {
+            examined: health.messagesExamined,
+            ...health.verdicts,
+            skipped: health.skipped,
+            malformed: health.malformed,
+          },
+          operations: Object.fromEntries(OPERATIONS.map((operation) => [operation, { ...health.operations[operation] }])),
+        }];
+      })),
+      review: {
+        falsePositiveApprovals: this.falsePositiveApprovals,
+        abuseReportsAccepted: this.abuseReportsAccepted,
+        abuseReportsFailed: this.abuseReportsFailed,
+      },
     };
   }
 }
