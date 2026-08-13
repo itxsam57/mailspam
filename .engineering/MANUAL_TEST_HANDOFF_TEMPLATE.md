@@ -4,7 +4,7 @@ This source-controlled template is used by `npm run gate` to create `artifacts/e
 
 ## Handoff rule
 
-Continue only when the generated verification report says **PASSED** for the exact immutable release-candidate SHA. Build, strict typecheck, unit/API/regression tests, five-provider corpus, Worker runtime, cryptographic validation, privacy/session/replay checks, browser-source checks, compiled smokes, package lifecycle, capacity and dependency audits belong to automation and must not be manually re-created as a substitute for the gate.
+The owner continues only after the generated verification report says **PASSED** for the exact immutable release-candidate SHA. Build, strict typecheck, unit/API/regression tests, five-provider corpus, Worker runtime, cryptographic validation, privacy/session/replay checks, browser-source checks, compiled smokes, package lifecycle, capacity and dependency audits belong to automation and must not be manually re-created as a substitute for the gate.
 
 For every owner check record only PASS/FAIL, the check ID, browser/OS when relevant and the exact visible failure. Never include credentials, app passwords, OAuth codes/tokens, mailbox bodies, local-session values, private provider message IDs, private URL query strings, recovery codes or signing private keys.
 
