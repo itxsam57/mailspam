@@ -28,15 +28,17 @@ const DESKTOP_ONLY_SCRIPTS = [
 ] as const;
 
 function scriptTags(paths: readonly string[]): string {
-  return paths.map((path) => `<script src="${path}"></script>`).join("");
+  return paths.map((path) => `<script defer src="${path}"></script>`).join("");
 }
 
 /**
  * The API server is the sole owner of browser module composition. Card
  * enhancers are ordered from the base scan renderer outwards and loaded once.
- * The desktop shell constructs the visual route containers; ui-router then
- * becomes the authoritative navigation/mount contract before any consumer
- * feature module declares route-owned panels.
+ * Every external dashboard module is deferred so the browser can fetch them in
+ * parallel without blocking HTML parsing/first paint; execution order remains
+ * deterministic. The desktop shell constructs the visual route containers;
+ * ui-router then becomes the authoritative navigation/mount contract before
+ * any consumer feature module declares route-owned panels.
  */
 export function dashboardScriptTags(desktop: boolean): string {
   return scriptTags(desktop
