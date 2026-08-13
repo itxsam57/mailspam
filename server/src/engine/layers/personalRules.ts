@@ -6,8 +6,10 @@ import type { LayerResult } from "../verdict.js";
 export interface PersonalPolicySnapshot {
   blockedSenders: string[];
   blockedDomains: string[];
-  catchTrashSenders: string[];
-  catchTrashDomains: string[];
+  /** Optional v1 extension. Missing means no Catch & Trash sender rules. */
+  catchTrashSenders?: string[];
+  /** Optional v1 extension. Missing means no Catch & Trash domain rules. */
+  catchTrashDomains?: string[];
   trustedSenders: string[];
   approvedExceptions: string[];
   unsubscribedActions: string[];
