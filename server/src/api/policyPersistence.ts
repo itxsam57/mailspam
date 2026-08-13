@@ -65,6 +65,8 @@ function emptySnapshot(): PersonalPolicySnapshot {
   return {
     blockedSenders: [],
     blockedDomains: [],
+    catchTrashSenders: [],
+    catchTrashDomains: [],
     trustedSenders: [],
     approvedExceptions: [],
     unsubscribedActions: [],
@@ -94,6 +96,8 @@ export function sanitizePolicySnapshot(input: unknown): PersonalPolicySnapshot {
   return {
     blockedSenders: sanitizeList(value.blockedSenders),
     blockedDomains: sanitizeList(value.blockedDomains),
+    catchTrashSenders: sanitizeList(value.catchTrashSenders),
+    catchTrashDomains: sanitizeList(value.catchTrashDomains),
     trustedSenders: sanitizeList(value.trustedSenders),
     approvedExceptions: sanitizeList(value.approvedExceptions),
     unsubscribedActions: sanitizeList(value.unsubscribedActions),
@@ -105,6 +109,8 @@ function cloneSnapshot(snapshot: PersonalPolicySnapshot): PersonalPolicySnapshot
   return {
     blockedSenders: [...snapshot.blockedSenders],
     blockedDomains: [...snapshot.blockedDomains],
+    catchTrashSenders: [...snapshot.catchTrashSenders],
+    catchTrashDomains: [...snapshot.catchTrashDomains],
     trustedSenders: [...snapshot.trustedSenders],
     approvedExceptions: [...snapshot.approvedExceptions],
     unsubscribedActions: [...snapshot.unsubscribedActions],
