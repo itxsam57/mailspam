@@ -116,7 +116,7 @@ These cannot be proven by desktop CI and remain launch/external acceptance rathe
 - real Apple/Google/web merchant activation, receipt verification, native package signing/notarization and store distribution;
 - native Windows/macOS/Android/iOS shell/background/notification/share/camera integrations after Workstream W owner acceptance.
 
-Do not mark any external item complete from a local fixture or unit test.
+Do not mark these complete from a local fixture or unit test.
 
 ## Automated — not owner browser work
 
