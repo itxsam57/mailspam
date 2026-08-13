@@ -6,6 +6,7 @@ import type { AccountPlatformService } from "../platform/accountFamilyService.js
 import { mergeVerifiedAndFamilyIntelligence } from "../platform/familyThreatFeedAdapter.js";
 import { defaultRelationshipHistoryRepository } from "./defaultRelationshipHistoryRepository.js";
 import { defaultScanStateRepository } from "./defaultScanStateRepository.js";
+import { defaultConsumerStateRepository } from "./defaultConsumerStateRepository.js";
 import {
   MAX_BACKGROUND_INTERVAL_MINUTES,
   MIN_BACKGROUND_INTERVAL_MINUTES,
@@ -381,6 +382,31 @@ export class WorkerBackgroundProtectionExecutor implements BackgroundProtectionE
     }).finally(() => {
       if (session.activeScanWorker === worker) session.activeScanWorker = null;
     });
+
+    try {
+      const counters = record.counters;
+      const severity = counters.confirmedThreat > 0
+        ? "critical"
+        : counters.highRisk > 0
+          ? "warning"
+          : counters.review + counters.unknown > 0
+            ? "attention"
+            : "info";
+      const kind = counters.confirmedThreat > 0 ? "protected" : counters.highRisk + counters.review + counters.unknown > 0 ? "flagged" : "protected";
+      defaultConsumerStateRepository.appendActivity(session.policyAccountKey, {
+        kind,
+        severity,
+        provider: session.config.provider,
+        title: counters.confirmedThreat > 0 ? "Automatic protection handled confirmed threats" : "Automatic mailbox protection completed",
+        detail: `A bounded automatic protection pass examined ${counters.examined} message(s): ${counters.confirmedThreat} confirmed threat(s), ${counters.highRisk} high-risk, ${counters.review} review, and ${counters.unknown} unknown. Activity stores aggregate counts only.`,
+        reasonCodes: ["AUTOMATIC_PROTECTION_PASS"],
+        undo: null,
+      });
+    } catch {
+      // Scan/protection state is already committed. A secondary Activity write
+      // cannot be allowed to turn a successful provider protection pass into a
+      // failed one or cause duplicate provider work on retry.
+    }
 
     return { ...record.counters };
   }
