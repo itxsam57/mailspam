@@ -35,8 +35,9 @@ for (const id of [...buttonIds].sort()) {
   const escaped = escapeRegExp(id);
   const directLookup = new RegExp(`getElementById\\(\\s*["']${escaped}["']\\s*\\)`);
   const selectorLookup = new RegExp(`querySelector(?:All)?\\(\\s*["'][^"']*#${escaped}(?:[^"']*)["']\\s*\\)`);
-  if (!directLookup.test(executableSource) && !selectorLookup.test(executableSource)) {
-    fail(`Button #${id} is rendered but has no browser lookup/handler reference.`);
+  const delegatedIdHandler = new RegExp(`\\.id\\s*===?\\s*["']${escaped}["']`);
+  if (!directLookup.test(executableSource) && !selectorLookup.test(executableSource) && !delegatedIdHandler.test(executableSource)) {
+    fail(`Button #${id} is rendered but has no direct or delegated browser handler reference.`);
   }
 }
 
