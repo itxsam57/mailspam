@@ -47,7 +47,7 @@ const app = express();
 // original service owns its final 404. All three routers share one service/store
 // and therefore one device-challenge authority and one encrypted account/family database.
 app.use(createAccountLifecycleServer(service, store, { trustProxy }));
-app.use(createAccountBillingServer(service, billingCoordinator, { enabled: billing.enabled }));
+app.use(createAccountBillingServer(service, billingCoordinator, { enabled: billing.enabled, trustProxy }));
 app.use(createAccountServiceServer(service, {
   adminToken,
   allowDevelopmentEntitlements: process.env.EMAIL_SHIELD_ACCOUNT_SERVICE_ALLOW_DEVELOPMENT_ENTITLEMENTS === "1",
