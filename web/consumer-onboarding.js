@@ -29,7 +29,8 @@
   }
 
   function route(name) {
-    const button = document.querySelector(`.app-nav [data-route="${name}"]`);
+    if (typeof window.emailShieldNavigate === 'function' && window.emailShieldNavigate(name)) return;
+    const button = document.querySelector(`.app-nav [data-route-target="${name}"], .app-nav [data-route="${name}"]`);
     if (button instanceof HTMLButtonElement) button.click();
   }
 
@@ -39,7 +40,10 @@
     return body;
   }
 
-  const home = document.querySelector('[data-app-route="home"]') || document.querySelector('.app-route[data-route="home"]') || document.querySelector('main');
+  const home = window.emailShieldRouter?.routeStack?.('home')
+    || document.querySelector('.app-route[data-route="home"] .shell-panel-stack')
+    || document.querySelector('[data-app-route="home"]')
+    || document.querySelector('main');
   if (!home) return;
   const panel = document.createElement('section');
   panel.className = 'panel first-run-panel';
@@ -182,7 +186,7 @@
       return;
     }
     if (action === 'background') {
-      route('settings');
+      route('protection');
       document.querySelector('#backgroundProtection')?.scrollIntoView({ block: 'center' });
       status.textContent = 'Enable Background Protection. This step completes only after the enabled state is observed.';
       return;
