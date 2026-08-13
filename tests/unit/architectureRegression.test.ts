@@ -46,7 +46,8 @@ describe("transport architecture regressions", () => {
   it("refreshes operational health from the scan lifecycle instead of leaving a stale snapshot", () => {
     const operations = read("web/operations-dashboard.js");
     expect(operations).toContain("email-shield-scan-history-changed");
-    expect(operations).toContain("window.addEventListener('email-shield-scan-history-changed', load)");
+    expect(operations).toContain("dirty = true");
+    expect(operations).toContain("loadWhenVisible()");
   });
 
   it("isolates scans in a killable worker without cancelling on request completion", () => {
@@ -63,7 +64,8 @@ describe("transport architecture regressions", () => {
     expect(server).toContain('new URL("../workers/scanWorker.js", import.meta.url)');
     expect(server).not.toContain("scanWorker.ts");
     expect(server).not.toContain('execArgv: ["--import", "tsx"]');
-    expect(packageJson).toContain('"dev": "npm run build && node dist/index.js"');
+    expect(packageJson).toContain('"dev": "tsx src/index.ts"');
+    expect(packageJson).toContain('"start": "node dist/index.js"');
   });
 
   it("validates the protected browser session before opening a scan stream", () => {
