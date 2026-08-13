@@ -79,12 +79,20 @@ function policyDocument(overrides: Partial<Record<string, string[]>> = {}) {
     policy: {
       blockedSenders: overrides.blockedSenders ?? ["blocked@policy.example"],
       blockedDomains: overrides.blockedDomains ?? ["blocked-domain.example"],
+      catchTrashSenders: overrides.catchTrashSenders ?? ["catch@policy.example"],
+      catchTrashDomains: overrides.catchTrashDomains ?? ["catch-domain.example"],
       trustedSenders: overrides.trustedSenders ?? ["trusted@policy.example"],
       approvedExceptions: overrides.approvedExceptions ?? [`message:${"a".repeat(64)}`],
       unsubscribedActions: overrides.unsubscribedActions ?? ["b".repeat(64)],
       reportedCampaigns: overrides.reportedCampaigns ?? ["c".repeat(64)],
     },
   };
+}
+
+function legacyPolicyDocument() {
+  const extended = policyDocument();
+  const { catchTrashSenders: _senders, catchTrashDomains: _domains, ...legacyPolicy } = extended.policy;
+  return { ...extended, policy: legacyPolicy };
 }
 
 async function readPolicy(context: BrowserContext, accountId: string) {
@@ -96,7 +104,7 @@ async function readPolicy(context: BrowserContext, accountId: string) {
 }
 
 describe("protected personal policy management centre API", () => {
-  it("supports strict import/export, bulk revoke, category clear and confirmed reset without exporting secrets", async () => {
+  it("supports strict import/export, Catch & Trash backup, bulk revoke, category clear and confirmed reset without exporting secrets", async () => {
     const context = await start();
     const connected = await mutate(context, "/api/accounts/connect", {
       provider: "gmail",
@@ -120,6 +128,8 @@ describe("protected personal policy management centre API", () => {
       counts: {
         blockedSenders: 1,
         blockedDomains: 1,
+        catchTrashSenders: 1,
+        catchTrashDomains: 1,
         trustedSenders: 1,
         approvedExceptions: 1,
         unsubscribedActions: 1,
@@ -130,6 +140,8 @@ describe("protected personal policy management centre API", () => {
     let policy = await readPolicy(context, accountId);
     expect(policy.blockedSenders).toEqual(["blocked@policy.example"]);
     expect(policy.blockedDomains).toEqual(["blocked-domain.example"]);
+    expect(policy.catchTrashSenders).toEqual(["catch@policy.example"]);
+    expect(policy.catchTrashDomains).toEqual(["catch-domain.example"]);
     expect(policy.trustedSenders).toEqual(["trusted@policy.example"]);
     expect(policy.approvedExceptions).toEqual([`message:${"a".repeat(64)}`]);
     expect(policy.unsubscribedActions).toEqual(["b".repeat(64)]);
@@ -171,6 +183,8 @@ describe("protected personal policy management centre API", () => {
       document: policyDocument({
         blockedSenders: ["second@policy.example"],
         blockedDomains: [],
+        catchTrashSenders: ["second-catch@policy.example"],
+        catchTrashDomains: [],
         trustedSenders: [],
         approvedExceptions: [],
         unsubscribedActions: [],
@@ -180,19 +194,22 @@ describe("protected personal policy management centre API", () => {
     expect(merge.status).toBe(200);
     policy = await readPolicy(context, accountId);
     expect(policy.blockedSenders).toEqual(["blocked@policy.example", "second@policy.example"]);
+    expect(policy.catchTrashSenders).toEqual(["catch@policy.example", "second-catch@policy.example"]);
     expect(policy.reportedCampaigns).toEqual(["c".repeat(64), "d".repeat(64)]);
 
     const bulk = await mutate(context, `/api/accounts/${accountId}/personal-policy/bulk-revoke`, {
       items: [
         { category: "blockedSenders", value: "blocked@policy.example" },
+        { category: "catchTrashSenders", value: "catch@policy.example" },
         { category: "reportedCampaigns", value: "d".repeat(64) },
         { category: "reportedCampaigns", value: "d".repeat(64) },
       ],
     });
     expect(bulk.status).toBe(200);
-    expect((await bulk.json()).revoked).toBe(2);
+    expect((await bulk.json()).revoked).toBe(3);
     policy = await readPolicy(context, accountId);
     expect(policy.blockedSenders).toEqual(["second@policy.example"]);
+    expect(policy.catchTrashSenders).toEqual(["second-catch@policy.example"]);
     expect(policy.reportedCampaigns).toEqual(["c".repeat(64)]);
 
     const clearTrusted = await mutate(context, `/api/accounts/${accountId}/personal-policy/clear-category`, {
@@ -204,11 +221,21 @@ describe("protected personal policy management centre API", () => {
     policy = await readPolicy(context, accountId);
     expect(policy.trustedSenders).toEqual([]);
 
+    const legacy = await mutate(context, `/api/accounts/${accountId}/personal-policy/import`, {
+      mode: "replace",
+      document: legacyPolicyDocument(),
+    });
+    expect(legacy.status).toBe(200);
+    policy = await readPolicy(context, accountId);
+    expect(policy.blockedSenders).toEqual(["blocked@policy.example"]);
+    expect(policy.catchTrashSenders).toEqual([]);
+    expect(policy.catchTrashDomains).toEqual([]);
+
     const badReset = await mutate(context, `/api/accounts/${accountId}/personal-policy/reset`, {
       confirmation: "RESET",
     });
     expect(badReset.status).toBe(400);
-    expect((await readPolicy(context, accountId)).blockedSenders).toEqual(["second@policy.example"]);
+    expect((await readPolicy(context, accountId)).blockedSenders).toEqual(["blocked@policy.example"]);
 
     const reset = await mutate(context, `/api/accounts/${accountId}/personal-policy/reset`, {
       confirmation: PERSONAL_POLICY_RESET_CONFIRMATION,
@@ -219,6 +246,8 @@ describe("protected personal policy management centre API", () => {
     expect(policy).toMatchObject({
       blockedSenders: [],
       blockedDomains: [],
+      catchTrashSenders: [],
+      catchTrashDomains: [],
       trustedSenders: [],
       approvedExceptions: [],
       unsubscribedActions: [],
