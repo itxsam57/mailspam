@@ -61,11 +61,10 @@ async function register(baseUrl: string, accountId: string, username: string, de
   expect(result.response.status).toBe(201);
 }
 
-async function signedBillingVerify(
+async function billingAuth(
   baseUrl: string,
   accountId: string,
   device: ReturnType<typeof testDevice>,
-  evidence: BillingEvidence,
 ) {
   const challenge = await post(baseUrl, "/v1/auth/challenge", {
     accountId,
@@ -74,9 +73,18 @@ async function signedBillingVerify(
   });
   expect(challenge.response.status).toBe(200);
   const signature = sign(null, Buffer.from(String(challenge.body.challenge), "utf8"), device.pair.privateKey).toString("base64");
+  return { challengeId: String(challenge.body.challengeId), signature };
+}
+
+async function signedBillingVerify(
+  baseUrl: string,
+  accountId: string,
+  device: ReturnType<typeof testDevice>,
+  evidence: BillingEvidence,
+) {
   return post(baseUrl, "/v1/billing/verify", {
     accountId,
-    auth: { challengeId: challenge.body.challengeId, signature },
+    auth: await billingAuth(baseUrl, accountId, device),
     evidence,
   });
 }
@@ -137,6 +145,24 @@ async function start(enabled: boolean) {
   };
 }
 
+function evidence(productId: string, suffix = "001"): BillingEvidence {
+  const now = Date.now();
+  return {
+    store: "google",
+    eventId: `google-event-${suffix}`,
+    eventType: "purchase",
+    productId,
+    storeAccountReference: "google-account-ref",
+    purchaseReference: `google-purchase-ref-${suffix}`,
+    occurredAt: now - 1_000,
+    expiresAt: now + 30 * 24 * 60 * 60 * 1_000,
+    graceUntil: null,
+    originalPurchaseReference: null,
+    familyTransferFromAccountReference: null,
+    verificationPayload: "opaque-google-purchase-evidence",
+  };
+}
+
 describe("account-service billing verification", () => {
   it("stays free-only when the paid-plan kill switch is disabled", async () => {
     const test = await start(false);
@@ -157,37 +183,23 @@ describe("account-service billing verification", () => {
     const device = testDevice();
     const accountId = "acct_billing-enabled";
     await register(test.baseUrl, accountId, "billing.enabled", device);
-    const now = Date.now();
-    const evidence: BillingEvidence = {
-      store: "google",
-      eventId: "google-event-001",
-      eventType: "purchase",
-      productId: test.allowedProductId,
-      storeAccountReference: "google-account-ref",
-      purchaseReference: "google-purchase-ref",
-      occurredAt: now - 1_000,
-      expiresAt: now + 30 * 24 * 60 * 60 * 1_000,
-      graceUntil: null,
-      originalPurchaseReference: null,
-      familyTransferFromAccountReference: null,
-      verificationPayload: "opaque-google-purchase-evidence",
-    };
+    const storeEvidence = evidence(test.allowedProductId);
 
     const unauthenticated = await post(test.baseUrl, "/v1/billing/verify", {
       accountId,
       auth: { challengeId: "missing", signature: "missing" },
-      evidence,
+      evidence: storeEvidence,
     });
     expect(unauthenticated.response.status).toBe(401);
 
-    const first = await signedBillingVerify(test.baseUrl, accountId, device, evidence);
+    const first = await signedBillingVerify(test.baseUrl, accountId, device, storeEvidence);
     expect(first.response.status).toBe(200);
     expect(first.body.verified).toBe(true);
     expect(first.body.duplicateEvent).toBe(false);
     expect(first.body.entitlement).toMatchObject({ plan: "family", status: "active", source: "google", seatLimit: 6 });
     expect(first.body.snapshot.account.entitlement.plan).toBe("family");
 
-    const replay = await signedBillingVerify(test.baseUrl, accountId, device, evidence);
+    const replay = await signedBillingVerify(test.baseUrl, accountId, device, storeEvidence);
     expect(replay.response.status).toBe(200);
     expect(replay.body.duplicateEvent).toBe(true);
     expect(test.verifierCalls()).toBe(2);
@@ -198,23 +210,52 @@ describe("account-service billing verification", () => {
     const device = testDevice();
     const accountId = "acct_billing-wrong-sku";
     await register(test.baseUrl, accountId, "billing.wrongsku", device);
-    const now = Date.now();
-    const result = await signedBillingVerify(test.baseUrl, accountId, device, {
-      store: "google",
-      eventId: "google-event-wrong-sku",
-      eventType: "purchase",
-      productId: "com.fake.family.monthly",
-      storeAccountReference: "google-account-ref",
-      purchaseReference: "google-purchase-ref-wrong",
-      occurredAt: now - 1_000,
-      expiresAt: now + 30 * 24 * 60 * 60 * 1_000,
-      graceUntil: null,
-      originalPurchaseReference: null,
-      familyTransferFromAccountReference: null,
-      verificationPayload: "opaque-google-purchase-evidence",
-    });
+    const result = await signedBillingVerify(test.baseUrl, accountId, device, evidence("com.fake.family.monthly", "wrong-sku"));
     expect(result.response.status).toBe(400);
     expect(String(result.body.error)).toMatch(/product/i);
     expect(test.service.snapshot(accountId, device.deviceId).account?.entitlement.plan).toBe("free");
+  });
+
+  it("rejects unknown billing evidence fields before calling the store verifier", async () => {
+    const test = await start(true);
+    const device = testDevice();
+    const accountId = "acct_billing-unknown-field";
+    await register(test.baseUrl, accountId, "billing.unknownfield", device);
+    const auth = await billingAuth(test.baseUrl, accountId, device);
+    const result = await post(test.baseUrl, "/v1/billing/verify", {
+      accountId,
+      auth,
+      evidence: {
+        ...evidence(test.allowedProductId, "unknown-field"),
+        mailboxAddress: "must-not-be-forwarded@example.test",
+      },
+    });
+    expect(result.response.status).toBe(400);
+    expect(String(result.body.error)).toMatch(/unsupported fields/i);
+    expect(test.verifierCalls()).toBe(0);
+    expect(test.service.snapshot(accountId, device.deviceId).account?.entitlement.plan).toBe("free");
+  });
+
+  it("bounds billing challenge abuse per client before challenge state can grow without limit", async () => {
+    const test = await start(true);
+    const device = testDevice();
+    const accountId = "acct_billing-rate-limit";
+    await register(test.baseUrl, accountId, "billing.ratelimit", device);
+
+    for (let index = 0; index < 30; index += 1) {
+      const result = await post(test.baseUrl, "/v1/auth/challenge", {
+        accountId,
+        deviceId: device.deviceId,
+        operation: "billing:verify",
+      });
+      expect(result.response.status).toBe(200);
+    }
+    const limited = await post(test.baseUrl, "/v1/auth/challenge", {
+      accountId,
+      deviceId: device.deviceId,
+      operation: "billing:verify",
+    });
+    expect(limited.response.status).toBe(429);
+    expect(limited.response.headers.get("retry-after")).toBeTruthy();
   });
 });
