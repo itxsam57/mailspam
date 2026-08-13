@@ -48,8 +48,8 @@ function domain(value: unknown): string | null {
 function publicSnapshot(session: NonNullable<ReturnType<SessionStore["get"]>>) {
   const policy = session.personalPolicy.snapshot();
   return {
-    senders: [...policy.catchTrashSenders],
-    domains: [...policy.catchTrashDomains],
+    senders: [...(policy.catchTrashSenders ?? [])],
+    domains: [...(policy.catchTrashDomains ?? [])],
     note: "Catch & Trash is a separate personal cleanup rule. It does not report the sender as a scam and does not alter the ordinary Block Sender/Domain lists.",
   };
 }
@@ -78,14 +78,14 @@ export function registerConsumerCatchTrashRoutes(
       const senderAddress = address(body.senderAddress);
       const senderDomain = domain(body.senderDomain);
       if (!senderAddress && !senderDomain) throw new Error("Choose an exact sender address or domain before enabling Catch & Trash.");
-      sessions.mutateAndPersistPersonalPolicy(session.id, (policy) => {
+      sessions.mutateAndPersistPersonalPolicy(session, (policy) => {
         if (senderAddress) policy.catchTrashSender(senderAddress);
         if (senderDomain) policy.catchTrashDomain(senderDomain);
       });
       defaultConsumerStateRepository.appendActivity(session.policyAccountKey, {
         kind: "settings",
         severity: "info",
-        provider: session.provider,
+        provider: session.config.provider,
         title: "Catch & Trash enabled",
         detail: "Future matching mail will be moved to Trash by your explicit cleanup rule. The sender was not reported to Community or Family Shield.",
         reasonCodes: ["CATCH_TRASH_ENABLED"],
@@ -104,14 +104,14 @@ export function registerConsumerCatchTrashRoutes(
       const senderAddress = address(body.senderAddress);
       const senderDomain = domain(body.senderDomain);
       if (!senderAddress && !senderDomain) throw new Error("Choose the Catch & Trash sender or domain to remove.");
-      sessions.mutateAndPersistPersonalPolicy(session.id, (policy) => {
+      sessions.mutateAndPersistPersonalPolicy(session, (policy) => {
         if (senderAddress) policy.removeCatchTrashSender(senderAddress);
         if (senderDomain) policy.removeCatchTrashDomain(senderDomain);
       });
       defaultConsumerStateRepository.appendActivity(session.policyAccountKey, {
         kind: "settings",
         severity: "info",
-        provider: session.provider,
+        provider: session.config.provider,
         title: "Catch & Trash disabled",
         detail: "The selected future-mail cleanup rule was removed. Ordinary personal block rules were left unchanged.",
         reasonCodes: ["CATCH_TRASH_DISABLED"],
