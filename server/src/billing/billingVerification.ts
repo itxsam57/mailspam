@@ -4,6 +4,17 @@ import type { EmailShieldPlan, EntitlementSource, VerifiedEntitlement } from "..
 export type BillingStore = "apple" | "google" | "web";
 export type BillingEventType = "purchase" | "renewal" | "grace" | "cancellation" | "expiration" | "revocation" | "restore" | "transfer";
 
+const BILLING_EVENT_TYPES: readonly BillingEventType[] = Object.freeze([
+  "purchase",
+  "renewal",
+  "grace",
+  "cancellation",
+  "expiration",
+  "revocation",
+  "restore",
+  "transfer",
+]);
+
 export interface BillingEvidence {
   store: BillingStore;
   eventId: string;
@@ -86,7 +97,7 @@ function validTime(value: unknown, nullable = false): number | null {
 export function validateBillingEvidence(input: BillingEvidence): BillingEvidence {
   if (!input || typeof input !== "object") throw new Error("Billing evidence is required.");
   if (input.store !== "apple" && input.store !== "google" && input.store !== "web") throw new Error("Billing store is invalid.");
-  if (!(<[BillingEventType[]]>["purchase", "renewal", "grace", "cancellation", "expiration", "revocation", "restore", "transfer"]).includes(input.eventType)) throw new Error("Billing event type is invalid.");
+  if (!BILLING_EVENT_TYPES.includes(input.eventType)) throw new Error("Billing event type is invalid.");
   return {
     store: input.store,
     eventId: strictText(input.eventId, "Billing event ID", 256),
@@ -130,8 +141,6 @@ export function entitlementFromVerifiedBillingEvent(
   else if (event.eventType === "expiration") status = "expired";
   else if (event.eventType === "grace") status = "grace";
   else if (event.eventType === "cancellation") {
-    // Cancellation means do not renew; paid access stays active until its
-    // verified paid-through expiry rather than disappearing immediately.
     status = event.expiresAt !== null && event.expiresAt <= now ? "expired" : "active";
   } else status = "active";
 
@@ -181,9 +190,17 @@ export class BillingEntitlementCoordinator {
     const verifier = this.verifiers.get(evidence.store);
     if (!verifier || verifier.store !== evidence.store) throw new Error(`No ${evidence.store} billing verifier is configured.`);
     const verified = await verifier.verify(evidence, signal);
-    if (verified.store !== evidence.store || verified.eventId !== evidence.eventId || verified.purchaseReference !== evidence.purchaseReference) {
+    if (
+      verified.store !== evidence.store
+      || verified.eventId !== evidence.eventId
+      || verified.purchaseReference !== evidence.purchaseReference
+      || verified.eventType !== evidence.eventType
+      || verified.productId !== evidence.productId
+      || verified.storeAccountReference !== evidence.storeAccountReference
+    ) {
       throw new Error("Billing verifier returned evidence for a different transaction.");
     }
+    strictText(verified.verifiedBy, "Billing verifier identity", 256);
     const fingerprint = billingEventFingerprint(verified);
     const entitlement = entitlementFromVerifiedBillingEvent(verified, this.policy);
     if (this.ledger.has(fingerprint)) return { duplicate: true, entitlement };
@@ -213,6 +230,8 @@ export class HttpBillingVerifier implements BillingVerifierPort {
   }
 
   async verify(evidence: BillingEvidence, signal: AbortSignal): Promise<VerifiedBillingEvent> {
+    const timeout = AbortSignal.timeout(15_000);
+    const composite = typeof AbortSignal.any === "function" ? AbortSignal.any([signal, timeout]) : signal;
     const response = await fetch(`${this.endpoint}/v1/verify/${this.store}`, {
       method: "POST",
       headers: {
@@ -222,7 +241,7 @@ export class HttpBillingVerifier implements BillingVerifierPort {
       body: JSON.stringify(evidence),
       redirect: "error",
       cache: "no-store",
-      signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
+      signal: composite,
     });
     if (!response.ok) throw new Error(`${this.store} billing verifier returned HTTP ${response.status}.`);
     const raw = await response.text();
