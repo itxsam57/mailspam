@@ -12,7 +12,7 @@ export const PERSONAL_POLICY_EXPORT_SCHEMA = "email-shield-personal-policy" as c
 export const PERSONAL_POLICY_EXPORT_VERSION = 1 as const;
 export const PERSONAL_POLICY_RESET_CONFIRMATION = "RESET PERSONAL POLICY" as const;
 
-export const PERSONAL_POLICY_CATEGORIES = [
+const LEGACY_PERSONAL_POLICY_CATEGORIES = [
   "blockedSenders",
   "blockedDomains",
   "trustedSenders",
@@ -21,12 +21,28 @@ export const PERSONAL_POLICY_CATEGORIES = [
   "reportedCampaigns",
 ] as const;
 
+export const PERSONAL_POLICY_CATEGORIES = [
+  "blockedSenders",
+  "blockedDomains",
+  "catchTrashSenders",
+  "catchTrashDomains",
+  "trustedSenders",
+  "approvedExceptions",
+  "unsubscribedActions",
+  "reportedCampaigns",
+] as const;
+
 export type PersonalPolicyCategory = typeof PERSONAL_POLICY_CATEGORIES[number];
+
+type CompletePersonalPolicySnapshot = Omit<PersonalPolicySnapshot, "catchTrashSenders" | "catchTrashDomains"> & {
+  catchTrashSenders: string[];
+  catchTrashDomains: string[];
+};
 
 export interface PersonalPolicyExportDocument {
   schema: typeof PERSONAL_POLICY_EXPORT_SCHEMA;
   version: typeof PERSONAL_POLICY_EXPORT_VERSION;
-  policy: PersonalPolicySnapshot;
+  policy: CompletePersonalPolicySnapshot;
 }
 
 const MAX_ITEMS_PER_CATEGORY = 10_000;
@@ -61,9 +77,11 @@ export function normalizePersonalPolicyValue(category: PersonalPolicyCategory, i
 
   switch (category) {
     case "blockedSenders":
+    case "catchTrashSenders":
     case "trustedSenders":
       return normalizeSenderAddress(input);
     case "blockedDomains":
+    case "catchTrashDomains":
       return normalizeSenderDomain(input);
     case "approvedExceptions": {
       const value = input.trim().toLowerCase();
@@ -93,7 +111,20 @@ function normalizeCategoryList(category: PersonalPolicyCategory, input: unknown)
   return output;
 }
 
-export function parsePersonalPolicyImportDocument(input: unknown): PersonalPolicySnapshot {
+function completeSnapshot(snapshot: PersonalPolicySnapshot): CompletePersonalPolicySnapshot {
+  return {
+    blockedSenders: [...snapshot.blockedSenders],
+    blockedDomains: [...snapshot.blockedDomains],
+    catchTrashSenders: [...(snapshot.catchTrashSenders ?? [])],
+    catchTrashDomains: [...(snapshot.catchTrashDomains ?? [])],
+    trustedSenders: [...snapshot.trustedSenders],
+    approvedExceptions: [...snapshot.approvedExceptions],
+    unsubscribedActions: [...snapshot.unsubscribedActions],
+    reportedCampaigns: [...snapshot.reportedCampaigns],
+  };
+}
+
+export function parsePersonalPolicyImportDocument(input: unknown): CompletePersonalPolicySnapshot {
   const document = requireObject(input, "Policy import document");
   if (!sameKeys(ownKeys(document), ["schema", "version", "policy"])) {
     throw new Error("Policy import document contains missing or unsupported fields.");
@@ -103,13 +134,18 @@ export function parsePersonalPolicyImportDocument(input: unknown): PersonalPolic
   }
 
   const policy = requireObject(document.policy, "Policy backup payload");
-  if (!sameKeys(ownKeys(policy), PERSONAL_POLICY_CATEGORIES)) {
+  const policyKeys = ownKeys(policy);
+  const legacy = sameKeys(policyKeys, LEGACY_PERSONAL_POLICY_CATEGORIES);
+  const extended = sameKeys(policyKeys, PERSONAL_POLICY_CATEGORIES);
+  if (!legacy && !extended) {
     throw new Error("Policy backup payload contains missing or unsupported fields.");
   }
 
   return {
     blockedSenders: normalizeCategoryList("blockedSenders", policy.blockedSenders),
     blockedDomains: normalizeCategoryList("blockedDomains", policy.blockedDomains),
+    catchTrashSenders: extended ? normalizeCategoryList("catchTrashSenders", policy.catchTrashSenders) : [],
+    catchTrashDomains: extended ? normalizeCategoryList("catchTrashDomains", policy.catchTrashDomains) : [],
     trustedSenders: normalizeCategoryList("trustedSenders", policy.trustedSenders),
     approvedExceptions: normalizeCategoryList("approvedExceptions", policy.approvedExceptions),
     unsubscribedActions: normalizeCategoryList("unsubscribedActions", policy.unsubscribedActions),
@@ -117,22 +153,11 @@ export function parsePersonalPolicyImportDocument(input: unknown): PersonalPolic
   };
 }
 
-function cloneSnapshot(snapshot: PersonalPolicySnapshot): PersonalPolicySnapshot {
-  return {
-    blockedSenders: [...snapshot.blockedSenders],
-    blockedDomains: [...snapshot.blockedDomains],
-    trustedSenders: [...snapshot.trustedSenders],
-    approvedExceptions: [...snapshot.approvedExceptions],
-    unsubscribedActions: [...snapshot.unsubscribedActions],
-    reportedCampaigns: [...snapshot.reportedCampaigns],
-  };
-}
-
-export function mergePersonalPolicySnapshots(
+function mergePersonalPolicySnapshots(
   current: PersonalPolicySnapshot,
-  incoming: PersonalPolicySnapshot,
-): PersonalPolicySnapshot {
-  const result = cloneSnapshot(current);
+  incoming: CompletePersonalPolicySnapshot,
+): CompletePersonalPolicySnapshot {
+  const result = completeSnapshot(current);
   for (const category of PERSONAL_POLICY_CATEGORIES) {
     result[category] = [...new Set([...result[category], ...incoming[category]])];
   }
@@ -140,14 +165,10 @@ export function mergePersonalPolicySnapshots(
 }
 
 function policyCounts(snapshot: PersonalPolicySnapshot): Record<PersonalPolicyCategory, number> {
-  return {
-    blockedSenders: snapshot.blockedSenders.length,
-    blockedDomains: snapshot.blockedDomains.length,
-    trustedSenders: snapshot.trustedSenders.length,
-    approvedExceptions: snapshot.approvedExceptions.length,
-    unsubscribedActions: snapshot.unsubscribedActions.length,
-    reportedCampaigns: snapshot.reportedCampaigns.length,
-  };
+  const complete = completeSnapshot(snapshot);
+  return Object.fromEntries(
+    PERSONAL_POLICY_CATEGORIES.map((category) => [category, complete[category].length]),
+  ) as Record<PersonalPolicyCategory, number>;
 }
 
 function categoryFromUnknown(value: unknown): PersonalPolicyCategory {
@@ -157,16 +178,9 @@ function categoryFromUnknown(value: unknown): PersonalPolicyCategory {
   return value as PersonalPolicyCategory;
 }
 
-function removeOne(snapshot: PersonalPolicySnapshot, category: PersonalPolicyCategory, value: string): number {
+function removeOne(snapshot: CompletePersonalPolicySnapshot, category: PersonalPolicyCategory, value: string): number {
   const before = snapshot[category].length;
-  switch (category) {
-    case "blockedSenders": snapshot.blockedSenders = snapshot.blockedSenders.filter((item) => item !== value); break;
-    case "blockedDomains": snapshot.blockedDomains = snapshot.blockedDomains.filter((item) => item !== value); break;
-    case "trustedSenders": snapshot.trustedSenders = snapshot.trustedSenders.filter((item) => item !== value); break;
-    case "approvedExceptions": snapshot.approvedExceptions = snapshot.approvedExceptions.filter((item) => item !== value); break;
-    case "unsubscribedActions": snapshot.unsubscribedActions = snapshot.unsubscribedActions.filter((item) => item !== value); break;
-    case "reportedCampaigns": snapshot.reportedCampaigns = snapshot.reportedCampaigns.filter((item) => item !== value); break;
-  }
+  snapshot[category] = snapshot[category].filter((item) => item !== value);
   return before - snapshot[category].length;
 }
 
@@ -233,7 +247,7 @@ export function registerPolicyManagementRoutes(app: Express): void {
     const document: PersonalPolicyExportDocument = {
       schema: PERSONAL_POLICY_EXPORT_SCHEMA,
       version: PERSONAL_POLICY_EXPORT_VERSION,
-      policy: cloneSnapshot(session.personalPolicy.snapshot()),
+      policy: completeSnapshot(session.personalPolicy.snapshot()),
     };
     noStore(res);
     res.setHeader("Content-Disposition", 'attachment; filename="email-shield-personal-policy.json"');
@@ -245,7 +259,7 @@ export function registerPolicyManagementRoutes(app: Express): void {
     if (!session) return;
 
     let mode: "merge" | "replace";
-    let replacement: PersonalPolicySnapshot;
+    let replacement: CompletePersonalPolicySnapshot;
     try {
       const body = requireObject(req.body, "Policy import request");
       if (!sameKeys(ownKeys(body), ["mode", "document"])) {
@@ -275,14 +289,14 @@ export function registerPolicyManagementRoutes(app: Express): void {
 
     let category: PersonalPolicyCategory;
     let value: string;
-    let replacement: PersonalPolicySnapshot;
+    let replacement: CompletePersonalPolicySnapshot;
     let revoked: number;
     try {
       const body = requireObject(req.body, "Policy revoke request");
       if (!sameKeys(ownKeys(body), ["category", "value"])) throw new Error("Policy revoke request contains missing or unsupported fields.");
       category = categoryFromUnknown(body.category);
       value = normalizePersonalPolicyValue(category, body.value);
-      replacement = session.personalPolicy.snapshot();
+      replacement = completeSnapshot(session.personalPolicy.snapshot());
       revoked = removeOne(replacement, category, value);
     } catch (error) {
       noStore(res);
@@ -298,7 +312,7 @@ export function registerPolicyManagementRoutes(app: Express): void {
     const session = accountSession(req, res);
     if (!session) return;
 
-    let replacement: PersonalPolicySnapshot;
+    let replacement: CompletePersonalPolicySnapshot;
     let revoked = 0;
     try {
       const body = requireObject(req.body, "Bulk policy revoke request");
@@ -318,7 +332,7 @@ export function registerPolicyManagementRoutes(app: Express): void {
         normalized.set(`${category}\0${value}`, { category, value });
       }
 
-      replacement = session.personalPolicy.snapshot();
+      replacement = completeSnapshot(session.personalPolicy.snapshot());
       for (const item of normalized.values()) revoked += removeOne(replacement, item.category, item.value);
     } catch (error) {
       noStore(res);
@@ -335,14 +349,14 @@ export function registerPolicyManagementRoutes(app: Express): void {
     if (!session) return;
 
     let category: PersonalPolicyCategory;
-    let replacement: PersonalPolicySnapshot;
+    let replacement: CompletePersonalPolicySnapshot;
     let removed: number;
     try {
       const body = requireObject(req.body, "Policy category clear request");
       if (!sameKeys(ownKeys(body), ["category", "confirmation"])) throw new Error("Policy category clear request contains missing or unsupported fields.");
       category = categoryFromUnknown(body.category);
       if (body.confirmation !== category) throw new Error("Policy category clear confirmation did not match the selected category.");
-      replacement = session.personalPolicy.snapshot();
+      replacement = completeSnapshot(session.personalPolicy.snapshot());
       removed = replacement[category].length;
       replacement[category] = [];
     } catch (error) {
@@ -365,16 +379,18 @@ export function registerPolicyManagementRoutes(app: Express): void {
       if (!sameKeys(ownKeys(body), ["confirmation"]) || body.confirmation !== PERSONAL_POLICY_RESET_CONFIRMATION) {
         throw new Error(`Reset requires the exact confirmation phrase: ${PERSONAL_POLICY_RESET_CONFIRMATION}`);
       }
-      const current = session.personalPolicy.snapshot();
+      const current = completeSnapshot(session.personalPolicy.snapshot());
       removed = PERSONAL_POLICY_CATEGORIES.reduce((sum, category) => sum + current[category].length, 0);
     } catch (error) {
       noStore(res);
       return res.status(400).json({ error: errorMessage(error) });
     }
 
-    const replacement: PersonalPolicySnapshot = {
+    const replacement: CompletePersonalPolicySnapshot = {
       blockedSenders: [],
       blockedDomains: [],
+      catchTrashSenders: [],
+      catchTrashDomains: [],
       trustedSenders: [],
       approvedExceptions: [],
       unsubscribedActions: [],
