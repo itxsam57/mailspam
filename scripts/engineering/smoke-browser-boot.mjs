@@ -139,30 +139,20 @@ async function connectWebSocket(url, timeoutMs = 10_000) {
 function createCdpClient(socket) {
   let nextId = 1;
   const pending = new Map();
-  const listeners = new Map();
 
   socket.addEventListener("message", (event) => {
     let message;
     try { message = JSON.parse(String(event.data)); }
     catch { return; }
-    if (typeof message.id === "number") {
-      const waiter = pending.get(message.id);
-      if (!waiter) return;
-      pending.delete(message.id);
-      if (message.error) waiter.reject(new Error(`${waiter.method}: ${message.error.message ?? "DevTools error"}`));
-      else waiter.resolve(message.result ?? {});
-      return;
-    }
-    for (const listener of listeners.get(message.method) ?? []) listener(message.params ?? {});
+    if (typeof message.id !== "number") return;
+    const waiter = pending.get(message.id);
+    if (!waiter) return;
+    pending.delete(message.id);
+    if (message.error) waiter.reject(new Error(`${waiter.method}: ${message.error.message ?? "DevTools error"}`));
+    else waiter.resolve(message.result ?? {});
   });
 
   return {
-    on(method, listener) {
-      const bucket = listeners.get(method) ?? new Set();
-      bucket.add(listener);
-      listeners.set(method, bucket);
-      return () => bucket.delete(listener);
-    },
     send(method, params = {}, timeoutMs = 10_000) {
       const id = nextId++;
       return new Promise((resolveResult, reject) => {
@@ -249,25 +239,25 @@ try {
   const client = createCdpClient(cdpSocket);
   await Promise.all([client.send("Page.enable"), client.send("Runtime.enable")]);
 
-  let loadedResolve;
-  const loaded = new Promise((resolveLoaded) => { loadedResolve = resolveLoaded; });
-  const removeLoaded = client.on("Page.loadEventFired", () => loadedResolve());
   const navigation = await client.send("Page.navigate", { url: `${baseUrl}/__email-shield-browser-smoke.html` }, 15_000);
   assert(!navigation.errorText, `Browser navigation failed: ${navigation.errorText}`);
-  await Promise.race([
-    loaded,
-    sleep(15_000).then(() => { throw new Error("Browser page load event timed out."); }),
-  ]);
-  removeLoaded();
 
   let result;
-  const deadline = Date.now() + 10_000;
+  let readyState = "navigation-started";
+  const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
-    result = await evaluate(client, "window.__emailShieldBrowserSmokeResult ?? null");
-    if (result) break;
+    try {
+      const snapshot = await evaluate(client, "({ readyState: document.readyState, result: window.__emailShieldBrowserSmokeResult ?? null })");
+      readyState = snapshot?.readyState ?? readyState;
+      result = snapshot?.result ?? null;
+      if (result) break;
+    } catch (error) {
+      const message = String(error?.message ?? error);
+      if (!/context|navigation|Cannot find context/i.test(message)) throw error;
+    }
     await sleep(100);
   }
-  assert(result, "The final browser boot probe never executed.");
+  assert(result, `The final browser boot probe never executed; document.readyState=${readyState}.`);
   assert(result.pass === true, `Executable dashboard boot failed: ${JSON.stringify(result)}`);
   assert(result.errors?.length === 0, `Dashboard boot produced uncaught browser errors: ${JSON.stringify(result.errors)}`);
   assert(result.singleOwner === true, "Browser navigation global no longer has one authoritative router owner.");
