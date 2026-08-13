@@ -56,6 +56,11 @@ const TRUSTED_SECURITY_ALERT_DOMAINS: Readonly<Record<Provider, readonly string[
   imap: [],
 });
 
+const SECURITY_BURST_WINDOW_MS = 15 * 60 * 1_000;
+const SECURITY_BURST_MIN_MESSAGES = 30;
+const SECURITY_BURST_MIN_FIRST_CONTACT = 20;
+const SECURITY_BURST_MIN_DISTINCT_FIRST_CONTACT_SENDERS = 20;
+
 function authPassed(envelope: CanonicalEnvelope): boolean {
   return envelope.authentication.dmarc === "pass"
     || (envelope.authentication.spf === "pass" && envelope.authentication.dkim === "pass");
@@ -68,6 +73,73 @@ function trustedProviderAlert(envelope: CanonicalEnvelope): boolean {
   if (!authPassed(envelope)) return false;
   const text = `${envelope.subject}\n${envelope.textPreview ?? ""}`;
   return /\b(security alert|new sign[- ]?in|unusual activity|password changed|recovery|suspicious sign[- ]?in|account access)\b/i.test(text);
+}
+
+function senderIdentity(envelope: CanonicalEnvelope): string {
+  return envelope.from.address?.trim().toLowerCase()
+    || envelope.from.domain?.trim().toLowerCase()
+    || `unknown:${envelope.providerNativeId}`;
+}
+
+function spamBombSecurityHidingIndicator(envelopes: readonly CanonicalEnvelope[]): MailboxHealthIndicator | null {
+  const observations = envelopes
+    .slice(0, 250)
+    .map((envelope) => ({
+      envelope,
+      time: Date.parse(envelope.date),
+    }))
+    .filter((item) => Number.isFinite(item.time))
+    .sort((left, right) => left.time - right.time);
+
+  let best: {
+    messages: number;
+    firstContacts: number;
+    distinctFirstContacts: number;
+    observedAt: number;
+  } | null = null;
+
+  for (let start = 0; start < observations.length; start += 1) {
+    const first = observations[start]!;
+    const distinctFirstContacts = new Set<string>();
+    let firstContacts = 0;
+    let end = start;
+    while (end < observations.length && observations[end]!.time - first.time <= SECURITY_BURST_WINDOW_MS) {
+      const envelope = observations[end]!.envelope;
+      if (envelope.threadContext.isFirstContact) {
+        firstContacts += 1;
+        distinctFirstContacts.add(senderIdentity(envelope));
+      }
+      end += 1;
+    }
+    const messages = end - start;
+    const candidate = {
+      messages,
+      firstContacts,
+      distinctFirstContacts: distinctFirstContacts.size,
+      observedAt: observations[Math.max(start, end - 1)]!.time,
+    };
+    if (
+      !best
+      || candidate.distinctFirstContacts > best.distinctFirstContacts
+      || (candidate.distinctFirstContacts === best.distinctFirstContacts && candidate.messages > best.messages)
+    ) best = candidate;
+  }
+
+  if (
+    !best
+    || best.messages < SECURITY_BURST_MIN_MESSAGES
+    || best.firstContacts < SECURITY_BURST_MIN_FIRST_CONTACT
+    || best.distinctFirstContacts < SECURITY_BURST_MIN_DISTINCT_FIRST_CONTACT_SENDERS
+  ) return null;
+
+  return {
+    code: "FIRST_CONTACT_MESSAGE_FLOOD",
+    severity: "warning",
+    title: "Message flood may hide a security alert",
+    detail: `${best.messages} messages arrived inside a 15-minute window, including ${best.distinctFirstContacts} distinct first-contact senders. Scam-driven spam bombs can bury a legitimate password, purchase or account-security alert. Review your provider's official security and recent-activity pages directly; do not act from links inside the flood.`,
+    observedAt: new Date(best.observedAt).toISOString(),
+    provenance: "mailbox_observation",
+  };
 }
 
 function envelopeIndicators(envelopes: readonly CanonicalEnvelope[]): MailboxHealthIndicator[] {
@@ -108,6 +180,8 @@ function envelopeIndicators(envelopes: readonly CanonicalEnvelope[]): MailboxHea
       provenance: "mailbox_observation",
     });
   }
+  const spamBomb = spamBombSecurityHidingIndicator(envelopes);
+  if (spamBomb) indicators.push(spamBomb);
   return indicators.slice(0, 50);
 }
 
