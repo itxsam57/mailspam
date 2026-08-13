@@ -3,6 +3,7 @@ import type {
   EmailAdapter,
   FetchPage,
   FolderDescriptor,
+  RestoreToInboxResult,
   SpamReportResult,
 } from "../../canonical/adapter.js";
 import type { CanonicalEnvelope, NormalizedFolder } from "../../canonical/envelope.js";
@@ -178,7 +179,7 @@ export class OutlookAdapter implements EmailAdapter {
 
   private async batchMove(
     messageIds: string[],
-    destinationId: "deleteditems" | "junkemail",
+    destinationId: "deleteditems" | "junkemail" | "inbox",
     signal: AbortSignal,
   ): Promise<number> {
     let moved = 0;
@@ -215,6 +216,11 @@ export class OutlookAdapter implements EmailAdapter {
   async reportSpam(messageIds: string[], signal: AbortSignal): Promise<SpamReportResult> {
     const reported = await this.batchMove(messageIds, "junkemail", signal);
     return { requested: messageIds.length, reported, mode: "junk_folder_move" };
+  }
+
+  async restoreToInbox(messageIds: string[], signal: AbortSignal): Promise<RestoreToInboxResult> {
+    const restored = await this.batchMove(messageIds, "inbox", signal);
+    return { requested: messageIds.length, restored, supported: true, mode: "provider_folder_move" };
   }
 
   async disconnect(): Promise<void> {
