@@ -41,6 +41,7 @@ const steps = [
   npmStep("unit", "Unit, API and regression tests", "test:unit"),
   npmStep("integration", "Integration, corpus and Worker tests", "test:integration"),
   npmStep("web", "Browser source, privacy and wiring checks", "check:web"),
+  npmStep("browser-smoke", "Executable Chromium browser boot and route smoke", "smoke:browser"),
   npmStep("desktop-smoke", "Compiled desktop server and API smoke", "smoke:server"),
   npmStep("community-smoke", "Compiled dedicated community service smoke", "smoke:community"),
   npmStep("account-service-smoke", "Compiled account, entitlement and Family Shield service smoke", "smoke:account-service"),
