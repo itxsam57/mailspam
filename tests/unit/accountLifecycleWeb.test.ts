@@ -18,17 +18,20 @@ describe("account lifecycle browser contract", () => {
     expect(localSecurity).toContain("headers.set('X-Email-Shield-Nonce', await mutationNonce())");
   });
 
-  it("uses only local lifecycle APIs and exact destructive confirmations", () => {
+  it("uses only local lifecycle APIs and exact destructive/transfer confirmations", () => {
     for (const path of [
       "/api/profile/v1/recovery/rotate",
       "/api/profile/v1/devices/revoke-others",
       "/api/profile/v1/export",
       "/api/profile/v1/sign-out-everywhere",
+      "/api/profile/v1/family/transfer",
       "/api/profile/v1/family",
       "/api/profile/v1/account",
     ]) expect(lifecycle).toContain(path);
+    expect(lifecycle).toContain("typed !== 'TRANSFER FAMILY'");
     expect(lifecycle).toContain("typed !== 'DELETE FAMILY'");
     expect(lifecycle).toContain("typed !== 'DELETE ACCOUNT'");
+    expect(lifecycle).toMatch(/store subscription is not transferred/i);
     expect(lifecycle).not.toMatch(/fetch\(\s*['"`]https?:\/\//i);
   });
 
@@ -37,8 +40,10 @@ describe("account lifecycle browser contract", () => {
     expect(lifecycle).toMatch(/provider mailbox remains connected separately/i);
   });
 
-  it("renders recovery values through textContent instead of HTML injection", () => {
+  it("renders recovery and family-member values through textContent instead of HTML injection", () => {
     expect(lifecycle).toContain("value.textContent = code");
+    expect(lifecycle).toContain("option.textContent = member.username");
     expect(lifecycle).not.toMatch(/innerHTML\s*=\s*.*recoveryCode/i);
+    expect(lifecycle).not.toMatch(/innerHTML\s*=\s*.*member\.username/i);
   });
 });
