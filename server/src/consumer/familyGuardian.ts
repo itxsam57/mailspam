@@ -143,6 +143,10 @@ export interface CampaignAdvisory {
   firstSeen: string | null;
   lastSeen: string | null;
   severity: "watch" | "warning" | "confirmed";
+  novelty: "new" | "recent" | "established" | "unknown";
+  momentum: "rapid" | "rising" | "steady" | "unknown";
+  reportRatePerDay: number | null;
+  warningPattern: string;
   guidance: string;
 }
 
@@ -151,13 +155,50 @@ function threatEntries(entries: readonly SignedFeedEntry[] | null): SignedThreat
   return entries.filter((entry): entry is SignedThreatIndicatorEntry => entry.type !== "identity");
 }
 
+const HOUR_MS = 60 * 60 * 1_000;
+const DAY_MS = 24 * HOUR_MS;
+
+function validTime(value: string | undefined): number | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function campaignTrend(entry: SignedThreatIndicatorEntry, now: number): Pick<CampaignAdvisory, "novelty" | "momentum" | "reportRatePerDay"> {
+  const firstSeen = validTime(entry.firstSeen);
+  const lastSeen = validTime(entry.lastSeen);
+  const reports = Math.max(0, entry.independentReports ?? 0);
+  if (firstSeen === null || lastSeen === null || lastSeen < firstSeen || firstSeen > now + HOUR_MS) {
+    return { novelty: "unknown", momentum: "unknown", reportRatePerDay: null };
+  }
+
+  const age = Math.max(0, now - firstSeen);
+  const novelty: CampaignAdvisory["novelty"] = age <= DAY_MS ? "new" : age <= 7 * DAY_MS ? "recent" : "established";
+  const observedHours = Math.max(1, (lastSeen - firstSeen) / HOUR_MS);
+  const reportRatePerDay = Math.min(999, Math.round(((Math.max(0, reports - 1) * 24) / observedHours) * 100) / 100);
+  const lastActivityAge = Math.max(0, now - lastSeen);
+  const recentlyActive = lastActivityAge <= DAY_MS;
+  const momentum: CampaignAdvisory["momentum"] = !recentlyActive
+    ? "steady"
+    : reportRatePerDay >= 6
+      ? "rapid"
+      : reportRatePerDay >= 2
+        ? "rising"
+        : "steady";
+  return { novelty, momentum, reportRatePerDay };
+}
+
 /**
  * Privacy-safe radar derived only from already verified signed intelligence.
  * It never reconstructs examples from private messages and never accepts raw
  * reporter location. Region is deliberately a future signed-feed attribute;
  * until that exists, the UI must label advisories as network-wide.
+ *
+ * Emerging-campaign ranking uses independent reporter count plus bounded
+ * novelty and report-velocity signals derived only from signed firstSeen /
+ * lastSeen timestamps. No reporter identity, message body or location is used.
  */
-export function campaignRadar(entries: readonly SignedFeedEntry[] | null): {
+export function campaignRadar(entries: readonly SignedFeedEntry[] | null, now = Date.now()): {
   available: boolean;
   scope: "network_wide";
   advisories: CampaignAdvisory[];
@@ -172,13 +213,24 @@ export function campaignRadar(entries: readonly SignedFeedEntry[] | null): {
       reason: "Signed campaign intelligence is unavailable or failed verification; no advisory was treated as safe.",
     };
   }
+
   const advisories = threats
     .filter((entry) => entry.type === "campaign" && (entry.independentReports ?? 0) >= 2)
-    .sort((left, right) => (right.independentReports ?? 0) - (left.independentReports ?? 0))
+    .map((entry) => ({ entry, trend: campaignTrend(entry, now) }))
+    .sort((left, right) => {
+      const leftMomentum = left.trend.momentum === "rapid" ? 2 : left.trend.momentum === "rising" ? 1 : 0;
+      const rightMomentum = right.trend.momentum === "rapid" ? 2 : right.trend.momentum === "rising" ? 1 : 0;
+      if (rightMomentum !== leftMomentum) return rightMomentum - leftMomentum;
+      const leftNovelty = left.trend.novelty === "new" ? 2 : left.trend.novelty === "recent" ? 1 : 0;
+      const rightNovelty = right.trend.novelty === "new" ? 2 : right.trend.novelty === "recent" ? 1 : 0;
+      if (rightNovelty !== leftNovelty) return rightNovelty - leftNovelty;
+      return (right.entry.independentReports ?? 0) - (left.entry.independentReports ?? 0);
+    })
     .slice(0, 20)
-    .map((entry): CampaignAdvisory => {
+    .map(({ entry, trend }): CampaignAdvisory => {
       const independentReports = entry.independentReports ?? 0;
-      const severity = entry.confirmedThreat ? "confirmed" : independentReports >= 3 ? "warning" : "watch";
+      const emerging = (trend.novelty === "new" || trend.novelty === "recent") && (trend.momentum === "rapid" || trend.momentum === "rising");
+      const severity = entry.confirmedThreat ? "confirmed" : emerging || independentReports >= 3 ? "warning" : "watch";
       return {
         ruleId: entry.ruleId,
         indicatorType: entry.type,
@@ -186,6 +238,12 @@ export function campaignRadar(entries: readonly SignedFeedEntry[] | null): {
         firstSeen: entry.firstSeen ?? null,
         lastSeen: entry.lastSeen ?? null,
         severity,
+        novelty: trend.novelty,
+        momentum: trend.momentum,
+        reportRatePerDay: trend.reportRatePerDay,
+        warningPattern: entry.confirmedThreat
+          ? "Verified campaign pattern: unexpected contact asks you to act, pay, sign in, call or transfer value using instructions supplied by the suspicious contact."
+          : "Emerging campaign pattern: similar suspicious requests are being reported independently. Verify the request outside the message before taking action.",
         guidance: entry.confirmedThreat
           ? "A verified scam campaign is active. Do not use contact details or payment instructions from the suspicious message; verify through an independently obtained official channel."
           : "Multiple independent reports describe a similar campaign. Treat matching requests cautiously and verify using an independently obtained official channel.",
