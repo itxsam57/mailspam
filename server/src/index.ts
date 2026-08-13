@@ -2,6 +2,7 @@ import { initializeDefaultPersonalPolicyRepository } from "./api/defaultPolicyRe
 import { initializeDefaultScanStateRepository } from "./api/defaultScanStateRepository.js";
 import { initializeDefaultRelationshipHistoryRepository } from "./api/defaultRelationshipHistoryRepository.js";
 import { initializeDefaultBackgroundProtectionRepository } from "./api/defaultBackgroundProtectionRepository.js";
+import { initializeDefaultConsumerStateRepository } from "./api/defaultConsumerStateRepository.js";
 import {
   BackgroundProtectionCoordinator,
   WorkerBackgroundProtectionExecutor,
@@ -44,6 +45,7 @@ await initializeDefaultPersonalPolicyRepository({ credentialVault });
 await initializeDefaultScanStateRepository({ credentialVault });
 await initializeDefaultRelationshipHistoryRepository({ credentialVault });
 await initializeDefaultBackgroundProtectionRepository({ credentialVault });
+await initializeDefaultConsumerStateRepository({ credentialVault, dataDirectory });
 await initializeDefaultAccountPlatform({ credentialVault, dataDirectory });
 const inboundEventRepository = await createDefaultInboundEventStateRepository({
   credentialVault,
