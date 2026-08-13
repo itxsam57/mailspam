@@ -1,13 +1,17 @@
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 const root = process.cwd();
 const host = "127.0.0.1";
+const webDir = resolve(root, "web");
 const dataDir = mkdtempSync(join(tmpdir(), "email-shield-browser-smoke-data-"));
 const browserProfile = mkdtempSync(join(tmpdir(), "email-shield-browser-smoke-profile-"));
+const smokeHtmlPath = join(webDir, "__email-shield-browser-smoke.html");
+const monitorPath = join(webDir, "__email-shield-browser-smoke-monitor.js");
+const probePath = join(webDir, "__email-shield-browser-smoke-probe.js");
 let server;
 let serverStderr = "";
 
@@ -100,16 +104,18 @@ function findBrowser() {
     const located = findOnPath(command);
     if (located) return located;
   }
-
   throw new Error("No Chrome, Chromium, or Edge executable was found for the browser boot gate. Set EMAIL_SHIELD_TEST_BROWSER to an installed Chromium-family browser.");
 }
 
-function openingTag(html, marker) {
-  const markerIndex = html.indexOf(marker);
-  if (markerIndex < 0) return "";
-  const start = html.lastIndexOf("<", markerIndex);
-  const end = html.indexOf(">", markerIndex);
-  return start >= 0 && end > markerIndex ? html.slice(start, end + 1) : "";
+function buildProbePage(dashboardHtml, cookie) {
+  const cookieScript = `<script>document.cookie=${JSON.stringify(`${cookie}; Path=/; SameSite=Strict`)};</script>`;
+  const monitorScript = '<script src="/__email-shield-browser-smoke-monitor.js"></script>';
+  const probeScript = '<script defer src="/__email-shield-browser-smoke-probe.js"></script>';
+  const withMonitor = dashboardHtml.replace("<head>", `<head>${cookieScript}${monitorScript}`);
+  assert(withMonitor !== dashboardHtml, "Browser smoke could not install its same-origin session/error monitor before dashboard code.");
+  const withProbe = withMonitor.replace("</body>", `${probeScript}</body>`);
+  assert(withProbe !== withMonitor, "Browser smoke could not append its final deferred boot probe.");
+  return withProbe;
 }
 
 function runBrowser(browser, url) {
@@ -134,9 +140,6 @@ function runBrowser(browser, url) {
   });
   assert(!result.error, `Headless browser failed to execute: ${result.error?.message ?? "unknown error"}`);
   assert(result.status === 0, `Headless browser exited ${result.status}.\n${result.stderr || ""}`);
-  assert(result.stdout.includes('data-email-shield-router-ready="1"'), "The real browser never reached the router-ready contract. A boot script failed or returned before router installation completed.");
-  assert(result.stdout.includes('class="app-sidebar"'), "The real browser did not construct the application sidebar.");
-  assert(result.stdout.includes('id="homePanel"'), "The real browser did not construct the Home panel.");
   return result.stdout;
 }
 
@@ -162,22 +165,34 @@ try {
   server.stderr.on("data", (chunk) => { serverStderr += chunk; });
   await waitForServer(baseUrl);
 
-  const browser = findBrowser();
-  const homeHtml = runBrowser(browser, `${baseUrl}/#home`);
-  const homeTag = openingTag(homeHtml, 'data-route="home"');
-  assert(homeTag && !/\shidden(?:=|\s|>)/.test(homeTag), `Home was not the visible initial route in the real browser: ${homeTag}`);
+  const dashboardResponse = await fetch(baseUrl, { signal: AbortSignal.timeout(5_000) });
+  const dashboardHtml = await dashboardResponse.text();
+  const cookie = dashboardResponse.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
+  assert(dashboardResponse.ok, `Dashboard returned HTTP ${dashboardResponse.status} while preparing browser smoke.`);
+  assert(cookie.startsWith("email_shield_local_session="), "Browser smoke could not obtain the protected local dashboard session.");
 
-  const scanHtml = runBrowser(browser, `${baseUrl}/#scan`);
-  const scanTag = openingTag(scanHtml, 'data-route="scan"');
-  assert(scanTag && !/\shidden(?:=|\s|>)/.test(scanTag), `Scan routing did not initialize from the URL hash in the real browser: ${scanTag}`);
+  writeFileSync(monitorPath, `window.__emailShieldBrowserSmokeErrors=[];\nwindow.addEventListener('error',(event)=>window.__emailShieldBrowserSmokeErrors.push(String(event.error?.stack||event.message||'browser error')));\nwindow.addEventListener('unhandledrejection',(event)=>window.__emailShieldBrowserSmokeErrors.push(String(event.reason?.stack||event.reason||'unhandled rejection')));\n`);
+  writeFileSync(probePath, `(() => {\n  const errors = Array.isArray(window.__emailShieldBrowserSmokeErrors) ? window.__emailShieldBrowserSmokeErrors : ['error monitor missing'];\n  let singleOwner = false; let scanOk = false; let scanVisible = false; let homeOk = false; let homeVisible = false;\n  try {\n    singleOwner = typeof window.emailShieldNavigate === 'function' && window.emailShieldRouter && window.emailShieldNavigate === window.emailShieldRouter.navigate;\n    scanOk = window.emailShieldNavigate?.('scan', { focus: false }) === true;\n    scanVisible = document.querySelector('.app-route[data-route="scan"]')?.hidden === false;\n    homeOk = window.emailShieldNavigate?.('home', { focus: false }) === true;\n    homeVisible = document.querySelector('.app-route[data-route="home"]')?.hidden === false;\n  } catch (error) { errors.push(String(error?.stack || error)); }\n  const pass = errors.length === 0 && singleOwner && scanOk && scanVisible && homeOk && homeVisible;\n  document.documentElement.dataset.emailShieldBrowserSmoke = pass ? 'pass' : 'fail';\n  document.documentElement.dataset.emailShieldBrowserSmokeErrors = String(errors.length);\n  document.documentElement.dataset.emailShieldBrowserSmokeSingleOwner = String(Boolean(singleOwner));\n  document.documentElement.dataset.emailShieldBrowserSmokeRouting = String(Boolean(scanOk && scanVisible && homeOk && homeVisible));\n})();\n`);
+  writeFileSync(smokeHtmlPath, buildProbePage(dashboardHtml, cookie));
+
+  const browser = findBrowser();
+  const rendered = runBrowser(browser, `${baseUrl}/__email-shield-browser-smoke.html`);
+  assert(rendered.includes('data-email-shield-browser-smoke="pass"'), "The executable dashboard boot contract failed in a real browser.");
+  assert(rendered.includes('data-email-shield-browser-smoke-errors="0"'), "The executable dashboard boot produced an uncaught JavaScript error or unhandled rejection.");
+  assert(rendered.includes('data-email-shield-browser-smoke-single-owner="true"'), "The real browser does not have one authoritative navigation function; app-shell/ui-router ownership regressed.");
+  assert(rendered.includes('data-email-shield-browser-smoke-routing="true"'), "The real browser could not navigate Scan -> Home through the public router.");
+  assert(rendered.includes('class="app-sidebar"') && rendered.includes('id="homePanel"'), "The real browser did not construct the application shell.");
 
   console.log(`Executable browser boot smoke passed with ${browser}.`);
-  console.log("Real DOM boot, router readiness, Home rendering, and Scan hash routing passed.");
+  console.log("Uncaught-error capture, single navigation ownership, shell rendering, and Scan/Home routing passed.");
 } finally {
   if (server && server.exitCode === null) {
     try { server.kill(); } catch {}
   }
   await sleep(150);
+  for (const path of [smokeHtmlPath, monitorPath, probePath]) {
+    try { rmSync(path, { force: true }); } catch {}
+  }
   try { rmSync(browserProfile, { recursive: true, force: true }); } catch {}
   try { rmSync(dataDir, { recursive: true, force: true }); } catch {}
 }
