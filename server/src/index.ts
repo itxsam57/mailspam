@@ -39,22 +39,25 @@ ensureManagedDataDirectory(dataDirectory);
 // Resolve or migrate protected local encryption keys before the desktop API
 // becomes reachable. One native runtime vault is shared across every protected
 // repository and provider session so Windows initializes its trusted helper
-// once instead of recompiling it for each credential operation.
+// once instead of recompiling it for each credential operation. Independent
+// repositories start together; the vault itself remains the serialization
+// boundary for sensitive native operations.
 const credentialVault = getRuntimeCredentialVault();
-await initializeDefaultPersonalPolicyRepository({ credentialVault });
-await initializeDefaultScanStateRepository({ credentialVault });
-await initializeDefaultRelationshipHistoryRepository({ credentialVault });
-await initializeDefaultBackgroundProtectionRepository({ credentialVault });
-await initializeDefaultConsumerStateRepository({ credentialVault, dataDirectory });
-await initializeDefaultAccountPlatform({ credentialVault, dataDirectory });
-const inboundEventRepository = await createDefaultInboundEventStateRepository({
-  credentialVault,
-  dataDirectory,
-});
-const liveConnections = await createDefaultLiveConnectionPersistence({
-  credentialVault,
-  dataDirectory,
-});
+const protectedStateStartedAt = Date.now();
+console.log("Email Shield initializing protected local state...");
+const initialized = await Promise.all([
+  initializeDefaultPersonalPolicyRepository({ credentialVault }),
+  initializeDefaultScanStateRepository({ credentialVault }),
+  initializeDefaultRelationshipHistoryRepository({ credentialVault }),
+  initializeDefaultBackgroundProtectionRepository({ credentialVault }),
+  initializeDefaultConsumerStateRepository({ credentialVault, dataDirectory }),
+  initializeDefaultAccountPlatform({ credentialVault, dataDirectory }),
+  createDefaultInboundEventStateRepository({ credentialVault, dataDirectory }),
+  createDefaultLiveConnectionPersistence({ credentialVault, dataDirectory }),
+] as const);
+const inboundEventRepository = initialized[6];
+const liveConnections = initialized[7];
+console.log(`Email Shield protected local state ready in ${Date.now() - protectedStateStartedAt}ms.`);
 
 const accountPlatform = getAccountPlatformService();
 const accountLifecycle = getAccountLifecycleService();
