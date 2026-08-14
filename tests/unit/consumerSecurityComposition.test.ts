@@ -96,7 +96,7 @@ describe("canonical consumer desktop security composition", () => {
   it("keeps Scam Check read-only analysis behind session, CSRF, same-origin and its own bounded parser", async () => {
     const context = await start();
     const url = `${context.baseUrl}/api/scam-check/v1/analyze`;
-    const body = JSON.stringify({ schemaVersion: 1, input: { kind: "text", value: "A harmless local test message." } });
+    const body = JSON.stringify({ schemaVersion: 1, kind: "message", text: "A harmless local test message." });
 
     expect((await fetch(url, {
       method: "POST",
