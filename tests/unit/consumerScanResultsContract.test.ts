@@ -2,20 +2,36 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
+const repoRoot = resolve(process.cwd(), "..");
 function source(path: string): string {
-  return readFileSync(resolve(process.cwd(), path), "utf8");
+  return readFileSync(resolve(repoRoot, path), "utf8");
 }
 
 describe("consumer scanned-email presentation contract", () => {
   const renderer = source("web/consumer-scan-results.js");
+  const selection = source("web/account-selection-state.js");
   const composition = source("server/src/api/dashboardScripts.ts");
   const gate = source("scripts/engineering/run-gate.mjs");
 
-  it("loads the all-message consumer renderer after the canonical scan monitor", () => {
+  it("loads synchronous account selection before the canonical scan owner and consumer renderer", () => {
+    const selectionIndex = composition.indexOf('"/account-selection-state.js"');
     const scanIndex = composition.indexOf('"/scan-monitor.js"');
     const consumerIndex = composition.indexOf('"/consumer-scan-results.js"');
-    expect(scanIndex).toBeGreaterThanOrEqual(0);
+    expect(selectionIndex).toBeGreaterThanOrEqual(0);
+    expect(scanIndex).toBeGreaterThan(selectionIndex);
     expect(consumerIndex).toBeGreaterThan(scanIndex);
+  });
+
+  it("reflects exactly one selected account synchronously before legacy async refresh/persistence", () => {
+    expect(selection).toContain("window.selectAccount = function emailShieldSelectAccountState");
+    expect(selection).toContain("reflectSelection(id);");
+    expect(selection).toContain("return originalSelect.call(this, id, options);");
+    expect(selection.indexOf("reflectSelection(id);")).toBeLessThan(selection.indexOf("return originalSelect.call(this, id, options);"));
+    expect(selection).toContain("row.classList.toggle('active', active)");
+    expect(selection).toContain("button.setAttribute('aria-pressed', String(active))");
+    expect(selection).toContain("button.removeAttribute('aria-current')");
+    expect(selection).not.toContain("setTimeout");
+    expect(selection).not.toContain("requestAnimationFrame");
   });
 
   it("projects canonical diagnostic rows without opening a second scan stream", () => {
