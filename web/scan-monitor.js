@@ -165,7 +165,7 @@
       return `<tr data-message-row="true"
         data-review-token="${escapeHtml(review.token || '')}"
         data-already-approved="${review.alreadyApproved === true ? 'true' : 'false'}"
-        data-sender-trusted="${review.senderTrusted === true ? 'true' : 'false'}"
+        data-sender-trusted="${review.senderTrusted === 'true' ? 'true' : review.senderTrusted === true ? 'true' : 'false'}"
         data-can-report-spam="${review.canReportSpam === true ? 'true' : 'false'}"
         data-unsubscribe-available="${unsubscribe.available === true ? 'true' : 'false'}"
         data-unsubscribe-token="${escapeHtml(unsubscribe.token || '')}"
@@ -181,6 +181,26 @@
       </tr>`;
     }).join('');
   }
+
+  function clearScanPresentation() {
+    counters.innerHTML = '';
+    cards.innerHTML = '';
+    diagnosticRows = [];
+    renderDiagnostics();
+  }
+
+  window.addEventListener('email-shield-account-selection-changed', (event) => {
+    clearScanPresentation();
+    const detail = event instanceof CustomEvent ? event.detail : null;
+    if (source && accountId && accountId !== detail?.accountId) {
+      setStatus('A scan is still running for another connected mailbox. Stop it or let it finish before starting the selected mailbox.', 'running');
+      stopButton.disabled = false;
+      return;
+    }
+    setStatus(detail?.accountId
+      ? 'Selected account changed. Scan controls are ready.'
+      : 'Select a connected account to scan.');
+  });
 
   function renderProgress(progress) {
     if (typeof window.renderCounters === 'function') window.renderCounters(progress.counters);
@@ -222,8 +242,15 @@
       return;
     }
 
-    source?.close();
-    source = null;
+    if (source) {
+      if (accountId !== requestedAccountId) {
+        setStatus('A scan for another mailbox is already active. Stop or finish that scan before starting the selected mailbox.', 'error');
+      } else {
+        setStatus('A scan is already active for this mailbox. Stop or finish it before starting another scan.', 'error');
+      }
+      return;
+    }
+
     accountId = requestedAccountId;
     scanOwnerSnapshot = requestedSelection;
     scanPanel.setAttribute('aria-busy', 'true');
@@ -249,12 +276,7 @@
       return;
     }
 
-    if (!resumeScanId) {
-      counters.innerHTML = '';
-      cards.innerHTML = '';
-      diagnosticRows = [];
-      renderDiagnostics();
-    }
+    if (!resumeScanId) clearScanPresentation();
     stopButton.disabled = false;
     setStatus(`${resumeScanId ? 'Resuming' : 'Starting'} ${type} scan…`, 'running');
 
