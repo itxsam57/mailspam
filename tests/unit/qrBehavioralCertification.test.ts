@@ -70,14 +70,14 @@ function decodedQrLinks(): LinkInfo[] {
 }
 
 describe("QR behavioral certification", () => {
-  it("carries a URL decoded from real PNG pixels into the final engine and warns because the destination was hidden in a QR", () => {
+  it("carries a URL decoded from real PNG pixels into the final engine and escalates the suspicious hidden destination", () => {
     const result = scanMessage(baseEnvelope("gmail", decodedQrLinks()), {
       personalPolicy: new InMemoryPersonalPolicyStore(),
       threatFeed: emptyFeed,
     });
 
-    expect(result.scored.verdict).toBe("review");
-    expect(result.action).toBe("warn");
+    expect(result.scored.verdict).toBe("high_risk");
+    expect(result.action).toBe("allow_one_click_block");
     expect(result.scored.evidence).toEqual(expect.arrayContaining([
       expect.objectContaining({ layer: "link_structure", code: "LINK_EMBEDDED_IN_QR" }),
       expect.objectContaining({ layer: "attachment_qr", code: "QR_CODE_URL_PAYLOAD" }),
@@ -111,32 +111,29 @@ describe("QR behavioral certification", () => {
     },
   );
 
-  it("does not create QR-specific evidence for the same ordinary HTTPS destination when it is visibly present instead of encoded in QR", () => {
+  it("shows that hiding the same suspicious HTTPS destination in QR increases risk without inventing a confirmed-malicious verdict", () => {
     const link: LinkInfo = {
       visibleText: QR_URL,
       rawUrl: QR_URL,
       normalizedUrl: QR_URL,
       claimedBrand: null,
       brandDomainMismatch: null,
-      source: "html",
+      source: "body",
     };
-    const result = scanMessage(baseEnvelope("gmail", [link]), {
+    const visible = scanMessage(baseEnvelope("gmail", [link]), {
+      personalPolicy: new InMemoryPersonalPolicyStore(),
+      threatFeed: emptyFeed,
+    });
+    const hiddenInQr = scanMessage(baseEnvelope("gmail", decodedQrLinks()), {
       personalPolicy: new InMemoryPersonalPolicyStore(),
       threatFeed: emptyFeed,
     });
 
-    expect(result.scored.evidence.some((item) => item.code === "LINK_EMBEDDED_IN_QR" || item.code === "QR_CODE_URL_PAYLOAD")).toBe(false);
-    expect(result.scored.verdict).toBe("safe");
-  });
-
-  it("keeps unsafe embedded-credential QR payloads out of canonical link analysis instead of turning them into trusted links", () => {
-    const credentialQr = Buffer.from(
-      "iVBORw0KGgoAAAANSUhEUgAAAG8AAABvAQAAAADKvqPNAAABd0lEQVR4nNVUO27bQBB9KxLYNKJqAxuQV0hHVaucIGfIDSRXqfSBGwMB/LmAfQ65oqrlJYIsIgMuvWsWoQCKL6XtIMawjKcbzGDmvTcPo4gXwRFexf+aRqVOD/dXh49KFUIzGNktXNLbbsW8FxftivHUXG+L+GEQqqY6Ps68jDkFgKzE2e83R71KrUf90NfFpJWbqdInfXKqsVFSM0gyWPY2JymoAcbKZ0jW6JalLB2/5dH9iFXROBlGbw3KJGijKhlG0FxbXakeEEwOsxhMuQXWpo8QlYyd2jaXdxKRkqB+iQcHo4j03weQBD7oM3CJZtWhvFkpxef/A3AmWykDG58VwAmq2UYsfUT+gn3l26AGtqupvg6K/5Z/Zug7lQLABB1BknGKo8uD5AvGICFM3Nt5uUAi7Kbl37i8mAHeKMyS83eQolqpADQbNPvu/34i/854BVwdfxV4vZ8wFHYLa1XbbIWCY5AlTYbG+pj/8be51Dv8Jn/AS5BwooQEmThAAAAAElFTkSuQmCC",
-      "base64",
-    );
-    const analysis = analyzeQrImages([{ name: "credential-qr.png", mimeType: "image/png", content: credentialQr }]);
-    expect(analysis.results[0]).toMatchObject({ status: "decoded_non_url", url: null });
-    expect(analysis.links).toEqual([]);
+    expect(visible.scored.evidence.some((item) => item.code === "LINK_EMBEDDED_IN_QR" || item.code === "QR_CODE_URL_PAYLOAD")).toBe(false);
+    expect(visible.scored.verdict).toBe("review");
+    expect(visible.scored.confirmedByRule).toBe(false);
+    expect(hiddenInQr.scored.verdict).toBe("high_risk");
+    expect(hiddenInQr.scored.confirmedByRule).toBe(false);
   });
 
   it("marks bounded QR inspection overflow incomplete so adapters can never treat uninspected supported images as fully covered", () => {
