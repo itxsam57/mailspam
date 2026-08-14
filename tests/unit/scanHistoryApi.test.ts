@@ -24,7 +24,7 @@ afterEach(async () => {
 });
 
 async function start(): Promise<BrowserContext> {
-  const app = createLocalDesktopServer({ security: new LocalSecurityManager() });
+  const app = createLocalDesktopServer({ security: new LocalSecurityManager(), developmentEntitlementsEnabled: true });
   const server = app.listen(0, "127.0.0.1");
   servers.push(server);
   await new Promise<void>((resolve) => server.once("listening", () => resolve()));
@@ -176,6 +176,7 @@ describe("protected scan history API", () => {
       mode: "fixture",
       label: "scan-history-isolation",
     });
+    expect(connected.status).toBe(200);
     const accountId = (await connected.json()).accountId as string;
     accountIds.push(accountId);
 
