@@ -153,7 +153,7 @@
     }
     consumerIntro.append(grid);
 
-    if (new URLSearchParams(location.search).get('developer') === '1') {
+    if (window.emailShieldDevelopmentEntitlementsEnabled === true && new URLSearchParams(location.search).get('developer') === '1') {
       const dev = document.createElement('details');
       dev.className = 'consumer-card';
       dev.innerHTML = '<summary>Developer acceptance controls</summary><p class="hint">Fixture mailboxes are isolated synthetic test data. These controls are hidden in the normal consumer journey.</p>';
@@ -218,7 +218,7 @@
   tools.innerHTML = `
     <div><h2>Safety Tools & Privacy</h2><p class="hint">Explicit checks only. Email Shield does not upload browser history, mailbox content or passwords.</p></div>
     <div class="consumer-two">
-      <div class="consumer-card"><h3>Protection sensitivity</h3><p>Changes how much borderline activity asks for your attention. Hard threat/authentication rules stay locked.</p><div class="consumer-actions"><button data-consumer-sensitivity="high_protection">High protection</button><button data-consumer-sensitivity="balanced">Balanced</button><button data-consumer-sensitivity="low_noise">Low noise</button></div><div id="consumerSensitivityStatus" class="hint"></div></div>
+      <div class="consumer-card"><h3>Protection sensitivity</h3><p>Changes how much borderline activity asks for your attention. Hard threat/authentication rules stay locked.</p><div class="consumer-actions"><button data-consumer-sensitivity="high">High protection</button><button data-consumer-sensitivity="balanced">Balanced</button><button data-consumer-sensitivity="low_noise">Low noise</button></div><div id="consumerSensitivityStatus" class="hint"></div></div>
       <div class="consumer-card"><h3>Notification privacy</h3><p>Default notifications are generic. Richer local previews are optional and remain device-local.</p><label class="row"><input id="consumerRicherNotifications" type="checkbox"> Allow richer local notification text</label></div>
       <div class="consumer-card"><h3>Check a destination</h3><label class="field"><span>Website URL</span><input id="consumerBrowserUrl" class="consumer-input" type="url" placeholder="https://example.com"></label><div class="consumer-actions"><button id="consumerCheckBrowser" type="button">Check before opening</button></div><div id="consumerBrowserResult" class="hint"></div></div>
       <div class="consumer-card"><h3>Payment / callback / remote-access check</h3><textarea id="consumerInterventionText" class="consumer-input" rows="5" maxlength="32000" placeholder="Paste the suspicious request or conversation"></textarea><div class="consumer-actions"><button id="consumerCheckIntervention" type="button">Check interaction</button></div><div id="consumerInterventionResult" class="hint"></div></div>
