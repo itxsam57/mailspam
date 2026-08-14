@@ -43,7 +43,7 @@
   title.id = 'consumerScanMessageHeading';
   title.textContent = 'Scanned emails';
   const explanation = document.createElement('p');
-  explanation.textContent = 'Every examined email appears here as the scan progresses. Message bodies stay private.';
+  explanation.textContent = 'Scanned emails appear here as the scan progresses. The newest 500 stay visible; the counters track the full scan. Message bodies stay private.';
   titleWrap.append(title, explanation);
   const count = document.createElement('div');
   count.className = 'consumer-scan-count';
@@ -91,7 +91,7 @@
 
   function render() {
     const rows = [...tableBody.querySelectorAll('tr[data-message-row="true"]')];
-    count.textContent = `${rows.length} examined`;
+    count.textContent = `${Math.min(rows.length, 500)} shown`;
     diagnostics.querySelector('summary')?.replaceChildren(document.createTextNode(`Technical scan details (${rows.length})`));
 
     if (!rows.length) {
