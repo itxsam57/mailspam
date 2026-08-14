@@ -50,20 +50,27 @@
     const senderBlock = actions.querySelector('[data-action="block-sender"]');
     const domainBlock = actions.querySelector('[data-action="block-domain"]');
     const trash = actions.querySelector('[data-action="trash"]');
+
+    // Every message mutation is authorized by the same opaque review token.
+    // The browser-rendered sender/domain strings are presentation only and must
+    // never become the authority for a policy mutation.
+    if (senderBlock instanceof HTMLButtonElement) {
+      senderBlock.dataset.reviewToken = action.token;
+      if (action.senderBlocked === true) {
+        senderBlock.textContent = 'Sender blocked ✓';
+        senderBlock.disabled = true;
+      }
+    }
+    if (domainBlock instanceof HTMLButtonElement) {
+      domainBlock.dataset.reviewToken = action.token;
+      if (action.domainBlocked === true) {
+        domainBlock.textContent = 'Domain blocked ✓';
+        domainBlock.disabled = true;
+      }
+    }
     if (trash instanceof HTMLButtonElement) {
       trash.dataset.reviewToken = action.token;
       delete trash.dataset.nativeId;
-    }
-
-    if (senderBlock instanceof HTMLButtonElement && action.senderBlocked === true) {
-      senderBlock.dataset.action = 'unblock-sender';
-      senderBlock.textContent = 'Unblock sender (blocked ✓)';
-      senderBlock.disabled = false;
-    }
-    if (domainBlock instanceof HTMLButtonElement && action.domainBlocked === true) {
-      domainBlock.dataset.action = 'unblock-domain';
-      domainBlock.textContent = 'Unblock domain (blocked ✓)';
-      domainBlock.disabled = false;
     }
 
     const reportScam = document.createElement('button');
