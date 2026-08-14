@@ -10,10 +10,11 @@
   const style = document.createElement('style');
   style.textContent = `
     .consumer-scan-feed{margin:12px 0 14px;border:1px solid var(--border);border-radius:9px;background:var(--panel)}
-    .consumer-scan-feed-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid var(--border)}
-    .consumer-scan-feed-head h3{margin:0;font-size:13px}.consumer-scan-feed-head p{margin:3px 0 0;color:var(--text-faint);font-size:11px}
-    .consumer-scan-count{font-size:11px;color:var(--text-muted);white-space:nowrap}
-    .consumer-scan-list{display:flex;flex-direction:column;max-height:520px;overflow:auto}
+    .consumer-scan-feed>summary{cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;color:var(--text);font-size:12px;font-weight:600;user-select:none}
+    .consumer-scan-feed>summary::marker{color:var(--text-muted)}
+    .consumer-scan-feed-copy{padding:0 14px 10px;color:var(--text-faint);font-size:11px;border-bottom:1px solid var(--border)}
+    .consumer-scan-count{font-size:11px;color:var(--text-muted);font-weight:400;white-space:nowrap;margin-left:auto}
+    .consumer-scan-list{display:flex;flex-direction:column;max-height:420px;overflow:auto}
     .consumer-scan-message{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:11px 14px;border-top:1px solid var(--border)}
     .consumer-scan-message:first-child{border-top:0}.consumer-scan-message-main{min-width:0}
     .consumer-scan-subject{font-size:12px;font-weight:600;overflow-wrap:anywhere}.consumer-scan-sender{margin-top:3px;font-size:11px;color:var(--text-muted);overflow-wrap:anywhere}
@@ -31,29 +32,28 @@
   `;
   document.head.appendChild(style);
 
-  const feed = document.createElement('section');
+  const feed = document.createElement('details');
   feed.id = 'consumerScanMessageFeed';
   feed.className = 'consumer-scan-feed';
-  feed.setAttribute('aria-labelledby', 'consumerScanMessageHeading');
+  feed.open = false;
 
-  const head = document.createElement('div');
-  head.className = 'consumer-scan-feed-head';
-  const titleWrap = document.createElement('div');
-  const title = document.createElement('h3');
-  title.id = 'consumerScanMessageHeading';
-  title.textContent = 'Scanned emails';
-  const explanation = document.createElement('p');
-  explanation.textContent = 'Scanned emails appear here as the scan progresses. The newest 500 stay visible; the counters track the full scan. Message bodies stay private.';
-  titleWrap.append(title, explanation);
-  const count = document.createElement('div');
+  const summary = document.createElement('summary');
+  summary.id = 'consumerScanMessageHeading';
+  const summaryTitle = document.createElement('span');
+  summaryTitle.textContent = 'Scanned emails';
+  const count = document.createElement('span');
   count.className = 'consumer-scan-count';
   count.setAttribute('aria-live', 'polite');
-  head.append(titleWrap, count);
+  summary.append(summaryTitle, count);
+
+  const explanation = document.createElement('div');
+  explanation.className = 'consumer-scan-feed-copy';
+  explanation.textContent = 'Open this list only when you want to inspect individual messages. The newest 500 stay available; the counters track the full scan. Message bodies stay private.';
 
   const list = document.createElement('div');
   list.className = 'consumer-scan-list';
   list.setAttribute('role', 'list');
-  feed.append(head, list);
+  feed.append(summary, explanation, list);
   diagnostics.before(feed);
 
   diagnostics.open = false;
@@ -91,7 +91,7 @@
 
   function render() {
     const rows = [...tableBody.querySelectorAll('tr[data-message-row="true"]')];
-    count.textContent = `${Math.min(rows.length, 500)} shown`;
+    count.textContent = `${Math.min(rows.length, 500)} available`;
     diagnostics.querySelector('summary')?.replaceChildren(document.createTextNode(`Technical scan details (${rows.length})`));
 
     if (!rows.length) {
