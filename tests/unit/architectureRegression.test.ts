@@ -93,13 +93,15 @@ describe("transport architecture regressions", () => {
     expect(monitor).not.toContain(".then(() => { btn.textContent = 'Moved'");
   });
 
-  it("scopes, encrypts, transactionally persists, and reverses personal blocks", () => {
+  it("scopes, encrypts, transactionally persists, and reverses personal blocks through Personal Policy Management", () => {
     const server = read("server/src/api/server.ts");
-    const desktopServer = read("server/src/api/localDesktopServer.ts");
     const sessions = read("server/src/api/sessionStore.ts");
     const persistence = read("server/src/api/policyPersistence.ts");
     const dataDirectory = read("server/src/security/dataDirectory.ts");
     const monitor = read("web/scan-monitor.js");
+    const review = read("web/review-actions.js");
+    const policyUi = read("web/policy-management.js");
+    const policyServer = read("server/src/api/policyManagement.ts");
 
     expect(sessions).toContain("policyStores = new Map");
     expect(sessions).toContain("policyRepository.load(accountKey)");
@@ -115,14 +117,28 @@ describe("transport architecture regressions", () => {
     expect(persistence).toContain("personal-policies.enc.json");
     expect(persistence).toContain("unsubscribedActions");
     expect(persistence).not.toContain("appPassword:");
-    expect(monitor).toContain("'Remove the block for' : 'Block'");
-    expect(monitor).toContain("This does not move or delete mail.");
-    expect(monitor).toContain("result.blocked !== !isUnblock || result.scope !== scope || result.accountId !== id");
-    expect(monitor).toContain("unblock-${scope}");
-    expect(desktopServer).toContain('/messages/unblock-sender');
-    expect(desktopServer).toContain('/messages/unblock-domain');
-    expect(desktopServer).toContain("policy.unblockSender(address)");
-    expect(desktopServer).toContain("policy.unblockDomain(domain)");
+
+    // Message-card Block is authorized only by the opaque scan capability. The
+    // browser-rendered address/domain remains presentation, never mutation input.
+    expect(monitor).toContain("body: JSON.stringify({ token })");
+    expect(monitor).toContain("result.blocked !== true || result.scope !== scope || result.accountId !== id || result.token !== token");
+    expect(monitor).toContain("attempt to move this current message to Trash");
+    expect(review).not.toContain("dataset.action = 'unblock-sender'");
+    expect(review).not.toContain("dataset.action = 'unblock-domain'");
+
+    // Reversing a durable personal rule belongs to the encrypted Personal
+    // Policy surface, which normalizes, transactionally replaces and persists
+    // the selected account policy instead of reviving raw-address card routes.
+    expect(policyUi).toContain("revoke.textContent = 'Revoke'");
+    expect(policyUi).toContain("await mutate('/revoke'");
+    expect(policyUi).toContain("await mutate('/bulk-revoke'");
+    expect(policyUi).toContain("await mutate('/clear-category'");
+    expect(policyServer).toContain('app.post("/api/accounts/:id/personal-policy/revoke"');
+    expect(policyServer).toContain('app.post("/api/accounts/:id/personal-policy/bulk-revoke"');
+    expect(policyServer).toContain('app.post("/api/accounts/:id/personal-policy/clear-category"');
+    expect(policyServer).toContain("normalizePersonalPolicyValue(category, body.value)");
+    expect(policyServer).toContain("revoked = removeOne(replacement, category, value)");
+    expect(policyServer).toContain("sessionStore.mutateAndPersistPersonalPolicy(session, (policy) => policy.replace(replacement))");
   });
 
   it("uses opaque tokens for unsubscribe from both warning and Safe views", () => {
