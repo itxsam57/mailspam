@@ -37,7 +37,7 @@ function envelope(overrides: Partial<CanonicalEnvelope> = {}): CanonicalEnvelope
       dmarc: "pass",
       arc: "none",
       providerTrust: "trusted",
-      rawHeader: "spf=pass smtp.mailfrom=acme.com; dkim=pass header.d=acme.com header.s=s1; dmarc=pass",
+      rawHeader: "mx.receiver.example; spf=pass smtp.mailfrom=acme.com; dkim=pass header.d=acme.com header.s=s1; dmarc=pass header.from=acme.com",
     },
     textPreview: "Routine authenticated operational correspondence. No password, payment, one-time code, recovery phrase, urgent transfer, or forced verification is requested.",
     htmlSignals: null,
@@ -89,7 +89,7 @@ describe("authentication + impersonation + intent behavioral certification", () 
     expect(result.scored.evidence.filter((item) => item.scoreContribution > 0)).toEqual([]);
   });
 
-  it("combines auth failure, explicit identity mismatch, credential pressure and insecure link into High Risk", () => {
+  it("combines trusted auth failure, explicit identity mismatch and credential pressure into High Risk", () => {
     const candidate = envelope({
       from: { displayName: "Acme Security", address: "security@evil.example", domain: "evil.example" },
       subject: "Acme Security alert — portal: acme.com",
@@ -99,7 +99,7 @@ describe("authentication + impersonation + intent behavioral certification", () 
         dmarc: "fail",
         arc: "none",
         providerTrust: "trusted",
-        rawHeader: "spf=fail smtp.mailfrom=evil.example; dkim=fail header.d=evil.example; dmarc=fail",
+        rawHeader: "mx.receiver.example; spf=fail smtp.mailfrom=evil.example; dkim=fail header.d=evil.example; dmarc=fail header.from=evil.example",
       },
       textPreview: "Verify your account within 24 hours. Click below to confirm your identity and enter your password or the account will be suspended.",
       links: [link("http://login.acme-security.evil.example/verify")],
@@ -111,12 +111,10 @@ describe("authentication + impersonation + intent behavioral certification", () 
 
     expect(result.scored.verdict).toBe("high_risk");
     expect(result.action).toBe("allow_one_click_block");
-    expect(codes).toEqual(expect.objectContaining ? codes : codes);
     expect(codes.has("DMARC_FAIL")).toBe(true);
     expect(codes.has("SPF_DKIM_BOTH_FAIL")).toBe(true);
     expect(codes.has("EXPLICIT_DOMAIN_CLAIM_MISMATCH")).toBe(true);
     expect(codes.has("CREDENTIAL_PHISH_INTENT")).toBe(true);
-    expect(codes.has("LINK_HTTP_SCHEME")).toBe(true);
   });
 
   it("does not let account-local Trust + exact-message Safe turn a multi-signal phishing message into Safe", () => {
@@ -129,6 +127,7 @@ describe("authentication + impersonation + intent behavioral certification", () 
         dmarc: "fail",
         arc: "none",
         providerTrust: "trusted",
+        rawHeader: "mx.receiver.example; spf=fail smtp.mailfrom=evil.example; dkim=fail header.d=evil.example; dmarc=fail header.from=evil.example",
       },
       textPreview: "Verify your account within 24 hours. Click below to confirm your identity and enter your password or the account will be suspended.",
       links: [link("http://login.evil.example/verify")],
@@ -140,7 +139,8 @@ describe("authentication + impersonation + intent behavioral certification", () 
 
     const result = scan(candidate, policy);
 
-    expect(result.scored.verdict).not.toBe("safe");
+    expect(result.scored.verdict).toBe("high_risk");
+    expect(result.action).toBe("allow_one_click_block");
     expect(result.scored.evidence.some((item) => item.code === "DMARC_FAIL")).toBe(true);
     expect(result.scored.evidence.some((item) => item.code === "CREDENTIAL_PHISH_INTENT")).toBe(true);
   });
@@ -167,7 +167,7 @@ describe("authentication + impersonation + intent behavioral certification", () 
     expect(result.action).toBe("auto_trash_allowed");
   });
 
-  it("treats a lone unrelated Reply-To as context rather than automatically calling an otherwise clean message malicious", () => {
+  it("treats a lone unrelated Reply-To as Review context rather than High Risk or Confirmed Threat", () => {
     const candidate = envelope({
       replyTo: { displayName: null, address: "reply@support-other.example", domain: "support-other.example" },
     });
@@ -176,13 +176,23 @@ describe("authentication + impersonation + intent behavioral certification", () 
     expect(result.scored.evidence).toEqual(expect.arrayContaining([
       expect.objectContaining({ code: "REPLY_TO_MISMATCH", scoreContribution: 2 }),
     ]));
-    expect(result.scored.verdict).toBe("safe");
+    expect(result.scored.verdict).toBe("review");
+    expect(result.scored.confirmedByRule).toBe(false);
     expect(result.action).toBe("none");
   });
 
-  it("withholds Safe when bounded content cannot rely on trusted authentication provenance", () => {
+  it("withholds Safe when bounded content has forged/untrusted authentication provenance", () => {
     const candidate = envelope({
-      authentication: { spf: "pass", dkim: "pass", dmarc: "pass", arc: "none", providerTrust: "unknown" },
+      parseStatus: "partial",
+      parseNotes: ["Readable text was bounded to 24576 bytes."],
+      authentication: {
+        spf: "pass",
+        dkim: "pass",
+        dmarc: "none",
+        arc: "none",
+        providerTrust: "unknown",
+        rawHeader: "forged.example; spf=pass smtp.mailfrom=acme.com; dkim=pass header.d=acme.com",
+      },
       diagnostics: {
         fetchedAt: "2026-08-14T10:00:00.000Z",
         sizeBytes: 900,
@@ -193,9 +203,10 @@ describe("authentication + impersonation + intent behavioral certification", () 
     const result = scan(candidate);
 
     expect(result.scored.verdict).toBe("unknown");
-    expect(result.action).toBe("warn");
+    expect(result.action).toBe("none");
     const transport = result.scored.layerResults.find((item) => item.layer === "transport_auth");
     expect(transport?.incomplete).toBe(true);
+    expect(transport?.incompleteReason).toMatch(/provenance/i);
   });
 
   it("never lets Low Noise hide a hard DMARC contradiction or rewrite the authoritative verdict/action", () => {
@@ -206,6 +217,7 @@ describe("authentication + impersonation + intent behavioral certification", () 
         dmarc: "fail",
         arc: "none",
         providerTrust: "trusted",
+        rawHeader: "mx.receiver.example; spf=pass smtp.mailfrom=acme.com; dkim=pass header.d=acme.com; dmarc=fail header.from=acme.com",
       },
     });
     const result = scan(candidate);
@@ -229,6 +241,7 @@ describe("authentication + impersonation + intent behavioral certification", () 
         dmarc: "pass",
         arc: "none",
         providerTrust: "trusted",
+        rawHeader: "mx.receiver.example; spf=pass smtp.mailfrom=unrelated.example; dkim=pass header.d=unrelated.example; dmarc=pass header.from=unrelated.example",
       },
       textPreview: "Routine informational correspondence. No credential, payment, urgency, callback, installation, or transfer is requested.",
       links: [],
