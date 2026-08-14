@@ -4,7 +4,7 @@
     blockedDomains: 'Blocked domains',
     trustedSenders: 'Trusted senders',
     approvedExceptions: 'Safe exceptions',
-    unsubscribedActions: 'Unsubscribe history',
+    unsubscribedActions: 'Confirmed unsubscribes',
     reportedCampaigns: 'Reported scam campaigns',
   };
   const CATEGORIES = Object.keys(CATEGORY_LABELS);
@@ -27,7 +27,7 @@
         <option value="blockedDomains">Blocked domains</option>
         <option value="trustedSenders">Trusted senders</option>
         <option value="approvedExceptions">Safe exceptions</option>
-        <option value="unsubscribedActions">Unsubscribe history</option>
+        <option value="unsubscribedActions">Confirmed unsubscribes</option>
         <option value="reportedCampaigns">Reported scam campaigns</option>
       </select></label>
       <button id="policyRefresh" type="button">Refresh</button>
@@ -47,6 +47,7 @@
     </div>
     <div id="policyStatus" class="policy-status" role="status" aria-live="polite" aria-atomic="true">Select a connected account to manage its personal policy.</div>
     <div id="policyCounts" class="policy-counts" role="status" aria-label="Personal policy counts"></div>
+    <div class="hint" style="margin-bottom:12px;">Confirmed unsubscribes include only endpoints Email Shield can verify as completed. Opening an external unsubscribe page or email request is recorded in Activity instead and does not falsely claim completion.</div>
     <div id="policyList" class="policy-list" aria-label="Personal policy entries"></div>
   `;
 
@@ -110,7 +111,7 @@
     if (category === 'approvedExceptions' && value.startsWith('message:')) {
       return `Exact message · ${value.slice(8, 20)}…`;
     }
-    if (category === 'unsubscribedActions') return `Unsubscribe record · ${value.slice(0, 12)}…`;
+    if (category === 'unsubscribedActions') return `Confirmed unsubscribe · ${value.slice(0, 12)}…`;
     if (category === 'reportedCampaigns') return `Campaign fingerprint · ${value.slice(0, 12)}…`;
     return value;
   }
@@ -365,6 +366,7 @@
     accountList.addEventListener('click', () => setTimeout(() => { void loadPolicy(false); }, 0));
   }
 
+  window.addEventListener('email-shield-policy-changed', () => { void loadPolicy(true); });
   controlsEnabled(false);
   render();
   void loadPolicy(false);
