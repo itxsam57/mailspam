@@ -25,6 +25,24 @@
     status.className = `scan-monitor-status ${state}`.trim();
   }
 
+  function refreshConsumerActivity() {
+    document.getElementById('consumerRefreshActivity')?.click();
+  }
+
+  async function recordManualActivity(accountId, token, actionKey, method) {
+    const response = await fetch(`/api/consumer/v1/accounts/${encodeURIComponent(accountId)}/unsubscribe-activity`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || `Activity returned HTTP ${response.status}`);
+    if (body.recorded !== true || body.accountId !== accountId || body.actionKey !== actionKey || body.method !== method || body.completionVerified !== false) {
+      throw new Error('Email Shield could not verify the manual unsubscribe activity record.');
+    }
+    refreshConsumerActivity();
+  }
+
   function labelFor(action) {
     if (action.alreadyUnsubscribed && action.method === 'one_click_post') return 'Unsubscribed ✓';
     if (action.method === 'link_only') return 'Open unsubscribe page';
@@ -177,7 +195,13 @@
           }
         }
         button.disabled = false;
-        setGlobalStatus('The available unsubscribe option was opened.', 'complete');
+        try {
+          await recordManualActivity(accountId, token, actionKey, method);
+          setGlobalStatus('The unsubscribe option was opened and recorded in Activity. Completion still depends on the provider.', 'complete');
+        } catch (activityError) {
+          const detail = activityError instanceof Error ? activityError.message : String(activityError);
+          setGlobalStatus(`The unsubscribe option opened, but Activity could not be saved: ${detail}`, 'error');
+        }
         return;
       }
 
@@ -188,6 +212,7 @@
         }
       });
 
+      refreshConsumerActivity();
       if (actionStatus) {
         actionStatus.className = 'unsubscribe-action-status success';
         actionStatus.textContent = result.alreadyUnsubscribed
