@@ -20,6 +20,7 @@ const DESKTOP_ONLY_SCRIPTS = [
   "/account-plan.js",
   "/account-lifecycle.js",
   "/family-shield.js",
+  "/developer-controls.js",
   "/app-shell.js",
   "/ui-router.js",
   "/scam-check.js",
@@ -40,11 +41,12 @@ function scriptTags(paths: readonly string[]): string {
  * enhancers are then ordered from the base scan renderer outwards and loaded
  * once. Every external dashboard module is deferred so the browser can fetch
  * them in parallel without blocking HTML parsing/first paint; execution order
- * remains deterministic. scan-monitor owns the scan stream;
- * consumer-scan-results owns only the all-message consumer projection derived
- * from scan-monitor's bounded rows. The desktop shell constructs the visual
- * route containers; ui-router then becomes the authoritative navigation/mount
+ * remains deterministic. Developer controls fail closed before the visual
+ * shell can expose the base HTML button; app-shell then constructs the visual
+ * route containers. ui-router becomes the authoritative navigation/mount
  * contract before consumer feature modules declare route-owned panels.
+ * scan-monitor owns the scan stream; consumer-scan-results owns only the
+ * all-message consumer projection derived from scan-monitor's bounded rows.
  */
 export function dashboardScriptTags(desktop: boolean): string {
   return scriptTags(desktop
