@@ -65,8 +65,8 @@
 
   function unsubscribeLabel(method, done) {
     if (done && method === 'one_click_post') return 'Unsubscribed ✓';
-    if (method === 'link_only') return 'Open unsubscribe page';
-    if (method === 'mailto') return 'Email unsubscribe request';
+    if (method === 'link_only') return 'Open unsubscribe page (not confirmed)';
+    if (method === 'mailto') return 'Open unsubscribe email (not confirmed)';
     return 'Unsubscribe';
   }
 
@@ -152,9 +152,6 @@
     list.replaceChildren(fragment);
   }
 
-  // scan-monitor is the sole SSE owner. This consumer renderer observes only
-  // its bounded result table and never opens, stops, resumes, or duplicates a
-  // scan stream. Observing direct row replacement keeps one scan lifecycle.
   const observer = new MutationObserver(render);
   observer.observe(tableBody, { childList: true });
   window.addEventListener('email-shield-workspace-restored', () => queueMicrotask(render));
