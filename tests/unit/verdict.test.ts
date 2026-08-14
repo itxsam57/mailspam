@@ -62,6 +62,22 @@ describe("computeVerdict — structural safety guarantee", () => {
     expect(result.verdict).toBe("safe");
   });
 
+  it("never lets exact-message approval override High Risk evidence", () => {
+    const result = computeVerdict({
+      parseStatus: "complete",
+      layerResults: [{
+        layer: "mixed",
+        applicable: true,
+        incomplete: false,
+        evidence: [evidence("DMARC_FAIL", 3), evidence("CREDENTIAL_PHISH_INTENT", 3)],
+      }],
+      confirmedByRule: false,
+      exactMessageApprovedByUser: true,
+    });
+    expect(result.score).toBe(6);
+    expect(result.verdict).toBe("high_risk");
+  });
+
   it("never lets exact-message approval override a confirmed rule", () => {
     const result = computeVerdict({
       parseStatus: "partial",
