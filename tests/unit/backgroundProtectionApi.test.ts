@@ -27,6 +27,7 @@ async function start(coordinator: BackgroundProtectionCoordinator): Promise<Brow
   const app = createLocalDesktopServer({
     security: new LocalSecurityManager(),
     backgroundProtection: coordinator,
+    developmentEntitlementsEnabled: true,
   });
   const server = app.listen(0, "127.0.0.1");
   servers.push(server);
