@@ -50,6 +50,7 @@ describe("browser boot architecture", () => {
     const source = read("web/unsubscribe-monitor.js");
     expect(source).toContain("pendingWindow.location.replace(result.target)");
     expect(source).not.toContain("else window.open(result.target");
+    expect(source).toContain("recordManualActivity(accountId, token, actionKey, method)");
   });
 
   it("exposes the existing protected resume owner beside Stop Scan", () => {
@@ -73,6 +74,24 @@ describe("browser boot architecture", () => {
     expect(source).not.toContain("diagnostics.open = false");
     expect(source).not.toContain("Local test view only");
     expect(source).toContain("progress.diagnosticSummaries");
+  });
+
+  it("preserves stopped scan presentation on Resume and requires server-final Stop confirmation", () => {
+    const source = read("web/scan-monitor.js");
+    const resumeGuard = source.indexOf("if (!resumeScanId) {");
+    const clearCounters = source.indexOf("counters.innerHTML = ''", resumeGuard);
+    const clearCards = source.indexOf("cards.innerHTML = ''", resumeGuard);
+    const clearRows = source.indexOf("diagnosticRows = []", resumeGuard);
+    const guardEnd = source.indexOf("diagnostics.open = true", resumeGuard);
+    expect(resumeGuard).toBeGreaterThan(-1);
+    expect(clearCounters).toBeGreaterThan(resumeGuard);
+    expect(clearCards).toBeGreaterThan(resumeGuard);
+    expect(clearRows).toBeGreaterThan(resumeGuard);
+    expect(guardEnd).toBeGreaterThan(clearRows);
+    expect(source).toContain("value.resumed === true && value.counters");
+    expect(source).toContain("result.active !== false");
+    expect(source).toContain("result.historySaved === true && result.resumable === true");
+    expect(source).toContain("serverFinal = result.active === false");
   });
 
   it("uses one visible desktop brand while preserving the compact mobile header", () => {
