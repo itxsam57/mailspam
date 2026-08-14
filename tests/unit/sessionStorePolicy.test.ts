@@ -13,6 +13,7 @@ function reviewContext(overrides: Partial<ScanActionContext> = {}): ScanActionCo
     exceptionKey: `message:${"a".repeat(64)}`,
     senderAddress: "sender@example.com",
     normalizedFolder: "inbox",
+    links: [],
     unsubscribe: { available: false, method: "none", target: null, source: "none" },
     communityReport: {
       campaignFingerprint: "d".repeat(64),
