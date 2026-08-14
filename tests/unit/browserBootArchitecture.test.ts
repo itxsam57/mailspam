@@ -72,6 +72,49 @@ describe("browser boot architecture", () => {
     expect(history).not.toContain("Resume newest");
   });
 
+  it("binds asynchronous account-scoped browser work to a monotonic selection generation", () => {
+    const selection = read("web/account-selection-state.js");
+    const background = read("web/background-protection.js");
+    const history = read("web/scan-history.js");
+    const policy = read("web/policy-management.js");
+    const monitor = read("web/scan-monitor.js");
+
+    expect(selection).toContain("let generation = 0");
+    expect(selection).toContain("if (normalized !== selectedId) generation += 1");
+    expect(selection).toContain("capture,");
+    expect(selection).toContain("matches,");
+    expect(selection).toContain("snapshot.generation === generation");
+    expect(selection).toContain("A -> B -> A stale async responses");
+
+    for (const source of [background, history, policy, monitor]) {
+      expect(source).toContain("emailShieldAccountSelection");
+      expect(source).toContain("capture");
+      expect(source).toContain("matches");
+    }
+
+    expect(background).toContain("loadedAccountId !== id");
+    expect(background).toContain("Mailbox selection changed. Background protection was not modified");
+    expect(background).toContain("if (!selectionMatches(snapshot)) return");
+
+    expect(history).not.toContain("let refreshing = false");
+    expect(history).toContain("let refreshSequence = 0");
+    expect(history).toContain("resumeScanButton.dataset.accountId");
+    expect(history).toContain("resumeScanButton.dataset.selectionGeneration");
+    expect(history).toContain("The selected account changed. Refresh Scan history before resuming.");
+
+    expect(policy).toContain("loadedSelectionGeneration");
+    expect(policy).toContain("function loadedPolicyMatchesSelection");
+    expect(policy).toContain("No personal policy was modified");
+    expect(policy).toContain("if (!selectionMatches(ownerSnapshot)) return");
+
+    expect(monitor).toContain("let scanOwnerSnapshot = null");
+    expect(monitor).toContain("const presentationIsCurrent = () => source === es && selectionMatches(requestedSelection)");
+    expect(monitor).toContain("finish(es)");
+    expect(monitor).toContain("const id = accountId");
+    expect(monitor).toContain("Stop the scan that is still running for the previously selected mailbox?");
+    expect(monitor).not.toContain("document.querySelector('.account-chip.active')?.dataset.id || accountId");
+  });
+
   it("binds block actions to opaque review tokens instead of browser-supplied policy values", () => {
     const review = read("web/review-actions.js");
     const monitor = read("web/scan-monitor.js");
