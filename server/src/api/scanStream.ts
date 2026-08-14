@@ -329,9 +329,9 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
     const initialOperationalCounters = { ...record.counters };
     localOperationalMetrics.recordScanStarted(session.config.provider);
 
-    let worker: Worker;
+    let workerCandidate: Worker | undefined;
     try {
-      worker = new Worker(workerUrl, {
+      workerCandidate = new Worker(workerUrl, {
         workerData: {
           config: session.config,
           type,
@@ -362,11 +362,12 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
         "failed",
         counterDelta(record.counters, initialOperationalCounters),
       );
-      if (typeof worker !== "undefined") void worker.terminate().catch(() => undefined);
+      if (workerCandidate) void workerCandidate.terminate().catch(() => undefined);
       res.end();
       return;
     }
 
+    const worker = workerCandidate;
     session.activeScanWorker = worker;
     let finished = false;
     let terminalEventSent = false;
