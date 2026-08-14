@@ -23,7 +23,7 @@
     safeAudit.open = false;
     safeAudit.innerHTML = `
       <summary>Safe messages (0) — click to review</summary>
-      <div class="scan-diagnostics-note">Safe messages remain outside the warning-card feed. Open this list only when you want to review or correct an individual Safe result.</div>
+      <div class="scan-diagnostics-note">Safe messages remain outside the warning-card feed. Open this list only when you want to review or correct an individual Safe result. Report Scam uses Email Shield's privacy-reduced community shield; Move to Spam/Junk, Trust sender, and unsubscribe are separate provider or personal actions.</div>
       <div class="safe-empty">No messages have been classified Safe in this scan yet.</div>
       <div class="scan-diagnostics-scroll" hidden><table>
         <caption class="visually-hidden">Safe-message review and correction actions</caption>
