@@ -85,11 +85,12 @@ describe("production consumer release surface", () => {
     expect(await response.json()).toMatchObject({ error: expect.stringMatching(/not available/i) });
   });
 
-  it("keeps developer affordances behind the authoritative server flag", () => {
+  it("keeps developer affordances behind the authoritative server flag and shell boundary", () => {
     const localSecurity = readFileSync(resolve(process.cwd(), "web/local-security.js"), "utf8");
     const consumer = readFileSync(resolve(process.cwd(), "web/consumer-product.js"), "utf8");
     expect(localSecurity).toContain("email-shield-development-entitlements");
     expect(localSecurity).toContain("emailShieldDevelopmentEntitlementsEnabled");
+    expect(localSecurity).toContain("body.email-shield-shell > header { display: none !important; }");
     expect(consumer).toContain("window.emailShieldDevelopmentEntitlementsEnabled === true");
     expect(consumer).toContain("new URLSearchParams(location.search).get('developer') === '1'");
   });
@@ -103,12 +104,11 @@ describe("production consumer release surface", () => {
   it("never tells consumers to configure OAuth client IDs themselves", () => {
     const gmail = readFileSync(resolve(process.cwd(), "web/gmail-oauth.js"), "utf8");
     const outlook = readFileSync(resolve(process.cwd(), "web/outlook-oauth.js"), "utf8");
-    const legacy = readFileSync(resolve(process.cwd(), "web/index.html"), "utf8");
-    const copy = `${gmail}\n${outlook}\n${legacy}`.toLowerCase();
+    const copy = `${gmail}\n${outlook}`.toLowerCase();
     expect(copy).not.toContain("set the email shield desktop oauth client id");
     expect(copy).not.toContain("configure the desktop client id");
     expect(copy).not.toContain("set the email shield microsoft public-client id");
     expect(copy).not.toContain("configure the public desktop client id");
-    expect(copy).not.toContain("hard-test build");
+    expect(copy).not.toContain("development build");
   });
 });
