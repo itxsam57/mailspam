@@ -312,7 +312,7 @@ try {
       const response = await fetch('/api/accounts/${accountId}/personal-policy', { cache: 'no-store' });
       const policy = await response.json().catch(() => ({}));
       const button = [...document.querySelectorAll('.card button[data-action="block-sender"]')]
-        .find((candidate) => String(candidate.dataset.address || '').toLowerCase() === ${JSON.stringify(blockTarget.address)}) || null;
+        .find((candidate) => candidate.dataset.reviewToken === ${JSON.stringify(blockTarget.token)}) || null;
       return {
         responseOk: response.ok,
         blocked: Array.isArray(policy.blockedSenders) && policy.blockedSenders.includes(${JSON.stringify(blockTarget.address)}),
