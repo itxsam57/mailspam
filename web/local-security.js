@@ -4,6 +4,28 @@
   meta?.remove();
   if (!csrfToken) throw new Error('Email Shield local security did not initialize. Reload the dashboard.');
 
+  const developmentMeta = document.querySelector('meta[name="email-shield-development-entitlements"]');
+  const developmentEntitlementsEnabled = developmentMeta?.getAttribute('content') === 'true';
+  developmentMeta?.remove();
+  Object.defineProperty(window, 'emailShieldDevelopmentEntitlementsEnabled', {
+    value: developmentEntitlementsEnabled,
+    writable: false,
+    configurable: false,
+    enumerable: false,
+  });
+
+  // A URL query is never authority to enter developer mode. Production builds
+  // discard it before deferred consumer modules execute, so fixture/developer
+  // controls cannot be resurrected by editing the address bar.
+  if (!developmentEntitlementsEnabled) {
+    const current = new URL(window.location.href);
+    if (current.searchParams.has('developer')) {
+      current.searchParams.delete('developer');
+      const replacement = `${current.pathname}${current.search}${current.hash}`;
+      window.history.replaceState(window.history.state, '', replacement);
+    }
+  }
+
   const originalFetch = window.fetch.bind(window);
   const protectedPath = (path) =>
     path.startsWith('/api/accounts') ||
