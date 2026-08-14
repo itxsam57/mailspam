@@ -142,8 +142,6 @@
   .verdict-badge.review { background: rgba(232,178,61,0.15); color: var(--review); }
   .verdict-badge.unknown { background: rgba(108,118,132,0.15); color: var(--unknown); }
 
-  /* Signature element: layer readout strip — one tick per detection layer,
-     lit if it fired evidence, dim if clean, hatched if not run this pass. */
   .readout { display: flex; gap: 3px; margin-top: 10px; }
   .tick {
     flex: 1; height: 5px; border-radius: 2px; background: #333a48;
@@ -320,7 +318,6 @@
 <script>
 const API = '';
 let currentAccountId = null;
-let currentEventSource = null;
 
 const providerSelect = document.getElementById('providerSelect');
 const modeSelect = document.getElementById('modeSelect');
@@ -329,7 +326,6 @@ const accountsList = document.getElementById('accountsList');
 const scanPanel = document.getElementById('scanPanel');
 const countersEl = document.getElementById('counters');
 const cardsEl = document.getElementById('cards');
-const stopBtn = document.getElementById('stopScanBtn');
 const credentialFields = document.getElementById('credentialFields');
 const connectStatus = document.getElementById('connectStatus');
 const i18n = window.emailShieldI18n;
@@ -518,51 +514,9 @@ function renderCounters(c) {
   `;
 }
 
-function startScan(type) {
-  if (!currentAccountId) return;
-  if (currentEventSource) currentEventSource.close();
-  cardsEl.innerHTML = '';
-  countersEl.innerHTML = '';
-  stopBtn.disabled = false;
-
-  const es = new EventSource(`${API}/api/accounts/${currentAccountId}/scan/${type}`);
-  currentEventSource = es;
-
-  es.onmessage = (e) => {
-    const progress = JSON.parse(e.data);
-    renderCounters(progress.counters);
-    if (progress.suspiciousCards.length) {
-      cardsEl.innerHTML = progress.suspiciousCards.map(renderCard).join('') + cardsEl.innerHTML;
-      wireCardActions();
-    }
-  };
-  es.addEventListener('complete', () => { stopBtn.disabled = true; es.close(); });
-  es.addEventListener('error', () => { stopBtn.disabled = true; es.close(); });
-}
-
-function wireCardActions() {
-  cardsEl.querySelectorAll('[data-action="block-sender"]').forEach(btn => {
-    btn.onclick = () => fetch(`${API}/api/accounts/${currentAccountId}/messages/block-sender`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ address: btn.dataset.address })
-    }).then(() => { btn.textContent = 'Blocked'; btn.disabled = true; });
-  });
-  cardsEl.querySelectorAll('[data-action="block-domain"]').forEach(btn => {
-    btn.onclick = () => fetch(`${API}/api/accounts/${currentAccountId}/messages/block-domain`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ domain: btn.dataset.domain })
-    }).then(() => { btn.textContent = 'Blocked'; btn.disabled = true; });
-  });
-}
-
-document.getElementById('quickScanBtn').addEventListener('click', () => startScan('quick'));
-document.getElementById('fullScanBtn').addEventListener('click', () => startScan('full'));
-document.getElementById('spamScanBtn').addEventListener('click', () => startScan('spam'));
-stopBtn.addEventListener('click', () => {
-  if (currentAccountId) fetch(`${API}/api/accounts/${currentAccountId}/scan/stop`, { method: 'POST' });
-  if (currentEventSource) currentEventSource.close();
-  stopBtn.disabled = true;
-});
+// Scan streaming, Stop/Resume, and message policy mutations are intentionally
+// not owned by this inline bootstrap. scan-monitor.js is the single scan/action
+// controller; this bootstrap only provides account setup and pure render helpers.
 
 document.getElementById('devSuiteBtn').addEventListener('click', async () => {
   const devPanel = document.getElementById('devPanel');
