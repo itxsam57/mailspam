@@ -54,9 +54,9 @@
   const diagnostics = document.createElement('details');
   diagnostics.id = 'scanDiagnosticAudit';
   diagnostics.className = 'scan-diagnostics';
-  diagnostics.open = true;
+  diagnostics.open = false;
   diagnostics.innerHTML = `
-    <summary>Scanned messages (0)</summary>
+    <summary>Technical scan details (0)</summary>
     <div class="scan-diagnostics-note">Local privacy-safe results. Shows verdict, subject, sender and inspection notes—never message bodies, raw HTML, credentials, unsubscribe destinations, or attachment content.</div>
     <div class="scan-diagnostics-scroll"><table>
       <caption class="visually-hidden">Privacy-safe scanned message results</caption>
@@ -78,6 +78,11 @@
 
   function historyChanged() {
     window.dispatchEvent(new CustomEvent('email-shield-scan-history-changed'));
+  }
+
+  function policyChanged() {
+    window.dispatchEvent(new CustomEvent('email-shield-policy-changed'));
+    document.getElementById('policyRefresh')?.click();
   }
 
   function escapeHtml(value) {
@@ -118,7 +123,7 @@
   }
 
   function renderDiagnostics() {
-    diagnostics.querySelector('summary').textContent = `Scanned messages (${diagnosticRows.length})`;
+    diagnostics.querySelector('summary').textContent = `Technical scan details (${diagnosticRows.length})`;
     const tbody = diagnostics.querySelector('tbody');
     tbody.innerHTML = diagnosticRows.map((item) => {
       const evidenceCodes = item.evidenceCodes?.length ? item.evidenceCodes.join(', ') : 'none';
@@ -156,12 +161,10 @@
     setStatus(`Scanning… ${progress.counters.examined} messages examined. Last completed page is protected for resume.`, 'running');
     if (progress.diagnosticSummaries?.length) {
       diagnosticRows.push(...progress.diagnosticSummaries);
-      diagnostics.open = true;
       renderDiagnostics();
     }
     if (progress.suspiciousCards?.length && typeof window.renderCard === 'function') {
       cards.innerHTML = progress.suspiciousCards.map(window.renderCard).join('') + cards.innerHTML;
-      if (typeof window.wireCardActions === 'function') window.wireCardActions();
     }
   }
 
@@ -172,14 +175,12 @@
     diagnosticRows = Array.isArray(presentation.diagnosticSummaries)
       ? presentation.diagnosticSummaries.slice(-500)
       : [];
-    if (diagnosticRows.length) diagnostics.open = true;
     renderDiagnostics();
     if (presentation.counters && typeof window.renderCounters === 'function') {
       window.renderCounters(presentation.counters);
     }
     if (Array.isArray(presentation.suspiciousCards) && typeof window.renderCard === 'function') {
       cards.innerHTML = presentation.suspiciousCards.slice(0, 200).map(window.renderCard).join('');
-      if (typeof window.wireCardActions === 'function') window.wireCardActions();
     }
     const restoredAt = Number(presentation.updatedAt);
     const time = Number.isFinite(restoredAt)
@@ -227,7 +228,6 @@
       diagnosticRows = [];
       renderDiagnostics();
     }
-    diagnostics.open = true;
     stopButton.disabled = false;
     setStatus(`${resumeScanId ? 'Resuming' : 'Starting'} ${type} scan…`, 'running');
 
@@ -265,7 +265,7 @@
       catch (error) { setStatus(`Could not render scan progress: ${error.message}`, 'error'); }
     };
     es.addEventListener('scan-complete', () => {
-      setStatus(counters.textContent.trim() ? 'Scan complete. Scanned messages are shown below and the privacy-reduced history record is saved.' : 'Scan complete. No additional readable messages were returned.', 'complete');
+      setStatus(counters.textContent.trim() ? 'Scan complete. Results remain available in the optional lists below and the privacy-reduced history record is saved.' : 'Scan complete. No additional readable messages were returned.', 'complete');
       finish();
       historyChanged();
     });
@@ -294,7 +294,7 @@
 
   async function handlePolicyAction(event) {
     const button = event.target instanceof Element
-      ? event.target.closest('[data-action="block-sender"],[data-action="block-domain"],[data-action="unblock-sender"],[data-action="unblock-domain"]')
+      ? event.target.closest('[data-action="block-sender"],[data-action="block-domain"]')
       : null;
     if (!(button instanceof HTMLButtonElement) || button.disabled) return;
 
@@ -302,32 +302,30 @@
     event.stopImmediatePropagation();
 
     const id = selectedAccountId();
+    const token = button.dataset.reviewToken;
     const action = button.dataset.action || '';
-    const isUnblock = action.startsWith('unblock-');
-    const isSender = action.endsWith('sender');
+    const isSender = action === 'block-sender';
     const scope = isSender ? 'sender' : 'domain';
-    const value = isSender ? button.dataset.address : button.dataset.domain;
     const card = button.closest('.card');
     const subject = card?.querySelector('.card-subject')?.textContent?.trim() || '(no subject)';
+    const sender = card?.querySelector('.card-from')?.textContent?.trim() || 'unknown sender';
 
-    if (!id || !value) {
-      setStatus(`${isUnblock ? 'Unblock' : 'Block'} ${scope} failed: the selected account or value is missing.`, 'error');
+    if (!id || !token) {
+      setStatus(`Block ${scope} failed: the selected account or protected message action is missing.`, 'error');
       return;
     }
 
-    const consequence = isUnblock
-      ? `Future messages will no longer be classified as Confirmed Threat solely because this ${scope} is personally blocked.`
-      : isSender
-        ? 'Future messages from this exact address in the selected account will be Confirmed Threat.'
-        : 'Future messages from every address on this domain in the selected account will be Confirmed Threat.';
+    const consequence = isSender
+      ? 'Email Shield will save an account-local block for the exact sender and attempt to move this current message to Trash. Future messages from this exact address will be Confirmed Threat.'
+      : 'Email Shield will save an account-local domain block and attempt to move this current message to Trash. Future messages from this domain will be Confirmed Threat. Shared consumer-mail domains are rejected server-side.';
     const confirmed = window.confirm(
-      `${isUnblock ? 'Remove the block for' : 'Block'} this ${scope} in the selected account?\n\n${value}\nMessage: ${subject}\n\n${consequence}\nThis does not move or delete mail.`,
+      `Block this ${scope} for the selected account?\n\n${subject}\n${sender}\n\n${consequence}\n\nIf the provider Trash move fails, the saved protection rule still remains active.`,
     );
     if (!confirmed) return;
 
     const previousText = button.textContent;
     button.disabled = true;
-    button.textContent = isUnblock ? 'Removing block…' : 'Blocking…';
+    button.textContent = 'Blocking…';
     let actionStatus = card?.querySelector('.policy-action-status');
     if (!actionStatus && card) {
       actionStatus = document.createElement('div');
@@ -337,51 +335,59 @@
     }
     if (actionStatus) {
       actionStatus.className = 'policy-action-status';
-      actionStatus.textContent = `${isUnblock ? 'Removing' : 'Saving'} an account-scoped ${scope} block…`;
+      actionStatus.textContent = `Saving an account-scoped ${scope} block and requesting the current-message Trash move…`;
     }
 
     try {
-      const endpoint = `${isUnblock ? 'unblock' : 'block'}-${scope}`;
-      const payload = isSender ? { address: value } : { domain: value };
-      const response = await fetch(`/api/accounts/${encodeURIComponent(id)}/messages/${endpoint}`, {
+      const response = await fetch(`/api/accounts/${encodeURIComponent(id)}/messages/block-${scope}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ token }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || `Server returned HTTP ${response.status}`);
-      if (result.blocked !== !isUnblock || result.scope !== scope || result.accountId !== id) {
-        throw new Error(`The server did not confirm the expected account-scoped ${isUnblock ? 'unblock' : 'block'}.`);
+      if (result.blocked !== true || result.scope !== scope || result.accountId !== id || result.token !== token) {
+        throw new Error('The server did not confirm the protected account-scoped block.');
       }
 
-      const normalizedValue = String(result.value || value).toLowerCase();
-      cards.querySelectorAll(`[data-action="block-${scope}"],[data-action="unblock-${scope}"]`).forEach((candidate) => {
-        const candidateValue = String(isSender ? candidate.dataset.address : candidate.dataset.domain).toLowerCase();
-        if (candidateValue !== normalizedValue) return;
-        candidate.disabled = false;
-        if (isUnblock) {
-          candidate.dataset.action = `block-${scope}`;
-          candidate.textContent = isSender ? 'Block sender' : 'Block domain';
-        } else {
-          candidate.dataset.action = `unblock-${scope}`;
-          candidate.textContent = isSender ? 'Unblock sender (blocked ✓)' : 'Unblock domain (blocked ✓)';
-        }
+      const normalizedValue = String(result.value || '').toLowerCase();
+      document.querySelectorAll(`[data-action="block-${scope}"]`).forEach((candidate) => {
+        const displayValue = String(isSender ? candidate.dataset.address : candidate.dataset.domain).toLowerCase();
+        if (!normalizedValue || displayValue !== normalizedValue) return;
+        candidate.disabled = true;
+        candidate.textContent = isSender ? 'Sender blocked ✓' : 'Domain blocked ✓';
       });
 
-      if (actionStatus) {
-        actionStatus.className = 'policy-action-status success';
-        actionStatus.textContent = `${isSender ? 'Sender' : 'Domain'} block ${isUnblock ? 'removed' : 'saved'} for this connected account. Rescan to verify the authoritative verdict.`;
+      if (result.movedCurrent === true) {
+        document.querySelectorAll(`[data-action="trash"][data-review-token="${CSS.escape(token)}"]`).forEach((candidate) => {
+          candidate.disabled = true;
+          candidate.textContent = 'Moved to Trash ✓';
+        });
+        card?.classList.add('trash-moved');
       }
-      setStatus(`${isSender ? 'Sender' : 'Domain'} block ${isUnblock ? 'removed' : 'saved'} for the selected account. Rescan to verify.`, 'complete');
+
+      if (actionStatus) {
+        actionStatus.className = result.movedCurrent === true ? 'policy-action-status success' : 'policy-action-status error';
+        actionStatus.textContent = result.movedCurrent === true
+          ? `${isSender ? 'Sender' : 'Domain'} block saved and the provider confirmed this message moved to Trash.`
+          : `${isSender ? 'Sender' : 'Domain'} block saved. The current message could not be moved to Trash: ${result.moveError || 'provider move not confirmed'}.`;
+      }
+      setStatus(
+        result.movedCurrent === true
+          ? `${isSender ? 'Sender' : 'Domain'} block saved. The current message was moved to Trash.`
+          : `${isSender ? 'Sender' : 'Domain'} block saved. Current-message Trash move needs a retry.`,
+        result.movedCurrent === true ? 'complete' : 'error',
+      );
+      policyChanged();
     } catch (error) {
       button.disabled = false;
-      button.textContent = previousText || `${isUnblock ? 'Unblock' : 'Block'} ${scope}`;
+      button.textContent = previousText || `Block ${scope}`;
       const message = error instanceof Error ? error.message : String(error);
       if (actionStatus) {
         actionStatus.className = 'policy-action-status error';
-        actionStatus.textContent = `${isUnblock ? 'Unblock' : 'Block'} failed: ${message}`;
+        actionStatus.textContent = `Block failed: ${message}`;
       }
-      setStatus(`${isUnblock ? 'Unblock' : 'Block'} ${scope} failed: ${message}`, 'error');
+      setStatus(`Block ${scope} failed: ${message}`, 'error');
     }
   }
 
@@ -436,8 +442,8 @@
       const failedReason = Array.isArray(result.failed) && result.failed.length
         ? result.failed[0]?.reason
         : null;
-      if (result.success !== true || result.accountId !== id || result.token !== token || result.requested !== 1 || result.moved !== 1 || failedReason) {
-        throw new Error(failedReason || `Provider reported moved ${result.moved ?? 0} of ${result.requested ?? 1}.`);
+      if (result.success !== true || result.accountId !== id || result.token !== token || result.moved !== 1 || failedReason) {
+        throw new Error(failedReason || `Provider reported moved ${result.moved ?? 0} of 1.`);
       }
 
       button.textContent = 'Moved to Trash ✓';
