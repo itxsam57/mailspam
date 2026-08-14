@@ -7,6 +7,7 @@
     accountId: null,
     consumer: null,
     health: null,
+    healthAccountId: null,
     family: null,
     radar: null,
   };
@@ -40,9 +41,35 @@
   document.head.appendChild(style);
 
   function activeMailboxId() {
+    const selection = window.emailShieldAccountSelection?.currentId?.();
+    if (typeof selection === 'string' && selection) return selection;
     return document.querySelector('#accountsList .account-chip.active')?.dataset.id
       || document.querySelector('#accountsList [aria-current="true"]')?.closest('.account-chip')?.dataset.id
-      || state.accountId;
+      || null;
+  }
+
+  function clearAccountScopedViews() {
+    state.consumer = null;
+    state.health = null;
+    state.healthAccountId = null;
+    document.getElementById('consumerHealthSummary')?.replaceChildren();
+    document.getElementById('consumerSubscriptions')?.replaceChildren();
+    document.getElementById('consumerMailboxSecurity')?.replaceChildren();
+    document.getElementById('consumerFootprint')?.replaceChildren();
+    document.getElementById('consumerActivityList')?.replaceChildren();
+    const sensitivity = document.getElementById('consumerSensitivityStatus');
+    if (sensitivity) sensitivity.textContent = '';
+  }
+
+  function bindSelectedAccount(id) {
+    const normalized = typeof id === 'string' && id ? id : null;
+    if (state.accountId === normalized) return;
+    state.accountId = normalized;
+    clearAccountScopedViews();
+  }
+
+  function stillSelected(id) {
+    return Boolean(id && state.accountId === id && activeMailboxId() === id);
   }
 
   async function json(response) {
@@ -62,7 +89,7 @@
   function selectedSessionOrThrow() {
     const id = activeMailboxId();
     if (!id) throw new Error('Connect or select a mailbox first.');
-    state.accountId = id;
+    bindSelectedAccount(id);
     return id;
   }
 
@@ -75,9 +102,6 @@
     else document.querySelector('main')?.appendChild(panel);
   }
 
-  // Reframe the existing primary navigation for consumers without deleting the
-  // mature underlying panels. Community technical detail folds into Activity;
-  // mailbox/policy operations remain under Settings/advanced surfaces.
   const nav = document.querySelector('.app-nav');
   if (nav) {
     const labels = new Map([
@@ -233,8 +257,10 @@
     if (el) { el.textContent = message; el.style.color = error ? 'var(--confirmed)' : ''; }
   }
 
-  function renderHealth(result) {
+  function renderHealth(result, accountId) {
+    if (!stillSelected(accountId)) return;
     state.health = result;
+    state.healthAccountId = accountId;
     const inbox = result?.inboxHealth || {};
     const mailbox = result?.mailboxHealth || {};
     const footprint = result?.digitalFootprint || {};
@@ -253,21 +279,27 @@
         const controls = document.createElement('div');
         const cleanup = document.createElement('button'); cleanup.type = 'button'; cleanup.textContent = 'Clean old mail';
         cleanup.addEventListener('click', async () => {
-          const id = selectedSessionOrThrow();
+          if (!stillSelected(accountId)) {
+            setHealthStatus('Mailbox selection changed. Run Health again before cleaning mail.', true);
+            return;
+          }
           if (!confirm(`Move older matching mail from ${item.displayName || item.senderDomain || 'this sender'} to Trash?`)) return;
           const confirmation = prompt('Type MOVE TO TRASH to confirm');
-          if (confirmation !== 'MOVE TO TRASH') return;
+          if (confirmation !== 'MOVE TO TRASH' || !stillSelected(accountId)) return;
           try {
-            const result = await post(`/api/consumer/v1/accounts/${encodeURIComponent(id)}/cleanup`, {
+            const cleanupResult = await post(`/api/consumer/v1/accounts/${encodeURIComponent(accountId)}/cleanup`, {
               senderAddress: item.senderAddress,
               senderDomain: item.senderDomain,
               olderThanDays: 30,
               keepNewest: true,
               confirmation,
             });
-            setHealthStatus(`${result.movedToTrash} message(s) moved to Trash.${result.undoAvailable ? ' Undo is available in Activity for 30 minutes.' : ''}`);
+            if (!stillSelected(accountId)) return;
+            setHealthStatus(`${cleanupResult.movedToTrash} message(s) moved to Trash.${cleanupResult.undoAvailable ? ' Undo is available in Activity for 30 minutes.' : ''}`);
             await loadActivity();
-          } catch (error) { setHealthStatus(error.message || String(error), true); }
+          } catch (error) {
+            if (stillSelected(accountId)) setHealthStatus(error.message || String(error), true);
+          }
         });
         controls.append(cleanup); row.append(info, controls); subscriptions.append(row);
       }
@@ -301,40 +333,51 @@
   }
 
   async function runHealth() {
+    let id = null;
     try {
-      const id = selectedSessionOrThrow();
+      id = selectedSessionOrThrow();
       setHealthStatus('Inspecting bounded mailbox health locally…');
-      renderHealth(await post(`/api/consumer/v1/accounts/${encodeURIComponent(id)}/health`));
+      const result = await post(`/api/consumer/v1/accounts/${encodeURIComponent(id)}/health`);
+      if (!stillSelected(id)) return;
+      renderHealth(result, id);
       setHealthStatus('Health check complete. Unsupported provider checks remain explicitly marked unavailable.');
-    } catch (error) { setHealthStatus(error.message || String(error), true); }
+    } catch (error) {
+      if (!id || stillSelected(id)) setHealthStatus(error.message || String(error), true);
+    }
   }
 
   async function loadConsumerState() {
-    const id = activeMailboxId(); if (!id) return;
+    const id = activeMailboxId();
+    if (!id) { bindSelectedAccount(null); return; }
+    bindSelectedAccount(id);
     try {
-      state.accountId=id;
-      state.consumer=await json(await fetch(`/api/consumer/v1/accounts/${encodeURIComponent(id)}/state`));
-      const check=document.getElementById('consumerRicherNotifications'); if (check instanceof HTMLInputElement) check.checked=state.consumer.richerLocalNotifications===true;
-      const status=document.getElementById('consumerSensitivityStatus'); if(status) status.textContent=`Current: ${String(state.consumer.sensitivity || 'balanced').replace(/_/g,' ')}`;
+      const consumer = await json(await fetch(`/api/consumer/v1/accounts/${encodeURIComponent(id)}/state`));
+      if (!stillSelected(id)) return;
+      state.consumer = consumer;
+      const check=document.getElementById('consumerRicherNotifications'); if (check instanceof HTMLInputElement) check.checked=consumer.richerLocalNotifications===true;
+      const status=document.getElementById('consumerSensitivityStatus'); if(status) status.textContent=`Current: ${String(consumer.sensitivity || 'balanced').replace(/_/g,' ')}`;
     } catch {}
   }
 
   async function loadActivity() {
-    const id=activeMailboxId(); if(!id) return;
+    const id=activeMailboxId();
+    if(!id) { bindSelectedAccount(null); return; }
+    bindSelectedAccount(id);
     const list=document.getElementById('consumerActivityList'); if(!list) return;
     try {
       const body=await json(await fetch(`/api/consumer/v1/accounts/${encodeURIComponent(id)}/activity`));
+      if (!stillSelected(id)) return;
       list.replaceChildren();
       for (const item of body.activity || []) {
         const row=document.createElement('div'); row.className='consumer-list-item';
         const info=document.createElement('div');
         info.innerHTML=`<strong>${escapeHtml(item.title)}</strong><div class="hint">${escapeHtml(item.detail || '')}</div><div class="hint">${new Date(item.createdAt).toLocaleString()}${item.provider ? ` · ${escapeHtml(item.provider)}` : ''}</div>`;
         const controls=document.createElement('div');
-        if(item.undoAvailable){const undo=document.createElement('button');undo.type='button';undo.textContent='Undo';undo.addEventListener('click',async()=>{try{await post(`/api/consumer/v1/accounts/${encodeURIComponent(id)}/activity/${encodeURIComponent(item.activityId)}/undo`);await loadActivity();}catch(error){document.getElementById('consumerActivityStatus').textContent=error.message||String(error);}});controls.append(undo);}
+        if(item.undoAvailable){const undo=document.createElement('button');undo.type='button';undo.textContent='Undo';undo.addEventListener('click',async()=>{if(!stillSelected(id)){document.getElementById('consumerActivityStatus').textContent='Mailbox selection changed. Refresh Activity before using Undo.';return;}try{await post(`/api/consumer/v1/accounts/${encodeURIComponent(id)}/activity/${encodeURIComponent(item.activityId)}/undo`);if(stillSelected(id))await loadActivity();}catch(error){if(stillSelected(id))document.getElementById('consumerActivityStatus').textContent=error.message||String(error);}});controls.append(undo);}
         row.append(info,controls); list.append(row);
       }
       if (!(body.activity || []).length) list.innerHTML='<div class="hint">No local protection activity yet.</div>';
-    } catch (error) { document.getElementById('consumerActivityStatus').textContent=error.message||String(error); }
+    } catch (error) { if(stillSelected(id)) document.getElementById('consumerActivityStatus').textContent=error.message||String(error); }
   }
 
   async function loadFamily() {
@@ -354,22 +397,33 @@
   function escapeHtml(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
   document.getElementById('consumerRunHealth')?.addEventListener('click',runHealth);
-  document.getElementById('consumerRefreshHealth')?.addEventListener('click',()=>state.health&&renderHealth(state.health));
+  document.getElementById('consumerRefreshHealth')?.addEventListener('click',()=>{const id=activeMailboxId();if(id&&state.health&&state.healthAccountId===id)renderHealth(state.health,id);});
   document.getElementById('consumerRefreshActivity')?.addEventListener('click',loadActivity);
   document.getElementById('consumerRefreshFamily')?.addEventListener('click',loadFamily);
-  document.getElementById('consumerClearActivity')?.addEventListener('click',async()=>{const id=activeMailboxId();if(!id)return;const confirmation=prompt('Type CLEAR ACTIVITY to delete local activity history');if(confirmation!=='CLEAR ACTIVITY')return;try{await json(await fetch(`/api/consumer/v1/accounts/${encodeURIComponent(id)}/activity`,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmation})}));await loadActivity();}catch(error){document.getElementById('consumerActivityStatus').textContent=error.message||String(error);}});
-  document.querySelectorAll('[data-consumer-sensitivity]').forEach(button=>button.addEventListener('click',async()=>{try{const id=selectedSessionOrThrow();state.consumer=await post(`/api/consumer/v1/accounts/${encodeURIComponent(id)}/sensitivity`,{profile:button.dataset.consumerSensitivity});await loadConsumerState();}catch(error){document.getElementById('consumerSensitivityStatus').textContent=error.message||String(error);}}));
-  document.getElementById('consumerRicherNotifications')?.addEventListener('change',async(event)=>{try{const id=selectedSessionOrThrow();await post(`/api/consumer/v1/accounts/${encodeURIComponent(id)}/notifications`,{richerLocalNotifications:event.target.checked});}catch(error){event.target.checked=!event.target.checked;}});
+  document.getElementById('consumerClearActivity')?.addEventListener('click',async()=>{const id=activeMailboxId();if(!id)return;const confirmation=prompt('Type CLEAR ACTIVITY to delete local activity history');if(confirmation!=='CLEAR ACTIVITY'||activeMailboxId()!==id)return;try{await json(await fetch(`/api/consumer/v1/accounts/${encodeURIComponent(id)}/activity`,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmation})}));if(activeMailboxId()===id)await loadActivity();}catch(error){if(activeMailboxId()===id)document.getElementById('consumerActivityStatus').textContent=error.message||String(error);}});
+  document.querySelectorAll('[data-consumer-sensitivity]').forEach(button=>button.addEventListener('click',async()=>{const id=selectedSessionOrThrow();try{const consumer=await post(`/api/consumer/v1/accounts/${encodeURIComponent(id)}/sensitivity`,{profile:button.dataset.consumerSensitivity});if(stillSelected(id)){state.consumer=consumer;await loadConsumerState();}}catch(error){if(stillSelected(id))document.getElementById('consumerSensitivityStatus').textContent=error.message||String(error);}}));
+  document.getElementById('consumerRicherNotifications')?.addEventListener('change',async(event)=>{const id=selectedSessionOrThrow();try{await post(`/api/consumer/v1/accounts/${encodeURIComponent(id)}/notifications`,{richerLocalNotifications:event.target.checked});}catch(error){if(stillSelected(id))event.target.checked=!event.target.checked;else void loadConsumerState();}});
   document.getElementById('consumerCheckBrowser')?.addEventListener('click',async()=>{const out=document.getElementById('consumerBrowserResult');try{const url=document.getElementById('consumerBrowserUrl').value;const result=await post('/api/consumer/v1/browser/check',{schemaVersion:1,url,context:'explicit_check'});out.textContent=`${result.disposition.toUpperCase()}: ${result.explanation}`;}catch(error){out.textContent=error.message||String(error);}});
   document.getElementById('consumerCheckIntervention')?.addEventListener('click',async()=>{const out=document.getElementById('consumerInterventionResult');try{const text=document.getElementById('consumerInterventionText').value;const result=await post('/api/consumer/v1/intervention/check',{text});out.textContent=result.recommendedAction;}catch(error){out.textContent=error.message||String(error);}});
   document.getElementById('consumerCheckExposure')?.addEventListener('click',async()=>{const out=document.getElementById('consumerExposureResult');try{const email=document.getElementById('consumerExposureEmail').value;if(!confirm('Check this email using the configured privacy-preserving exposure service? Only a short local hash prefix is sent.'))return;const result=await post('/api/consumer/v1/exposure/email',{email,consent:true});out.textContent=result.state==='unavailable'?result.limitations?.[0]||'Exposure service unavailable.':result.state==='exposed'?'Exposure evidence was found. Change reused credentials and review account security.':'No matching exposure was returned by the configured source. This is not proof the address was never exposed.';}catch(error){out.textContent=error.message||String(error);}});
   document.getElementById('consumerSupportBundle')?.addEventListener('click',async()=>{try{const bundle=await json(await fetch('/api/consumer/v1/support-bundle'));downloadJson(`email-shield-support-${new Date().toISOString().slice(0,10)}.json`,bundle);}catch(error){alert(error.message||String(error));}});
 
   window.addEventListener('email-shield-profile-changed',()=>{void loadConsumerState();void loadFamily();});
-  const observer=new MutationObserver(()=>{const id=activeMailboxId();if(id&&id!==state.accountId){state.accountId=id;void loadConsumerState();void loadActivity();}}); observer.observe(document.getElementById('accountsList')||document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['class','aria-current']});
+  const observer=new MutationObserver(()=>{const id=activeMailboxId();if(id!==state.accountId){bindSelectedAccount(id);if(id){void loadConsumerState();void loadActivity();}}}); observer.observe(document.getElementById('accountsList')||document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['class','aria-current']});
 
-  // First-run education appears only after a mailbox exists. It teaches the
-  // protection model without blocking Scam Check for people who have not yet connected mail.
-  async function maybeOnboard(){const id=activeMailboxId();if(!id)return;await loadConsumerState();if(state.consumer?.onboarding?.dismissedAt||state.consumer?.onboarding?.completedSteps?.includes('consumer_intro'))return;const overlay=document.createElement('div');overlay.className='consumer-onboarding';overlay.innerHTML=`<div class="consumer-onboarding-card"><h2>Email Shield is protecting this mailbox</h2><p>Your mailbox stays with your provider. Email Shield reads bounded mail locally when protection runs, keeps provider secrets in the operating system credential vault, and sends only privacy-reduced threat evidence when Community or Family sharing is enabled.</p><div class="consumer-step"><strong>1. Protection runs after restart</strong><p>Your approved mailbox connection is restored automatically while Email Shield is running.</p></div><div class="consumer-step"><strong>2. Hard threats stay hard</strong><p>Sensitivity changes borderline attention, not authentication failures, verified threats or your explicit Block/Catch & Trash rules.</p></div><div class="consumer-step"><strong>3. Unknown is not Safe</strong><p>If a provider check, exposure service or media detector is unavailable, Email Shield tells you it is unavailable instead of displaying a green result.</p></div><div class="consumer-actions"><button id="consumerOnboardingDone" class="primary" type="button">Got it — continue</button></div></div>`;document.body.append(overlay);overlay.querySelector('#consumerOnboardingDone')?.addEventListener('click',async()=>{try{await post(`/api/consumer/v1/accounts/${encodeURIComponent(id)}/onboarding`,{completedSteps:['consumer_intro'],dismissed:true});overlay.remove();await loadConsumerState();}catch(error){alert(error.message||String(error));}});}
-  setTimeout(()=>{void loadConsumerState();void loadActivity();void loadFamily();void maybeOnboard();},400);
+  async function maybeOnboard(){
+    const id=activeMailboxId();
+    if(!id)return;
+    bindSelectedAccount(id);
+    await loadConsumerState();
+    if(!stillSelected(id))return;
+    if(state.consumer?.onboarding?.dismissedAt||state.consumer?.onboarding?.completedSteps?.includes('consumer_intro'))return;
+    const overlay=document.createElement('div');overlay.className='consumer-onboarding';overlay.innerHTML=`<div class="consumer-onboarding-card"><h2>Email Shield is protecting this mailbox</h2><p>Your mailbox stays with your provider. Email Shield reads bounded mail locally when protection runs, keeps provider secrets in the operating system credential vault, and sends only privacy-reduced threat evidence when Community or Family sharing is enabled.</p><div class="consumer-step"><strong>1. Protection runs after restart</strong><p>Your approved mailbox connection is restored automatically while Email Shield is running.</p></div><div class="consumer-step"><strong>2. Hard threats stay hard</strong><p>Sensitivity changes borderline attention, not authentication failures, verified threats or your explicit Block/Catch & Trash rules.</p></div><div class="consumer-step"><strong>3. Unknown is not Safe</strong><p>If a provider check, exposure service or media detector is unavailable, Email Shield tells you it is unavailable instead of displaying a green result.</p></div><div class="consumer-actions"><button id="consumerOnboardingDone" class="primary" type="button">Got it — continue</button></div></div>`;
+    document.body.append(overlay);
+    overlay.querySelector('#consumerOnboardingDone')?.addEventListener('click',async()=>{
+      if(!stillSelected(id)){overlay.remove();return;}
+      try{await post(`/api/consumer/v1/accounts/${encodeURIComponent(id)}/onboarding`,{completedSteps:['consumer_intro'],dismissed:true});overlay.remove();if(stillSelected(id))await loadConsumerState();}catch(error){if(stillSelected(id))alert(error.message||String(error));}
+    });
+  }
+  setTimeout(()=>{const id=activeMailboxId();bindSelectedAccount(id);void loadConsumerState();void loadActivity();void loadFamily();void maybeOnboard();},400);
 })();
