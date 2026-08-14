@@ -7,8 +7,8 @@ import { join, resolve } from "node:path";
 
 const root = process.cwd();
 const host = "127.0.0.1";
-const dataDir = mkdtempSync(join(tmpdir(), "email-shield-smoke-"));
-let child;
+const dataDirs = [];
+const children = [];
 let stdout = "";
 let stderr = "";
 
@@ -46,13 +46,15 @@ async function rawStatus(baseUrl, requestHeaders) {
   });
 }
 
-async function waitForServer(baseUrl, timeoutMs = 20_000) {
+async function waitForServer(instance, timeoutMs = 20_000) {
   const deadline = Date.now() + timeoutMs;
   let lastError;
   while (Date.now() < deadline) {
-    if (child?.exitCode !== null) throw new Error(`Server exited before readiness with code ${child.exitCode}.\n${stderr}`);
+    if (instance.child.exitCode !== null) {
+      throw new Error(`Server exited before readiness with code ${instance.child.exitCode}.\n${instance.stderr}`);
+    }
     try {
-      const response = await fetch(baseUrl, { signal: AbortSignal.timeout(2_000) });
+      const response = await fetch(instance.baseUrl, { signal: AbortSignal.timeout(2_000) });
       if (response.ok) return;
       lastError = new Error(`HTTP ${response.status}`);
     } catch (error) {
@@ -60,21 +62,23 @@ async function waitForServer(baseUrl, timeoutMs = 20_000) {
     }
     await new Promise((resolveWait) => setTimeout(resolveWait, 150));
   }
-  throw new Error(`Server did not become ready: ${lastError?.message ?? "unknown error"}\n${stderr}`);
+  throw new Error(`Server did not become ready: ${lastError?.message ?? "unknown error"}\n${instance.stderr}`);
 }
 
-async function json(response, label) {
-  const body = await response.json().catch(() => null);
-  assert(response.ok, `${label} failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
-  return body;
-}
-
-try {
+async function startServer(mode) {
   const port = await freePort();
-  assert(Number.isInteger(port), "Could not allocate an isolated smoke-test port.");
+  assert(Number.isInteger(port), `Could not allocate an isolated ${mode} smoke-test port.`);
+  const dataDir = mkdtempSync(join(tmpdir(), `email-shield-${mode}-smoke-`));
+  dataDirs.push(dataDir);
   const baseUrl = `http://${host}:${port}`;
-
-  child = spawn(process.execPath, [resolve(root, "server/dist/index.js")], {
+  const instance = {
+    mode,
+    baseUrl,
+    stdout: "",
+    stderr: "",
+    child: null,
+  };
+  instance.child = spawn(process.execPath, [resolve(root, "server/dist/index.js")], {
     cwd: root,
     env: {
       ...process.env,
@@ -83,34 +87,82 @@ try {
       EMAIL_SHIELD_DATA_DIR: dataDir,
       EMAIL_SHIELD_COMMUNITY_SERVER: "0",
       EMAIL_SHIELD_COMMUNITY_URL: "",
+      EMAIL_SHIELD_ENABLE_DEVELOPMENT_ENTITLEMENTS: mode === "developer" ? "1" : "0",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
-  child.stdout.setEncoding("utf8");
-  child.stderr.setEncoding("utf8");
-  child.stdout.on("data", (chunk) => { stdout += chunk; });
-  child.stderr.on("data", (chunk) => { stderr += chunk; });
+  children.push(instance);
+  instance.child.stdout.setEncoding("utf8");
+  instance.child.stderr.setEncoding("utf8");
+  instance.child.stdout.on("data", (chunk) => {
+    instance.stdout += chunk;
+    stdout += chunk;
+  });
+  instance.child.stderr.on("data", (chunk) => {
+    instance.stderr += chunk;
+    stderr += chunk;
+  });
+  await waitForServer(instance);
+  return instance;
+}
 
-  await waitForServer(baseUrl);
+async function stopServer(instance) {
+  if (!instance?.child || instance.child.exitCode !== null) return;
+  instance.child.kill();
+  await new Promise((resolveWait) => {
+    const timer = setTimeout(() => {
+      if (instance.child.exitCode === null) instance.child.kill("SIGKILL");
+      resolveWait();
+    }, 2_000);
+    instance.child.once("exit", () => {
+      clearTimeout(timer);
+      resolveWait();
+    });
+  });
+}
 
+async function json(response, label) {
+  const body = await response.json().catch(() => null);
+  assert(response.ok, `${label} failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+  return body;
+}
+
+async function dashboardContext(baseUrl) {
   const home = await fetch(baseUrl, { signal: AbortSignal.timeout(5_000) });
   const homeHtml = await home.text();
   assert(home.status === 200, `Homepage returned HTTP ${home.status}.`);
   assert(homeHtml.includes("Email Shield"), "Homepage is missing the Email Shield application marker.");
-  assert(homeHtml.includes('/local-security.js') && homeHtml.includes('/scan-monitor.js') && homeHtml.includes('/unsubscribe-monitor.js') && homeHtml.includes('/operations-dashboard.js'), "Dashboard response is missing local security, action or operations scripts.");
-  assert(home.headers.get("content-security-policy")?.includes("frame-ancestors 'none'"), "Dashboard is missing its restrictive Content Security Policy.");
   const cookie = home.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
   const csrf = homeHtml.match(/<meta name="email-shield-csrf" content="([^"]+)"/)?.[1] ?? "";
   assert(cookie.startsWith("email_shield_local_session="), "Dashboard did not issue an HttpOnly local session cookie.");
   assert(csrf.length >= 32, "Dashboard did not issue a browser CSRF token.");
-  assert(!homeHtml.includes(cookie.split("=", 2)[1] ?? "missing-session"), "Dashboard HTML exposed the HttpOnly session secret.");
+  return {
+    home,
+    homeHtml,
+    cookie,
+    csrf,
+    protectedHeaders: () => ({
+      Cookie: cookie,
+      Origin: baseUrl,
+      Referer: `${baseUrl}/`,
+      "X-Email-Shield-CSRF": csrf,
+    }),
+  };
+}
 
-  const protectedHeaders = () => ({
-    Cookie: cookie,
-    Origin: baseUrl,
-    Referer: `${baseUrl}/`,
-    "X-Email-Shield-CSRF": csrf,
-  });
+try {
+  // Consumer-mode qualification is deliberately explicit. This process must
+  // prove the release surface with development entitlements disabled even if
+  // a parent shell/CI environment happened to export the development flag.
+  const consumer = await startServer("consumer");
+  const baseUrl = consumer.baseUrl;
+  const context = await dashboardContext(baseUrl);
+  const { home, homeHtml, cookie, csrf, protectedHeaders } = context;
+
+  assert(homeHtml.includes('/local-security.js') && homeHtml.includes('/scan-monitor.js') && homeHtml.includes('/unsubscribe-monitor.js') && homeHtml.includes('/operations-dashboard.js'), "Dashboard response is missing local security, action or operations scripts.");
+  assert(homeHtml.includes('/developer-controls.js'), "Dashboard response is missing the fail-closed developer-control boundary.");
+  assert(home.headers.get("content-security-policy")?.includes("frame-ancestors 'none'"), "Dashboard is missing its restrictive Content Security Policy.");
+  assert(!homeHtml.includes(cookie.split("=", 2)[1] ?? "missing-session"), "Dashboard HTML exposed the HttpOnly session secret.");
 
   async function mutation(path, init = {}) {
     const nonceResponse = await fetch(`${baseUrl}/api/security/mutation-token`, {
@@ -143,6 +195,15 @@ try {
   assert(Number.isInteger(communityStatus.verifiedFeedEntries), "Community status did not report a feed-entry count.");
   assert((await fetch(`${baseUrl}/api/community/v1/feed`, { signal: AbortSignal.timeout(5_000) })).status === 404, "Normal client unexpectedly served the central signed feed endpoint.");
   assert((await fetch(`${baseUrl}/api/community/v1/public-key`, { signal: AbortSignal.timeout(5_000) })).status === 404, "Normal client unexpectedly served central public-key metadata.");
+
+  // The production/consumer server must have no developer execution route at
+  // all. This is checked with valid local session+CSRF so a 404 cannot be
+  // confused with authentication rejection.
+  const consumerDeveloperRoute = await fetch(`${baseUrl}/api/dev/test-suite`, {
+    headers: protectedHeaders(),
+    signal: AbortSignal.timeout(5_000),
+  });
+  assert(consumerDeveloperRoute.status === 404, `Consumer-mode developer suite returned HTTP ${consumerDeveloperRoute.status} instead of 404.`);
 
   const initialAccounts = await json(await fetch(`${baseUrl}/api/accounts`, {
     headers: protectedHeaders(),
@@ -208,15 +269,6 @@ try {
     assert(!serializedOperations.includes(`\"${forbidden}\"`), `Operations snapshot exposed forbidden field ${forbidden}.`);
   }
 
-  const developerReport = await json(await fetch(`${baseUrl}/api/dev/test-suite`, {
-    headers: protectedHeaders(),
-    signal: AbortSignal.timeout(60_000),
-  }), "Developer corpus suite");
-  assert(developerReport.totalScans > 0, "Developer corpus suite ran zero scans.");
-  assert(Array.isArray(developerReport.falsePositives) && developerReport.falsePositives.length === 0, `Developer corpus suite reported false positives: ${JSON.stringify(developerReport.falsePositives)}`);
-  assert(Array.isArray(developerReport.falseNegatives) && developerReport.falseNegatives.length === 0, `Developer corpus suite reported false negatives: ${JSON.stringify(developerReport.falseNegatives)}`);
-  assert(Array.isArray(developerReport.crossProviderParityFailures) && developerReport.crossProviderParityFailures.length === 0, `Developer corpus suite reported provider parity failures: ${JSON.stringify(developerReport.crossProviderParityFailures)}`);
-
   const removed = await mutation(`/api/accounts/${encodeURIComponent(connected.accountId)}`, {
     method: "DELETE",
     signal: AbortSignal.timeout(5_000),
@@ -241,6 +293,16 @@ try {
   });
   assert(replayed.status === 409, `Replayed mutation authorization returned HTTP ${replayed.status}.`);
 
+  const crossOriginRead = await fetch(`${baseUrl}/api/accounts`, {
+    headers: {
+      ...protectedHeaders(),
+      Origin: "https://attacker.example",
+      Referer: "https://attacker.example/",
+      "Sec-Fetch-Site": "cross-site",
+    },
+  });
+  assert(crossOriginRead.status === 403, `Cross-origin protected read returned HTTP ${crossOriginRead.status}.`);
+
   const crossOriginNonce = await fetch(`${baseUrl}/api/security/mutation-token`, {
     method: "POST",
     headers: { ...protectedHeaders(), Origin: "http://127.0.0.1:65530" },
@@ -250,32 +312,40 @@ try {
   const rebindingStatus = await rawStatus(baseUrl, { Host: "attacker.example" });
   assert(rebindingStatus === 421, `DNS-rebinding Host request returned HTTP ${rebindingStatus}.`);
 
+  const forwarded = await fetch(baseUrl, { headers: { "X-Forwarded-Host": "attacker.example" } });
+  assert(forwarded.status === 421, `Forwarded-Host request returned HTTP ${forwarded.status}.`);
+
   const notFound = await fetch(`${baseUrl}/engineering-controlled-404`, { signal: AbortSignal.timeout(5_000) });
   assert(notFound.status === 404, `Unknown route returned HTTP ${notFound.status} instead of 404.`);
 
-  console.log(`Compiled server/API smoke passed at ${baseUrl}.`);
+  await stopServer(consumer);
+
+  // Developer corpus execution is a separate explicit process contract. This
+  // prevents its engineering coverage from silently re-opening the route in a
+  // production/consumer process.
+  const developer = await startServer("developer");
+  const developerContext = await dashboardContext(developer.baseUrl);
+  const developerReport = await json(await fetch(`${developer.baseUrl}/api/dev/test-suite`, {
+    headers: developerContext.protectedHeaders(),
+    signal: AbortSignal.timeout(60_000),
+  }), "Explicit developer-mode corpus suite");
+  assert(developerReport.totalScans === 280, `Developer corpus suite ran ${developerReport.totalScans} scans instead of 280.`);
+  assert(Array.isArray(developerReport.falsePositives) && developerReport.falsePositives.length === 0, `Developer corpus suite reported false positives: ${JSON.stringify(developerReport.falsePositives)}`);
+  assert(Array.isArray(developerReport.falseNegatives) && developerReport.falseNegatives.length === 0, `Developer corpus suite reported false negatives: ${JSON.stringify(developerReport.falseNegatives)}`);
+  assert(Array.isArray(developerReport.crossProviderParityFailures) && developerReport.crossProviderParityFailures.length === 0, `Developer corpus suite reported provider parity failures: ${JSON.stringify(developerReport.crossProviderParityFailures)}`);
+
+  console.log(`Compiled consumer server/API smoke passed at ${baseUrl}.`);
   console.log(`Fixture messages examined: ${lastProgress.counters.examined}.`);
   console.log(`Verified community feed entries: ${communityStatus.verifiedFeedEntries}.`);
-  console.log(`Developer corpus scans: ${developerReport.totalScans}.`);
-  console.log("Local session, CSRF, one-time nonce, origin, and Host isolation checks passed.");
+  console.log(`Consumer developer-route isolation: HTTP ${consumerDeveloperRoute.status}.`);
+  console.log(`Explicit developer corpus scans: ${developerReport.totalScans}.`);
+  console.log("Local session, CSRF, protected-read origin, one-time nonce, forwarded-request, and Host isolation checks passed.");
 } catch (error) {
   console.error(`FAIL: ${error.message}`);
   if (stdout.trim()) console.error(`Server stdout:\n${stdout.trim()}`);
   if (stderr.trim()) console.error(`Server stderr:\n${stderr.trim()}`);
   process.exitCode = 1;
 } finally {
-  if (child && child.exitCode === null) {
-    child.kill();
-    await new Promise((resolveWait) => {
-      const timer = setTimeout(() => {
-        if (child.exitCode === null) child.kill("SIGKILL");
-        resolveWait();
-      }, 2_000);
-      child.once("exit", () => {
-        clearTimeout(timer);
-        resolveWait();
-      });
-    });
-  }
-  rmSync(dataDir, { recursive: true, force: true });
+  for (const instance of children) await stopServer(instance);
+  for (const dataDir of dataDirs) rmSync(dataDir, { recursive: true, force: true });
 }
