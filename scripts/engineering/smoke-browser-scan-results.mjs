@@ -41,7 +41,7 @@ async function waitForHttp(url, processRef, stderr, timeoutMs = 20_000) {
     }
     try {
       const response = await fetch(url, { signal: AbortSignal.timeout(2_000) });
-      if (response.ok) return;
+      if (response.ok) return response;
       lastError = new Error(`HTTP ${response.status}`);
     } catch (error) {
       lastError = error;
@@ -186,6 +186,7 @@ try {
       EMAIL_SHIELD_DATA_DIR: dataDir,
       EMAIL_SHIELD_COMMUNITY_SERVER: "0",
       EMAIL_SHIELD_COMMUNITY_URL: "",
+      EMAIL_SHIELD_ENABLE_DEVELOPMENT_ENTITLEMENTS: "1",
     },
     stdio: ["ignore", "ignore", "pipe"],
   });
