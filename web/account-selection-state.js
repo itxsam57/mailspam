@@ -9,9 +9,11 @@
   }
 
   let selectedId = document.querySelector('#accountsList .account-chip.active')?.dataset.id || null;
+  let generation = 0;
 
   function reflectSelection(id) {
     const normalized = typeof id === 'string' && id.trim() ? id : null;
+    if (normalized !== selectedId) generation += 1;
     selectedId = normalized;
     const list = document.getElementById('accountsList');
     if (!list) return;
@@ -28,10 +30,24 @@
     });
   }
 
+  function capture() {
+    return Object.freeze({ id: selectedId, generation });
+  }
+
+  function matches(snapshot) {
+    return Boolean(
+      snapshot
+      && snapshot.id === selectedId
+      && snapshot.generation === generation
+    );
+  }
+
   // The legacy shell still owns account list construction/persistence. This
   // wrapper establishes one synchronous selection boundary before those async
   // effects run, so scan/action modules never have to infer selection from a
-  // DOM refresh that may still be in flight.
+  // DOM refresh that may still be in flight. A monotonically increasing
+  // generation also rejects A -> B -> A stale async responses that an ID-only
+  // comparison would incorrectly accept.
   window.selectAccount = function emailShieldSelectAccountState(id, options = {}) {
     reflectSelection(id);
     return originalSelect.call(this, id, options);
@@ -40,6 +56,9 @@
   Object.defineProperty(window, 'emailShieldAccountSelection', {
     value: Object.freeze({
       currentId: () => selectedId,
+      generation: () => generation,
+      capture,
+      matches,
       reflect: (id) => reflectSelection(id),
     }),
     writable: false,
