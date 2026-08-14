@@ -271,7 +271,7 @@
     finally {
       state.loading = false;
       render();
-      if (state.refreshQueued || activeMailboxId() !== state.mailboxId) queueMicrotask(() => { void refresh(); });
+      if (state.refreshQueued || activeMailboxId() !== requestedMailboxId) queueMicrotask(() => { void refresh(); });
     }
   }
 
