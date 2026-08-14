@@ -224,8 +224,6 @@
   async function loadPolicy(force = false) {
     const accountId = selectedAccountId();
     if (!accountId) {
-      // Invalidate any response still in flight for an account that is no
-      // longer selected. It must never repaint this panel later.
       loadSequence += 1;
       loadedAccountId = null;
       snapshot = null;
@@ -291,7 +289,7 @@
     selection.clear();
     renderList();
   });
-  refreshButton.addEventListener('click', () => loadPolicy(true));
+  refreshButton.addEventListener('click', () => { void loadPolicy(true); });
 
   selectVisibleButton.addEventListener('click', () => {
     for (const item of visibleItems()) selection.set(selectionKey(item.category, item.value), item);
@@ -376,6 +374,13 @@
     observer.observe(accountList, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
     accountList.addEventListener('click', () => setTimeout(() => { void loadPolicy(false); }, 0));
   }
+
+  Object.defineProperty(window, 'emailShieldRefreshPersonalPolicy', {
+    value: () => loadPolicy(true),
+    writable: false,
+    configurable: false,
+    enumerable: false,
+  });
 
   window.addEventListener('email-shield-policy-changed', () => { void loadPolicy(true); });
   controlsEnabled(false);
