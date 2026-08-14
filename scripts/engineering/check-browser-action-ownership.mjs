@@ -11,45 +11,55 @@ function ownersMatching(predicate) {
   return [...sources.entries()].filter(([name, source]) => predicate(source, name)).map(([name]) => name);
 }
 
-function requireExclusiveOwners(label, owners, expectedOwner) {
+function requireOnly(label, predicate, expectedOwner) {
+  const owners = ownersMatching(predicate);
   if (owners.length !== 1 || owners[0] !== expectedOwner) {
-    failures.push(`${label} must have exactly one browser mutation owner (${expectedOwner}); found: ${owners.join(", ") || "none"}.`);
+    failures.push(`${label} must have exactly one browser execution owner (${expectedOwner}); found: ${owners.join(", ") || "none"}.`);
   }
-}
-
-function messageMutationOwners(endpoint) {
-  const literal = `/messages/${endpoint}`;
-  return ownersMatching((source) => {
-    if (source.includes(literal)) return true;
-    const usesDynamicEndpoint = source.includes('/messages/${endpoint}') || source.includes("/messages/${endpoint}");
-    const declaresEndpoint = source.includes(`'${endpoint}'`) || source.includes(`\"${endpoint}\"`);
-    return usesDynamicEndpoint && declaresEndpoint;
-  });
-}
-
-const blockOwners = ownersMatching((source) => /\/messages\/block-(?:sender|domain|\$\{scope\})/.test(source));
-requireExclusiveOwners("Block sender/domain", blockOwners, "scan-monitor.js");
-requireExclusiveOwners("Move to Trash", messageMutationOwners("trash"), "scan-monitor.js");
-requireExclusiveOwners("Report Scam", messageMutationOwners("report-scam"), "review-actions.js");
-requireExclusiveOwners("Move to Spam/Junk", messageMutationOwners("report-spam"), "review-actions.js");
-requireExclusiveOwners("Mark Safe", messageMutationOwners("mark-safe"), "review-actions.js");
-requireExclusiveOwners("Trust sender", messageMutationOwners("trust-sender"), "review-actions.js");
-requireExclusiveOwners("Unsubscribe", messageMutationOwners("unsubscribe"), "unsubscribe-monitor.js");
-
-const eventSourceOwners = ownersMatching((source) => /new\s+EventSource\s*\(/.test(source));
-if (eventSourceOwners.length !== 1 || eventSourceOwners[0] !== "scan-monitor.js") {
-  failures.push(`Scan SSE must have exactly one browser owner (scan-monitor.js); found: ${eventSourceOwners.join(", ") || "none"}.`);
 }
 
 const scanMonitor = sources.get("scan-monitor.js") || "";
 const reviewActions = sources.get("review-actions.js") || "";
 const protectionLearning = sources.get("protection-learning.js") || "";
 const unsubscribeMonitor = sources.get("unsubscribe-monitor.js") || "";
+const policyManagement = sources.get("policy-management.js") || "";
+
+// Execution ownership is identified by the mutation fetch contract, not by
+// incidental labels, result text, or secondary observers that watch a
+// canonical button after success.
+requireOnly(
+  "Block sender/domain",
+  (source) => source.includes('/messages/block-${scope}') && source.includes('JSON.stringify({ token, shareWithFamily })'),
+  "scan-monitor.js",
+);
+requireOnly(
+  "Move to Trash",
+  (source) => source.includes('/messages/trash') && source.includes('result.requested !== 1') && source.includes('result.moved !== 1'),
+  "scan-monitor.js",
+);
+requireOnly(
+  "Report Scam / Spam / Safe / Trust",
+  (source) => source.includes("const endpoint = isReportScam ? 'report-scam' : isMoveSpam ? 'report-spam' : isMarkSafe ? 'mark-safe' : 'trust-sender'")
+    && source.includes('/messages/${endpoint}')
+    && source.includes('JSON.stringify(isReportScam ? { token, blockSender } : { token })'),
+  "review-actions.js",
+);
+requireOnly(
+  "Unsubscribe",
+  (source) => source.includes('/messages/unsubscribe') && source.includes('JSON.stringify({ token })'),
+  "unsubscribe-monitor.js",
+);
+
+const eventSourceOwners = ownersMatching((source) => /new\s+EventSource\s*\(/.test(source));
+if (eventSourceOwners.length !== 1 || eventSourceOwners[0] !== "scan-monitor.js") {
+  failures.push(`Scan SSE must have exactly one browser owner (scan-monitor.js); found: ${eventSourceOwners.join(", ") || "none"}.`);
+}
 
 for (const required of [
   '[data-action="block-sender"],[data-action="block-domain"]',
   '/messages/block-${scope}',
   'JSON.stringify({ token, shareWithFamily })',
+  'await policyChanged()',
 ]) {
   if (!scanMonitor.includes(required)) failures.push(`Canonical Block owner is missing required contract: ${required}`);
 }
@@ -62,6 +72,8 @@ for (const required of [
   "const endpoint = isReportScam ? 'report-scam' : isMoveSpam ? 'report-spam' : isMarkSafe ? 'mark-safe' : 'trust-sender'",
   '/messages/${endpoint}',
   'JSON.stringify(isReportScam ? { token, blockSender } : { token })',
+  'result.localProtected !== true',
+  'await refreshPersonalPolicy()',
 ]) {
   if (!reviewActions.includes(required)) failures.push(`Canonical review-action owner is missing required contract: ${required}`);
 }
@@ -79,6 +91,8 @@ for (const forbidden of [
   '[data-action="block-sender"]',
   '[data-action="block-domain"]',
   '[data-action="report-scam"]',
+  '/messages/block-',
+  '/messages/report-scam',
 ]) {
   if (protectionLearning.includes(forbidden)) {
     failures.push(`protection-learning.js must remain a secondary learning/family helper and may not own ${forbidden}.`);
@@ -87,13 +101,21 @@ for (const forbidden of [
 if (protectionLearning.includes("event.stopImmediatePropagation()")) {
   failures.push("protection-learning.js must not suppress canonical message-action handlers.");
 }
-if (!protectionLearning.includes("emailShieldChooseFamilyBlockSharing")) {
-  failures.push("Family sharing choice disappeared from the secondary protection-learning helper.");
+for (const required of [
+  'emailShieldChooseFamilyBlockSharing',
+  "post(accountId, 'legitimate-feedback', { token })",
+  'Message marked Safe ✓',
+  'Sender trusted ✓',
+]) {
+  if (!protectionLearning.includes(required)) failures.push(`Secondary protection-learning contract is missing: ${required}`);
 }
 
 const publicRefreshOwners = ownersMatching((source) => source.includes("Object.defineProperty(window, 'emailShieldRefreshPersonalPolicy'"));
 if (publicRefreshOwners.length !== 1 || publicRefreshOwners[0] !== "policy-management.js") {
   failures.push(`Personal Policy refresh must have exactly one public owner (policy-management.js); found: ${publicRefreshOwners.join(", ") || "none"}.`);
+}
+if (!policyManagement.includes("cache: 'no-store'") || !policyManagement.includes('requestSequence !== loadSequence')) {
+  failures.push("Personal Policy owner no longer rejects stale asynchronous reads.");
 }
 
 if (failures.length) {
@@ -102,4 +124,4 @@ if (failures.length) {
 }
 
 console.log(`Browser action ownership passed across ${files.length} production JavaScript modules.`);
-console.log("Single owners: scan-monitor (scan/Block/Trash), review-actions (Report/Spam/Safe/Trust), unsubscribe-monitor (Unsubscribe), policy-management (policy refresh).");
+console.log("Single execution owners: scan-monitor (scan/Block/Trash), review-actions (Report/Spam/Safe/Trust), unsubscribe-monitor (Unsubscribe), policy-management (policy refresh).");
