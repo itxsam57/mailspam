@@ -31,6 +31,19 @@ describe("portable release packaging architecture", () => {
     expect(read("server/package.json")).not.toContain('"googleapis"');
   });
 
+  it("ships every runtime fixture asset required by the consumer Fixture-mode adapters", () => {
+    const builder = read("scripts/release/build-portable.mjs");
+    const verifier = read("scripts/release/verify-portable.mjs");
+    const fixtureAdapter = read("server/src/adapters/fixtures/demoMailbox.ts");
+
+    expect(fixtureAdapter).toContain('const CORPUS_DIR = join(__dirname, "../../../../fixtures/scam-corpus")');
+    expect(builder).toContain('"fixtures/scam-corpus/manifest.json"');
+    expect(builder).toContain('copyTree(resolve(root, "fixtures/scam-corpus"), join(packageRoot, "app/fixtures/scam-corpus"))');
+    expect(verifier).toContain('"app/fixtures/scam-corpus/manifest.json"');
+    expect(verifier).toContain('`app/fixtures/scam-corpus/${entry.file}`');
+    expect(verifier).toContain("Portable package is missing Fixture corpus message");
+  });
+
   it("uses a canonical SHA-256 inventory and bundled-runtime launch smoke", () => {
     const library = read("scripts/release/portable-package-lib.mjs");
     const verifier = read("scripts/release/verify-portable.mjs");
