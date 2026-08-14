@@ -221,11 +221,13 @@
       return;
     }
 
-    counters.innerHTML = '';
-    cards.innerHTML = '';
-    diagnosticRows = [];
+    if (!resumeScanId) {
+      counters.innerHTML = '';
+      cards.innerHTML = '';
+      diagnosticRows = [];
+      renderDiagnostics();
+    }
     diagnostics.open = true;
-    renderDiagnostics();
     stopButton.disabled = false;
     setStatus(`${resumeScanId ? 'Resuming' : 'Starting'} ${type} scan…`, 'running');
 
@@ -237,9 +239,15 @@
 
     es.addEventListener('scan-started', (event) => {
       receivedServerEvent = true;
-      let resumed = Boolean(resumeScanId);
-      try { resumed = JSON.parse(event.data).resumed === true; } catch {}
-      setStatus(resumed ? 'Protected checkpoint restored. Connecting to the provider…' : 'Scan worker started. Connecting to the provider…', 'running');
+      let value = { resumed: Boolean(resumeScanId), counters: null };
+      try { value = JSON.parse(event.data); } catch {}
+      if (value.resumed === true && value.counters) {
+        if (typeof window.renderCounters === 'function') window.renderCounters(value.counters);
+        else counters.textContent = `${Number(value.counters.examined || 0)} messages examined`;
+        setStatus(`Resumed ${type} scan after ${Number(value.counters.examined || 0)} examined message(s). Continuing from the last confirmed provider page…`, 'running');
+      } else {
+        setStatus('Scan worker started. Connecting to the provider…', 'running');
+      }
       historyChanged();
     });
     es.addEventListener('scan-status', (event) => {
@@ -262,9 +270,10 @@
       historyChanged();
     });
     es.addEventListener('scan-error', (event) => {
-      let message = 'The scan failed.';
-      try { message = JSON.parse(event.data).message || message; } catch {}
-      setStatus(message, 'error');
+      let value = { message: 'The scan failed.', status: 'failed' };
+      try { value = JSON.parse(event.data); } catch {}
+      const stopped = value.status === 'stopped';
+      setStatus(value.message || (stopped ? 'Scan stopped.' : 'The scan failed.'), stopped ? 'complete' : 'error');
       finish();
       historyChanged();
     });
@@ -476,14 +485,32 @@
     event.preventDefault();
     event.stopImmediatePropagation();
     const id = selectedAccountId();
-    setStatus('Stopping scan…', 'running');
+    if (!id) {
+      setStatus('Stop failed: no connected mailbox is selected for this scan.', 'error');
+      return;
+    }
+    setStatus('Stopping scan and finalizing the protected resume checkpoint…', 'running');
+    let serverFinal = false;
     try {
-      if (id) await fetch(`/api/accounts/${encodeURIComponent(id)}/scan/stop`, { method: 'POST' });
-      setStatus('Scan stopped. The last completed page is available in Scan history.', 'complete');
+      const response = await fetch(`/api/accounts/${encodeURIComponent(id)}/scan/stop`, { method: 'POST' });
+      const result = await response.json().catch(() => ({}));
+      serverFinal = result.active === false;
+      if (!response.ok) throw new Error(result.error || `Server returned HTTP ${response.status}`);
+      if (result.active !== false) throw new Error('Email Shield did not confirm that the scan worker stopped.');
+      if (result.status === 'completed') {
+        setStatus('The scan completed before the stop request took effect. Results and protected history are complete.', 'complete');
+      } else if (result.stopped === true && result.historySaved === true && result.resumable === true) {
+        const examined = Number(result.counters?.examined || 0);
+        setStatus(`Scan stopped after ${examined} examined message(s). Resume will continue from the last confirmed provider page.`, 'complete');
+      } else if (result.status === 'idle') {
+        setStatus('No scan is currently running.', 'complete');
+      } else {
+        throw new Error('Email Shield stopped the worker but did not confirm a resumable protected checkpoint.');
+      }
     } catch (error) {
-      setStatus(`Stop failed: ${error.message}`, 'error');
+      setStatus(`Stop failed: ${error instanceof Error ? error.message : String(error)}`, 'error');
     } finally {
-      finish();
+      if (serverFinal) finish();
       historyChanged();
     }
   }, true);

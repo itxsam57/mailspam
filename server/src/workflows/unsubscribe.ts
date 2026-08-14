@@ -2,7 +2,7 @@ import { lookup } from "node:dns/promises";
 import { request } from "node:https";
 import type { IncomingMessage } from "node:http";
 import { isIP } from "node:net";
-import type { CanonicalEnvelope } from "../canonical/envelope.js";
+import type { CanonicalEnvelope, LinkInfo } from "../canonical/envelope.js";
 import { trustedPassingDkimIdentities } from "../engine/identitySignals.js";
 
 export type UnsubscribeMethod = "one_click_post" | "mailto" | "link_only" | "none";
@@ -26,6 +26,7 @@ const ONE_CLICK_BODY = "List-Unsubscribe=One-Click";
 const MAX_TARGET_LENGTH = 4096;
 const REQUEST_TIMEOUT_MS = 10_000;
 const UNSUBSCRIBE_TEXT = /\b(?:unsubscribe|opt[ -]?out|stop emails?|email preferences?|manage (?:email )?preferences?|subscription settings)\b/i;
+const UNSUBSCRIBE_URL_HINT = /(?:^|[\/_?&.=-])(?:unsubscribe|unsub|opt[._-]?out|email[._-]?preferences?|manage[._-]?(?:email[._-]?)?preferences?|subscription[._-]?(?:settings|preferences)?)(?:$|[\/_?&.=-])/i;
 
 function headerTargets(raw: string | null): string[] {
   if (!raw) return [];
@@ -34,11 +35,25 @@ function headerTargets(raw: string | null): string[] {
   return raw.split(",").map((value) => value.trim()).filter(Boolean);
 }
 
-function normalizedFooterTarget(envelope: CanonicalEnvelope): string | null {
+function footerCandidate(link: LinkInfo): { method: "link_only" | "mailto"; target: string } | null {
+  const target = (link.normalizedUrl || link.rawUrl || "").trim();
+  const textDeclaresUnsubscribe = UNSUBSCRIBE_TEXT.test(link.visibleText ?? "");
+  let urlDeclaresUnsubscribe = false;
+  try {
+    const parsed = new URL(target);
+    const structuralHint = `${parsed.pathname}${parsed.search}`;
+    urlDeclaresUnsubscribe = UNSUBSCRIBE_URL_HINT.test(structuralHint);
+  } catch {}
+  if (!textDeclaresUnsubscribe && !urlDeclaresUnsubscribe) return null;
+  if (/^https?:\/\//i.test(target)) return { method: "link_only", target };
+  if (/^mailto:/i.test(target)) return { method: "mailto", target };
+  return null;
+}
+
+function normalizedFooterTarget(envelope: CanonicalEnvelope): { method: "link_only" | "mailto"; target: string } | null {
   for (const link of envelope.links) {
-    if (!UNSUBSCRIBE_TEXT.test(link.visibleText ?? "")) continue;
-    const target = link.normalizedUrl || link.rawUrl;
-    if (/^https?:\/\//i.test(target)) return target;
+    const candidate = footerCandidate(link);
+    if (candidate) return candidate;
   }
   return null;
 }
@@ -61,6 +76,12 @@ function oneClickDkimAuthorized(envelope: CanonicalEnvelope): boolean {
  * unambiguous and a trusted passing DKIM identity maps unambiguously to exactly
  * one raw DKIM signature that signs both required list headers. Otherwise the
  * same message falls back to a manual List-Unsubscribe/footer option.
+ *
+ * Manual footer discovery accepts either explicit unsubscribe text or a clear
+ * unsubscribe/preferences URL structure. It never executes the target during
+ * classification; the action still passes the same bounded URL validation at
+ * registration/use time, so attacker-controlled message HTML cannot become an
+ * SSRF or automatic navigation primitive.
  */
 export function unsubscribeCapability(envelope: CanonicalEnvelope): UnsubscribeCapability {
   const targets = headerTargets(envelope.listHeaders.listUnsubscribe);
@@ -85,7 +106,7 @@ export function unsubscribeCapability(envelope: CanonicalEnvelope): UnsubscribeC
 
   const footerTarget = normalizedFooterTarget(envelope);
   if (footerTarget) {
-    return { available: true, method: "link_only", target: footerTarget, source: "message_footer" };
+    return { available: true, method: footerTarget.method, target: footerTarget.target, source: "message_footer" };
   }
 
   return { available: false, method: "none", target: null, source: "none" };

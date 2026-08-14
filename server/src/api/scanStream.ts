@@ -10,6 +10,7 @@ import {
   type ScanResumeCheckpoint,
   type ScanType,
 } from "./scanStatePersistence.js";
+import { activeScanLifecycle, type ScanFinalization } from "./scanLifecycle.js";
 import {
   normalizeManualUnsubscribeTarget,
   normalizeOneClickTarget,
@@ -28,13 +29,7 @@ const DEFAULT_NEXT_PROGRESS_TIMEOUT_MS = 60_000;
 const LIVE_IMAP_PAGE_SIZE = 2;
 const LIVE_IMAP_QUICK_LIMIT = 10;
 const DEFAULT_PAGE_SIZE = 20;
-
-interface ActiveScanMetadata {
-  scanId: string;
-  stopRequested: boolean;
-}
-
-const activeScans = new Map<string, ActiveScanMetadata>();
+const WORKER_SHUTDOWN_GRACE_MS = 1_000;
 
 export interface ScanProgressClock {
   startedAt: number;
@@ -76,10 +71,16 @@ export function snapshotVerifiedFeedAndRefresh(
 
 /** Mark the currently active account scan as explicitly stopped by the user. */
 export function requestActiveScanStop(sessionId: string): boolean {
-  const active = activeScans.get(sessionId);
-  if (!active) return false;
-  active.stopRequested = true;
-  return true;
+  return activeScanLifecycle.requestStop(sessionId);
+}
+
+/**
+ * A Stop HTTP response must wait on this promise before claiming the mailbox is
+ * idle. It resolves only after terminal scan history is saved and the Worker is
+ * no longer able to overlap a subsequent Resume/new scan.
+ */
+export function waitForActiveScanFinalization(sessionId: string): Promise<ScanFinalization> | null {
+  return activeScanLifecycle.wait(sessionId);
 }
 
 export interface PublicSuspiciousCard {
@@ -235,7 +236,7 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
       res.status(404).json({ error: "Unknown account" });
       return;
     }
-    if (session.activeScanWorker) {
+    if (session.activeScanWorker || activeScanLifecycle.has(session.id)) {
       res.status(409).json({ error: "A scan is already active" });
       return;
     }
@@ -284,7 +285,12 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
     }
 
     sessionStore.clearScanActions(session);
-    sessionStore.beginWorkspaceScan(session, record.scanId, type, record.counters);
+    const workspace = sessionStore.workspaceSnapshot();
+    if (resume && workspace.selectedAccountId === session.id && workspace.presentation?.scanId === record.scanId) {
+      sessionStore.finishWorkspaceScan(session, "running");
+    } else {
+      sessionStore.beginWorkspaceScan(session, record.scanId, type, record.counters);
+    }
     sseHeaders(res);
     res.flushHeaders();
 
@@ -299,6 +305,7 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
       provider: session.provider,
       scanId: record.scanId,
       resumed: resume,
+      counters: { ...record.counters },
       historyPersistent: defaultScanStateRepository.persistent,
       relationshipHistoryPersistent: defaultRelationshipHistoryRepository.persistent,
     });
@@ -307,7 +314,7 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
     writeEvent("scan-status", {
       phase: "community_feed",
       message: resume
-        ? "Restored the protected scan checkpoint. Starting from the last confirmed provider page."
+        ? `Restored the protected scan checkpoint after ${record.counters.examined} examined message(s). Continuing from the last confirmed provider page.`
         : community.remoteUrl
           ? "Refreshing verified community protection feed separately while the mailbox scan starts with the current verified snapshot."
           : "Refreshing verified community protection feed from the current local verified snapshot while the mailbox scan starts.",
@@ -322,9 +329,9 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
     const initialOperationalCounters = { ...record.counters };
     localOperationalMetrics.recordScanStarted(session.config.provider);
 
-    let worker: Worker;
+    let workerCandidate: Worker | undefined;
     try {
-      worker = new Worker(workerUrl, {
+      workerCandidate = new Worker(workerUrl, {
         workerData: {
           config: session.config,
           type,
@@ -336,6 +343,7 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
           relationshipHistory,
         },
       });
+      activeScanLifecycle.begin(session.id, record.scanId);
     } catch (error) {
       record.status = "failed";
       record.updatedAt = Date.now();
@@ -346,6 +354,7 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
         message: historyFinalized
           ? `Could not start scan worker: ${error instanceof Error ? error.message : String(error)}`
           : `Could not start scan worker: ${error instanceof Error ? error.message : String(error)} Protected scan history could not be finalized; restart Email Shield before attempting to resume this scan.`,
+        status: "failed",
         historySaved: historyFinalized,
       });
       localOperationalMetrics.recordScanFinished(
@@ -353,14 +362,17 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
         "failed",
         counterDelta(record.counters, initialOperationalCounters),
       );
+      if (workerCandidate) void workerCandidate.terminate().catch(() => undefined);
       res.end();
       return;
     }
 
+    const worker = workerCandidate;
     session.activeScanWorker = worker;
-    activeScans.set(session.id, { scanId: record.scanId, stopRequested: false });
     let finished = false;
     let terminalEventSent = false;
+    let terminalFinalization: ScanFinalization | null = null;
+    let hardStop: NodeJS.Timeout | null = null;
     const clock: ScanProgressClock = {
       startedAt: Date.now(),
       lastProgressAt: Date.now(),
@@ -384,21 +396,34 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
     };
     let durableCheckpointAvailable = Boolean(record.checkpoint);
 
-    const cleanup = () => {
+    const cleanup = (finalization: ScanFinalization) => {
       if (finished) return;
       finished = true;
       clearInterval(heartbeat);
+      if (hardStop) clearTimeout(hardStop);
       if (session.activeScanWorker === worker) session.activeScanWorker = null;
-      const active = activeScans.get(session.id);
-      if (active?.scanId === record.scanId) activeScans.delete(session.id);
+      activeScanLifecycle.finalize(session.id, record.scanId, finalization);
       if (!res.writableEnded && !res.destroyed) res.end();
     };
 
-    const terminateWithError = (message: string) => {
-      if (finished) return;
-      terminalEventSent = true;
-      const active = activeScans.get(session.id);
-      record.status = active?.stopRequested ? "stopped" : "failed";
+    const beginWorkerShutdown = (finalization: ScanFinalization, sendCancel: boolean) => {
+      if (terminalFinalization) return;
+      terminalFinalization = finalization;
+      if (sendCancel) {
+        try { worker.postMessage({ type: "cancel" }); } catch {}
+      }
+      hardStop = setTimeout(() => {
+        void worker.terminate().then(
+          () => { if (!finished && terminalFinalization) cleanup(terminalFinalization); },
+          () => { if (!finished && terminalFinalization) cleanup(terminalFinalization); },
+        );
+      }, WORKER_SHUTDOWN_GRACE_MS);
+      hardStop.unref();
+    };
+
+    const finalizeAbnormalRecord = (message: string): ScanFinalization => {
+      const stopped = activeScanLifecycle.stopRequested(session.id, record.scanId);
+      record.status = stopped ? "stopped" : "failed";
       sessionStore.finishWorkspaceScan(session, record.status);
       record.completedAt = null;
       const historySaved = saveRecord();
@@ -407,6 +432,7 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
         message: historySaved
           ? message
           : `${message} Protected scan status could not be finalized; restart Email Shield before attempting resume.`,
+        status: record.status,
         resumable: historySaved ? Boolean(record.checkpoint) : false,
         durableCheckpointAvailable,
         historySaved,
@@ -417,14 +443,23 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
         record.status === "stopped" ? "stopped" : "failed",
         counterDelta(record.counters, initialOperationalCounters),
       );
-      try { worker.postMessage({ type: "cancel" }); } catch {}
-      const hardStop = setTimeout(() => { void worker.terminate(); }, 1000);
-      hardStop.unref();
-      cleanup();
+      return {
+        scanId: record.scanId,
+        status: record.status,
+        historySaved,
+        resumable: historySaved ? Boolean(record.checkpoint) : false,
+        counters: { ...record.counters },
+      };
+    };
+
+    const terminateWithError = (message: string) => {
+      if (finished || terminalEventSent) return;
+      terminalEventSent = true;
+      beginWorkerShutdown(finalizeAbnormalRecord(message), true);
     };
 
     const heartbeat = setInterval(() => {
-      if (finished) return;
+      if (finished || terminalEventSent) return;
       const now = Date.now();
       const stalled = scanStallReason(
         clock,
@@ -448,7 +483,7 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
     heartbeat.unref();
 
     worker.on("message", (message) => {
-      if (finished) return;
+      if (finished || terminalEventSent) return;
       if (message.type === "status") {
         writeEvent("scan-status", message.status);
       } else if (message.type === "progress") {
@@ -523,9 +558,12 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
         record.completedAt = completedAt;
         record.updatedAt = completedAt;
         record.checkpoint = null;
-        if (!saveRecord()) {
+        const historySaved = saveRecord();
+        if (!historySaved) {
           writeEvent("scan-error", {
             message: "The mailbox scan completed, but its protected history record could not be finalized.",
+            status: "completed",
+            historySaved: false,
             scanId: record.scanId,
           });
         } else {
@@ -536,29 +574,39 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
           "completed",
           counterDelta(record.counters, initialOperationalCounters),
         );
-        cleanup();
+        beginWorkerShutdown({
+          scanId: record.scanId,
+          status: "completed",
+          historySaved,
+          resumable: false,
+          counters: { ...record.counters },
+        }, false);
       } else if (message.type === "error") {
-        const active = activeScans.get(session.id);
-        const stopped = active?.stopRequested === true || message.name === "AbortError";
+        const stopped = activeScanLifecycle.stopRequested(session.id, record.scanId) || message.name === "AbortError";
         terminateWithError(stopped ? "Scan stopped. The last completed page is available to resume." : message.message);
       }
     });
 
     worker.on("error", (error) => {
-      if (finished) return;
+      if (finished || terminalEventSent) return;
       terminateWithError(error.message);
     });
 
     worker.on("exit", (code) => {
       if (finished) return;
+      if (terminalFinalization) {
+        cleanup(terminalFinalization);
+        return;
+      }
       if (!terminalEventSent) {
-        const active = activeScans.get(session.id);
-        const stopped = active?.stopRequested === true;
-        terminateWithError(stopped
+        terminalEventSent = true;
+        const stopped = activeScanLifecycle.stopRequested(session.id, record.scanId);
+        const finalization = finalizeAbnormalRecord(stopped
           ? "Scan stopped. The last completed page is available to resume."
           : code === 0
             ? "Scan worker exited before returning a terminal result. The last completed page is available to resume."
             : `Scan worker exited unexpectedly with code ${code}. The last completed page is available to resume.`);
+        cleanup(finalization);
       }
     });
 
