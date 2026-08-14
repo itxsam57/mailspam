@@ -28,6 +28,15 @@
     status.className = `scan-monitor-status ${state}`.trim();
   }
 
+  async function refreshPersonalPolicy() {
+    const refresh = window.emailShieldRefreshPersonalPolicy;
+    if (typeof refresh === 'function') {
+      await refresh();
+      return;
+    }
+    window.dispatchEvent(new CustomEvent('email-shield-policy-changed'));
+  }
+
   function escapeAttribute(value) {
     return String(value ?? '').replace(/[&<>"']/g, (character) => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -52,8 +61,8 @@
     const trash = actions.querySelector('[data-action="trash"]');
 
     // Every message mutation is authorized by the same opaque review token.
-    // The browser-rendered sender/domain strings are presentation only and must
-    // never become the authority for a policy mutation.
+    // Browser-rendered sender/domain strings are presentation only and never
+    // become policy authority.
     if (senderBlock instanceof HTMLButtonElement) {
       senderBlock.dataset.reviewToken = action.token;
       if (action.senderBlocked === true) {
@@ -161,6 +170,9 @@
   }
 
   function communityDeliveryMessage(result) {
+    if (result.communityAccepted !== true) {
+      return `Community delivery was unavailable or not accepted${result.communityError ? `: ${result.communityError}` : ''}. Local campaign protection remains active.`;
+    }
     if (result.delivery === 'remote_shared') {
       return `Shared network status: ${result.status}; ${result.independentReporters} independent reporter(s).`;
     }
@@ -170,7 +182,17 @@
     if (result.delivery === 'embedded_local') {
       return `Local test-network status: ${result.status}; ${result.independentReporters} local reporter proof(s). Other installations are not protected until a central community service is configured.`;
     }
-    return 'The server did not identify whether this report reached a shared or local-only community service.';
+    return 'Community evidence was accepted, but no recognized delivery scope was returned. Local campaign protection remains active.';
+  }
+
+  function familyDeliveryMessage(result) {
+    if (result.family?.shared === true) {
+      return `Family Shield: ${result.family.status || 'protected'} for this private Shield Circle.`;
+    }
+    if (result.family?.error) {
+      return `Family Shield sharing needs attention: ${result.family.error}. Local campaign protection remains active.`;
+    }
+    return 'No Family Shield campaign share was completed for this mailbox.';
   }
 
   document.addEventListener('click', async (event) => {
@@ -203,7 +225,7 @@
 
     if (isReportScam) {
       promptTitle = 'Report this scam campaign to Email Shield';
-      explanation = 'Email Shield will protect matching campaign messages in this mailbox immediately. If a shared community service is configured, only privacy-reduced indicators are submitted to it; otherwise the report remains in the local test network. It will not upload the message body, subject, mailbox address, contacts, credentials, provider ID, or raw private URLs. One report cannot globally block a sender; independent reports and evidence thresholds are required.';
+      explanation = 'Email Shield will save this campaign as an immediate local threat and attempt to move the current message to Trash. Future matching campaign mail remains protected even if provider, Family Shield, or community delivery is temporarily unavailable. Only privacy-reduced campaign indicators can leave the device; message content, subject, mailbox address, credentials, provider ID, contacts and raw private URLs are not submitted.';
     } else if (isMoveSpam) {
       promptTitle = 'Move exactly this message to provider Spam/Junk';
       explanation = 'This affects only the selected mailbox message. It does not create Email Shield community protection and does not automatically block the sender.';
@@ -227,7 +249,7 @@
     if (status) {
       status.className = 'review-action-status';
       status.textContent = isReportScam
-        ? 'Saving local campaign protection and submitting or queuing privacy-reduced evidence when a shared service is configured…'
+        ? 'Saving durable local campaign protection first, then attempting current-message Trash, Family Shield and privacy-reduced community delivery…'
         : isMoveSpam
           ? 'Requesting an exact provider Spam/Junk move…'
           : isMarkSafe
@@ -246,29 +268,50 @@
       if (!response.ok) throw new Error(result.error || `Server returned HTTP ${response.status}`);
 
       if (isReportScam) {
-        if (result.success !== true || result.localProtected !== true || result.accepted !== true || result.accountId !== accountId || result.token !== token) {
-          throw new Error('The server did not confirm local protection and community report acceptance.');
+        if (result.success !== true || result.localProtected !== true || result.accountId !== accountId || result.token !== token) {
+          throw new Error('The server did not confirm durable local scam protection.');
         }
-        if (!['embedded_local', 'remote_shared', 'queued_remote'].includes(result.delivery)) {
-          throw new Error('The server did not return a trustworthy community delivery scope.');
-        }
+
         document.querySelectorAll(`[data-action="report-scam"][data-review-token="${CSS.escape(token)}"]`).forEach((candidate) => {
           candidate.disabled = true;
           candidate.textContent = 'Campaign protected locally ✓';
         });
         disableConflictingDecisions(token);
         container?.classList.add('community-reported');
-        const communityState = communityDeliveryMessage(result);
-        if (status) {
-          status.className = 'review-action-status success';
-          status.textContent = `Matching campaign messages are now protected locally. ${communityState}${result.senderBlocked ? ' The exact sender was also blocked for this mailbox.' : ''}`;
+
+        if (result.senderBlocked === true) {
+          document.querySelectorAll(`[data-action="block-sender"][data-review-token="${CSS.escape(token)}"]`).forEach((candidate) => {
+            candidate.disabled = true;
+            candidate.textContent = 'Sender blocked ✓';
+          });
         }
-        const globalMessage = result.delivery === 'remote_shared'
-          ? 'Scam campaign protected locally and accepted by the configured shared community service.'
-          : result.delivery === 'queued_remote'
-            ? 'Scam campaign protected locally; the shared report is encrypted and queued for retry.'
-            : 'Scam campaign protected locally. This installation is using the local test network, not a cross-user service.';
-        setGlobalStatus(globalMessage, 'complete');
+        if (result.movedCurrent === true) {
+          document.querySelectorAll(`[data-action="trash"][data-review-token="${CSS.escape(token)}"]`).forEach((candidate) => {
+            candidate.disabled = true;
+            candidate.textContent = 'Moved to Trash ✓';
+          });
+          container?.classList.add('trash-moved');
+        }
+
+        await refreshPersonalPolicy();
+        if (result.family?.shared) window.dispatchEvent(new CustomEvent('email-shield-family-changed'));
+
+        const moveState = result.movedCurrent === true
+          ? 'The current message was moved to Trash.'
+          : `The current provider Trash move needs attention${result.moveError ? `: ${result.moveError}` : '.'}`;
+        const familyState = familyDeliveryMessage(result);
+        const communityState = communityDeliveryMessage(result);
+        const complete = result.movedCurrent === true && result.communityAccepted === true && !result.family?.error;
+        if (status) {
+          status.className = complete ? 'review-action-status success' : 'review-action-status error';
+          status.textContent = `Matching campaign messages are protected locally and future matches will auto-Trash. ${moveState} ${familyState} ${communityState}${result.senderBlocked ? ' The exact sender is also blocked.' : ''}`;
+        }
+        setGlobalStatus(
+          complete
+            ? `Scam campaign protected locally and current message moved to Trash.${result.family?.shared ? ' Family Shield updated.' : ' Community evidence accepted.'}`
+            : 'Scam campaign protection is active; one external/provider protection step needs attention.',
+          complete ? 'complete' : 'error',
+        );
         return;
       }
 
@@ -302,6 +345,7 @@
           candidate.disabled = true;
           candidate.textContent = 'Message marked Safe ✓';
         });
+        await refreshPersonalPolicy();
         if (status) {
           status.className = 'review-action-status success';
           status.textContent = 'Exact-message approval saved. Rescan to recalculate the authoritative verdict and counters.';
@@ -316,6 +360,7 @@
           }
         });
         button.textContent = 'Sender trusted ✓';
+        await refreshPersonalPolicy();
         if (status) {
           status.className = 'review-action-status success';
           status.textContent = 'Trusted sender saved for this account. Rescan to apply it to matching messages.';
