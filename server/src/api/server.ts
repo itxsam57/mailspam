@@ -35,15 +35,93 @@ import {
 } from "./fixtureConnectionPersistence.js";
 import { dashboardScriptTags } from "./dashboardScripts.js";
 
+const ACCOUNT_CONNECT_PROVIDERS = new Set<Provider>(["gmail", "outlook", "icloud", "yahoo", "imap"]);
+const ACCOUNT_CONNECT_FIELDS = new Set(["provider", "mode", "credentials", "label"]);
+const ACCOUNT_CONNECT_CREDENTIAL_FIELDS: Record<Provider, ReadonlySet<string>> = {
+  gmail: new Set(["clientId", "clientSecret", "refreshToken"]),
+  outlook: new Set(["clientId", "clientSecret", "tenantId", "refreshToken"]),
+  icloud: new Set(["user", "appPassword"]),
+  yahoo: new Set(["user", "appPassword"]),
+  imap: new Set(["host", "port", "secure", "user", "appPassword"]),
+};
+const MAX_ACCOUNT_LABEL_LENGTH = 160;
+const MAX_CREDENTIAL_VALUE_LENGTH = 16_384;
+
+interface AccountConnectRequest {
+  provider: Provider;
+  mode: "fixture" | "live";
+  credentials: Record<string, string>;
+  label?: string;
+}
+
+function normalizeAccountConnectRequest(body: unknown): AccountConnectRequest {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new Error("Account connection request must be a JSON object.");
+  }
+  const record = body as Record<string, unknown>;
+  const unexpected = Object.keys(record).find((key) => !ACCOUNT_CONNECT_FIELDS.has(key));
+  if (unexpected) throw new Error("Account connection request contains an unsupported field.");
+
+  const providerValue = record.provider;
+  if (typeof providerValue !== "string" || !ACCOUNT_CONNECT_PROVIDERS.has(providerValue as Provider)) {
+    throw new Error("Account connection provider is invalid.");
+  }
+  const provider = providerValue as Provider;
+  if (record.mode !== "fixture" && record.mode !== "live") {
+    throw new Error("Account connection mode is invalid.");
+  }
+  const mode = record.mode;
+
+  let label: string | undefined;
+  if (record.label !== undefined) {
+    if (typeof record.label !== "string") throw new Error("Account connection label is invalid.");
+    label = record.label.trim();
+    if (!label || label.length > MAX_ACCOUNT_LABEL_LENGTH) throw new Error("Account connection label is invalid.");
+  }
+
+  const credentials: Record<string, string> = {};
+  if (record.credentials !== undefined) {
+    if (!record.credentials || typeof record.credentials !== "object" || Array.isArray(record.credentials)) {
+      throw new Error("Account connection credentials are invalid.");
+    }
+    const allowed = mode === "fixture" ? new Set<string>() : ACCOUNT_CONNECT_CREDENTIAL_FIELDS[provider];
+    for (const [key, value] of Object.entries(record.credentials as Record<string, unknown>)) {
+      if (!allowed.has(key)) throw new Error("Account connection credentials contain an unsupported field.");
+      if (typeof value !== "string" || value.length > MAX_CREDENTIAL_VALUE_LENGTH) {
+        throw new Error("Account connection credential value is invalid.");
+      }
+      credentials[key] = value;
+    }
+  }
+
+  if (provider === "imap" && mode === "live") {
+    const portText = credentials.port ?? "993";
+    if (!/^\d{1,5}$/.test(portText)) throw new Error("IMAP port is invalid.");
+    const port = Number(portText);
+    if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) throw new Error("IMAP port is invalid.");
+    credentials.port = String(port);
+    if (credentials.secure !== undefined && credentials.secure !== "true" && credentials.secure !== "false") {
+      throw new Error("IMAP secure setting is invalid.");
+    }
+  }
+
+  return { provider, mode, credentials, label };
+}
+
 export function createServer(options: {
   community?: CommunityNetwork;
   destinationAnalyzer?: DestinationAnalysisCoordinator;
   fixtureConnections?: FixtureConnectionPersistence;
+  developerToolsEnabled?: boolean;
+  developerTestSuiteRunner?: typeof runDeveloperTestSuite;
 } = {}) {
   const app = express();
   const community = options.community ?? communityNetwork;
   const destinationAnalyzer = options.destinationAnalyzer ?? destinationAnalysisCoordinator;
   const fixtureConnections = options.fixtureConnections ?? noFixtureConnectionPersistence;
+  const developerToolsEnabled = options.developerToolsEnabled
+    ?? process.env.EMAIL_SHIELD_ENABLE_DEVELOPMENT_ENTITLEMENTS === "1";
+  const developerTestSuiteRunner = options.developerTestSuiteRunner ?? runDeveloperTestSuite;
   app.use(express.json({ limit: "64kb" }));
 
   const reviewActionError = (error: unknown) => ({
@@ -102,12 +180,14 @@ export function createServer(options: {
   });
 
   app.post("/api/accounts/connect", async (req: Request, res: Response) => {
-    const { provider, mode, credentials = {}, label } = req.body as {
-      provider: Provider;
-      mode: "fixture" | "live";
-      credentials?: Record<string, string>;
-      label?: string;
-    };
+    let request: AccountConnectRequest;
+    try {
+      request = normalizeAccountConnectRequest(req.body);
+    } catch (error) {
+      return res.status(400).json({ error: error instanceof Error ? error.message : "Account connection request is invalid." });
+    }
+    const { provider, mode, credentials, label } = request;
+
     try {
       let config: AdapterConfig;
       if (mode === "fixture") config = { provider, mode };
@@ -618,10 +698,16 @@ export function createServer(options: {
     res.json(result);
   });
 
-  app.get("/api/dev/test-suite", async (_req: Request, res: Response) => {
-    const report = await runDeveloperTestSuite();
-    res.json(report);
-  });
+  if (developerToolsEnabled) {
+    app.get("/api/dev/test-suite", async (_req: Request, res: Response) => {
+      try {
+        const report = await developerTestSuiteRunner();
+        res.json(report);
+      } catch {
+        res.status(500).json({ error: "The developer test suite failed safely. Review the local engineering test environment." });
+      }
+    });
+  }
 
   return app;
 }
