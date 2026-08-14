@@ -54,12 +54,19 @@
   resumeScanButton.textContent = 'Resume Scan';
   resumeScanButton.disabled = true;
   stopScanButton?.insertAdjacentElement('afterend', resumeScanButton);
-  let lastAccountId = null;
   let refreshTimer = null;
-  let refreshing = false;
+  let refreshSequence = 0;
 
-  function selectedAccountId() {
-    return document.querySelector('.account-chip.active')?.dataset.id || null;
+  function selectionSnapshot() {
+    const owner = window.emailShieldAccountSelection;
+    if (owner?.capture) return owner.capture();
+    return Object.freeze({ id: document.querySelector('.account-chip.active')?.dataset.id || null, generation: null });
+  }
+
+  function selectionMatches(snapshot) {
+    const owner = window.emailShieldAccountSelection;
+    if (owner?.matches && snapshot?.generation !== null) return owner.matches(snapshot);
+    return snapshot?.id === (document.querySelector('.account-chip.active')?.dataset.id || null);
   }
 
   function formatTime(value) {
@@ -68,11 +75,17 @@
     return window.emailShieldI18n?.formatDate(time) ?? new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(time));
   }
 
-  function render(history, persistent) {
-    persistence.textContent = persistent ? 'Encrypted history: persistent' : 'History: this process only';
+  function resetResume() {
     resumeScanButton.disabled = true;
     resumeScanButton.dataset.scanHistoryResume = '';
     resumeScanButton.dataset.scanType = '';
+    resumeScanButton.dataset.accountId = '';
+    resumeScanButton.dataset.selectionGeneration = '';
+  }
+
+  function render(history, persistent, ownerSnapshot) {
+    persistence.textContent = persistent ? 'Encrypted history: persistent' : 'History: this process only';
+    resetResume();
     const records = Array.isArray(history) ? history : [];
     disclosureSummary.textContent = `Previous scans (${records.length})`;
 
@@ -87,6 +100,8 @@
       resumeScanButton.disabled = false;
       resumeScanButton.dataset.scanHistoryResume = String(newestResumable.scanId || '');
       resumeScanButton.dataset.scanType = String(newestResumable.type || 'full');
+      resumeScanButton.dataset.accountId = ownerSnapshot.id || '';
+      resumeScanButton.dataset.selectionGeneration = String(ownerSnapshot.generation ?? '');
     }
 
     for (const record of records) {
@@ -124,43 +139,40 @@
   }
 
   async function refresh() {
-    const id = selectedAccountId();
-    lastAccountId = id;
+    const ownerSnapshot = selectionSnapshot();
+    const id = ownerSnapshot.id;
+    const request = ++refreshSequence;
+    resetResume();
     if (!id) {
       panel.style.display = 'none';
-      resumeScanButton.disabled = true;
-      resumeScanButton.dataset.scanHistoryResume = '';
-      resumeScanButton.dataset.scanType = '';
       if (refreshTimer) clearTimeout(refreshTimer);
       refreshTimer = null;
+      refreshButton.disabled = false;
       return;
     }
     panel.style.display = 'block';
-    if (refreshing) return;
-    refreshing = true;
     refreshButton.disabled = true;
+    persistence.textContent = 'Loading history for the selected account…';
     try {
       const response = await fetch(`/api/accounts/${encodeURIComponent(id)}/scan-history`, {
         headers: { Accept: 'application/json' },
         cache: 'no-store',
       });
       const body = await response.json().catch(() => ({}));
+      if (request !== refreshSequence || !selectionMatches(ownerSnapshot)) return;
       if (!response.ok) throw new Error(body.error || `Server returned HTTP ${response.status}`);
-      if (selectedAccountId() !== id) return;
-      render(body.history, body.persistent === true);
+      render(body.history, body.persistent === true, ownerSnapshot);
       scheduleRunningRefresh(body.history);
     } catch (error) {
-      resumeScanButton.disabled = true;
-      resumeScanButton.dataset.scanHistoryResume = '';
-      resumeScanButton.dataset.scanType = '';
+      if (request !== refreshSequence || !selectionMatches(ownerSnapshot)) return;
+      resetResume();
       list.innerHTML = '';
       const message = document.createElement('div');
       message.className = 'scan-history-empty';
       message.textContent = `Scan history unavailable: ${error instanceof Error ? error.message : String(error)}`;
       list.append(message);
     } finally {
-      refreshing = false;
-      refreshButton.disabled = false;
+      if (request === refreshSequence && selectionMatches(ownerSnapshot)) refreshButton.disabled = false;
     }
   }
 
@@ -168,6 +180,15 @@
 
   async function resumeProtectedScan(button, scanId, scanType) {
     if (!scanId) return;
+    const current = selectionSnapshot();
+    const ownerId = button.dataset.accountId || '';
+    const ownerGeneration = button.dataset.selectionGeneration || '';
+    if (!ownerId || current.id !== ownerId || String(current.generation ?? '') !== ownerGeneration) {
+      resetResume();
+      window.alert('The selected account changed. Refresh Scan history before resuming.');
+      void refresh();
+      return;
+    }
     const starter = window.emailShieldStartScan;
     if (typeof starter !== 'function') {
       window.alert('The scan monitor is not ready. Reload Email Shield and try again.');
@@ -189,10 +210,7 @@
     );
   });
 
-  const observer = new MutationObserver(() => {
-    const id = selectedAccountId();
-    if (id !== lastAccountId) void refresh();
-  });
+  const observer = new MutationObserver(() => { void refresh(); });
   observer.observe(accountsList, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
 
   window.addEventListener('email-shield-scan-history-changed', () => { void refresh(); });
