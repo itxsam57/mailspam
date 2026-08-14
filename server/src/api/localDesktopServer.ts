@@ -124,10 +124,11 @@ export function createLocalDesktopServer(options: {
     const context = security.openDashboard(req, res);
     const csrf = escapeAttribute(context.csrfToken);
     const nonce = escapeAttribute(context.cspNonce);
+    const development = developmentEntitlementsEnabled ? "true" : "false";
     const html = dashboardTemplate
       .replace(
         "</head>",
-        `<meta name="email-shield-csrf" content="${csrf}"><script src="/local-security.js"></script></head>`,
+        `<meta name="email-shield-csrf" content="${csrf}"><meta name="email-shield-development-entitlements" content="${development}"><script src="/local-security.js"></script></head>`,
       )
       .replace(/<script>(\s*const API\s*=)/, `<script nonce="${nonce}">$1`)
       .replace(
@@ -218,6 +219,9 @@ export function createLocalDesktopServer(options: {
   });
 
   app.use("/api/accounts/connect", (req: Request, res: Response, next) => {
+    if (!developmentEntitlementsEnabled && req.method === "POST" && (req.body as { mode?: unknown } | undefined)?.mode === "fixture") {
+      return res.status(404).json({ error: "Fixture mailbox mode is not available in consumer builds." });
+    }
     if (!security.enforceRouteLimit(req, res, "account-connect", 12)) return;
     next();
   });
@@ -454,6 +458,9 @@ export function createLocalDesktopServer(options: {
 
   app.use("/api/dev", security.requireProtectedRead());
   app.use("/api/dev", (req: Request, res: Response, next) => {
+    if (!developmentEntitlementsEnabled) {
+      return res.status(404).json({ error: "Developer endpoints are not available in consumer builds." });
+    }
     if (!security.enforceRouteLimit(req, res, "developer-suite", 5)) return;
     next();
   });
