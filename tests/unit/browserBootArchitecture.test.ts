@@ -115,7 +115,7 @@ describe("browser boot architecture", () => {
     expect(source).toContain("serverFinal = result.active === false");
   });
 
-  it("keeps developer execution controls fail-closed and out of the normal consumer UI", () => {
+  it("keeps all developer execution and fixture controls fail-closed in the normal consumer UI", () => {
     const controls = read("web/developer-controls.js");
     const composition = read("server/src/api/dashboardScripts.ts");
     const controlsIndex = composition.indexOf('"/developer-controls.js"');
@@ -125,6 +125,10 @@ describe("browser boot architecture", () => {
     expect(controls).toContain("button.hidden = true");
     expect(controls).toContain("get('developer') === '1'");
     expect(controls).toContain("profile.developmentEntitlementsEnabled === true");
+    expect(controls).toContain("new MutationObserver");
+    expect(controls).toContain("Developer acceptance controls");
+    expect(controls).toContain("data-email-shield-developer-control");
+    expect(controls).toContain("detail.hidden = !developerUiEnabled");
     expect(controls).toContain("button.addEventListener('click', runDeveloperSuite, true)");
     expect(controls).toContain("event.stopImmediatePropagation()");
     expect(controls).toContain("results.textContent");
