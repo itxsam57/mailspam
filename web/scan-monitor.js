@@ -81,8 +81,9 @@
   }
 
   function policyChanged() {
+    // Personal Policy owns its refresh lifecycle. One semantic event avoids
+    // racing an event-triggered load against a synthetic Refresh-button load.
     window.dispatchEvent(new CustomEvent('email-shield-policy-changed'));
-    document.getElementById('policyRefresh')?.click();
   }
 
   function escapeHtml(value) {
@@ -350,10 +351,9 @@
         throw new Error('The server did not confirm the protected account-scoped block.');
       }
 
-      const normalizedValue = String(result.value || '').toLowerCase();
-      document.querySelectorAll(`[data-action="block-${scope}"]`).forEach((candidate) => {
-        const displayValue = String(isSender ? candidate.dataset.address : candidate.dataset.domain).toLowerCase();
-        if (!normalizedValue || displayValue !== normalizedValue) return;
+      // Synchronize the exact protected capability, not browser-displayed sender
+      // text. Sender/domain identity is server-derived from this opaque token.
+      document.querySelectorAll(`[data-action="block-${scope}"][data-review-token="${CSS.escape(token)}"]`).forEach((candidate) => {
         candidate.disabled = true;
         candidate.textContent = isSender ? 'Sender blocked ✓' : 'Domain blocked ✓';
       });
@@ -442,8 +442,8 @@
       const failedReason = Array.isArray(result.failed) && result.failed.length
         ? result.failed[0]?.reason
         : null;
-      if (result.success !== true || result.accountId !== id || result.token !== token || result.moved !== 1 || failedReason) {
-        throw new Error(failedReason || `Provider reported moved ${result.moved ?? 0} of 1.`);
+      if (result.success !== true || result.accountId !== id || result.token !== token || result.requested !== 1 || result.moved !== 1 || failedReason) {
+        throw new Error(failedReason || `Provider reported moved ${result.moved ?? 0} of ${result.requested ?? 1}.`);
       }
 
       button.textContent = 'Moved to Trash ✓';
