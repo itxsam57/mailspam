@@ -29,7 +29,12 @@
     document.getElementById('consumerRefreshActivity')?.click();
   }
 
-  function refreshPersonalPolicy() {
+  async function refreshPersonalPolicy() {
+    const refresh = window.emailShieldRefreshPersonalPolicy;
+    if (typeof refresh === 'function') {
+      await refresh();
+      return;
+    }
     window.dispatchEvent(new CustomEvent('email-shield-policy-changed'));
   }
 
@@ -213,7 +218,7 @@
       });
 
       refreshConsumerActivity();
-      refreshPersonalPolicy();
+      await refreshPersonalPolicy();
       if (actionStatus) {
         actionStatus.className = 'unsubscribe-action-status success';
         actionStatus.textContent = result.alreadyUnsubscribed
