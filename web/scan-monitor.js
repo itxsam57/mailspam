@@ -89,6 +89,12 @@
     window.dispatchEvent(new CustomEvent('email-shield-policy-changed'));
   }
 
+  async function chooseFamilyBlockSharing(scope) {
+    const chooser = window.emailShieldChooseFamilyBlockSharing;
+    if (typeof chooser !== 'function') return false;
+    return (await chooser(scope)) === true;
+  }
+
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, (character) => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -328,6 +334,7 @@
     );
     if (!confirmed) return;
 
+    const shareWithFamily = await chooseFamilyBlockSharing(scope);
     const previousText = button.textContent;
     button.disabled = true;
     button.textContent = 'Blocking…';
@@ -347,7 +354,7 @@
       const response = await fetch(`/api/accounts/${encodeURIComponent(id)}/messages/block-${scope}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token }),
+        body: JSON.stringify({ token, shareWithFamily }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || `Server returned HTTP ${response.status}`);
@@ -368,18 +375,24 @@
         card?.classList.add('trash-moved');
       }
 
+      const familyState = result.family?.shared === true
+        ? ` Family Shield updated (${result.family.status || 'protected'}).`
+        : result.family?.error
+          ? ` Family sharing needs attention: ${result.family.error}. The personal block remains active.`
+          : '';
       if (actionStatus) {
-        actionStatus.className = result.movedCurrent === true ? 'policy-action-status success' : 'policy-action-status error';
+        actionStatus.className = result.movedCurrent === true && !result.family?.error ? 'policy-action-status success' : 'policy-action-status error';
         actionStatus.textContent = result.movedCurrent === true
-          ? `${isSender ? 'Sender' : 'Domain'} block saved and the provider confirmed this message moved to Trash.`
-          : `${isSender ? 'Sender' : 'Domain'} block saved. The current message could not be moved to Trash: ${result.moveError || 'provider move not confirmed'}.`;
+          ? `${isSender ? 'Sender' : 'Domain'} block saved and the provider confirmed this message moved to Trash.${familyState}`
+          : `${isSender ? 'Sender' : 'Domain'} block saved. The current message could not be moved to Trash: ${result.moveError || 'provider move not confirmed'}.${familyState}`;
       }
       setStatus(
         result.movedCurrent === true
-          ? `${isSender ? 'Sender' : 'Domain'} block saved. The current message was moved to Trash.`
+          ? `${isSender ? 'Sender' : 'Domain'} block saved. The current message was moved to Trash.${result.family?.shared ? ' Family Shield updated.' : ''}`
           : `${isSender ? 'Sender' : 'Domain'} block saved. Current-message Trash move needs a retry.`,
-        result.movedCurrent === true ? 'complete' : 'error',
+        result.movedCurrent === true && !result.family?.error ? 'complete' : 'error',
       );
+      if (result.family?.shared) window.dispatchEvent(new CustomEvent('email-shield-family-changed'));
       await policyChanged();
     } catch (error) {
       button.disabled = false;
