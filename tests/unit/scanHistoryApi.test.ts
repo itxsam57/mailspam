@@ -139,11 +139,9 @@ describe("protected scan history API", () => {
     });
 
     // Source-level Vitest imports server/src directly, while the Worker entry is
-    // intentionally compiled JavaScript under server/dist. This API test proves
-    // the protected resume route resolves the account-scoped checkpoint and
-    // fails without leaking it in the source-only environment. The workflow
-    // resume tests prove next-page completion, and integration/smoke tests prove
-    // the compiled Worker runtime used by the real desktop process.
+    // intentionally compiled JavaScript under server/dist. The API still proves
+    // that Resume exposes only the already-public counters needed to preserve UI
+    // continuity; provider cursors/hashes remain server-only.
     const resumeResponse = await fetch(`${context.baseUrl}/api/accounts/${accountId}/scan/resume/${record.scanId}`, {
       headers: {
         Cookie: context.cookie,
@@ -156,6 +154,7 @@ describe("protected scan history API", () => {
     const stream = await resumeResponse.text();
     expect(stream).toContain("event: scan-started");
     expect(stream).toContain('"resumed":true');
+    expect(stream).toContain('"counters":{"examined":1');
     expect(stream).toContain("event: scan-error");
     expect(stream).not.toContain('"checkpoint"');
     expect(stream).not.toContain('"currentCursor"');
