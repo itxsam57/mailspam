@@ -17,8 +17,22 @@
   `;
   document.head.appendChild(style);
 
+  function selectionSnapshot() {
+    const owner = window.emailShieldAccountSelection;
+    if (owner?.capture) return owner.capture();
+    return Object.freeze({ id: document.querySelector('.account-chip.active')?.dataset.id || null, generation: null });
+  }
+
+  function selectionMatches(snapshot) {
+    const owner = window.emailShieldAccountSelection;
+    if (owner?.matches && snapshot?.generation !== null) return owner.matches(snapshot);
+    return snapshot?.id === (document.querySelector('.account-chip.active')?.dataset.id || null);
+  }
+
   function selectedAccountId() {
-    return document.querySelector('.account-chip.active')?.dataset.id || null;
+    return window.emailShieldAccountSelection?.currentId?.()
+      || document.querySelector('.account-chip.active')?.dataset.id
+      || null;
   }
 
   function setGlobalStatus(message, state = '') {
@@ -204,7 +218,8 @@
     event.preventDefault();
     event.stopImmediatePropagation();
 
-    const accountId = selectedAccountId();
+    const ownerSnapshot = selectionSnapshot();
+    const accountId = ownerSnapshot.id;
     const token = button.dataset.reviewToken;
     const actionName = button.dataset.action;
     const container = containerFor(button);
@@ -242,6 +257,10 @@
     if (isReportScam && button.dataset.sender) {
       blockSender = window.confirm('Also block this exact sender address for your mailbox?\n\nChoose Cancel when the sender is a shared delivery platform such as a reporting or newsletter service. The campaign itself will still be protected locally.');
     }
+    if (!selectionMatches(ownerSnapshot)) {
+      window.alert('The selected account changed. The message action was not sent; rescan the selected mailbox before acting.');
+      return;
+    }
 
     const previousText = button.textContent;
     button.disabled = true;
@@ -266,6 +285,7 @@
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || `Server returned HTTP ${response.status}`);
+      if (!selectionMatches(ownerSnapshot)) return;
 
       if (isReportScam) {
         if (result.success !== true || result.localProtected !== true || result.accountId !== accountId || result.token !== token) {
@@ -294,6 +314,7 @@
         }
 
         await refreshPersonalPolicy();
+        if (!selectionMatches(ownerSnapshot)) return;
         if (result.family?.shared) window.dispatchEvent(new CustomEvent('email-shield-family-changed'));
 
         const moveState = result.movedCurrent === true
@@ -346,6 +367,7 @@
           candidate.textContent = 'Message marked Safe ✓';
         });
         await refreshPersonalPolicy();
+        if (!selectionMatches(ownerSnapshot)) return;
         if (status) {
           status.className = 'review-action-status success';
           status.textContent = 'Exact-message approval saved. Rescan to recalculate the authoritative verdict and counters.';
@@ -361,6 +383,7 @@
         });
         button.textContent = 'Sender trusted ✓';
         await refreshPersonalPolicy();
+        if (!selectionMatches(ownerSnapshot)) return;
         if (status) {
           status.className = 'review-action-status success';
           status.textContent = 'Trusted sender saved for this account. Rescan to apply it to matching messages.';
@@ -368,6 +391,7 @@
         setGlobalStatus('Sender trusted for the selected account. Rescan to verify.', 'complete');
       }
     } catch (error) {
+      if (!selectionMatches(ownerSnapshot)) return;
       button.disabled = false;
       button.textContent = previousText || (isReportScam ? 'Report Scam to Email Shield' : isMoveSpam ? 'Move to Spam/Junk' : isMarkSafe ? 'Mark this message Safe' : 'Trust sender');
       const message = error instanceof Error ? error.message : String(error);
