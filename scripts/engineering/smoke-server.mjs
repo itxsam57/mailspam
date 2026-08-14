@@ -150,37 +150,44 @@ async function dashboardContext(baseUrl) {
   };
 }
 
+async function mutation(baseUrl, protectedHeaders, path, init = {}) {
+  const nonceResponse = await fetch(`${baseUrl}/api/security/mutation-token`, {
+    method: "POST",
+    headers: protectedHeaders(),
+    signal: AbortSignal.timeout(5_000),
+  });
+  const nonceBody = await json(nonceResponse, "Local mutation authorization");
+  return fetch(`${baseUrl}${path}`, {
+    ...init,
+    method: init.method ?? "POST",
+    headers: {
+      ...protectedHeaders(),
+      ...(init.headers ?? {}),
+      "X-Email-Shield-Nonce": nonceBody.nonce,
+    },
+  });
+}
+
+function assertOperationsPrivacy(response, operations) {
+  assert(response.headers.get("cache-control") === "no-store", "Operations snapshot is cacheable.");
+  assert(operations.schemaVersion === 1 && operations.privacy === "aggregate_only_no_mailbox_identity_or_content", "Operations snapshot omitted its strict privacy contract.");
+  assert(Array.isArray(operations.providerContracts) && operations.providerContracts.length === 5, "Operations snapshot omitted a provider contract.");
+  const serialized = JSON.stringify(operations);
+  for (const forbidden of ["subject", "fromAddress", "messageId", "accountId", "providerNativeId", "exception", "token", "body"]) {
+    assert(!serialized.includes(`\"${forbidden}\"`), `Operations snapshot exposed forbidden field ${forbidden}.`);
+  }
+}
+
 try {
-  // Consumer-mode qualification is deliberately explicit. This process must
-  // prove the release surface with development entitlements disabled even if
-  // a parent shell/CI environment happened to export the development flag.
   const consumer = await startServer("consumer");
   const baseUrl = consumer.baseUrl;
   const context = await dashboardContext(baseUrl);
-  const { home, homeHtml, cookie, csrf, protectedHeaders } = context;
+  const { home, homeHtml, protectedHeaders } = context;
 
   assert(homeHtml.includes('/local-security.js') && homeHtml.includes('/scan-monitor.js') && homeHtml.includes('/unsubscribe-monitor.js') && homeHtml.includes('/operations-dashboard.js'), "Dashboard response is missing local security, action or operations scripts.");
   assert(homeHtml.includes('/developer-controls.js'), "Dashboard response is missing the fail-closed developer-control boundary.");
   assert(home.headers.get("content-security-policy")?.includes("frame-ancestors 'none'"), "Dashboard is missing its restrictive Content Security Policy.");
-  assert(!homeHtml.includes(cookie.split("=", 2)[1] ?? "missing-session"), "Dashboard HTML exposed the HttpOnly session secret.");
-
-  async function mutation(path, init = {}) {
-    const nonceResponse = await fetch(`${baseUrl}/api/security/mutation-token`, {
-      method: "POST",
-      headers: protectedHeaders(),
-      signal: AbortSignal.timeout(5_000),
-    });
-    const nonceBody = await json(nonceResponse, "Local mutation authorization");
-    return fetch(`${baseUrl}${path}`, {
-      ...init,
-      method: init.method ?? "POST",
-      headers: {
-        ...protectedHeaders(),
-        ...(init.headers ?? {}),
-        "X-Email-Shield-Nonce": nonceBody.nonce,
-      },
-    });
-  }
+  assert(!homeHtml.includes(context.cookie.split("=", 2)[1] ?? "missing-session"), "Dashboard HTML exposed the HttpOnly session secret.");
 
   const unauthenticated = await fetch(`${baseUrl}/api/accounts`, { signal: AbortSignal.timeout(5_000) });
   assert(unauthenticated.status === 401, `Unauthenticated account access returned HTTP ${unauthenticated.status}.`);
@@ -196,84 +203,32 @@ try {
   assert((await fetch(`${baseUrl}/api/community/v1/feed`, { signal: AbortSignal.timeout(5_000) })).status === 404, "Normal client unexpectedly served the central signed feed endpoint.");
   assert((await fetch(`${baseUrl}/api/community/v1/public-key`, { signal: AbortSignal.timeout(5_000) })).status === 404, "Normal client unexpectedly served central public-key metadata.");
 
-  // The production/consumer server must have no developer execution route at
-  // all. This is checked with valid local session+CSRF so a 404 cannot be
-  // confused with authentication rejection.
   const consumerDeveloperRoute = await fetch(`${baseUrl}/api/dev/test-suite`, {
     headers: protectedHeaders(),
     signal: AbortSignal.timeout(5_000),
   });
   assert(consumerDeveloperRoute.status === 404, `Consumer-mode developer suite returned HTTP ${consumerDeveloperRoute.status} instead of 404.`);
 
-  const initialAccounts = await json(await fetch(`${baseUrl}/api/accounts`, {
-    headers: protectedHeaders(),
-  }), "Initial accounts request");
+  const initialAccounts = await json(await fetch(`${baseUrl}/api/accounts`, { headers: protectedHeaders() }), "Initial accounts request");
   assert(Array.isArray(initialAccounts) && initialAccounts.length === 0, "Smoke server did not start with an isolated empty session store.");
 
-  const connected = await json(await mutation("/api/accounts/connect", {
+  const deniedFixture = await mutation(baseUrl, protectedHeaders, "/api/accounts/connect", {
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ provider: "gmail", mode: "fixture", label: "engineering-smoke" }),
+    body: JSON.stringify({ provider: "gmail", mode: "fixture", label: "consumer-must-not-create" }),
     signal: AbortSignal.timeout(15_000),
-  }), "Fixture account connection");
-  assert(typeof connected.accountId === "string" && connected.provider === "gmail" && connected.mode === "fixture", "Fixture connection returned an unexpected contract.");
-  assert(connected.community && Number.isInteger(connected.community.verifiedFeedEntries), "Fixture connection omitted community protection status.");
-
-  const scanResponse = await fetch(`${baseUrl}/api/accounts/${encodeURIComponent(connected.accountId)}/scan/quick`, {
-    headers: {
-      Cookie: cookie,
-      Origin: baseUrl,
-      Referer: `${baseUrl}/`,
-    },
-    signal: AbortSignal.timeout(60_000),
   });
-  const scanText = await scanResponse.text();
-  assert(scanResponse.ok, `Quick-scan stream returned HTTP ${scanResponse.status}.`);
-  assert(scanText.includes("event: scan-started"), "Quick-scan stream did not announce scan-started.");
-  assert(scanText.includes("Refreshing verified community protection feed"), "Quick-scan stream did not announce community feed refresh.");
-  assert(scanText.includes("event: scan-complete"), `Quick-scan stream did not complete.\n${scanText.slice(-1200)}`);
-
-  const progressPayloads = scanText.split(/\r?\n/)
-    .filter((line) => line.startsWith("data: "))
-    .map((line) => {
-      try { return JSON.parse(line.slice(6)); } catch { return null; }
-    })
-    .filter((value) => value && typeof value === "object" && value.counters);
-  assert(progressPayloads.length > 0, "Quick-scan stream contained no progress payload.");
-  const lastProgress = progressPayloads.at(-1);
-  assert(lastProgress.counters.examined > 0, "Quick scan examined no fixture messages.");
-  assert(Array.isArray(lastProgress.diagnosticSummaries) && lastProgress.diagnosticSummaries.length > 0, "Quick scan returned no diagnostic summaries.");
-  assert(!scanText.includes('"listUnsubscribe":"http'), "Quick-scan stream exposed a raw unsubscribe destination.");
-  assert(!scanText.includes('"campaignFingerprint"'), "Quick-scan stream exposed a private community campaign fingerprint.");
-  assert(!scanText.includes('"reporterProof"'), "Quick-scan stream exposed a reporter proof.");
-
-  for (const summary of lastProgress.diagnosticSummaries) {
-    for (const forbidden of ["textPreview", "htmlSignals", "links", "attachments", "providerNativeId", "messageId", "actionContext", "communityReport"]) {
-      assert(!(forbidden in summary), `Privacy-reduced diagnostic summary exposed ${forbidden}.`);
-    }
-    assert(typeof summary.subject === "string", "Diagnostic summary is missing its subject label.");
-    assert(typeof summary.verdict === "string", "Diagnostic summary is missing its verdict.");
-    assert(summary.reviewAction && typeof summary.reviewAction.token === "string", "Diagnostic summary is missing an opaque review token.");
-  }
+  assert(deniedFixture.status === 403, `Consumer-mode Fixture connection returned HTTP ${deniedFixture.status} instead of 403.`);
+  const deniedFixtureBody = await deniedFixture.json().catch(() => ({}));
+  assert(/development-entitled/i.test(String(deniedFixtureBody.error ?? "")), "Consumer-mode Fixture denial did not explain the development boundary.");
+  const afterDenied = await json(await fetch(`${baseUrl}/api/accounts`, { headers: protectedHeaders() }), "Accounts after denied Fixture request");
+  assert(Array.isArray(afterDenied) && afterDenied.length === 0, "Denied consumer Fixture request created an account anyway.");
 
   const operationsResponse = await fetch(`${baseUrl}/api/operations/v1/snapshot`, {
     headers: protectedHeaders(),
     signal: AbortSignal.timeout(5_000),
   });
   const operations = await json(operationsResponse, "Privacy-safe operations snapshot");
-  assert(operationsResponse.headers.get("cache-control") === "no-store", "Operations snapshot is cacheable.");
-  assert(operations.schemaVersion === 1 && operations.privacy === "aggregate_only_no_mailbox_identity_or_content", "Operations snapshot omitted its strict privacy contract.");
-  assert(operations.local?.providers?.gmail?.scans?.completed >= 1, "Operations snapshot did not record the compiled Gmail fixture scan.");
-  assert(Array.isArray(operations.providerContracts) && operations.providerContracts.length === 5, "Operations snapshot omitted a provider contract.");
-  const serializedOperations = JSON.stringify(operations);
-  for (const forbidden of ["subject", "fromAddress", "messageId", "accountId", "providerNativeId", "exception", "token", "body"]) {
-    assert(!serializedOperations.includes(`\"${forbidden}\"`), `Operations snapshot exposed forbidden field ${forbidden}.`);
-  }
-
-  const removed = await mutation(`/api/accounts/${encodeURIComponent(connected.accountId)}`, {
-    method: "DELETE",
-    signal: AbortSignal.timeout(5_000),
-  });
-  assert(removed.status === 204, `Fixture account removal returned HTTP ${removed.status}.`);
+  assertOperationsPrivacy(operationsResponse, operations);
 
   const replayNonce = await json(await fetch(`${baseUrl}/api/security/mutation-token`, {
     method: "POST",
@@ -283,9 +238,9 @@ try {
   const firstReplayUse = await fetch(`${baseUrl}/api/accounts/connect`, {
     method: "POST",
     headers: { ...replayHeaders, "Content-Type": "application/json" },
-    body: JSON.stringify({ provider: "gmail", mode: "fixture", label: "nonce-once" }),
+    body: JSON.stringify({ provider: "gmail", mode: "fixture", label: "nonce-denied-once" }),
   });
-  assert(firstReplayUse.ok, "The first use of a mutation authorization failed unexpectedly.");
+  assert(firstReplayUse.status === 403, `First consumer Fixture denial returned HTTP ${firstReplayUse.status}.`);
   const replayed = await fetch(`${baseUrl}/api/accounts/connect`, {
     method: "POST",
     headers: { ...replayHeaders, "Content-Type": "application/json" },
@@ -320,13 +275,95 @@ try {
 
   await stopServer(consumer);
 
-  // Developer corpus execution is a separate explicit process contract. This
-  // prevents its engineering coverage from silently re-opening the route in a
-  // production/consumer process.
   const developer = await startServer("developer");
   const developerContext = await dashboardContext(developer.baseUrl);
-  const developerReport = await json(await fetch(`${developer.baseUrl}/api/dev/test-suite`, {
-    headers: developerContext.protectedHeaders(),
+  const developerBaseUrl = developer.baseUrl;
+  const developerHeaders = developerContext.protectedHeaders;
+
+  const connected = await json(await mutation(developerBaseUrl, developerHeaders, "/api/accounts/connect", {
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider: "gmail", mode: "fixture", label: "engineering-smoke" }),
+    signal: AbortSignal.timeout(15_000),
+  }), "Explicit developer Fixture account connection");
+  assert(typeof connected.accountId === "string" && connected.provider === "gmail" && connected.mode === "fixture", "Developer Fixture connection returned an unexpected contract.");
+  assert(connected.community && Number.isInteger(connected.community.verifiedFeedEntries), "Fixture connection omitted community protection status.");
+
+  const scanResponse = await fetch(`${developerBaseUrl}/api/accounts/${encodeURIComponent(connected.accountId)}/scan/quick`, {
+    headers: {
+      Cookie: developerContext.cookie,
+      Origin: developerBaseUrl,
+      Referer: `${developerBaseUrl}/`,
+    },
+    signal: AbortSignal.timeout(60_000),
+  });
+  const scanText = await scanResponse.text();
+  assert(scanResponse.ok, `Quick-scan stream returned HTTP ${scanResponse.status}.`);
+  assert(scanText.includes("event: scan-started"), "Quick-scan stream did not announce scan-started.");
+  assert(scanText.includes("Refreshing verified community protection feed"), "Quick-scan stream did not announce community feed refresh.");
+  assert(scanText.includes("event: scan-complete"), `Quick-scan stream did not complete.\n${scanText.slice(-1200)}`);
+
+  const progressPayloads = scanText.split(/\r?\n/)
+    .filter((line) => line.startsWith("data: "))
+    .map((line) => {
+      try { return JSON.parse(line.slice(6)); } catch { return null; }
+    })
+    .filter((value) => value && typeof value === "object" && value.counters);
+  assert(progressPayloads.length > 0, "Quick-scan stream contained no progress payload.");
+  const lastProgress = progressPayloads.at(-1);
+  assert(lastProgress.counters.examined > 0, "Quick scan examined no fixture messages.");
+  assert(Array.isArray(lastProgress.diagnosticSummaries) && lastProgress.diagnosticSummaries.length > 0, "Quick scan returned no diagnostic summaries.");
+  assert(!scanText.includes('"listUnsubscribe":"http'), "Quick-scan stream exposed a raw unsubscribe destination.");
+  assert(!scanText.includes('"campaignFingerprint"'), "Quick-scan stream exposed a private community campaign fingerprint.");
+  assert(!scanText.includes('"reporterProof"'), "Quick-scan stream exposed a reporter proof.");
+
+  for (const summary of lastProgress.diagnosticSummaries) {
+    for (const forbidden of ["textPreview", "htmlSignals", "links", "attachments", "providerNativeId", "messageId", "actionContext", "communityReport"]) {
+      assert(!(forbidden in summary), `Privacy-reduced diagnostic summary exposed ${forbidden}.`);
+    }
+    assert(typeof summary.subject === "string", "Diagnostic summary is missing its subject label.");
+    assert(typeof summary.verdict === "string", "Diagnostic summary is missing its verdict.");
+    assert(summary.reviewAction && typeof summary.reviewAction.token === "string", "Diagnostic summary is missing an opaque review token.");
+  }
+
+  const developerOperationsResponse = await fetch(`${developerBaseUrl}/api/operations/v1/snapshot`, {
+    headers: developerHeaders(),
+    signal: AbortSignal.timeout(5_000),
+  });
+  const developerOperations = await json(developerOperationsResponse, "Developer operations snapshot");
+  assertOperationsPrivacy(developerOperationsResponse, developerOperations);
+  assert(developerOperations.local?.providers?.gmail?.scans?.completed >= 1, "Operations snapshot did not record the compiled Gmail Fixture scan.");
+
+  const removed = await mutation(developerBaseUrl, developerHeaders, `/api/accounts/${encodeURIComponent(connected.accountId)}`, {
+    method: "DELETE",
+    signal: AbortSignal.timeout(5_000),
+  });
+  assert(removed.status === 204, `Fixture account removal returned HTTP ${removed.status}.`);
+
+  const developerReplayNonce = await json(await fetch(`${developerBaseUrl}/api/security/mutation-token`, {
+    method: "POST",
+    headers: developerHeaders(),
+  }), "Developer replay-test mutation authorization");
+  const developerReplayHeaders = { ...developerHeaders(), "X-Email-Shield-Nonce": developerReplayNonce.nonce };
+  const developerReplayFirst = await fetch(`${developerBaseUrl}/api/accounts/connect`, {
+    method: "POST",
+    headers: { ...developerReplayHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({ provider: "gmail", mode: "fixture", label: "developer-nonce-once" }),
+  });
+  const developerReplayBody = await json(developerReplayFirst, "Developer first replay-nonce use");
+  const developerReplaySecond = await fetch(`${developerBaseUrl}/api/accounts/connect`, {
+    method: "POST",
+    headers: { ...developerReplayHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({ provider: "gmail", mode: "fixture", label: "developer-nonce-replay" }),
+  });
+  assert(developerReplaySecond.status === 409, `Developer replayed mutation authorization returned HTTP ${developerReplaySecond.status}.`);
+  const cleanupReplayAccount = await mutation(developerBaseUrl, developerHeaders, `/api/accounts/${encodeURIComponent(developerReplayBody.accountId)}`, {
+    method: "DELETE",
+    signal: AbortSignal.timeout(5_000),
+  });
+  assert(cleanupReplayAccount.status === 204, `Developer replay Fixture cleanup returned HTTP ${cleanupReplayAccount.status}.`);
+
+  const developerReport = await json(await fetch(`${developerBaseUrl}/api/dev/test-suite`, {
+    headers: developerHeaders(),
     signal: AbortSignal.timeout(60_000),
   }), "Explicit developer-mode corpus suite");
   assert(developerReport.totalScans === 280, `Developer corpus suite ran ${developerReport.totalScans} scans instead of 280.`);
@@ -335,11 +372,12 @@ try {
   assert(Array.isArray(developerReport.crossProviderParityFailures) && developerReport.crossProviderParityFailures.length === 0, `Developer corpus suite reported provider parity failures: ${JSON.stringify(developerReport.crossProviderParityFailures)}`);
 
   console.log(`Compiled consumer server/API smoke passed at ${baseUrl}.`);
-  console.log(`Fixture messages examined: ${lastProgress.counters.examined}.`);
+  console.log(`Consumer Fixture isolation: HTTP ${deniedFixture.status}; no synthetic account created.`);
+  console.log(`Developer Fixture messages examined: ${lastProgress.counters.examined}.`);
   console.log(`Verified community feed entries: ${communityStatus.verifiedFeedEntries}.`);
   console.log(`Consumer developer-route isolation: HTTP ${consumerDeveloperRoute.status}.`);
   console.log(`Explicit developer corpus scans: ${developerReport.totalScans}.`);
-  console.log("Local session, CSRF, protected-read origin, one-time nonce, forwarded-request, and Host isolation checks passed.");
+  console.log("Local session, CSRF, protected-read origin, one-time nonce, forwarded-request, Host, and development-entitlement isolation checks passed.");
 } catch (error) {
   console.error(`FAIL: ${error.message}`);
   if (stdout.trim()) console.error(`Server stdout:\n${stdout.trim()}`);
