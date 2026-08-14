@@ -139,6 +139,16 @@ export class LocalSecurityManager {
         res.status(403).json({ error: "The local Email Shield CSRF token is missing or invalid. Reload the dashboard." });
         return;
       }
+      const fetchSite = req.get("sec-fetch-site");
+      if (fetchSite && !["same-origin", "none"].includes(fetchSite)) {
+        res.status(403).json({ error: "Cross-origin local reads are not permitted." });
+        return;
+      }
+      const supplied = requestOrigin(req);
+      if (!supplied || supplied !== expectedOrigin(req)) {
+        res.status(403).json({ error: "The protected read did not originate from this Email Shield dashboard." });
+        return;
+      }
       next();
     };
   }
