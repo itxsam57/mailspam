@@ -9,6 +9,7 @@ const account = readFileSync(join(web, "account-plan.js"), "utf8");
 const family = readFileSync(join(web, "family-shield.js"), "utf8");
 const shell = readFileSync(join(web, "app-shell.js"), "utf8");
 const protection = readFileSync(join(web, "protection-learning.js"), "utf8");
+const scan = readFileSync(join(web, "scan-monitor.js"), "utf8");
 
 describe("account Family Shield and responsive application shell", () => {
   it("loads account, family and app-shell modules after existing feature modules", () => {
@@ -28,7 +29,7 @@ describe("account Family Shield and responsive application shell", () => {
   });
 
   it("does not persist account, family or mailbox data in browser storage", () => {
-    for (const source of [account, family, shell, protection]) {
+    for (const source of [account, family, shell, protection, scan]) {
       expect(source).not.toMatch(/localStorage|sessionStorage|indexedDB/i);
     }
   });
@@ -39,12 +40,16 @@ describe("account Family Shield and responsive application shell", () => {
     expect(account).toContain("developmentEntitlementsEnabled");
   });
 
-  it("keeps Family Shield UI privacy-reduced and never serializes raw email fields", () => {
+  it("keeps Family Shield UI privacy-reduced and delegates block sharing to the canonical token-authorized Block owner", () => {
     expect(family).toContain("privacy-reduced campaign fingerprints only");
-    expect(protection).toContain("shareWithFamily");
+    expect(protection).toContain("emailShieldChooseFamilyBlockSharing");
+    expect(protection).toContain("Email content is never shared");
+    expect(scan).toContain("shareWithFamily");
+    expect(scan).toContain("JSON.stringify({ token, shareWithFamily })");
     for (const forbidden of ["rawBody", "bodyText", "htmlSignals", "providerNativeId", "messageId"]) {
       expect(family).not.toContain(forbidden);
       expect(account).not.toContain(forbidden);
+      expect(protection).not.toContain(forbidden);
     }
   });
 });
