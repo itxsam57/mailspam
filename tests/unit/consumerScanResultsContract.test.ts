@@ -34,10 +34,12 @@ describe("consumer scanned-email presentation contract", () => {
     expect(selection).not.toContain("requestAnimationFrame");
   });
 
-  it("projects canonical diagnostic rows without opening a second scan stream", () => {
+  it("projects canonical diagnostic rows into a user-controlled disclosure without opening a second scan stream", () => {
     expect(renderer).toContain('tr[data-message-row="true"]');
-    expect(renderer).toContain("Scanned emails appear here as the scan progresses");
-    expect(renderer).toContain("The newest 500 stay visible; the counters track the full scan");
+    expect(renderer).toContain("document.createElement('details')");
+    expect(renderer).toContain("feed.open = false");
+    expect(renderer).toContain("Open this list only when you want to inspect individual messages");
+    expect(renderer).toContain("The newest 500 stay available; the counters track the full scan");
     expect(renderer).toContain("new MutationObserver(render)");
     expect(renderer).toContain("observer.observe(tableBody, { childList: true })");
     expect(renderer).not.toContain("new EventSource");
@@ -52,6 +54,7 @@ describe("consumer scanned-email presentation contract", () => {
     expect(renderer).toContain("button.dataset.unsubscribeToken = token");
     expect(renderer).toContain("button.dataset.unsubscribeKey = actionKey");
     expect(renderer).toContain("['one_click_post', 'link_only', 'mailto']");
+    expect(renderer).toContain("Open unsubscribe page (not confirmed)");
     expect(renderer).not.toContain("http://");
     expect(renderer).not.toContain("https://");
     expect(renderer).not.toContain("listUnsubscribe");

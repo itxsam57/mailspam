@@ -36,8 +36,12 @@ for (const id of [...buttonIds].sort()) {
   const directLookup = new RegExp(`getElementById\\(\\s*["']${escaped}["']\\s*\\)`);
   const selectorLookup = new RegExp(`querySelector(?:All)?\\(\\s*["'][^"']*#${escaped}(?:[^"']*)["']\\s*\\)`);
   const delegatedIdHandler = new RegExp(`\\.id\\s*===?\\s*["']${escaped}["']`);
-  if (!directLookup.test(executableSource) && !selectorLookup.test(executableSource) && !delegatedIdHandler.test(executableSource)) {
-    fail(`Button #${id} is rendered but has no direct or delegated browser handler reference.`);
+  const iteratedIdHandler = browserSources.some(({ source }) => (
+    new RegExp(`["']${escaped}["']\\s*,`).test(source) &&
+    /getElementById\(\s*id\s*\)\?\.addEventListener\(/.test(source)
+  ));
+  if (!directLookup.test(executableSource) && !selectorLookup.test(executableSource) && !delegatedIdHandler.test(executableSource) && !iteratedIdHandler) {
+    fail(`Button #${id} is rendered but has no direct, delegated, or iterated browser handler reference.`);
   }
 }
 

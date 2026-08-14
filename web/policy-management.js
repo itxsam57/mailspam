@@ -4,7 +4,7 @@
     blockedDomains: 'Blocked domains',
     trustedSenders: 'Trusted senders',
     approvedExceptions: 'Safe exceptions',
-    unsubscribedActions: 'Unsubscribe history',
+    unsubscribedActions: 'Confirmed unsubscribes',
     reportedCampaigns: 'Reported scam campaigns',
   };
   const CATEGORIES = Object.keys(CATEGORY_LABELS);
@@ -12,6 +12,7 @@
   const selection = new Map();
   let loadedAccountId = null;
   let snapshot = null;
+  let loadSequence = 0;
 
   const panel = document.createElement('section');
   panel.className = 'panel policy-management-panel';
@@ -27,7 +28,7 @@
         <option value="blockedDomains">Blocked domains</option>
         <option value="trustedSenders">Trusted senders</option>
         <option value="approvedExceptions">Safe exceptions</option>
-        <option value="unsubscribedActions">Unsubscribe history</option>
+        <option value="unsubscribedActions">Confirmed unsubscribes</option>
         <option value="reportedCampaigns">Reported scam campaigns</option>
       </select></label>
       <button id="policyRefresh" type="button">Refresh</button>
@@ -47,6 +48,7 @@
     </div>
     <div id="policyStatus" class="policy-status" role="status" aria-live="polite" aria-atomic="true">Select a connected account to manage its personal policy.</div>
     <div id="policyCounts" class="policy-counts" role="status" aria-label="Personal policy counts"></div>
+    <div class="hint" style="margin-bottom:12px;">Confirmed unsubscribes include only endpoints Email Shield can verify as completed. Opening an external unsubscribe page or email request is recorded in Activity instead and does not falsely claim completion.</div>
     <div id="policyList" class="policy-list" aria-label="Personal policy entries"></div>
   `;
 
@@ -110,7 +112,7 @@
     if (category === 'approvedExceptions' && value.startsWith('message:')) {
       return `Exact message · ${value.slice(8, 20)}…`;
     }
-    if (category === 'unsubscribedActions') return `Unsubscribe record · ${value.slice(0, 12)}…`;
+    if (category === 'unsubscribedActions') return `Confirmed unsubscribe · ${value.slice(0, 12)}…`;
     if (category === 'reportedCampaigns') return `Campaign fingerprint · ${value.slice(0, 12)}…`;
     return value;
   }
@@ -222,6 +224,7 @@
   async function loadPolicy(force = false) {
     const accountId = selectedAccountId();
     if (!accountId) {
+      loadSequence += 1;
       loadedAccountId = null;
       snapshot = null;
       selection.clear();
@@ -232,11 +235,14 @@
     }
     if (!force && accountId === loadedAccountId && snapshot) return;
 
+    const requestSequence = ++loadSequence;
     controlsEnabled(false);
     setStatus('Loading personal policy…');
     try {
-      const response = await fetch(`/api/accounts/${encodeURIComponent(accountId)}/personal-policy`);
+      const response = await fetch(`/api/accounts/${encodeURIComponent(accountId)}/personal-policy`, { cache: 'no-store' });
       const body = await responseJson(response);
+      if (requestSequence !== loadSequence || selectedAccountId() !== accountId) return;
+
       loadedAccountId = accountId;
       snapshot = {};
       for (const category of CATEGORIES) snapshot[category] = Array.isArray(body[category]) ? body[category].slice() : [];
@@ -245,6 +251,7 @@
       setStatus(body.persistent ? 'Personal policy is encrypted and persistent for this account.' : 'Personal policy is memory-only on this platform/session.', body.persistent ? 'ok' : '');
       render();
     } catch (error) {
+      if (requestSequence !== loadSequence || selectedAccountId() !== accountId) return;
       loadedAccountId = accountId;
       snapshot = null;
       selection.clear();
@@ -256,19 +263,22 @@
 
   async function mutate(suffix, body, successMessage) {
     if (!loadedAccountId) return;
+    const mutationAccountId = loadedAccountId;
     controlsEnabled(false);
     setStatus('Saving personal policy…');
     try {
-      const response = await fetch(`/api/accounts/${encodeURIComponent(loadedAccountId)}/personal-policy${suffix}`, {
+      const response = await fetch(`/api/accounts/${encodeURIComponent(mutationAccountId)}/personal-policy${suffix}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       await responseJson(response);
+      if (selectedAccountId() !== mutationAccountId) return;
       selection.clear();
       setStatus(successMessage, 'ok');
       await loadPolicy(true);
     } catch (error) {
+      if (selectedAccountId() !== mutationAccountId) return;
       controlsEnabled(true);
       setStatus(error.message || String(error), 'error');
     }
@@ -279,7 +289,7 @@
     selection.clear();
     renderList();
   });
-  refreshButton.addEventListener('click', () => loadPolicy(true));
+  refreshButton.addEventListener('click', () => { void loadPolicy(true); });
 
   selectVisibleButton.addEventListener('click', () => {
     for (const item of visibleItems()) selection.set(selectionKey(item.category, item.value), item);
@@ -365,6 +375,14 @@
     accountList.addEventListener('click', () => setTimeout(() => { void loadPolicy(false); }, 0));
   }
 
+  Object.defineProperty(window, 'emailShieldRefreshPersonalPolicy', {
+    value: () => loadPolicy(true),
+    writable: false,
+    configurable: false,
+    enumerable: false,
+  });
+
+  window.addEventListener('email-shield-policy-changed', () => { void loadPolicy(true); });
   controlsEnabled(false);
   render();
   void loadPolicy(false);

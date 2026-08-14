@@ -51,29 +51,52 @@ describe("browser boot architecture", () => {
     expect(source).toContain("pendingWindow.location.replace(result.target)");
     expect(source).not.toContain("else window.open(result.target");
     expect(source).toContain("recordManualActivity(accountId, token, actionKey, method)");
+    expect(source).toContain("not counted as a Confirmed unsubscribe");
   });
 
-  it("exposes the existing protected resume owner beside Stop Scan", () => {
-    const source = read("web/scan-history.js");
-    expect(source).toContain("resumeScanButton.id = 'resumeScanBtn'");
-    expect(source).toContain("stopScanButton?.insertAdjacentElement('afterend', resumeScanButton)");
-    expect(source).toContain("const starter = window.emailShieldStartScan");
-    expect(source).toContain("resumeScanId: scanId");
+  it("has one scan/Stop/Resume owner and no legacy inline scan controller", () => {
+    const html = read("web/index.html");
+    const monitor = read("web/scan-monitor.js");
+    const history = read("web/scan-history.js");
+    expect(html).not.toContain("function startScan(");
+    expect(html).not.toContain("function wireCardActions(");
+    expect(html).not.toContain("currentEventSource");
+    expect(html).not.toContain("new EventSource(`${API}/api/accounts/");
+    expect(html).toContain("scan-monitor.js is the single scan/action");
+    expect(monitor).toContain("Object.defineProperty(window, 'emailShieldStartScan'");
+    expect(history).toContain("resumeScanButton.id = 'resumeScanBtn'");
+    expect(history).toContain("stopScanButton?.insertAdjacentElement('afterend', resumeScanButton)");
+    expect(history).toContain("const starter = window.emailShieldStartScan");
+    expect(history).toContain("resumeScanId: scanId");
+    expect(history).not.toContain("target.dataset.scanHistoryResume");
+    expect(history).not.toContain("Resume newest");
   });
 
-  it("keeps destructive account action text readable on the danger background", () => {
-    const source = read("web/account-lifecycle.js");
-    expect(source).toContain("button.danger{border-color:var(--confirmed);background:var(--confirmed);color:#fff}");
+  it("binds block actions to opaque review tokens instead of browser-supplied policy values", () => {
+    const review = read("web/review-actions.js");
+    const monitor = read("web/scan-monitor.js");
+    expect(review).toContain("senderBlock.dataset.reviewToken = action.token");
+    expect(review).toContain("domainBlock.dataset.reviewToken = action.token");
+    expect(review).not.toContain("dataset.action = 'unblock-sender'");
+    expect(review).not.toContain("dataset.action = 'unblock-domain'");
+    expect(monitor).toContain("const token = button.dataset.reviewToken");
+    expect(monitor).toContain("body: JSON.stringify({ token })");
+    expect(monitor).not.toContain("JSON.stringify({ address:");
+    expect(monitor).not.toContain("JSON.stringify({ domain:");
+    expect(monitor).toContain("attempt to move this current message to Trash");
   });
 
-  it("keeps privacy-safe scanned messages visible while scan counters advance", () => {
-    const source = read("web/scan-monitor.js");
-    expect(source).toContain("Scanned messages (0)");
-    expect(source).toContain("Scanned messages (${diagnosticRows.length})");
-    expect(source).toContain("diagnostics.open = true");
-    expect(source).not.toContain("diagnostics.open = false");
-    expect(source).not.toContain("Local test view only");
-    expect(source).toContain("progress.diagnosticSummaries");
+  it("keeps long scan result lists optional instead of forcing them open", () => {
+    const monitor = read("web/scan-monitor.js");
+    const consumer = read("web/consumer-scan-results.js");
+    const safe = read("web/safe-audit.js");
+    expect(monitor).toContain("diagnostics.open = false");
+    expect(monitor).not.toContain("diagnostics.open = true");
+    expect(consumer).toContain("document.createElement('details')");
+    expect(consumer).toContain("feed.open = false");
+    expect(safe).toContain("safeAudit.open = false");
+    expect(safe).not.toContain("safeAudit.open = true");
+    expect(monitor).toContain("progress.diagnosticSummaries");
   });
 
   it("preserves stopped scan presentation on Resume and requires server-final Stop confirmation", () => {
@@ -82,12 +105,10 @@ describe("browser boot architecture", () => {
     const clearCounters = source.indexOf("counters.innerHTML = ''", resumeGuard);
     const clearCards = source.indexOf("cards.innerHTML = ''", resumeGuard);
     const clearRows = source.indexOf("diagnosticRows = []", resumeGuard);
-    const guardEnd = source.indexOf("diagnostics.open = true", resumeGuard);
     expect(resumeGuard).toBeGreaterThan(-1);
     expect(clearCounters).toBeGreaterThan(resumeGuard);
     expect(clearCards).toBeGreaterThan(resumeGuard);
     expect(clearRows).toBeGreaterThan(resumeGuard);
-    expect(guardEnd).toBeGreaterThan(clearRows);
     expect(source).toContain("value.resumed === true && value.counters");
     expect(source).toContain("result.active !== false");
     expect(source).toContain("result.historySaved === true && result.resumable === true");

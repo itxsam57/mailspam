@@ -270,7 +270,7 @@ export class SessionStore {
   }
 
   private rollbackCreatedSession(session: AccountSession): void {
-    this.clearScanActions(session);
+    this.discardScanActions(session);
     this.workspacePresentations.delete(session.id);
     if (this.selectedWorkspaceSessionId === session.id) this.selectedWorkspaceSessionId = null;
     this.sessions.delete(session.id);
@@ -336,13 +336,33 @@ export class SessionStore {
     catch (error) { session.personalPolicy.replace(previous); throw error; }
   }
 
-  clearScanActions(session: AccountSession): void {
+  private pruneExpiredScanActions(session: AccountSession): void {
+    const cutoff = Date.now() - ACTION_TTL_MS;
+    for (const [token, action] of session.unsubscribeActions) {
+      if (action.createdAt <= cutoff) session.unsubscribeActions.delete(token);
+    }
+    for (const [token, action] of session.reviewActions) {
+      if (action.createdAt <= cutoff) session.reviewActions.delete(token);
+    }
+  }
+
+  private discardScanActions(session: AccountSession): void {
     session.unsubscribeActions.clear();
     session.reviewActions.clear();
   }
 
+  /**
+   * Scan start/resume housekeeping must not invalidate still-visible action
+   * capabilities from the current bounded workspace. Stop/Resume restores those
+   * rows, so their opaque actions remain usable until the normal 30-minute TTL.
+   * A truly expired capability is pruned here and account disconnect discards all.
+   */
+  clearScanActions(session: AccountSession): void {
+    this.pruneExpiredScanActions(session);
+  }
+
   clearUnsubscribeActions(session: AccountSession): void {
-    this.clearScanActions(session);
+    session.unsubscribeActions.clear();
   }
 
   selectWorkspaceSession(id: string): void {
@@ -410,8 +430,9 @@ export class SessionStore {
     scamAlreadyReported: boolean;
     communityReported: boolean;
   } {
+    this.pruneExpiredScanActions(session);
     if (session.reviewActions.size >= MAX_SCAN_ACTIONS) {
-      throw new Error("Too many message review actions are registered for this scan.");
+      throw new Error("Too many message review actions are registered for the current bounded action window.");
     }
     const token = randomUUID();
     session.reviewActions.set(token, {
@@ -478,8 +499,9 @@ export class SessionStore {
     target: string,
     providerNativeId: string,
   ): { token: string; actionKey: string; alreadyUnsubscribed: boolean } {
+    this.pruneExpiredScanActions(session);
     if (session.unsubscribeActions.size >= MAX_SCAN_ACTIONS) {
-      throw new Error("Too many unsubscribe actions are registered for this scan.");
+      throw new Error("Too many unsubscribe actions are registered for the current bounded action window.");
     }
     const actionKey = createHash("sha256").update(`${method}\n${target}`).digest("hex");
     const token = randomUUID();
@@ -557,7 +579,7 @@ export class SessionStore {
           }
         }
 
-        this.clearScanActions(session);
+        this.discardScanActions(session);
         this.workspacePresentations.delete(id);
         if (this.selectedWorkspaceSessionId === id) this.selectedWorkspaceSessionId = null;
         this.sessions.delete(id);

@@ -9,16 +9,16 @@
     .scan-history-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
     .scan-history-head h2{margin:0}
     .scan-history-state{font-size:11px;color:var(--text-faint)}
-    .scan-history-list{display:flex;flex-direction:column;gap:8px}
-    .scan-history-row{display:grid;grid-template-columns:minmax(110px,.7fr) minmax(130px,1fr) minmax(220px,1.8fr) auto;gap:12px;align-items:center;padding:10px 12px;border:1px solid #2a2f3a;border-radius:7px;background:#222732;font-size:11px}
+    .scan-history-disclosure{margin-top:10px;border:1px solid #2a2f3a;border-radius:7px;background:rgba(255,255,255,.01)}
+    .scan-history-disclosure>summary{cursor:pointer;padding:10px 12px;color:var(--text-muted);font-size:11px;user-select:none}
+    .scan-history-list{display:flex;flex-direction:column;gap:8px;padding:0 10px 10px}
+    .scan-history-row{display:grid;grid-template-columns:minmax(110px,.7fr) minmax(130px,1fr) minmax(220px,1.8fr);gap:12px;align-items:center;padding:10px 12px;border:1px solid #2a2f3a;border-radius:7px;background:#222732;font-size:11px}
     .scan-history-type{font-weight:600;text-transform:uppercase;letter-spacing:.05em}
     .scan-history-status{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--text-muted)}
     .scan-history-status.completed{color:#3fb88a}.scan-history-status.failed{color:#e23d4f}.scan-history-status.interrupted,.scan-history-status.stopped{color:#e8b23d}.scan-history-status.running{color:#6fb7ff}
     .scan-history-counts{color:var(--text-muted);line-height:1.5}
-    .scan-history-actions{display:flex;gap:6px;justify-content:flex-end}
-    .scan-history-actions button{padding:5px 9px;font-size:11px}
     .scan-history-empty{padding:14px;color:var(--text-faint);border:1px dashed #2a2f3a;border-radius:7px;font-size:11px}
-    @media(max-width:760px){.scan-history-row{grid-template-columns:1fr}.scan-history-actions{justify-content:flex-start}}
+    @media(max-width:760px){.scan-history-row{grid-template-columns:1fr}}
   `;
   document.head.appendChild(style);
 
@@ -28,17 +28,22 @@
   panel.setAttribute('aria-labelledby', 'scanHistoryHeading');
   panel.innerHTML = `
     <div class="scan-history-head">
-      <h2 id="scanHistoryHeading">Scan history & resume</h2>
+      <h2 id="scanHistoryHeading">Scan history</h2>
       <div class="row">
         <span id="scanHistoryPersistence" class="scan-history-state"></span>
         <button id="scanHistoryRefreshBtn" type="button">Refresh</button>
       </div>
     </div>
-    <div class="hint">Only privacy-reduced scan status and counters are shown here. Provider cursors and resume hashes remain encrypted server-side.</div>
-    <div id="scanHistoryList" class="scan-history-list" style="margin-top:10px;" role="status" aria-live="polite" aria-atomic="false"></div>`;
+    <div class="hint">Resume and Stop are controlled only from the Scan controls above. History is read-only and contains privacy-reduced scan status/counters; provider cursors and resume hashes remain encrypted server-side.</div>
+    <details id="scanHistoryDisclosure" class="scan-history-disclosure">
+      <summary>Previous scans (0)</summary>
+      <div id="scanHistoryList" class="scan-history-list" role="status" aria-live="polite" aria-atomic="false"></div>
+    </details>`;
   scanPanel.after(panel);
 
   const list = panel.querySelector('#scanHistoryList');
+  const disclosure = panel.querySelector('#scanHistoryDisclosure');
+  const disclosureSummary = disclosure.querySelector('summary');
   const persistence = panel.querySelector('#scanHistoryPersistence');
   const refreshButton = panel.querySelector('#scanHistoryRefreshBtn');
   const stopScanButton = document.getElementById('stopScanBtn');
@@ -68,19 +73,23 @@
     resumeScanButton.disabled = true;
     resumeScanButton.dataset.scanHistoryResume = '';
     resumeScanButton.dataset.scanType = '';
-    if (!Array.isArray(history) || history.length === 0) {
+    const records = Array.isArray(history) ? history : [];
+    disclosureSummary.textContent = `Previous scans (${records.length})`;
+
+    if (!records.length) {
       list.innerHTML = '<div class="scan-history-empty">No scan history for this connected account yet.</div>';
       return;
     }
 
     list.innerHTML = '';
-    const newestResumable = history.find((record) => record?.resumable === true);
+    const newestResumable = records.find((record) => record?.resumable === true);
     if (newestResumable) {
       resumeScanButton.disabled = false;
       resumeScanButton.dataset.scanHistoryResume = String(newestResumable.scanId || '');
       resumeScanButton.dataset.scanType = String(newestResumable.type || 'full');
     }
-    for (const record of history) {
+
+    for (const record of records) {
       const row = document.createElement('div');
       row.className = 'scan-history-row';
 
@@ -101,26 +110,7 @@
       counts.className = 'scan-history-counts';
       counts.textContent = `Examined ${Number(counters.examined || 0)} · Safe ${Number(counters.safe || 0)} · Review ${Number(counters.review || 0)} · High ${Number(counters.highRisk || 0)} · Confirmed ${Number(counters.confirmedThreat || 0)} · Unknown ${Number(counters.unknown || 0)}`;
 
-      const actions = document.createElement('div');
-      actions.className = 'scan-history-actions';
-      if (record.status === 'running') {
-        const stop = document.createElement('button');
-        stop.className = 'danger';
-        stop.type = 'button';
-        stop.textContent = 'Stop';
-        stop.dataset.scanHistoryStop = 'true';
-        actions.append(stop);
-      } else if (record.resumable === true) {
-        const resume = document.createElement('button');
-        resume.className = 'primary';
-        resume.type = 'button';
-        resume.textContent = record === newestResumable ? `Resume newest ${String(record.type || 'mailbox')} scan` : 'Resume';
-        resume.dataset.scanHistoryResume = String(record.scanId || '');
-        resume.dataset.scanType = String(record.type || 'full');
-        actions.append(resume);
-      }
-
-      row.append(identity, time, counts, actions);
+      row.append(identity, time, counts);
       list.append(row);
     }
   }
@@ -197,35 +187,6 @@
       resumeScanButton.dataset.scanHistoryResume || '',
       resumeScanButton.dataset.scanType || 'full',
     );
-  });
-
-  list.addEventListener('click', async (event) => {
-    const target = event.target instanceof Element ? event.target.closest('button') : null;
-    if (!(target instanceof HTMLButtonElement) || target.disabled) return;
-    const id = selectedAccountId();
-    if (!id) return;
-
-    if (target.dataset.scanHistoryResume) {
-      await resumeProtectedScan(
-        target,
-        target.dataset.scanHistoryResume,
-        target.dataset.scanType || 'full',
-      );
-      return;
-    }
-
-    if (target.dataset.scanHistoryStop === 'true') {
-      target.disabled = true;
-      try {
-        const response = await fetch(`/api/accounts/${encodeURIComponent(id)}/scan/stop`, { method: 'POST' });
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(body.error || `Server returned HTTP ${response.status}`);
-      } catch (error) {
-        window.alert(`Stop failed: ${error instanceof Error ? error.message : String(error)}`);
-      } finally {
-        setTimeout(() => { void refresh(); }, 300);
-      }
-    }
   });
 
   const observer = new MutationObserver(() => {

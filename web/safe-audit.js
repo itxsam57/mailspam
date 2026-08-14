@@ -20,9 +20,10 @@
     const safeAudit = document.createElement('details');
     safeAudit.id = 'safeMessageAudit';
     safeAudit.className = 'scan-diagnostics safe-message-audit';
+    safeAudit.open = false;
     safeAudit.innerHTML = `
       <summary>Safe messages (0) — click to review</summary>
-      <div class="scan-diagnostics-note">Safe messages remain outside the warning-card feed. You can correct a false Safe result by reporting the campaign to Email Shield's privacy-reduced community shield, move only this message to provider Spam/Junk, trust a sender, or unsubscribe when supported.</div>
+      <div class="scan-diagnostics-note">Safe messages remain outside the warning-card feed. Open this list only when you want to review or correct an individual Safe result. Report Scam uses Email Shield's privacy-reduced community shield; Move to Spam/Junk, Trust sender, and unsubscribe are separate provider or personal actions.</div>
       <div class="safe-empty">No messages have been classified Safe in this scan yet.</div>
       <div class="scan-diagnostics-scroll" hidden><table>
         <caption class="visually-hidden">Safe-message review and correction actions</caption>
@@ -35,7 +36,6 @@
     const safeBody = safeAudit.querySelector('tbody');
     const scroll = safeAudit.querySelector('.scan-diagnostics-scroll');
     const empty = safeAudit.querySelector('.safe-empty');
-    const status = document.getElementById('scanMonitorStatus');
 
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>"']/g, (character) => ({
@@ -45,8 +45,8 @@
 
     function unsubscribeLabel(method, done) {
       if (done && method === 'one_click_post') return 'Unsubscribed ✓';
-      if (method === 'link_only') return 'Open unsubscribe page';
-      if (method === 'mailto') return 'Email unsubscribe request';
+      if (method === 'link_only') return 'Open unsubscribe page (not confirmed)';
+      if (method === 'mailto') return 'Open unsubscribe email (not confirmed)';
       return 'Unsubscribe';
     }
 
@@ -102,19 +102,9 @@
       const hasSafe = sourceRows.length > 0;
       scroll.hidden = !hasSafe;
       empty.hidden = hasSafe;
-      if (hasSafe && status?.classList.contains('complete')) safeAudit.open = true;
     }
 
-    new MutationObserver(syncSafeRows).observe(diagnosticBody, { childList: true, subtree: true });
-    if (status) {
-      new MutationObserver(syncSafeRows).observe(status, {
-        childList: true,
-        characterData: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ['class'],
-      });
-    }
+    new MutationObserver(syncSafeRows).observe(diagnosticBody, { childList: true });
     syncSafeRows();
     return true;
   }

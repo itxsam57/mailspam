@@ -3,49 +3,60 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const webRoot = join(import.meta.dirname, "../../web");
-const source = readFileSync(join(webRoot, "protection-learning.js"), "utf8");
+const learning = readFileSync(join(webRoot, "protection-learning.js"), "utf8");
+const scan = readFileSync(join(webRoot, "scan-monitor.js"), "utf8");
+const review = readFileSync(join(webRoot, "review-actions.js"), "utf8");
 const scripts = readFileSync(join(import.meta.dirname, "../../server/src/api/dashboardScripts.ts"), "utf8");
 
-describe("durable protection browser wiring", () => {
+describe("durable protection browser ownership", () => {
   it("loads the protection-learning module from the server-owned script composition", () => {
     expect(scripts).toContain('"/protection-learning.js"');
   });
 
-  it("intercepts Block before the legacy raw-address handler and submits opaque token plus explicit family choice only", () => {
-    expect(source).toContain("event.stopImmediatePropagation()");
-    expect(source).toContain("`block-${scope}`, { token, shareWithFamily }");
-    expect(source).toContain("Cancel keeps the ${scope} block personal");
-    expect(source).not.toMatch(/`block-\$\{scope\}`\s*,\s*\{[^}]*address/s);
-    expect(source).not.toMatch(/`block-\$\{scope\}`\s*,\s*\{[^}]*domain/s);
-    expect(source).not.toMatch(/`block-\$\{scope\}`\s*,\s*\{[^}]*subject/s);
+  it("keeps Block under the canonical scan controller and sends only token plus explicit Family choice", () => {
+    expect(scan).toContain("[data-action=\"block-sender\"],[data-action=\"block-domain\"]");
+    expect(scan).toContain("emailShieldChooseFamilyBlockSharing");
+    expect(scan).toContain("JSON.stringify({ token, shareWithFamily })");
+    expect(scan).toContain("await policyChanged()");
+    expect(scan).not.toMatch(/JSON\.stringify\(\{[^}]*address/s);
+    expect(scan).not.toMatch(/JSON\.stringify\(\{[^}]*domain/s);
+    expect(scan).not.toContain("unblock-sender");
+    expect(scan).not.toContain("unblock-domain");
   });
 
-  it("owns Report Scam before the legacy handler and sends only token plus the explicit sender-block choice", () => {
-    expect(source).toContain("[data-action=\"report-scam\"]");
-    expect(source).toContain("await handleReportScam(button, accountId, token, card)");
-    expect(source).toContain("post(accountId, 'report-scam', { token, blockSender })");
-    expect(source).not.toContain("post(accountId, 'trash', { token })");
-    expect(source).toContain("future matches will auto-Trash");
-    expect(source).toContain("Family Shield updated");
+  it("keeps Report Scam under the canonical review controller and accepts durable local protection through partial external failures", () => {
+    expect(review).toContain("[data-action=\"mark-safe\"],[data-action=\"trust-sender\"],[data-action=\"move-spam\"],[data-action=\"report-scam\"]");
+    expect(review).toContain("JSON.stringify(isReportScam ? { token, blockSender } : { token })");
+    expect(review).toContain("result.localProtected !== true");
+    expect(review).toContain("Local campaign protection remains active");
+    expect(review).toContain("result.movedCurrent === true");
+    expect(review).toContain("result.communityAccepted === true");
+    expect(review).toContain("email-shield-family-changed");
+    expect(review).toContain("await refreshPersonalPolicy()");
+    expect(review).not.toContain("unblock-sender");
+    expect(review).not.toContain("unblock-domain");
   });
 
-  it("reports partial external failures without undoing durable local campaign protection", () => {
-    expect(source).toContain("result.localProtected !== true");
-    expect(source).toContain("Local protection is still active");
-    expect(source).toContain("result.movedCurrent === true");
-    expect(source).toContain("result.communityAccepted === true");
-    expect(source).toContain("Local protection remains active");
+  it("does not let protection-learning execute or suppress Block or Report Scam", () => {
+    expect(learning).not.toContain("[data-action=\"block-sender\"]");
+    expect(learning).not.toContain("[data-action=\"block-domain\"]");
+    expect(learning).not.toContain("[data-action=\"report-scam\"]");
+    expect(learning).not.toContain("event.stopImmediatePropagation()");
+    expect(learning).not.toContain("unblock-sender");
+    expect(learning).not.toContain("unblock-domain");
+    expect(learning).toContain("emailShieldChooseFamilyBlockSharing");
+    expect(learning).toContain("Cancel keeps the ${scope} block personal");
   });
 
   it("sends positive learning only after Safe or Trust succeeds", () => {
-    expect(source).toContain("Message marked Safe ✓");
-    expect(source).toContain("Sender trusted ✓");
-    expect(source).toContain("post(accountId, 'legitimate-feedback', { token })");
+    expect(learning).toContain("Message marked Safe ✓");
+    expect(learning).toContain("Sender trusted ✓");
+    expect(learning).toContain("post(accountId, 'legitimate-feedback', { token })");
   });
 
   it("never serializes raw message content or provider message identity into learning calls", () => {
     for (const forbidden of ["textPreview", "htmlSignals", "providerNativeId", "messageId", "rawBody", "bodyText"]) {
-      expect(source).not.toContain(forbidden);
+      expect(learning).not.toContain(forbidden);
     }
   });
 });

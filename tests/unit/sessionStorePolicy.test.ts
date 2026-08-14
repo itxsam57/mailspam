@@ -173,6 +173,19 @@ describe("opaque message review actions", () => {
     expect(() => store.resolveReviewAction(second, registered.token)).toThrow("unknown or expired");
   });
 
+  it("keeps visible review actions valid across scan Stop/Resume housekeeping", () => {
+    const store = new SessionStore(new InMemoryPolicyRepository());
+    const session = store.create("gmail", "mailbox", { provider: "gmail", mode: "fixture" });
+    const action = store.registerReviewAction(session, reviewContext());
+
+    store.clearScanActions(session);
+
+    expect(store.resolveReviewAction(session, action.token)).toMatchObject({
+      providerNativeId: "uid-1",
+      senderAddress: "sender@example.com",
+    });
+  });
+
   it("does not offer provider Spam/Junk movement for a message already there", () => {
     const store = new SessionStore(new InMemoryPolicyRepository());
     const session = store.create("imap", "mailbox", { provider: "imap", mode: "fixture" });
@@ -225,7 +238,7 @@ describe("account-scoped unsubscribe actions", () => {
     expect(automatic.actionKey).not.toBe(manual.actionKey);
   });
 
-  it("persists completed unsubscribe status and survives token clearing", () => {
+  it("persists completed unsubscribe status while scan transitions retain bounded action capabilities", () => {
     const repository = new InMemoryPolicyRepository();
     const store = new SessionStore(repository);
     const session = store.create("yahoo", "mailbox", { provider: "yahoo", mode: "fixture" });
@@ -233,7 +246,7 @@ describe("account-scoped unsubscribe actions", () => {
     store.markUnsubscribed(session, action.actionKey);
     store.clearScanActions(session);
 
-    expect(() => store.resolveUnsubscribeAction(session, action.token)).toThrow("unknown or expired");
+    expect(store.resolveUnsubscribeAction(session, action.token)).toMatchObject({ actionKey: action.actionKey });
     expect(session.personalPolicy.isUnsubscribedAction(action.actionKey)).toBe(true);
     expect(store.registerUnsubscribeAction(session, "one_click_post", "https://example.test/unsub", "uid-2").alreadyUnsubscribed).toBe(true);
   });

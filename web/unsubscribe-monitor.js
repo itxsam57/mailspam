@@ -29,6 +29,15 @@
     document.getElementById('consumerRefreshActivity')?.click();
   }
 
+  async function refreshPersonalPolicy() {
+    const refresh = window.emailShieldRefreshPersonalPolicy;
+    if (typeof refresh === 'function') {
+      await refresh();
+      return;
+    }
+    window.dispatchEvent(new CustomEvent('email-shield-policy-changed'));
+  }
+
   async function recordManualActivity(accountId, token, actionKey, method) {
     const response = await fetch(`/api/consumer/v1/accounts/${encodeURIComponent(accountId)}/unsubscribe-activity`, {
       method: 'POST',
@@ -45,8 +54,8 @@
 
   function labelFor(action) {
     if (action.alreadyUnsubscribed && action.method === 'one_click_post') return 'Unsubscribed ✓';
-    if (action.method === 'link_only') return 'Open unsubscribe page';
-    if (action.method === 'mailto') return 'Email unsubscribe request';
+    if (action.method === 'link_only') return 'Open unsubscribe page (not confirmed)';
+    if (action.method === 'mailto') return 'Open unsubscribe email (not confirmed)';
     return 'Unsubscribe';
   }
 
@@ -118,19 +127,15 @@
     }
 
     const explanation = method === 'one_click_post'
-      ? 'Email Shield will send the message-authorized RFC 8058 request without opening the destination.'
+      ? 'Email Shield will send the message-authorized RFC 8058 request without opening the destination. A successful endpoint response can be recorded as confirmed.'
       : method === 'link_only'
-        ? 'The service unsubscribe page will open in a new browser tab. Complete any confirmation shown there.'
-        : 'Your default email application will open a pre-addressed unsubscribe request. You must send it.';
+        ? 'The service unsubscribe page will open in a new browser tab. Email Shield can record only that the page opened; completion remains unconfirmed until the external service provides a verifiable result.'
+        : 'Your default email application will open a pre-addressed unsubscribe request. Email Shield can record only that the request opened; you must send it and completion remains unconfirmed.';
     const confirmed = window.confirm(
       `Continue with this unsubscribe option?\n\n${subject}\n${sender}\n\n${explanation}`,
     );
     if (!confirmed) return;
 
-    // Manual link navigation must retain the WindowProxy created directly by
-    // the user's click. A second window.open after awaiting the server can be
-    // popup-blocked, and using noopener in the initial open may intentionally
-    // return null in modern browsers. Sever opener immediately instead.
     const pendingWindow = method === 'link_only'
       ? window.open('about:blank', '_blank')
       : null;
@@ -176,10 +181,10 @@
             throw new Error('The browser blocked the unsubscribe tab. Allow pop-ups for Email Shield and try again.');
           }
           pendingWindow.location.replace(result.target);
-          button.textContent = 'Open unsubscribe page again';
+          button.textContent = 'Open unsubscribe page again (not confirmed)';
           if (actionStatus) {
             actionStatus.className = 'unsubscribe-action-status success';
-            actionStatus.textContent = 'The service unsubscribe page was opened. Complete any confirmation on that page.';
+            actionStatus.textContent = 'The service unsubscribe page was opened and can be recorded in Activity. Completion is still unconfirmed.';
           }
         } else {
           const anchor = document.createElement('a');
@@ -188,16 +193,16 @@
           document.body.appendChild(anchor);
           anchor.click();
           anchor.remove();
-          button.textContent = 'Open email request again';
+          button.textContent = 'Open unsubscribe email again (not confirmed)';
           if (actionStatus) {
             actionStatus.className = 'unsubscribe-action-status success';
-            actionStatus.textContent = 'A pre-addressed unsubscribe email was opened. Send it to complete the request.';
+            actionStatus.textContent = 'A pre-addressed unsubscribe email was opened. Completion is still unconfirmed until you send it and the external service processes it.';
           }
         }
         button.disabled = false;
         try {
           await recordManualActivity(accountId, token, actionKey, method);
-          setGlobalStatus('The unsubscribe option was opened and recorded in Activity. Completion still depends on the provider.', 'complete');
+          setGlobalStatus('Manual unsubscribe handoff recorded in Activity. It is intentionally not counted as a Confirmed unsubscribe.', 'complete');
         } catch (activityError) {
           const detail = activityError instanceof Error ? activityError.message : String(activityError);
           setGlobalStatus(`The unsubscribe option opened, but Activity could not be saved: ${detail}`, 'error');
@@ -213,11 +218,12 @@
       });
 
       refreshConsumerActivity();
+      await refreshPersonalPolicy();
       if (actionStatus) {
         actionStatus.className = 'unsubscribe-action-status success';
         actionStatus.textContent = result.alreadyUnsubscribed
-          ? 'This campaign was already recorded as unsubscribed for the selected account.'
-          : `The endpoint confirmed one-click unsubscribe${result.status ? ` with HTTP ${result.status}` : ''}, and the encrypted local status was saved.`;
+          ? 'This campaign was already recorded as a confirmed unsubscribe for the selected account.'
+          : `The endpoint confirmed one-click unsubscribe${result.status ? ` with HTTP ${result.status}` : ''}, and the encrypted local confirmed status was saved.`;
       }
       setGlobalStatus('One-click unsubscribe was confirmed and saved. Matching duplicate buttons were synchronized.', 'complete');
     } catch (error) {
