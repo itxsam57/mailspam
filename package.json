@@ -14,6 +14,7 @@
     "test:integration": "npm run test:integration -w server",
     "test:report": "npm run test:report -w server",
     "check:web": "node scripts/engineering/check-web-assets.mjs && node scripts/engineering/check-ui-workflows.mjs",
+    "check:action-ownership": "node scripts/engineering/check-browser-action-ownership.mjs",
     "check:core": "node scripts/engineering/check-portable-core.mjs",
     "generate:core-vectors": "node scripts/engineering/core-conformance-vectors.mjs",
     "check:core-vectors": "node scripts/engineering/core-conformance-vectors.mjs --check",
