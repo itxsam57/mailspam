@@ -14,8 +14,22 @@
   `;
   document.head.appendChild(style);
 
+  function selectionSnapshot() {
+    const owner = window.emailShieldAccountSelection;
+    if (owner?.capture) return owner.capture();
+    return Object.freeze({ id: document.querySelector('.account-chip.active')?.dataset.id || null, generation: null });
+  }
+
+  function selectionMatches(snapshot) {
+    const owner = window.emailShieldAccountSelection;
+    if (owner?.matches && snapshot?.generation !== null) return owner.matches(snapshot);
+    return snapshot?.id === (document.querySelector('.account-chip.active')?.dataset.id || null);
+  }
+
   function selectedAccountId() {
-    return document.querySelector('.account-chip.active')?.dataset.id || null;
+    return window.emailShieldAccountSelection?.currentId?.()
+      || document.querySelector('.account-chip.active')?.dataset.id
+      || null;
   }
 
   function setGlobalStatus(message, state = '') {
@@ -49,7 +63,6 @@
     if (body.recorded !== true || body.accountId !== accountId || body.actionKey !== actionKey || body.method !== method || body.completionVerified !== false) {
       throw new Error('Email Shield could not verify the manual unsubscribe activity record.');
     }
-    refreshConsumerActivity();
   }
 
   function labelFor(action) {
@@ -113,7 +126,8 @@
     event.preventDefault();
     event.stopImmediatePropagation();
 
-    const accountId = selectedAccountId();
+    const ownerSnapshot = selectionSnapshot();
+    const accountId = ownerSnapshot.id;
     const token = button.dataset.unsubscribeToken;
     const actionKey = button.dataset.unsubscribeKey;
     const method = button.dataset.unsubscribeMethod;
@@ -135,6 +149,10 @@
       `Continue with this unsubscribe option?\n\n${subject}\n${sender}\n\n${explanation}`,
     );
     if (!confirmed) return;
+    if (!selectionMatches(ownerSnapshot)) {
+      window.alert('The selected account changed. The unsubscribe action was not sent.');
+      return;
+    }
 
     const pendingWindow = method === 'link_only'
       ? window.open('about:blank', '_blank')
@@ -171,6 +189,10 @@
       if (result.success !== true || result.accountId !== accountId || result.actionKey !== actionKey) {
         throw new Error('The server did not confirm the expected unsubscribe action.');
       }
+      if (!selectionMatches(ownerSnapshot)) {
+        if (pendingWindow && !pendingWindow.closed) pendingWindow.close();
+        return;
+      }
 
       if (result.manualAction === true) {
         if (result.method !== method || typeof result.target !== 'string') {
@@ -202,8 +224,11 @@
         button.disabled = false;
         try {
           await recordManualActivity(accountId, token, actionKey, method);
+          if (!selectionMatches(ownerSnapshot)) return;
+          refreshConsumerActivity();
           setGlobalStatus('Manual unsubscribe handoff recorded in Activity. It is intentionally not counted as a Confirmed unsubscribe.', 'complete');
         } catch (activityError) {
+          if (!selectionMatches(ownerSnapshot)) return;
           const detail = activityError instanceof Error ? activityError.message : String(activityError);
           setGlobalStatus(`The unsubscribe option opened, but Activity could not be saved: ${detail}`, 'error');
         }
@@ -219,6 +244,7 @@
 
       refreshConsumerActivity();
       await refreshPersonalPolicy();
+      if (!selectionMatches(ownerSnapshot)) return;
       if (actionStatus) {
         actionStatus.className = 'unsubscribe-action-status success';
         actionStatus.textContent = result.alreadyUnsubscribed
@@ -228,6 +254,7 @@
       setGlobalStatus('One-click unsubscribe was confirmed and saved. Matching duplicate buttons were synchronized.', 'complete');
     } catch (error) {
       if (pendingWindow && !pendingWindow.closed) pendingWindow.close();
+      if (!selectionMatches(ownerSnapshot)) return;
       button.disabled = false;
       button.textContent = previousText || 'Unsubscribe';
       const message = error instanceof Error ? error.message : String(error);
