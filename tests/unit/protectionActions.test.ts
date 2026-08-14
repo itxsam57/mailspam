@@ -132,6 +132,26 @@ describe("durable block action API", () => {
     expect(test.trashCalls).toEqual([["provider-native-1"]]);
   });
 
+  it("keeps a pre-stop message block action valid through Stop/Resume housekeeping", async () => {
+    const test = await fixture();
+    const registration = test.sessions.registerReviewAction(test.session, actionContext());
+
+    // scanStream invokes this boundary when starting/resuming. Retained rows in
+    // the current workspace must keep their bounded opaque actions usable.
+    test.sessions.clearScanActions(test.session);
+
+    const result = await post(test.baseUrl, test.session.id, "block-sender", { token: registration.token });
+    expect(result.response.status).toBe(200);
+    expect(result.body).toMatchObject({
+      blocked: true,
+      scope: "sender",
+      value: "scammer@fraud.example",
+      movedCurrent: true,
+    });
+    expect(test.session.personalPolicy.isBlockedSender("scammer@fraud.example")).toBe(true);
+    expect(test.trashCalls).toEqual([["provider-native-1"]]);
+  });
+
   it("rejects the exact stale second-tab Block replay with 409 and no second provider mutation", async () => {
     const test = await fixture();
     const registration = test.sessions.registerReviewAction(test.session, actionContext());
