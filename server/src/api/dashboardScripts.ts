@@ -2,6 +2,7 @@ const SHARED_DASHBOARD_SCRIPTS = [
   "/scan-monitor.js",
   "/unsubscribe-monitor.js",
   "/review-actions.js",
+  "/consumer-scan-results.js",
   "/protection-learning.js",
   "/safe-audit.js",
 ] as const;
@@ -36,9 +37,11 @@ function scriptTags(paths: readonly string[]): string {
  * enhancers are ordered from the base scan renderer outwards and loaded once.
  * Every external dashboard module is deferred so the browser can fetch them in
  * parallel without blocking HTML parsing/first paint; execution order remains
- * deterministic. The desktop shell constructs the visual route containers;
- * ui-router then becomes the authoritative navigation/mount contract before
- * any consumer feature module declares route-owned panels.
+ * deterministic. scan-monitor owns the scan stream; consumer-scan-results owns
+ * only the all-message consumer projection derived from scan-monitor's bounded
+ * rows. The desktop shell constructs the visual route containers; ui-router
+ * then becomes the authoritative navigation/mount contract before consumer
+ * feature modules declare route-owned panels.
  */
 export function dashboardScriptTags(desktop: boolean): string {
   return scriptTags(desktop
