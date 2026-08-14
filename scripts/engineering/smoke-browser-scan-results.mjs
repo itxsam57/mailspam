@@ -292,11 +292,50 @@ try {
   assert(snapshot.rawDestinationExposed === false, "Consumer scan page exposed the raw unsubscribe destination.");
   assert(snapshot.maliciousVisible === true, `Malicious newsletter control was not visible for comparison. Last state: ${JSON.stringify(snapshot)}`);
   assert(snapshot.maliciousUnsafeActionVisible === false, "Unsafe HTTP unsubscribe destination was rendered as an actionable consumer control.");
+
+  const blockTarget = await evaluate(client, `(() => {
+    window.confirm = () => true;
+    const button = [...document.querySelectorAll('.card button[data-action="block-sender"]')]
+      .find((candidate) => !candidate.disabled && candidate.dataset.reviewToken);
+    if (!button) return null;
+    const address = String(button.dataset.address || '').toLowerCase();
+    const token = button.dataset.reviewToken || '';
+    button.click();
+    return { address, token };
+  })()`);
+  assert(blockTarget?.address && blockTarget?.token, `No protected Block sender control was available after the fixture scan. Last state: ${JSON.stringify(snapshot)}`);
+
+  let blockState = null;
+  const blockDeadline = Date.now() + 15_000;
+  while (Date.now() < blockDeadline) {
+    blockState = await evaluate(client, `(async () => {
+      const response = await fetch('/api/accounts/${accountId}/personal-policy', { cache: 'no-store' });
+      const policy = await response.json().catch(() => ({}));
+      const button = [...document.querySelectorAll('.card button[data-action="block-sender"]')]
+        .find((candidate) => String(candidate.dataset.address || '').toLowerCase() === ${JSON.stringify(blockTarget.address)}) || null;
+      return {
+        responseOk: response.ok,
+        blocked: Array.isArray(policy.blockedSenders) && policy.blockedSenders.includes(${JSON.stringify(blockTarget.address)}),
+        buttonDisabled: button?.disabled === true,
+        buttonText: button?.textContent || '',
+        policyCounts: document.getElementById('policyCounts')?.textContent || '',
+        status: document.getElementById('scanMonitorStatus')?.textContent || '',
+      };
+    })()`);
+    if (blockState?.blocked && blockState?.buttonDisabled && blockState?.policyCounts.includes('Blocked senders: 1')) break;
+    await sleep(100);
+  }
+
+  assert(blockState?.responseOk === true, `Personal Policy could not be re-read after Block. State: ${JSON.stringify(blockState)}`);
+  assert(blockState.blocked === true, `Browser Block sender did not persist to encrypted Personal Policy. State: ${JSON.stringify(blockState)}`);
+  assert(blockState.buttonDisabled === true && blockState.buttonText.includes('blocked'), `Browser Block sender control did not synchronize after persistence. State: ${JSON.stringify(blockState)}`);
+  assert(blockState.policyCounts.includes('Blocked senders: 1'), `Personal Policy UI did not refresh the durable block count. State: ${JSON.stringify(blockState)}`);
   assert(runtimeErrors.length === 0, `Consumer scan produced uncaught browser errors: ${JSON.stringify(runtimeErrors)}`);
 
   console.log(`Executable consumer scan-results smoke passed with ${executable}.`);
   console.log(`Visible scanned-email rows: ${snapshot.rowCount}.`);
   console.log("Legitimate newsletter + verified unsubscribe UI passed; unsafe HTTP unsubscribe remained non-actionable.");
+  console.log(`Protected Block sender persisted and refreshed Personal Policy for ${blockTarget.address}.`);
 } catch (error) {
   console.error(`FAIL: ${error.message}`);
   if (serverStderr.trim()) console.error(`Server stderr:\n${serverStderr.trim()}`);
