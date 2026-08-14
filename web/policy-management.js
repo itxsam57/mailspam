@@ -12,6 +12,7 @@
   const selection = new Map();
   let loadedAccountId = null;
   let snapshot = null;
+  let loadSequence = 0;
 
   const panel = document.createElement('section');
   panel.className = 'panel policy-management-panel';
@@ -223,6 +224,9 @@
   async function loadPolicy(force = false) {
     const accountId = selectedAccountId();
     if (!accountId) {
+      // Invalidate any response still in flight for an account that is no
+      // longer selected. It must never repaint this panel later.
+      loadSequence += 1;
       loadedAccountId = null;
       snapshot = null;
       selection.clear();
@@ -233,11 +237,14 @@
     }
     if (!force && accountId === loadedAccountId && snapshot) return;
 
+    const requestSequence = ++loadSequence;
     controlsEnabled(false);
     setStatus('Loading personal policy…');
     try {
-      const response = await fetch(`/api/accounts/${encodeURIComponent(accountId)}/personal-policy`);
+      const response = await fetch(`/api/accounts/${encodeURIComponent(accountId)}/personal-policy`, { cache: 'no-store' });
       const body = await responseJson(response);
+      if (requestSequence !== loadSequence || selectedAccountId() !== accountId) return;
+
       loadedAccountId = accountId;
       snapshot = {};
       for (const category of CATEGORIES) snapshot[category] = Array.isArray(body[category]) ? body[category].slice() : [];
@@ -246,6 +253,7 @@
       setStatus(body.persistent ? 'Personal policy is encrypted and persistent for this account.' : 'Personal policy is memory-only on this platform/session.', body.persistent ? 'ok' : '');
       render();
     } catch (error) {
+      if (requestSequence !== loadSequence || selectedAccountId() !== accountId) return;
       loadedAccountId = accountId;
       snapshot = null;
       selection.clear();
@@ -257,19 +265,22 @@
 
   async function mutate(suffix, body, successMessage) {
     if (!loadedAccountId) return;
+    const mutationAccountId = loadedAccountId;
     controlsEnabled(false);
     setStatus('Saving personal policy…');
     try {
-      const response = await fetch(`/api/accounts/${encodeURIComponent(loadedAccountId)}/personal-policy${suffix}`, {
+      const response = await fetch(`/api/accounts/${encodeURIComponent(mutationAccountId)}/personal-policy${suffix}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       await responseJson(response);
+      if (selectedAccountId() !== mutationAccountId) return;
       selection.clear();
       setStatus(successMessage, 'ok');
       await loadPolicy(true);
     } catch (error) {
+      if (selectedAccountId() !== mutationAccountId) return;
       controlsEnabled(true);
       setStatus(error.message || String(error), 'error');
     }
