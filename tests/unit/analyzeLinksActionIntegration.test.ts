@@ -4,6 +4,7 @@ import type { Server } from "node:http";
 import { createConsumerDesktopServer } from "../../server/src/api/consumerDesktopServer.js";
 import { LocalSecurityManager } from "../../server/src/api/localSecurity.js";
 import { sessionStore } from "../../server/src/api/sessionStore.js";
+import type { ScanActionContext } from "../../server/src/workflows/scanWorkflows.js";
 import { createDestinationAnalysisCoordinator } from "../../server/src/workflows/analyzeLinks.js";
 
 interface BrowserContext {
@@ -94,47 +95,49 @@ async function connectFixture(context: BrowserContext, provider: "gmail" | "outl
   return accountId;
 }
 
-function scanDiagnostics(stream: string): any[] {
-  const summaries: any[] = [];
-  for (const line of stream.split(/\r?\n/)) {
-    if (!line.startsWith("data: ")) continue;
-    try {
-      const value = JSON.parse(line.slice(6));
-      if (Array.isArray(value?.diagnosticSummaries)) summaries.push(...value.diagnosticSummaries);
-    } catch {}
-  }
-  return summaries;
+function scannedActionContext(url: string): ScanActionContext {
+  return {
+    providerNativeId: "fixture-native-analyze-links",
+    messageId: "<fixture-analyze-links@example.test>",
+    exceptionKey: `message:${"a".repeat(64)}`,
+    senderAddress: "sender@example.test",
+    normalizedFolder: "inbox",
+    links: [{
+      visibleText: "Review account",
+      rawUrl: url,
+      normalizedUrl: url,
+      claimedBrand: null,
+      brandDomainMismatch: null,
+      source: "body",
+    }],
+    unsubscribe: { available: false, method: "none", target: null, source: "none", actionKey: null },
+    communityReport: {
+      campaignFingerprint: "b".repeat(64),
+      indicators: [{ type: "campaign", value: "b".repeat(64) }],
+      evidenceCodes: ["CERTIFICATION_LINK"],
+      evidenceScore: 2,
+      verdict: "review",
+    },
+  };
 }
 
 describe("Analyze Links scanned-message action", () => {
-  it("binds a real scan capability to server-owned destinations and rejects browser/cross-account substitution", async () => {
+  it("binds the opaque review capability to a server-owned canonical destination and rejects browser/cross-account substitution", async () => {
     const { context, fetchImpl } = await start();
     const firstAccount = await connectFixture(context, "gmail");
     const secondAccount = await connectFixture(context, "outlook");
+    const firstSession = sessionStore.get(firstAccount);
+    expect(firstSession).toBeDefined();
 
-    const scanResponse = await fetch(`${context.baseUrl}/api/accounts/${encodeURIComponent(firstAccount)}/scan/full`, {
-      headers: headers(context, { Accept: "text/event-stream" }),
-    });
-    expect(scanResponse.status).toBe(200);
-    const stream = await scanResponse.text();
-    const summaries = scanDiagnostics(stream);
-    expect(summaries.length).toBeGreaterThan(0);
-    const analyzable = summaries.find((summary) => summary?.reviewAction?.canAnalyzeLinks === true && summary?.reviewAction?.token);
-    expect(analyzable).toBeDefined();
+    // Consumer composition installs the Analyze Links bridge onto the same
+    // review-token registry used by compiled scanStream. Registering the exact
+    // ScanActionContext here isolates capability authorization from the source-
+    // Vitest Worker lifecycle; compiled browser smoke certifies the real scan.
+    const canonicalUrl = "https://canonical-message.example.test/login";
+    const registered = sessionStore.registerReviewAction(firstSession!, scannedActionContext(canonicalUrl));
+    expect((registered as any).canAnalyzeLinks).toBe(true);
+    const token = registered.token;
 
-    // The scan sends only privacy-bounded presentation fields + opaque action
-    // capabilities. Canonical URLs/body/attachment objects remain server-side.
-    expect(analyzable).toEqual(expect.objectContaining({
-      subject: expect.any(String),
-      verdict: expect.any(String),
-      reviewAction: expect.objectContaining({ token: expect.any(String), canAnalyzeLinks: true }),
-    }));
-    expect(analyzable).not.toHaveProperty("actionContext");
-    expect(analyzable).not.toHaveProperty("links");
-    expect(analyzable).not.toHaveProperty("textPreview");
-    expect(analyzable).not.toHaveProperty("attachments");
-
-    const token = analyzable.reviewAction.token as string;
     const injectedUrl = "https://attacker-injected.example.test/credential-steal";
     const injected = await mutate(context, `/api/accounts/${firstAccount}/messages/analyze-links`, {
       token,
@@ -154,14 +157,13 @@ describe("Analyze Links scanned-message action", () => {
       accountId: firstAccount,
       token,
       escalatedToHighRisk: true,
-      analyzedDestinations: expect.any(Number),
+      analyzedDestinations: 1,
       results: expect.any(Array),
     });
-    expect(body.analyzedDestinations).toBeGreaterThan(0);
-    expect(body.results.some((item: any) => item.classification === "credential_trap")).toBe(true);
-    expect(fetchImpl).toHaveBeenCalled();
-    const analyzedUrls = fetchImpl.mock.calls.map((call) => call[0]);
-    expect(analyzedUrls).not.toContain(injectedUrl);
-    expect(analyzedUrls.every((url) => typeof url === "string" && /^https?:\/\//.test(url))).toBe(true);
+    expect(body.results).toHaveLength(1);
+    expect(body.results[0]).toMatchObject({ classification: "credential_trap" });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).toHaveBeenCalledWith(canonicalUrl, expect.any(AbortSignal));
+    expect(fetchImpl).not.toHaveBeenCalledWith(injectedUrl, expect.anything());
   });
 });
