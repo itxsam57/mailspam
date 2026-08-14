@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { request as httpRequest, type Server } from "node:http";
 import express, { type Express } from "express";
 import { createLocalDesktopServer } from "../../server/src/api/localDesktopServer.js";
+import { createServer } from "../../server/src/api/server.js";
 import { LocalSecurityManager, redactSensitiveText } from "../../server/src/api/localSecurity.js";
 
 interface BrowserContext {
@@ -17,12 +18,16 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
 });
 
-async function listen(app: Express): Promise<BrowserContext> {
+async function listenBaseUrl(app: Express): Promise<string> {
   const server = app.listen(0, "127.0.0.1");
   servers.push(server);
   await new Promise<void>((resolve) => server.once("listening", () => resolve()));
   const port = (server.address() as AddressInfo).port;
-  const baseUrl = `http://127.0.0.1:${port}`;
+  return `http://127.0.0.1:${port}`;
+}
+
+async function listen(app: Express): Promise<BrowserContext> {
+  const baseUrl = await listenBaseUrl(app);
   const home = await fetch(baseUrl);
   const html = await home.text();
   const cookie = home.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
@@ -198,6 +203,44 @@ describe("local desktop security boundary", () => {
       headers: headers(context, { "Content-Type": "application/json" }),
       body: JSON.stringify({ provider: "gmail", mode: "fixture" }),
     })).status).toBe(409);
+  });
+
+  it("rejects malformed account-connect input before any provider attempt", async () => {
+    const context = await start();
+    const malformed = [
+      { provider: "smtp", mode: "live", credentials: {} },
+      { provider: "imap", mode: "sideways", credentials: {} },
+      { provider: "imap", mode: "live", credentials: { host: "mail.example", port: "70000", secure: "true", user: "u", appPassword: "p" } },
+      { provider: "imap", mode: "live", credentials: { host: "mail.example", port: "993", secure: "maybe", user: "u", appPassword: "p" } },
+      { provider: "gmail", mode: "fixture", credentials: { refreshToken: "fixture-must-not-carry-secrets" } },
+      { provider: "gmail", mode: "fixture", unexpected: true },
+    ];
+
+    for (const body of malformed) {
+      const response = await mutate(context, "/api/accounts/connect", body);
+      expect(response.status).toBe(400);
+      const payload = await response.json();
+      expect(String(payload.error)).not.toContain("Failed to connect");
+    }
+  });
+
+  it("does not register developer execution in consumer mode and contains runner failures when explicitly enabled", async () => {
+    const consumerUrl = await listenBaseUrl(createServer({ developerToolsEnabled: false }));
+    expect((await fetch(`${consumerUrl}/api/dev/test-suite`)).status).toBe(404);
+
+    const marker = "developer-runner-secret-marker";
+    const developerUrl = await listenBaseUrl(createServer({
+      developerToolsEnabled: true,
+      developerTestSuiteRunner: async () => { throw new Error(marker); },
+    }));
+    const failed = await fetch(`${developerUrl}/api/dev/test-suite`);
+    expect(failed.status).toBe(500);
+    const failureBody = await failed.text();
+    expect(failureBody).toContain("failed safely");
+    expect(failureBody).not.toContain(marker);
+
+    // A developer-tool failure is an isolated request failure, never a process/server failure.
+    expect((await fetch(developerUrl)).status).toBe(200);
   });
 
   it("consumes a successful opaque action token before it can be replayed", async () => {
