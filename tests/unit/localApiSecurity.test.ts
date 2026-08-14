@@ -184,25 +184,51 @@ describe("local desktop security boundary", () => {
     })).status).toBe(403);
   });
 
-  it("requires a single-use mutation nonce", async () => {
-    const context = await start();
+  it("requires a single-use mutation nonce independently of mailbox fixture availability", async () => {
+    const context = await startActionHarness();
     const mutationNonce = await nonce(context);
-    const request = () => fetch(`${context.baseUrl}/api/accounts/connect`, {
+    const request = () => fetch(`${context.baseUrl}/api/action`, {
       method: "POST",
       headers: headers(context, {
         "Content-Type": "application/json",
         "X-Email-Shield-Nonce": mutationNonce,
       }),
-      body: JSON.stringify({ provider: "gmail", mode: "fixture", label: "nonce-test" }),
+      body: "{}",
     });
 
     expect((await request()).status).toBe(200);
     expect((await request()).status).toBe(409);
-    expect((await fetch(`${context.baseUrl}/api/accounts/connect`, {
+    expect((await fetch(`${context.baseUrl}/api/action`, {
       method: "POST",
       headers: headers(context, { "Content-Type": "application/json" }),
-      body: JSON.stringify({ provider: "gmail", mode: "fixture" }),
+      body: "{}",
     })).status).toBe(409);
+  });
+
+  it("keeps synthetic Fixture mailboxes out of consumer mode and enables them only through the resolved development entitlement", async () => {
+    const consumer = await start();
+    const denied = await mutate(consumer, "/api/accounts/connect", {
+      provider: "gmail",
+      mode: "fixture",
+      label: "must-not-exist",
+    });
+    expect(denied.status).toBe(403);
+    expect((await denied.json()).error).toMatch(/development-entitled/i);
+
+    const developer = await listen(createLocalDesktopServer({
+      security: new LocalSecurityManager(),
+      developmentEntitlementsEnabled: true,
+    }));
+    const connected = await mutate(developer, "/api/accounts/connect", {
+      provider: "gmail",
+      mode: "fixture",
+      label: "explicit-developer-fixture",
+    });
+    expect(connected.status).toBe(200);
+    const body = await connected.json();
+    expect(body).toMatchObject({ provider: "gmail", mode: "fixture" });
+    expect(typeof body.accountId).toBe("string");
+    expect((await mutate(developer, `/api/accounts/${encodeURIComponent(body.accountId)}`, {}, "DELETE")).status).toBe(204);
   });
 
   it("rejects malformed account-connect input before any provider attempt", async () => {
@@ -239,7 +265,6 @@ describe("local desktop security boundary", () => {
     expect(failureBody).toContain("failed safely");
     expect(failureBody).not.toContain(marker);
 
-    // A developer-tool failure is an isolated request failure, never a process/server failure.
     expect((await fetch(developerUrl)).status).toBe(200);
   });
 
