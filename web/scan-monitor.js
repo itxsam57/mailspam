@@ -80,9 +80,12 @@
     window.dispatchEvent(new CustomEvent('email-shield-scan-history-changed'));
   }
 
-  function policyChanged() {
-    // Personal Policy owns its refresh lifecycle. One semantic event avoids
-    // racing an event-triggered load against a synthetic Refresh-button load.
+  async function policyChanged() {
+    const refresh = window.emailShieldRefreshPersonalPolicy;
+    if (typeof refresh === 'function') {
+      await refresh();
+      return;
+    }
     window.dispatchEvent(new CustomEvent('email-shield-policy-changed'));
   }
 
@@ -165,7 +168,8 @@
       renderDiagnostics();
     }
     if (progress.suspiciousCards?.length && typeof window.renderCard === 'function') {
-      cards.innerHTML = progress.suspiciousCards.map(window.renderCard).join('') + cards.innerHTML;
+      const renderedCards = progress.suspiciousCards.map(window.renderCard).join('');
+      if (renderedCards) cards.insertAdjacentHTML('afterbegin', renderedCards);
     }
   }
 
@@ -351,8 +355,6 @@
         throw new Error('The server did not confirm the protected account-scoped block.');
       }
 
-      // Synchronize the exact protected capability, not browser-displayed sender
-      // text. Sender/domain identity is server-derived from this opaque token.
       document.querySelectorAll(`[data-action="block-${scope}"][data-review-token="${CSS.escape(token)}"]`).forEach((candidate) => {
         candidate.disabled = true;
         candidate.textContent = isSender ? 'Sender blocked ✓' : 'Domain blocked ✓';
@@ -378,7 +380,7 @@
           : `${isSender ? 'Sender' : 'Domain'} block saved. Current-message Trash move needs a retry.`,
         result.movedCurrent === true ? 'complete' : 'error',
       );
-      policyChanged();
+      await policyChanged();
     } catch (error) {
       button.disabled = false;
       button.textContent = previousText || `Block ${scope}`;
