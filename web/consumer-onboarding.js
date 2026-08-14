@@ -256,8 +256,10 @@
       const completed = new Set(saved.filter((step) => STEP_IDS.includes(step)));
       if (profile.signedIn === true) completed.add('account_ready'); else completed.delete('account_ready');
       completed.add('mailbox_connected');
+      // This is a monotonic historical milestone. Current history can prove it
+      // happened, but bounded history retention must never revoke persisted
+      // completion after the original completed record ages out.
       if (Array.isArray(scanHistory?.history) && scanHistory.history.some((record) => record?.status === 'completed')) completed.add('first_scan_completed');
-      else completed.delete('first_scan_completed');
       if (background?.enabled === true) completed.add('continuous_protection_configured');
       else completed.delete('continuous_protection_configured');
 
