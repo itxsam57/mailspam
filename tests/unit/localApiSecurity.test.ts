@@ -132,11 +132,18 @@ describe("local desktop security boundary", () => {
     expect(response.headers.get("cross-origin-opener-policy")).toBe("same-origin");
   });
 
-  it("rejects account access without both the local session and CSRF proof", async () => {
+  it("rejects account access without session, CSRF proof, and same-dashboard provenance", async () => {
     const context = await start();
     expect((await fetch(`${context.baseUrl}/api/accounts`)).status).toBe(401);
     expect((await fetch(`${context.baseUrl}/api/accounts`, {
       headers: { Cookie: context.cookie },
+    })).status).toBe(403);
+    expect((await fetch(`${context.baseUrl}/api/accounts`, {
+      headers: headers(context, {
+        Origin: "https://attacker.example",
+        Referer: "https://attacker.example/",
+        "Sec-Fetch-Site": "cross-site",
+      }),
     })).status).toBe(403);
     expect((await fetch(`${context.baseUrl}/api/accounts`, {
       headers: headers(context),
