@@ -142,7 +142,14 @@ for (const forbidden of [
   requireCondition(!scanHistoryBrowser.includes(forbidden), `web/scan-history.js must never receive or persist protected scan/credential field ${forbidden}.`);
 }
 requireCondition(scanHistoryBrowser.includes("emailShieldStartScan"), "Scan history Resume is no longer delegated to the protected scan monitor.");
-requireCondition(scanHistoryBrowser.includes("record.scanId"), "Scan history no longer resumes by opaque scan ID.");
+requireCondition(
+  scanHistoryBrowser.includes("resumeScanButton.dataset.scanHistoryResume = String(newestResumable.scanId || '')") &&
+  scanHistoryBrowser.includes("resumeScanButton.dataset.scanHistoryResume || ''") &&
+  scanHistoryBrowser.includes("resumeScanId: scanId"),
+  "Single Resume control no longer resumes the newest resumable record by opaque scan ID.",
+);
+requireCondition(!scanHistoryBrowser.includes("target.dataset.scanHistoryResume"), "Scan history must not restore per-record Resume button ownership.");
+requireCondition(!scanHistoryBrowser.includes("Resume newest"), "Scan history must not reintroduce a competing Resume-newest control label.");
 requireCondition(scanStreamServer.includes("publicScanProgress"), "Server no longer has an explicit browser scan-progress reduction boundary.");
 requireCondition(scanStreamServer.includes('"cursor" | "checkpoint"'), "Browser scan-progress type no longer explicitly excludes cursor/checkpoint state.");
 
