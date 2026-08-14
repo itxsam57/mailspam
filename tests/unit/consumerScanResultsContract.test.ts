@@ -9,6 +9,7 @@ function source(path: string): string {
 describe("consumer scanned-email presentation contract", () => {
   const renderer = source("web/consumer-scan-results.js");
   const composition = source("server/src/api/dashboardScripts.ts");
+  const gate = source("scripts/engineering/run-gate.mjs");
 
   it("loads the all-message consumer renderer after the canonical scan monitor", () => {
     const scanIndex = composition.indexOf('"/scan-monitor.js"');
@@ -17,9 +18,10 @@ describe("consumer scanned-email presentation contract", () => {
     expect(consumerIndex).toBeGreaterThan(scanIndex);
   });
 
-  it("projects every canonical diagnostic row without opening a second scan stream", () => {
+  it("projects canonical diagnostic rows without opening a second scan stream", () => {
     expect(renderer).toContain('tr[data-message-row="true"]');
-    expect(renderer).toContain("Every examined email appears here");
+    expect(renderer).toContain("Scanned emails appear here as the scan progresses");
+    expect(renderer).toContain("The newest 500 stay visible; the counters track the full scan");
     expect(renderer).toContain("new MutationObserver(render)");
     expect(renderer).toContain("observer.observe(tableBody, { childList: true })");
     expect(renderer).not.toContain("new EventSource");
@@ -37,5 +39,10 @@ describe("consumer scanned-email presentation contract", () => {
     expect(renderer).not.toContain("http://");
     expect(renderer).not.toContain("https://");
     expect(renderer).not.toContain("listUnsubscribe");
+  });
+
+  it("keeps executable consumer scan presentation in the blocking engineering gate", () => {
+    expect(gate).toContain('npmStep("browser-scan"');
+    expect(gate).toContain('"smoke:browser-scan"');
   });
 });
