@@ -16,13 +16,27 @@ describe("Personal Policy browser ownership", () => {
     expect(source).toContain("selectedAccountId() !== mutationAccountId");
   });
 
-  it("uses one semantic policy-refresh signal after Block and confirmed unsubscribe", () => {
+  it("makes Personal Policy the one owned refresh boundary for Block and confirmed unsubscribe", () => {
+    const policy = read("web/policy-management.js");
     const scan = read("web/scan-monitor.js");
     const unsubscribe = read("web/unsubscribe-monitor.js");
-    expect(scan).toContain("window.dispatchEvent(new CustomEvent('email-shield-policy-changed'))");
-    expect(unsubscribe).toContain("window.dispatchEvent(new CustomEvent('email-shield-policy-changed'))");
+    expect(policy).toContain("Object.defineProperty(window, 'emailShieldRefreshPersonalPolicy'");
+    expect(policy).toContain("value: () => loadPolicy(true)");
+    expect(scan).toContain("const refresh = window.emailShieldRefreshPersonalPolicy");
+    expect(scan).toContain("await refresh()");
+    expect(scan).toContain("await policyChanged()");
+    expect(unsubscribe).toContain("const refresh = window.emailShieldRefreshPersonalPolicy");
+    expect(unsubscribe).toContain("await refresh()");
+    expect(unsubscribe).toContain("await refreshPersonalPolicy()");
     expect(scan).not.toContain("document.getElementById('policyRefresh')?.click()");
     expect(unsubscribe).not.toContain("document.getElementById('policyRefresh')?.click()");
+  });
+
+  it("keeps live warning-card nodes stable while asynchronous actions are in flight", () => {
+    const scan = read("web/scan-monitor.js");
+    expect(scan).toContain("cards.insertAdjacentHTML('afterbegin', renderedCards)");
+    expect(scan).not.toContain("progress.suspiciousCards.map(window.renderCard).join('') + cards.innerHTML");
+    expect(scan).toContain("data-review-token");
   });
 
   it("keeps manual unsubscribe activity separate from confirmed encrypted policy", () => {
