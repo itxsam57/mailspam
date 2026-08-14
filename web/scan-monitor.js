@@ -67,6 +67,7 @@
 
   let source = null;
   let accountId = null;
+  let scanOwnerSnapshot = null;
   let receivedServerEvent = false;
   let diagnosticRows = [];
   let sessionExpired = false;
@@ -106,15 +107,36 @@
     status.className = `scan-monitor-status ${state}`.trim();
   }
 
-  function selectedAccountId() {
-    return document.querySelector('.account-chip.active')?.dataset.id || accountId;
+  function selectionSnapshot() {
+    const owner = window.emailShieldAccountSelection;
+    if (owner?.capture) return owner.capture();
+    return Object.freeze({ id: document.querySelector('.account-chip.active')?.dataset.id || null, generation: null });
   }
 
-  function finish() {
+  function selectionMatches(ownerSnapshot) {
+    const owner = window.emailShieldAccountSelection;
+    if (owner?.matches && ownerSnapshot?.generation !== null) return owner.matches(ownerSnapshot);
+    return ownerSnapshot?.id === (document.querySelector('.account-chip.active')?.dataset.id || null);
+  }
+
+  function selectedAccountId() {
+    return window.emailShieldAccountSelection?.currentId?.()
+      || document.querySelector('.account-chip.active')?.dataset.id
+      || null;
+  }
+
+  function finish(expectedSource = null) {
+    if (expectedSource && source !== expectedSource) {
+      expectedSource.close();
+      return false;
+    }
     stopButton.disabled = true;
     scanPanel.setAttribute('aria-busy', 'false');
     source?.close();
     source = null;
+    accountId = null;
+    scanOwnerSnapshot = null;
+    return true;
   }
 
   async function validateProtectedScanSession(id) {
@@ -124,9 +146,7 @@
       cache: 'no-store',
     });
     const body = await response.json().catch(() => null);
-    if (!response.ok) {
-      throw new Error(body?.error || 'The protected local session expired. Reload Email Shield.');
-    }
+    if (!response.ok) throw new Error(body?.error || 'The protected local session expired. Reload Email Shield.');
     if (!Array.isArray(body) || !body.some((account) => account?.accountId === id)) {
       throw new Error('The selected account no longer exists in this Email Shield process. Reload and reconnect it.');
     }
@@ -137,9 +157,7 @@
     const tbody = diagnostics.querySelector('tbody');
     tbody.innerHTML = diagnosticRows.map((item) => {
       const evidenceCodes = item.evidenceCodes?.length ? item.evidenceCodes.join(', ') : 'none';
-      const evidence = item.verdict === 'safe' && Number(item.score) > 0
-        ? `context only: ${evidenceCodes}`
-        : evidenceCodes;
+      const evidence = item.verdict === 'safe' && Number(item.score) > 0 ? `context only: ${evidenceCodes}` : evidenceCodes;
       const allNotes = [...(item.parseNotes || []), ...(item.decisionNotes || [])];
       const notes = allNotes.length ? [...new Set(allNotes)].join(' | ') : 'none';
       const review = item.reviewAction || {};
@@ -167,7 +185,6 @@
   function renderProgress(progress) {
     if (typeof window.renderCounters === 'function') window.renderCounters(progress.counters);
     else counters.textContent = `${progress.counters.examined} messages examined`;
-
     setStatus(`Scanning… ${progress.counters.examined} messages examined. Last completed page is protected for resume.`, 'running');
     if (progress.diagnosticSummaries?.length) {
       diagnosticRows.push(...progress.diagnosticSummaries);
@@ -183,13 +200,9 @@
     const detail = event instanceof CustomEvent ? event.detail : null;
     const presentation = detail?.presentation;
     if (!presentation || detail.selectedAccountId !== selectedAccountId()) return;
-    diagnosticRows = Array.isArray(presentation.diagnosticSummaries)
-      ? presentation.diagnosticSummaries.slice(-500)
-      : [];
+    diagnosticRows = Array.isArray(presentation.diagnosticSummaries) ? presentation.diagnosticSummaries.slice(-500) : [];
     renderDiagnostics();
-    if (presentation.counters && typeof window.renderCounters === 'function') {
-      window.renderCounters(presentation.counters);
-    }
+    if (presentation.counters && typeof window.renderCounters === 'function') window.renderCounters(presentation.counters);
     if (Array.isArray(presentation.suspiciousCards) && typeof window.renderCard === 'function') {
       cards.innerHTML = presentation.suspiciousCards.slice(0, 200).map(window.renderCard).join('');
     }
@@ -202,14 +215,17 @@
 
   async function start(type, options = {}) {
     const resumeScanId = typeof options?.resumeScanId === 'string' ? options.resumeScanId : null;
-    const requestedAccountId = selectedAccountId();
-    accountId = requestedAccountId;
+    const requestedSelection = selectionSnapshot();
+    const requestedAccountId = requestedSelection.id;
     if (!requestedAccountId) {
       setStatus('Select a connected account first.', 'error');
       return;
     }
 
     source?.close();
+    source = null;
+    accountId = requestedAccountId;
+    scanOwnerSnapshot = requestedSelection;
     scanPanel.setAttribute('aria-busy', 'true');
     receivedServerEvent = false;
     sessionExpired = false;
@@ -227,7 +243,7 @@
       return;
     }
 
-    if (selectedAccountId() !== requestedAccountId) {
+    if (!selectionMatches(requestedSelection)) {
       finish();
       setStatus('The selected account changed before the scan started. Start the scan again.', 'error');
       return;
@@ -248,71 +264,78 @@
     const es = new EventSource(streamPath);
     source = es;
 
+    const presentationIsCurrent = () => source === es && selectionMatches(requestedSelection);
+
     es.addEventListener('scan-started', (event) => {
       receivedServerEvent = true;
-      let value = { resumed: Boolean(resumeScanId), counters: null };
-      try { value = JSON.parse(event.data); } catch {}
-      if (value.resumed === true && value.counters) {
-        if (typeof window.renderCounters === 'function') window.renderCounters(value.counters);
-        else counters.textContent = `${Number(value.counters.examined || 0)} messages examined`;
-        setStatus(`Resumed ${type} scan after ${Number(value.counters.examined || 0)} examined message(s). Continuing from the last confirmed provider page…`, 'running');
-      } else {
-        setStatus('Scan worker started. Connecting to the provider…', 'running');
+      if (presentationIsCurrent()) {
+        let value = { resumed: Boolean(resumeScanId), counters: null };
+        try { value = JSON.parse(event.data); } catch {}
+        if (value.resumed === true && value.counters) {
+          if (typeof window.renderCounters === 'function') window.renderCounters(value.counters);
+          else counters.textContent = `${Number(value.counters.examined || 0)} messages examined`;
+          setStatus(`Resumed ${type} scan after ${Number(value.counters.examined || 0)} examined message(s). Continuing from the last confirmed provider page…`, 'running');
+        } else setStatus('Scan worker started. Connecting to the provider…', 'running');
       }
       historyChanged();
     });
     es.addEventListener('scan-status', (event) => {
       receivedServerEvent = true;
+      if (!presentationIsCurrent()) return;
       try {
         const value = JSON.parse(event.data);
         setStatus(value.message || 'Scanning…', value.phase === 'complete' ? 'complete' : 'running');
-      } catch {
-        setStatus('Scanning…', 'running');
-      }
+      } catch { setStatus('Scanning…', 'running'); }
     });
     es.onmessage = (event) => {
       receivedServerEvent = true;
+      if (!presentationIsCurrent()) return;
       try { renderProgress(JSON.parse(event.data)); }
       catch (error) { setStatus(`Could not render scan progress: ${error.message}`, 'error'); }
     };
     es.addEventListener('scan-complete', () => {
-      setStatus(counters.textContent.trim() ? 'Scan complete. Results remain available in the optional lists below and the privacy-reduced history record is saved.' : 'Scan complete. No additional readable messages were returned.', 'complete');
-      finish();
+      if (presentationIsCurrent()) {
+        setStatus(counters.textContent.trim() ? 'Scan complete. Results remain available in the optional lists below and the privacy-reduced history record is saved.' : 'Scan complete. No additional readable messages were returned.', 'complete');
+      }
+      finish(es);
       historyChanged();
     });
     es.addEventListener('scan-error', (event) => {
       let value = { message: 'The scan failed.', status: 'failed' };
       try { value = JSON.parse(event.data); } catch {}
-      const stopped = value.status === 'stopped';
-      setStatus(value.message || (stopped ? 'Scan stopped.' : 'The scan failed.'), stopped ? 'complete' : 'error');
-      finish();
+      if (presentationIsCurrent()) {
+        const stopped = value.status === 'stopped';
+        setStatus(value.message || (stopped ? 'Scan stopped.' : 'The scan failed.'), stopped ? 'complete' : 'error');
+      }
+      finish(es);
       historyChanged();
     });
     es.onerror = () => {
       if (es.readyState === EventSource.CLOSED) return;
-      setStatus(
-        sessionExpired
-          ? 'The protected local session expired. Reload Email Shield before scanning.'
-          : receivedServerEvent
-            ? 'The dashboard lost the live scan stream. The Worker continues locally and its protected progress is available in Scan history.'
-            : 'Could not open the scan stream. Check Scan history for an existing running or resumable scan.',
-        'error',
-      );
-      finish();
+      if (source !== es) { es.close(); return; }
+      if (presentationIsCurrent()) {
+        setStatus(
+          sessionExpired
+            ? 'The protected local session expired. Reload Email Shield before scanning.'
+            : receivedServerEvent
+              ? 'The dashboard lost the live scan stream. The Worker continues locally and its protected progress is available in Scan history.'
+              : 'Could not open the scan stream. Check Scan history for an existing running or resumable scan.',
+          'error',
+        );
+      }
+      finish(es);
       historyChanged();
     };
   }
 
   async function handlePolicyAction(event) {
-    const button = event.target instanceof Element
-      ? event.target.closest('[data-action="block-sender"],[data-action="block-domain"]')
-      : null;
+    const button = event.target instanceof Element ? event.target.closest('[data-action="block-sender"],[data-action="block-domain"]') : null;
     if (!(button instanceof HTMLButtonElement) || button.disabled) return;
-
     event.preventDefault();
     event.stopImmediatePropagation();
 
-    const id = selectedAccountId();
+    const ownerSnapshot = selectionSnapshot();
+    const id = ownerSnapshot.id;
     const token = button.dataset.reviewToken;
     const action = button.dataset.action || '';
     const isSender = action === 'block-sender';
@@ -321,161 +344,113 @@
     const subject = card?.querySelector('.card-subject')?.textContent?.trim() || '(no subject)';
     const sender = card?.querySelector('.card-from')?.textContent?.trim() || 'unknown sender';
 
-    if (!id || !token) {
-      setStatus(`Block ${scope} failed: the selected account or protected message action is missing.`, 'error');
-      return;
-    }
-
+    if (!id || !token) { setStatus(`Block ${scope} failed: the selected account or protected message action is missing.`, 'error'); return; }
     const consequence = isSender
       ? 'Email Shield will save an account-local block for the exact sender and attempt to move this current message to Trash. Future messages from this exact address will be Confirmed Threat.'
       : 'Email Shield will save an account-local domain block and attempt to move this current message to Trash. Future messages from this domain will be Confirmed Threat. Shared consumer-mail domains are rejected server-side.';
-    const confirmed = window.confirm(
-      `Block this ${scope} for the selected account?\n\n${subject}\n${sender}\n\n${consequence}\n\nIf the provider Trash move fails, the saved protection rule still remains active.`,
-    );
-    if (!confirmed) return;
+    if (!window.confirm(`Block this ${scope} for the selected account?\n\n${subject}\n${sender}\n\n${consequence}\n\nIf the provider Trash move fails, the saved protection rule still remains active.`)) return;
 
     const shareWithFamily = await chooseFamilyBlockSharing(scope);
+    if (!selectionMatches(ownerSnapshot)) {
+      window.alert('The selected account changed. The block was not sent; rescan the selected mailbox before acting.');
+      return;
+    }
     const previousText = button.textContent;
     button.disabled = true;
     button.textContent = 'Blocking…';
     let actionStatus = card?.querySelector('.policy-action-status');
     if (!actionStatus && card) {
-      actionStatus = document.createElement('div');
-      actionStatus.className = 'policy-action-status';
-      actionStatus.setAttribute('role', 'status');
-      card.appendChild(actionStatus);
+      actionStatus = document.createElement('div'); actionStatus.className = 'policy-action-status'; actionStatus.setAttribute('role', 'status'); card.appendChild(actionStatus);
     }
-    if (actionStatus) {
-      actionStatus.className = 'policy-action-status';
-      actionStatus.textContent = `Saving an account-scoped ${scope} block and requesting the current-message Trash move…`;
-    }
+    if (actionStatus) { actionStatus.className = 'policy-action-status'; actionStatus.textContent = `Saving an account-scoped ${scope} block and requesting the current-message Trash move…`; }
 
     try {
       const response = await fetch(`/api/accounts/${encodeURIComponent(id)}/messages/block-${scope}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, shareWithFamily }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, shareWithFamily }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || `Server returned HTTP ${response.status}`);
-      if (result.blocked !== true || result.scope !== scope || result.accountId !== id || result.token !== token) {
-        throw new Error('The server did not confirm the protected account-scoped block.');
-      }
+      if (result.blocked !== true || result.scope !== scope || result.accountId !== id || result.token !== token) throw new Error('The server did not confirm the protected account-scoped block.');
+      if (!selectionMatches(ownerSnapshot)) return;
 
       document.querySelectorAll(`[data-action="block-${scope}"][data-review-token="${CSS.escape(token)}"]`).forEach((candidate) => {
-        candidate.disabled = true;
-        candidate.textContent = isSender ? 'Sender blocked ✓' : 'Domain blocked ✓';
+        candidate.disabled = true; candidate.textContent = isSender ? 'Sender blocked ✓' : 'Domain blocked ✓';
       });
-
       if (result.movedCurrent === true) {
-        document.querySelectorAll(`[data-action="trash"][data-review-token="${CSS.escape(token)}"]`).forEach((candidate) => {
-          candidate.disabled = true;
-          candidate.textContent = 'Moved to Trash ✓';
-        });
+        document.querySelectorAll(`[data-action="trash"][data-review-token="${CSS.escape(token)}"]`).forEach((candidate) => { candidate.disabled = true; candidate.textContent = 'Moved to Trash ✓'; });
         card?.classList.add('trash-moved');
       }
-
       const familyState = result.family?.shared === true
         ? ` Family Shield updated (${result.family.status || 'protected'}).`
-        : result.family?.error
-          ? ` Family sharing needs attention: ${result.family.error}. The personal block remains active.`
-          : '';
+        : result.family?.error ? ` Family sharing needs attention: ${result.family.error}. The personal block remains active.` : '';
       if (actionStatus) {
         actionStatus.className = result.movedCurrent === true && !result.family?.error ? 'policy-action-status success' : 'policy-action-status error';
         actionStatus.textContent = result.movedCurrent === true
           ? `${isSender ? 'Sender' : 'Domain'} block saved and the provider confirmed this message moved to Trash.${familyState}`
           : `${isSender ? 'Sender' : 'Domain'} block saved. The current message could not be moved to Trash: ${result.moveError || 'provider move not confirmed'}.${familyState}`;
       }
-      setStatus(
-        result.movedCurrent === true
-          ? `${isSender ? 'Sender' : 'Domain'} block saved. The current message was moved to Trash.${result.family?.shared ? ' Family Shield updated.' : ''}`
-          : `${isSender ? 'Sender' : 'Domain'} block saved. Current-message Trash move needs a retry.`,
-        result.movedCurrent === true && !result.family?.error ? 'complete' : 'error',
-      );
+      setStatus(result.movedCurrent === true
+        ? `${isSender ? 'Sender' : 'Domain'} block saved. The current message was moved to Trash.${result.family?.shared ? ' Family Shield updated.' : ''}`
+        : `${isSender ? 'Sender' : 'Domain'} block saved. Current-message Trash move needs a retry.`,
+        result.movedCurrent === true && !result.family?.error ? 'complete' : 'error');
       if (result.family?.shared) window.dispatchEvent(new CustomEvent('email-shield-family-changed'));
       await policyChanged();
     } catch (error) {
+      if (!selectionMatches(ownerSnapshot)) return;
       button.disabled = false;
       button.textContent = previousText || `Block ${scope}`;
       const message = error instanceof Error ? error.message : String(error);
-      if (actionStatus) {
-        actionStatus.className = 'policy-action-status error';
-        actionStatus.textContent = `Block failed: ${message}`;
-      }
+      if (actionStatus) { actionStatus.className = 'policy-action-status error'; actionStatus.textContent = `Block failed: ${message}`; }
       setStatus(`Block ${scope} failed: ${message}`, 'error');
     }
   }
 
   async function handleTrashAction(event) {
-    const button = event.target instanceof Element
-      ? event.target.closest('[data-action="trash"]')
-      : null;
+    const button = event.target instanceof Element ? event.target.closest('[data-action="trash"]') : null;
     if (!(button instanceof HTMLButtonElement) || button.disabled) return;
-
     event.preventDefault();
     event.stopImmediatePropagation();
 
-    const id = selectedAccountId();
+    const ownerSnapshot = selectionSnapshot();
+    const id = ownerSnapshot.id;
     const token = button.dataset.reviewToken;
     const card = button.closest('.card');
     const subject = card?.querySelector('.card-subject')?.textContent?.trim() || '(no subject)';
     const sender = card?.querySelector('.card-from')?.textContent?.trim() || 'unknown sender';
-
-    if (!id || !token) {
-      setStatus('Move failed: the account or protected action token is missing.', 'error');
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `Move exactly this message to the provider Trash folder?\n\n${subject}\n${sender}\n\nThis is reversible from Trash.`,
-    );
-    if (!confirmed) return;
+    if (!id || !token) { setStatus('Move failed: the account or protected action token is missing.', 'error'); return; }
+    if (!window.confirm(`Move exactly this message to the provider Trash folder?\n\n${subject}\n${sender}\n\nThis is reversible from Trash.`)) return;
+    if (!selectionMatches(ownerSnapshot)) { window.alert('The selected account changed. The Trash action was not sent.'); return; }
 
     const previousText = button.textContent;
     button.disabled = true;
     button.textContent = 'Moving…';
     let actionStatus = card?.querySelector('.trash-action-status');
     if (!actionStatus && card) {
-      actionStatus = document.createElement('div');
-      actionStatus.className = 'trash-action-status';
-      actionStatus.setAttribute('role', 'status');
-      card.appendChild(actionStatus);
+      actionStatus = document.createElement('div'); actionStatus.className = 'trash-action-status'; actionStatus.setAttribute('role', 'status'); card.appendChild(actionStatus);
     }
-    if (actionStatus) {
-      actionStatus.className = 'trash-action-status';
-      actionStatus.textContent = 'Requesting a reversible provider Trash move…';
-    }
+    if (actionStatus) { actionStatus.className = 'trash-action-status'; actionStatus.textContent = 'Requesting a reversible provider Trash move…'; }
 
     try {
       const response = await fetch(`/api/accounts/${encodeURIComponent(id)}/messages/trash`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || `Server returned HTTP ${response.status}`);
-      const failedReason = Array.isArray(result.failed) && result.failed.length
-        ? result.failed[0]?.reason
-        : null;
+      const failedReason = Array.isArray(result.failed) && result.failed.length ? result.failed[0]?.reason : null;
       if (result.success !== true || result.accountId !== id || result.token !== token || result.requested !== 1 || result.moved !== 1 || failedReason) {
         throw new Error(failedReason || `Provider reported moved ${result.moved ?? 0} of ${result.requested ?? 1}.`);
       }
-
+      if (!selectionMatches(ownerSnapshot)) return;
       button.textContent = 'Moved to Trash ✓';
       card?.classList.add('trash-moved');
-      if (actionStatus) {
-        actionStatus.className = 'trash-action-status success';
-        actionStatus.textContent = 'Provider confirmed that exactly one message was moved to Trash.';
-      }
+      if (actionStatus) { actionStatus.className = 'trash-action-status success'; actionStatus.textContent = 'Provider confirmed that exactly one message was moved to Trash.'; }
       setStatus('Exactly one message was moved to the provider Trash folder.', 'complete');
     } catch (error) {
+      if (!selectionMatches(ownerSnapshot)) return;
       button.disabled = false;
       button.textContent = previousText || 'Move to Trash';
       const message = error instanceof Error ? error.message : String(error);
-      if (actionStatus) {
-        actionStatus.className = 'trash-action-status error';
-        actionStatus.textContent = `Move failed: ${message}`;
-      }
+      if (actionStatus) { actionStatus.className = 'trash-action-status error'; actionStatus.textContent = `Move failed: ${message}`; }
       setStatus(`Move failed: ${message}`, 'error');
     }
   }
@@ -484,33 +459,29 @@
   document.addEventListener('click', handleTrashAction, true);
 
   Object.defineProperty(window, 'emailShieldStartScan', {
-    value: (type, options = {}) => start(type, options),
-    writable: false,
-    configurable: false,
-    enumerable: false,
+    value: (type, options = {}) => start(type, options), writable: false, configurable: false, enumerable: false,
   });
 
-  for (const [id, type] of [
-    ['quickScanBtn', 'quick'],
-    ['fullScanBtn', 'full'],
-    ['spamScanBtn', 'spam'],
-  ]) {
+  for (const [id, type] of [['quickScanBtn', 'quick'], ['fullScanBtn', 'full'], ['spamScanBtn', 'spam']]) {
     document.getElementById(id)?.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      void start(type);
+      event.preventDefault(); event.stopImmediatePropagation(); void start(type);
     }, true);
   }
 
   stopButton.addEventListener('click', async (event) => {
     event.preventDefault();
     event.stopImmediatePropagation();
-    const id = selectedAccountId();
-    if (!id) {
-      setStatus('Stop failed: no connected mailbox is selected for this scan.', 'error');
+    const id = accountId;
+    const ownerSnapshot = scanOwnerSnapshot;
+    const activeSource = source;
+    if (!id || !activeSource) {
+      setStatus('Stop failed: no active scan is owned by this dashboard.', 'error');
       return;
     }
-    setStatus('Stopping scan and finalizing the protected resume checkpoint…', 'running');
+    if (ownerSnapshot && !selectionMatches(ownerSnapshot)) {
+      if (!window.confirm('The selected mailbox changed. Stop the scan that is still running for the previously selected mailbox?')) return;
+    }
+    if (!ownerSnapshot || selectionMatches(ownerSnapshot)) setStatus('Stopping scan and finalizing the protected resume checkpoint…', 'running');
     let serverFinal = false;
     try {
       const response = await fetch(`/api/accounts/${encodeURIComponent(id)}/scan/stop`, { method: 'POST' });
@@ -518,20 +489,18 @@
       serverFinal = result.active === false;
       if (!response.ok) throw new Error(result.error || `Server returned HTTP ${response.status}`);
       if (result.active !== false) throw new Error('Email Shield did not confirm that the scan worker stopped.');
-      if (result.status === 'completed') {
-        setStatus('The scan completed before the stop request took effect. Results and protected history are complete.', 'complete');
-      } else if (result.stopped === true && result.historySaved === true && result.resumable === true) {
-        const examined = Number(result.counters?.examined || 0);
-        setStatus(`Scan stopped after ${examined} examined message(s). Resume will continue from the last confirmed provider page.`, 'complete');
-      } else if (result.status === 'idle') {
-        setStatus('No scan is currently running.', 'complete');
-      } else {
-        throw new Error('Email Shield stopped the worker but did not confirm a resumable protected checkpoint.');
+      if (ownerSnapshot && selectionMatches(ownerSnapshot)) {
+        if (result.status === 'completed') setStatus('The scan completed before the stop request took effect. Results and protected history are complete.', 'complete');
+        else if (result.stopped === true && result.historySaved === true && result.resumable === true) {
+          const examined = Number(result.counters?.examined || 0);
+          setStatus(`Scan stopped after ${examined} examined message(s). Resume will continue from the last confirmed provider page.`, 'complete');
+        } else if (result.status === 'idle') setStatus('No scan is currently running.', 'complete');
+        else throw new Error('Email Shield stopped the worker but did not confirm a resumable protected checkpoint.');
       }
     } catch (error) {
-      setStatus(`Stop failed: ${error instanceof Error ? error.message : String(error)}`, 'error');
+      if (!ownerSnapshot || selectionMatches(ownerSnapshot)) setStatus(`Stop failed: ${error instanceof Error ? error.message : String(error)}`, 'error');
     } finally {
-      if (serverFinal) finish();
+      if (serverFinal) finish(activeSource);
       historyChanged();
     }
   }, true);
