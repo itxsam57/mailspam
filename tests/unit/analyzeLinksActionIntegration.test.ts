@@ -110,7 +110,7 @@ function scannedActionContext(url: string): ScanActionContext {
       brandDomainMismatch: null,
       source: "body",
     }],
-    unsubscribe: { available: false, method: "none", target: null, source: "none", actionKey: null },
+    unsubscribe: { available: false, method: "none", target: null, source: "none" },
     communityReport: {
       campaignFingerprint: "b".repeat(64),
       indicators: [{ type: "campaign", value: "b".repeat(64) }],
@@ -163,7 +163,7 @@ describe("Analyze Links scanned-message action", () => {
     expect(body.results).toHaveLength(1);
     expect(body.results[0]).toMatchObject({ classification: "credential_trap" });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(fetchImpl).toHaveBeenCalledWith(canonicalUrl, expect.any(AbortSignal));
-    expect(fetchImpl).not.toHaveBeenCalledWith(injectedUrl, expect.anything());
+    expect(fetchImpl).toHaveBeenCalledWith(canonicalUrl);
+    expect(fetchImpl.mock.calls.map((call) => call[0])).not.toContain(injectedUrl);
   });
 });
