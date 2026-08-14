@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createServer } from "./server.js";
 import { localSecurity, type LocalSecurityManager } from "./localSecurity.js";
-import { requestActiveScanStop } from "./scanStream.js";
+import { requestActiveScanStop, waitForActiveScanFinalization } from "./scanStream.js";
 import {
   createFamilyAwareResumeScanStreamHandler,
   createFamilyAwareScanStreamHandler,
@@ -379,16 +379,45 @@ export function createLocalDesktopServer(options: {
   app.get("/api/accounts/:id/scan/resume/:scanId", createFamilyAwareResumeScanStreamHandler({ community, accountPlatform }));
   app.get("/api/accounts/:id/scan/:type", createFamilyAwareScanStreamHandler({ community, accountPlatform }));
 
-  app.post("/api/accounts/:id/scan/stop", (req: Request, res: Response) => {
+  app.post("/api/accounts/:id/scan/stop", async (req: Request, res: Response) => {
     const session = sessionStore.get(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
     const worker = session.activeScanWorker;
-    if (!worker) return res.json({ stopped: true, active: false });
-    requestActiveScanStop(session.id);
+    if (!worker) return res.json({ stopped: true, active: false, status: "idle", resumable: false });
+
+    const finalization = waitForActiveScanFinalization(session.id);
+    if (!finalization || !requestActiveScanStop(session.id)) {
+      return res.status(500).json({ error: "The active scan lifecycle could not be finalized safely. Reload Email Shield before starting another scan." });
+    }
+
     try { worker.postMessage({ type: "cancel" }); } catch {}
-    const hardStop = setTimeout(() => { void worker.terminate(); }, 1000);
+    const hardStop = setTimeout(() => { void worker.terminate(); }, 1_500);
     hardStop.unref();
-    res.json({ stopped: true, active: true });
+
+    try {
+      const result = await finalization;
+      res.setHeader("Cache-Control", "no-store");
+      const body = {
+        stopped: result.status === "stopped",
+        active: false,
+        status: result.status,
+        scanId: result.scanId,
+        historySaved: result.historySaved,
+        resumable: result.resumable,
+        counters: result.counters,
+      };
+      if (!result.historySaved || result.status === "failed") {
+        return res.status(500).json({
+          ...body,
+          error: result.historySaved
+            ? "The scan failed while stopping. Review Scan history before starting another scan."
+            : "The scan stopped, but its final protected checkpoint could not be saved. Restart Email Shield before attempting Resume.",
+        });
+      }
+      return res.json(body);
+    } finally {
+      clearTimeout(hardStop);
+    }
   });
 
   app.post("/api/accounts/:id/messages/unblock-sender", (req: Request, res: Response) => {
