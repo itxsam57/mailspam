@@ -115,6 +115,22 @@ describe("browser boot architecture", () => {
     expect(source).toContain("serverFinal = result.active === false");
   });
 
+  it("keeps developer execution controls fail-closed and out of the normal consumer UI", () => {
+    const controls = read("web/developer-controls.js");
+    const composition = read("server/src/api/dashboardScripts.ts");
+    const controlsIndex = composition.indexOf('"/developer-controls.js"');
+    const shellIndex = composition.indexOf('"/app-shell.js"');
+    expect(controlsIndex).toBeGreaterThan(-1);
+    expect(controlsIndex).toBeLessThan(shellIndex);
+    expect(controls).toContain("button.hidden = true");
+    expect(controls).toContain("get('developer') === '1'");
+    expect(controls).toContain("profile.developmentEntitlementsEnabled === true");
+    expect(controls).toContain("button.addEventListener('click', runDeveloperSuite, true)");
+    expect(controls).toContain("event.stopImmediatePropagation()");
+    expect(controls).toContain("results.textContent");
+    expect(controls).not.toContain("results.innerHTML");
+  });
+
   it("uses one visible desktop brand while preserving the compact mobile header", () => {
     const shell = read("web/app-shell.js");
     expect(shell).toContain("@media(min-width:901px){body.email-shield-shell>header{display:none}}");
