@@ -7,10 +7,19 @@
   if (!(panel instanceof HTMLElement) || !(interval instanceof HTMLSelectElement) || !(toggle instanceof HTMLButtonElement) || !(status instanceof HTMLElement) || !(accounts instanceof HTMLElement)) return;
 
   let enabled = false;
+  let loadedAccountId = null;
   let requestGeneration = 0;
 
-  function selectedAccountId() {
-    return document.querySelector('.account-chip.active')?.dataset.id || null;
+  function selectionSnapshot() {
+    const owner = window.emailShieldAccountSelection;
+    if (owner?.capture) return owner.capture();
+    return Object.freeze({ id: document.querySelector('.account-chip.active')?.dataset.id || null, generation: null });
+  }
+
+  function selectionMatches(snapshot) {
+    const owner = window.emailShieldAccountSelection;
+    if (owner?.matches && snapshot?.generation !== null) return owner.matches(snapshot);
+    return snapshot?.id === (document.querySelector('.account-chip.active')?.dataset.id || null);
   }
 
   function formatTime(value) {
@@ -18,7 +27,8 @@
     return window.emailShieldI18n?.formatDate(value) ?? new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
   }
 
-  function render(body) {
+  function render(body, accountId) {
+    loadedAccountId = accountId;
     enabled = body.enabled === true;
     interval.value = String(body.intervalMinutes || 60);
     toggle.textContent = enabled ? 'Pause' : 'Enable';
@@ -31,47 +41,76 @@
     else status.textContent = `Background protection is scheduled for ${formatTime(body.nextRunAt)} (${persistence}).`;
   }
 
+  function clearForSelectionChange() {
+    loadedAccountId = null;
+    enabled = false;
+    toggle.textContent = 'Enable';
+    toggle.setAttribute('aria-pressed', 'false');
+    toggle.disabled = true;
+    status.textContent = 'Loading background protection for the selected account…';
+  }
+
   async function refresh() {
-    const id = selectedAccountId();
-    const generation = ++requestGeneration;
+    const snapshot = selectionSnapshot();
+    const id = snapshot.id;
+    const request = ++requestGeneration;
     if (!id) {
+      loadedAccountId = null;
+      enabled = false;
       panel.hidden = true;
+      toggle.disabled = true;
       return;
     }
     panel.hidden = false;
+    if (loadedAccountId !== id) clearForSelectionChange();
     try {
       const response = await fetch(`/api/accounts/${encodeURIComponent(id)}/background-protection`);
       const body = await response.json();
-      if (generation !== requestGeneration || id !== selectedAccountId()) return;
+      if (request !== requestGeneration || !selectionMatches(snapshot)) return;
       if (!response.ok) throw new Error(body.error || 'Background protection status failed.');
-      render(body);
+      render(body, id);
+      toggle.disabled = false;
     } catch (error) {
-      if (generation === requestGeneration) status.textContent = error instanceof Error ? error.message : String(error);
+      if (request === requestGeneration && selectionMatches(snapshot)) {
+        loadedAccountId = null;
+        toggle.disabled = true;
+        status.textContent = error instanceof Error ? error.message : String(error);
+      }
     }
   }
 
   toggle.addEventListener('click', async () => {
-    const id = selectedAccountId();
+    const snapshot = selectionSnapshot();
+    const id = snapshot.id;
     if (!id) return;
+    if (loadedAccountId !== id) {
+      status.textContent = 'Mailbox selection changed. Background protection was not modified; reload its current state first.';
+      await refresh();
+      return;
+    }
+    const nextEnabled = !enabled;
+    const intervalMinutes = Number(interval.value);
     toggle.disabled = true;
     try {
       const response = await fetch(`/api/accounts/${encodeURIComponent(id)}/background-protection`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: !enabled, intervalMinutes: Number(interval.value) }),
+        body: JSON.stringify({ enabled: nextEnabled, intervalMinutes }),
       });
       const body = await response.json();
+      if (!selectionMatches(snapshot)) return;
       if (!response.ok) throw new Error(body.error || 'Background protection update failed.');
-      render(body);
+      render(body, id);
     } catch (error) {
-      status.textContent = error instanceof Error ? error.message : String(error);
+      if (selectionMatches(snapshot)) status.textContent = error instanceof Error ? error.message : String(error);
     } finally {
-      toggle.disabled = false;
+      if (selectionMatches(snapshot) && loadedAccountId === id) toggle.disabled = false;
     }
   });
 
   interval.addEventListener('change', () => {
-    if (enabled) status.textContent = 'Pause and enable again to apply the new interval.';
+    const id = selectionSnapshot().id;
+    if (id && loadedAccountId === id && enabled) status.textContent = 'Pause and enable again to apply the new interval.';
   });
 
   new MutationObserver(() => { void refresh(); }).observe(accounts, {
@@ -80,6 +119,6 @@
     attributes: true,
     attributeFilter: ['class'],
   });
-  window.setInterval(() => { if (selectedAccountId()) void refresh(); }, 30_000);
+  window.setInterval(() => { if (selectionSnapshot().id) void refresh(); }, 30_000);
   void refresh();
 })();
