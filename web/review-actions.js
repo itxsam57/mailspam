@@ -225,7 +225,7 @@
 
     if (isReportScam) {
       promptTitle = 'Report this scam campaign to Email Shield';
-      explanation = 'Email Shield will save this campaign as an immediate local threat and attempt to move the current message to Trash. Future matching campaign mail remains protected even if provider, Family Shield, or community delivery is temporarily unavailable. Only privacy-reduced campaign indicators can leave the device; message content, subject, mailbox address, credentials, provider ID, contacts and raw private URLs are not submitted.';
+      explanation = 'Email Shield will save this campaign as an immediate local threat and attempt to move the current message to Trash. Future matching campaign mail remains protected even if provider, Family Shield, or community delivery is temporarily unavailable. Only privacy-reduced indicators can leave the device; message content, subject, mailbox address, credentials, provider ID, contacts, attachment names and raw private URLs are not submitted. One report cannot globally block a sender; independent reports and evidence thresholds are required before cross-user warning or confirmed-threat states.';
     } else if (isMoveSpam) {
       promptTitle = 'Move exactly this message to provider Spam/Junk';
       explanation = 'This affects only the selected mailbox message. It does not create Email Shield community protection and does not automatically block the sender.';
