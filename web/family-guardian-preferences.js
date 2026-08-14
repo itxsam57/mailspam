@@ -19,12 +19,6 @@
   let loaded = false;
   let dirty = true;
 
-  function escapeHtml(value) {
-    return String(value ?? '').replace(/[&<>"']/g, (character) => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-    }[character]));
-  }
-
   async function responseJson(response) {
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body.error || `Request failed (${response.status}).`);
@@ -82,7 +76,7 @@
       dirty = false;
     } catch (error) {
       dirty = true;
-      if (status) status.textContent = error.message || String(error);
+      if (status) status.textContent = error instanceof Error ? error.message : String(error);
     }
   }
 
@@ -107,7 +101,7 @@
       if (status) status.textContent = result.saved ? 'Family Guardian preferences saved.' : 'Preferences were not saved.';
       if (result.saved) dirty = false;
     } catch (error) {
-      if (status) status.textContent = escapeHtml(error.message || String(error));
+      if (status) status.textContent = error instanceof Error ? error.message : String(error);
     }
   }
 
