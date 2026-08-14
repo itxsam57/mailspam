@@ -11,6 +11,7 @@
   const MAX_IMPORT_BYTES = 60 * 1024;
   const selection = new Map();
   let loadedAccountId = null;
+  let loadedSelectionGeneration = null;
   let snapshot = null;
   let loadSequence = 0;
 
@@ -92,8 +93,28 @@
   const countsElement = document.getElementById('policyCounts');
   const listElement = document.getElementById('policyList');
 
+  function selectionSnapshot() {
+    const owner = window.emailShieldAccountSelection;
+    if (owner?.capture) return owner.capture();
+    return Object.freeze({ id: document.querySelector('#accountsList .account-chip.active')?.getAttribute('data-id') || null, generation: null });
+  }
+
+  function selectionMatches(ownerSnapshot) {
+    const owner = window.emailShieldAccountSelection;
+    if (owner?.matches && ownerSnapshot?.generation !== null) return owner.matches(ownerSnapshot);
+    return ownerSnapshot?.id === (document.querySelector('#accountsList .account-chip.active')?.getAttribute('data-id') || null);
+  }
+
   function selectedAccountId() {
-    return document.querySelector('#accountsList .account-chip.active')?.getAttribute('data-id') || null;
+    return selectionSnapshot().id;
+  }
+
+  function loadedPolicyMatchesSelection(ownerSnapshot = selectionSnapshot()) {
+    return Boolean(
+      loadedAccountId
+      && ownerSnapshot.id === loadedAccountId
+      && (loadedSelectionGeneration === null || ownerSnapshot.generation === loadedSelectionGeneration)
+    );
   }
 
   function setStatus(message, kind = '') {
@@ -109,9 +130,7 @@
   }
 
   function displayValue(category, value) {
-    if (category === 'approvedExceptions' && value.startsWith('message:')) {
-      return `Exact message · ${value.slice(8, 20)}…`;
-    }
+    if (category === 'approvedExceptions' && value.startsWith('message:')) return `Exact message · ${value.slice(8, 20)}…`;
     if (category === 'unsubscribedActions') return `Confirmed unsubscribe · ${value.slice(0, 12)}…`;
     if (category === 'reportedCampaigns') return `Campaign fingerprint · ${value.slice(0, 12)}…`;
     return value;
@@ -154,13 +173,14 @@
   function renderList() {
     listElement.replaceChildren();
     const items = visibleItems();
-    clearCategoryButton.disabled = !loadedAccountId || categorySelect.value === 'all';
-    revokeSelectedButton.disabled = !loadedAccountId || selection.size === 0;
+    const bound = loadedPolicyMatchesSelection();
+    clearCategoryButton.disabled = !bound || categorySelect.value === 'all';
+    revokeSelectedButton.disabled = !bound || selection.size === 0;
 
-    if (!loadedAccountId) {
+    if (!loadedAccountId || !bound) {
       const empty = document.createElement('div');
       empty.className = 'policy-empty';
-      empty.textContent = 'Select a connected account to view its personal rules.';
+      empty.textContent = loadedAccountId ? 'Account selection changed. Loading the selected account policy…' : 'Select a connected account to view its personal rules.';
       listElement.appendChild(empty);
       return;
     }
@@ -182,6 +202,7 @@
       checkbox.checked = selection.has(key);
       checkbox.setAttribute('aria-label', `Select ${CATEGORY_LABELS[item.category]} entry`);
       checkbox.addEventListener('change', () => {
+        if (!loadedPolicyMatchesSelection()) return;
         if (checkbox.checked) selection.set(key, { category: item.category, value: item.value });
         else selection.delete(key);
         revokeSelectedButton.disabled = selection.size === 0;
@@ -201,6 +222,7 @@
       const revoke = document.createElement('button');
       revoke.textContent = 'Revoke';
       revoke.addEventListener('click', async () => {
+        if (!loadedPolicyMatchesSelection()) { void loadPolicy(true); return; }
         if (!window.confirm(`Revoke this ${CATEGORY_LABELS[item.category].toLowerCase()} entry?`)) return;
         await mutate('/revoke', { category: item.category, value: item.value }, 'Policy entry revoked.');
       });
@@ -222,10 +244,12 @@
   }
 
   async function loadPolicy(force = false) {
-    const accountId = selectedAccountId();
+    const ownerSnapshot = selectionSnapshot();
+    const accountId = ownerSnapshot.id;
     if (!accountId) {
       loadSequence += 1;
       loadedAccountId = null;
+      loadedSelectionGeneration = null;
       snapshot = null;
       selection.clear();
       controlsEnabled(false);
@@ -233,7 +257,7 @@
       render();
       return;
     }
-    if (!force && accountId === loadedAccountId && snapshot) return;
+    if (!force && loadedPolicyMatchesSelection(ownerSnapshot) && snapshot) return;
 
     const requestSequence = ++loadSequence;
     controlsEnabled(false);
@@ -241,9 +265,10 @@
     try {
       const response = await fetch(`/api/accounts/${encodeURIComponent(accountId)}/personal-policy`, { cache: 'no-store' });
       const body = await responseJson(response);
-      if (requestSequence !== loadSequence || selectedAccountId() !== accountId) return;
+      if (requestSequence !== loadSequence || !selectionMatches(ownerSnapshot)) return;
 
       loadedAccountId = accountId;
+      loadedSelectionGeneration = ownerSnapshot.generation;
       snapshot = {};
       for (const category of CATEGORIES) snapshot[category] = Array.isArray(body[category]) ? body[category].slice() : [];
       selection.clear();
@@ -251,8 +276,9 @@
       setStatus(body.persistent ? 'Personal policy is encrypted and persistent for this account.' : 'Personal policy is memory-only on this platform/session.', body.persistent ? 'ok' : '');
       render();
     } catch (error) {
-      if (requestSequence !== loadSequence || selectedAccountId() !== accountId) return;
+      if (requestSequence !== loadSequence || !selectionMatches(ownerSnapshot)) return;
       loadedAccountId = accountId;
+      loadedSelectionGeneration = ownerSnapshot.generation;
       snapshot = null;
       selection.clear();
       controlsEnabled(true);
@@ -262,7 +288,14 @@
   }
 
   async function mutate(suffix, body, successMessage) {
-    if (!loadedAccountId) return;
+    const ownerSnapshot = selectionSnapshot();
+    if (!loadedPolicyMatchesSelection(ownerSnapshot)) {
+      selection.clear();
+      controlsEnabled(false);
+      setStatus('Account selection changed. No personal policy was modified; loading the selected account policy now.', 'error');
+      void loadPolicy(true);
+      return;
+    }
     const mutationAccountId = loadedAccountId;
     controlsEnabled(false);
     setStatus('Saving personal policy…');
@@ -273,12 +306,12 @@
         body: JSON.stringify(body),
       });
       await responseJson(response);
-      if (selectedAccountId() !== mutationAccountId) return;
+      if (!selectionMatches(ownerSnapshot)) return;
       selection.clear();
       setStatus(successMessage, 'ok');
       await loadPolicy(true);
     } catch (error) {
-      if (selectedAccountId() !== mutationAccountId) return;
+      if (!selectionMatches(ownerSnapshot)) return;
       controlsEnabled(true);
       setStatus(error.message || String(error), 'error');
     }
@@ -292,12 +325,14 @@
   refreshButton.addEventListener('click', () => { void loadPolicy(true); });
 
   selectVisibleButton.addEventListener('click', () => {
+    if (!loadedPolicyMatchesSelection()) { void loadPolicy(true); return; }
     for (const item of visibleItems()) selection.set(selectionKey(item.category, item.value), item);
     renderList();
   });
 
   revokeSelectedButton.addEventListener('click', async () => {
     if (!selection.size) return;
+    if (!loadedPolicyMatchesSelection()) { void loadPolicy(true); return; }
     if (!window.confirm(`Revoke ${selection.size} selected personal policy entries?`)) return;
     await mutate('/bulk-revoke', { items: [...selection.values()] }, `${selection.size} policy entries revoked.`);
   });
@@ -305,11 +340,13 @@
   clearCategoryButton.addEventListener('click', async () => {
     const category = categorySelect.value;
     if (!CATEGORIES.includes(category)) return;
+    if (!loadedPolicyMatchesSelection()) { void loadPolicy(true); return; }
     if (!window.confirm(`Clear every entry in ${CATEGORY_LABELS[category]} for the selected account?`)) return;
     await mutate('/clear-category', { category, confirmation: category }, `${CATEGORY_LABELS[category]} cleared.`);
   });
 
   resetButton.addEventListener('click', async () => {
+    if (!loadedPolicyMatchesSelection()) { void loadPolicy(true); return; }
     const phrase = window.prompt('Type RESET PERSONAL POLICY to remove every personal rule for the selected account.');
     if (phrase !== 'RESET PERSONAL POLICY') {
       if (phrase !== null) setStatus('Reset cancelled because the confirmation phrase did not match.', 'error');
@@ -319,16 +356,19 @@
   });
 
   exportButton.addEventListener('click', async () => {
-    if (!loadedAccountId) return;
+    const ownerSnapshot = selectionSnapshot();
+    if (!loadedPolicyMatchesSelection(ownerSnapshot)) { void loadPolicy(true); return; }
+    const exportAccountId = loadedAccountId;
     controlsEnabled(false);
     setStatus('Preparing policy-only backup…');
     try {
-      const response = await fetch(`/api/accounts/${encodeURIComponent(loadedAccountId)}/personal-policy/export`);
+      const response = await fetch(`/api/accounts/${encodeURIComponent(exportAccountId)}/personal-policy/export`);
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
         throw new Error(body.error || 'Policy export failed.');
       }
       const blob = await response.blob();
+      if (!selectionMatches(ownerSnapshot)) return;
       const href = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = href;
@@ -340,16 +380,20 @@
       controlsEnabled(true);
       setStatus('Policy-only backup exported. It contains no mailbox credentials or OAuth tokens.', 'ok');
     } catch (error) {
+      if (!selectionMatches(ownerSnapshot)) return;
       controlsEnabled(true);
       setStatus(error.message || String(error), 'error');
     }
   });
 
-  importButton.addEventListener('click', () => importFile.click());
+  importButton.addEventListener('click', () => {
+    if (!loadedPolicyMatchesSelection()) { void loadPolicy(true); return; }
+    importFile.click();
+  });
   importFile.addEventListener('change', async () => {
     const file = importFile.files?.[0];
     importFile.value = '';
-    if (!file || !loadedAccountId) return;
+    if (!file || !loadedPolicyMatchesSelection()) { void loadPolicy(true); return; }
     if (file.size > MAX_IMPORT_BYTES) {
       setStatus('Policy backup is too large for the protected local import boundary.', 'error');
       return;
