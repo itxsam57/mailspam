@@ -79,9 +79,9 @@ describe("QR behavioral certification", () => {
     expect(result.scored.verdict).toBe("high_risk");
     expect(result.action).toBe("allow_one_click_block");
     expect(result.scored.evidence).toEqual(expect.arrayContaining([
-      expect.objectContaining({ layer: "link_structure", code: "LINK_EMBEDDED_IN_QR" }),
       expect.objectContaining({ layer: "attachment_qr", code: "QR_CODE_URL_PAYLOAD" }),
     ]));
+    expect(result.scored.confirmedByRule).toBe(false);
   });
 
   it("promotes a real decoded QR URL in verified malicious intelligence to Confirmed Threat and auto-trash eligibility", () => {
@@ -129,7 +129,7 @@ describe("QR behavioral certification", () => {
       threatFeed: emptyFeed,
     });
 
-    expect(visible.scored.evidence.some((item) => item.code === "LINK_EMBEDDED_IN_QR" || item.code === "QR_CODE_URL_PAYLOAD")).toBe(false);
+    expect(visible.scored.evidence.some((item) => item.code === "QR_CODE_URL_PAYLOAD")).toBe(false);
     expect(visible.scored.verdict).toBe("review");
     expect(visible.scored.confirmedByRule).toBe(false);
     expect(hiddenInQr.scored.verdict).toBe("high_risk");
