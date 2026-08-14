@@ -50,11 +50,11 @@
     if (activeFlowId) {
       setStatus('Complete the Google consent window. Email Shield is waiting for the protected loopback callback…');
     } else if (googleConfigured === false) {
-      setStatus('Google OAuth is not configured in this development build. Set the Email Shield desktop OAuth client ID and restart the app.');
+      setStatus('Google sign-in is unavailable in this Email Shield build. Install or update to an official build with Google connection support.');
     } else if (googleConfigured === true) {
       setStatus('Google opens in a separate browser window. Email Shield uses PKCE and a one-time local callback; your Google password is never given to Email Shield.');
     } else {
-      setStatus('Checking Google OAuth configuration…');
+      setStatus('Checking Google sign-in availability…');
     }
   }
 
@@ -99,7 +99,7 @@
   async function startGuidedGoogleOAuth() {
     if (activeFlowId) return;
     if (googleConfigured === false) {
-      setStatus('Google OAuth is not configured for this build. Configure the desktop client ID and restart Email Shield.');
+      setStatus('Google sign-in is unavailable in this Email Shield build. Install or update to an official build with Google connection support.');
       return;
     }
 
@@ -161,7 +161,7 @@
   for (const select of [providerSelect, modeSelect]) {
     select.addEventListener('change', () => {
       // Run after the legacy field renderer so guided Gmail can replace only
-      // that provider's old developer-flow hint without redesigning the panel.
+      // that provider's old hint without redesigning the panel.
       setTimeout(() => {
         if (isGuidedGmail()) renderGuidedState();
         else restoreNormalConnectLabel();
