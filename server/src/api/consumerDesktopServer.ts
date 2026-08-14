@@ -7,6 +7,7 @@ import { communityNetwork } from "../community/network.js";
 import { registerAccountLifecycleRoutes } from "./accountLifecycleRoutes.js";
 import { registerConsumerCatchTrashRoutes } from "./consumerCatchTrashRoutes.js";
 import { registerConsumerProtectionRoutes } from "./consumerProtectionRoutes.js";
+import { registerConsumerUnsubscribeActivityRoutes } from "./consumerUnsubscribeActivityRoutes.js";
 import { registerFamilyGuardianPreferenceRoutes } from "./familyGuardianPreferenceRoutes.js";
 import { registerMediaAuthenticityRoute } from "./mediaAuthenticityRoute.js";
 import { createLocalDesktopServer } from "./localDesktopServer.js";
@@ -81,6 +82,7 @@ export function createConsumerDesktopServer(options: ConsumerDesktopServerOption
   // The binary media route above consumes application/octet-stream itself.
   // Remaining consumer API operations are small, strictly bounded JSON.
   app.use("/api/consumer", express.json({ limit: "64kb", strict: true }));
+  registerConsumerUnsubscribeActivityRoutes(app);
   registerConsumerCatchTrashRoutes(app);
   registerConsumerProtectionRoutes(app, {
     accountPlatform: localOptions.accountPlatform,
