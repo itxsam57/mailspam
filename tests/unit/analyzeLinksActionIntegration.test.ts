@@ -94,16 +94,16 @@ async function connectFixture(context: BrowserContext, provider: "gmail" | "outl
   return accountId;
 }
 
-function scanCards(stream: string): any[] {
-  const cards: any[] = [];
+function scanDiagnostics(stream: string): any[] {
+  const summaries: any[] = [];
   for (const line of stream.split(/\r?\n/)) {
     if (!line.startsWith("data: ")) continue;
     try {
       const value = JSON.parse(line.slice(6));
-      if (Array.isArray(value?.suspiciousCards)) cards.push(...value.suspiciousCards);
+      if (Array.isArray(value?.diagnosticSummaries)) summaries.push(...value.diagnosticSummaries);
     } catch {}
   }
-  return cards;
+  return summaries;
 }
 
 describe("Analyze Links scanned-message action", () => {
@@ -117,16 +117,22 @@ describe("Analyze Links scanned-message action", () => {
     });
     expect(scanResponse.status).toBe(200);
     const stream = await scanResponse.text();
-    const cards = scanCards(stream);
-    const analyzable = cards.find((card) => card?.reviewAction?.canAnalyzeLinks === true && card?.reviewAction?.token);
+    const summaries = scanDiagnostics(stream);
+    expect(summaries.length).toBeGreaterThan(0);
+    const analyzable = summaries.find((summary) => summary?.reviewAction?.canAnalyzeLinks === true && summary?.reviewAction?.token);
     expect(analyzable).toBeDefined();
-    expect(analyzable.envelope).toEqual(expect.objectContaining({
+
+    // The scan sends only privacy-bounded presentation fields + opaque action
+    // capabilities. Canonical URLs/body/attachment objects remain server-side.
+    expect(analyzable).toEqual(expect.objectContaining({
       subject: expect.any(String),
-      from: expect.any(Object),
+      verdict: expect.any(String),
+      reviewAction: expect.objectContaining({ token: expect.any(String), canAnalyzeLinks: true }),
     }));
-    expect(analyzable.envelope).not.toHaveProperty("links");
-    expect(analyzable.envelope).not.toHaveProperty("textPreview");
-    expect(analyzable.envelope).not.toHaveProperty("attachments");
+    expect(analyzable).not.toHaveProperty("actionContext");
+    expect(analyzable).not.toHaveProperty("links");
+    expect(analyzable).not.toHaveProperty("textPreview");
+    expect(analyzable).not.toHaveProperty("attachments");
 
     const token = analyzable.reviewAction.token as string;
     const injectedUrl = "https://attacker-injected.example.test/credential-steal";
