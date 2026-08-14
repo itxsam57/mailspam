@@ -14,6 +14,13 @@
     enumerable: false,
   });
 
+  // The legacy bootstrap header predates the consumer shell. Once the shell is
+  // active it must never reappear at a narrow viewport and expose internal
+  // developer controls or a duplicate brand header.
+  const shellIsolationStyle = document.createElement('style');
+  shellIsolationStyle.textContent = 'body.email-shield-shell > header { display: none !important; }';
+  document.head.appendChild(shellIsolationStyle);
+
   // A URL query is never authority to enter developer mode. Production builds
   // discard it before deferred consumer modules execute, so fixture/developer
   // controls cannot be resurrected by editing the address bar.
