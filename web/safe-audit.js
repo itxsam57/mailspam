@@ -45,8 +45,8 @@
 
     function unsubscribeLabel(method, done) {
       if (done && method === 'one_click_post') return 'Unsubscribed ✓';
-      if (method === 'link_only') return 'Open unsubscribe page';
-      if (method === 'mailto') return 'Email unsubscribe request';
+      if (method === 'link_only') return 'Open unsubscribe page (not confirmed)';
+      if (method === 'mailto') return 'Open unsubscribe email (not confirmed)';
       return 'Unsubscribe';
     }
 
@@ -104,8 +104,6 @@
       empty.hidden = hasSafe;
     }
 
-    // The diagnostic table is the sole data source. Updating Safe rows must not
-    // force the disclosure open or observe unrelated status mutations.
     new MutationObserver(syncSafeRows).observe(diagnosticBody, { childList: true });
     syncSafeRows();
     return true;
