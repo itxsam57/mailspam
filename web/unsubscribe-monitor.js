@@ -31,7 +31,6 @@
 
   function refreshPersonalPolicy() {
     window.dispatchEvent(new CustomEvent('email-shield-policy-changed'));
-    document.getElementById('policyRefresh')?.click();
   }
 
   async function recordManualActivity(accountId, token, actionKey, method) {
