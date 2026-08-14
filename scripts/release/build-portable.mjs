@@ -36,6 +36,7 @@ const requiredSources = [
   "server/package.json",
   "package-lock.json",
   "web/index.html",
+  "fixtures/scam-corpus/manifest.json",
   "scripts/release/release-cli.mjs",
   "scripts/release/release-lifecycle-lib.mjs",
   "scripts/release/portable-package-lib.mjs",
@@ -55,6 +56,11 @@ copyTree(resolve(root, "server/dist"), join(packageRoot, "app/server/dist"));
 copyRegularFile(resolve(root, "server/package.json"), join(packageRoot, "app/server/package.json"));
 copyRegularFile(resolve(root, "package-lock.json"), join(packageRoot, "app/package-lock.json"));
 copyTree(resolve(root, "web"), join(packageRoot, "app/web"));
+// Fixture mode is a supported consumer/owner acceptance path in the shipped
+// application. The compiled fixture adapter resolves this corpus relative to
+// app/server/dist, so the runtime asset must be part of the release package,
+// not merely present in a source checkout.
+copyTree(resolve(root, "fixtures/scam-corpus"), join(packageRoot, "app/fixtures/scam-corpus"));
 copyRegularFile(resolve(root, "scripts/release/release-cli.mjs"), join(packageRoot, "tools/release-cli.mjs"), true);
 copyRegularFile(resolve(root, "scripts/release/release-lifecycle-lib.mjs"), join(packageRoot, "tools/release-lifecycle-lib.mjs"));
 copyRegularFile(resolve(root, "scripts/release/portable-package-lib.mjs"), join(packageRoot, "tools/portable-package-lib.mjs"));
