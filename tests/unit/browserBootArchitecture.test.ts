@@ -80,7 +80,9 @@ describe("browser boot architecture", () => {
     const monitor = read("web/scan-monitor.js");
 
     expect(selection).toContain("let generation = 0");
-    expect(selection).toContain("if (normalized !== selectedId) generation += 1");
+    expect(selection).toContain("const changed = normalized !== selectedId");
+    expect(selection).toContain("if (changed) generation += 1");
+    expect(selection).toContain("email-shield-account-selection-changed");
     expect(selection).toContain("capture,");
     expect(selection).toContain("matches,");
     expect(selection).toContain("snapshot.generation === generation");
@@ -109,6 +111,8 @@ describe("browser boot architecture", () => {
 
     expect(monitor).toContain("let scanOwnerSnapshot = null");
     expect(monitor).toContain("const presentationIsCurrent = () => source === es && selectionMatches(requestedSelection)");
+    expect(monitor).toContain("email-shield-account-selection-changed");
+    expect(monitor).toContain("clearScanPresentation()");
     expect(monitor).toContain("finish(es)");
     expect(monitor).toContain("const id = accountId");
     expect(monitor).toContain("Stop the scan that is still running for the previously selected mailbox?");
@@ -144,14 +148,8 @@ describe("browser boot architecture", () => {
 
   it("preserves stopped scan presentation on Resume and requires server-final Stop confirmation", () => {
     const source = read("web/scan-monitor.js");
-    const resumeGuard = source.indexOf("if (!resumeScanId) {");
-    const clearCounters = source.indexOf("counters.innerHTML = ''", resumeGuard);
-    const clearCards = source.indexOf("cards.innerHTML = ''", resumeGuard);
-    const clearRows = source.indexOf("diagnosticRows = []", resumeGuard);
-    expect(resumeGuard).toBeGreaterThan(-1);
-    expect(clearCounters).toBeGreaterThan(resumeGuard);
-    expect(clearCards).toBeGreaterThan(resumeGuard);
-    expect(clearRows).toBeGreaterThan(resumeGuard);
+    expect(source).toContain("function clearScanPresentation()");
+    expect(source).toContain("if (!resumeScanId) clearScanPresentation()");
     expect(source).toContain("value.resumed === true && value.counters");
     expect(source).toContain("result.active !== false");
     expect(source).toContain("result.historySaved === true && result.resumable === true");
