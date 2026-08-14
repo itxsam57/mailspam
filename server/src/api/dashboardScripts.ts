@@ -1,7 +1,9 @@
 const SHARED_DASHBOARD_SCRIPTS = [
+  "/account-selection-state.js",
   "/scan-monitor.js",
   "/unsubscribe-monitor.js",
   "/review-actions.js",
+  "/consumer-scan-results.js",
   "/protection-learning.js",
   "/safe-audit.js",
 ] as const;
@@ -32,13 +34,17 @@ function scriptTags(paths: readonly string[]): string {
 }
 
 /**
- * The API server is the sole owner of browser module composition. Card
- * enhancers are ordered from the base scan renderer outwards and loaded once.
- * Every external dashboard module is deferred so the browser can fetch them in
- * parallel without blocking HTML parsing/first paint; execution order remains
- * deterministic. The desktop shell constructs the visual route containers;
- * ui-router then becomes the authoritative navigation/mount contract before
- * any consumer feature module declares route-owned panels.
+ * The API server is the sole owner of browser module composition. The account
+ * selection state boundary runs before scan-monitor so a consumer selection is
+ * reflected synchronously before async account-list refresh/persistence. Card
+ * enhancers are then ordered from the base scan renderer outwards and loaded
+ * once. Every external dashboard module is deferred so the browser can fetch
+ * them in parallel without blocking HTML parsing/first paint; execution order
+ * remains deterministic. scan-monitor owns the scan stream;
+ * consumer-scan-results owns only the all-message consumer projection derived
+ * from scan-monitor's bounded rows. The desktop shell constructs the visual
+ * route containers; ui-router then becomes the authoritative navigation/mount
+ * contract before consumer feature modules declare route-owned panels.
  */
 export function dashboardScriptTags(desktop: boolean): string {
   return scriptTags(desktop

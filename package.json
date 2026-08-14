@@ -25,6 +25,7 @@
     "vault": "npm run build && node scripts/engineering/regression-vault-cli.mjs",
     "smoke:server": "node scripts/engineering/smoke-server.mjs",
     "smoke:browser": "node scripts/engineering/smoke-browser-boot.mjs",
+    "smoke:browser-scan": "node scripts/engineering/smoke-browser-scan-results.mjs",
     "smoke:community": "node scripts/engineering/smoke-community.mjs",
     "smoke:account-service": "node scripts/engineering/smoke-account-service.mjs",
     "smoke:background": "node --max-old-space-size=192 scripts/engineering/smoke-background-protection.mjs",

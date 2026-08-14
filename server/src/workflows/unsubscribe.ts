@@ -45,7 +45,7 @@ function footerCandidate(link: LinkInfo): { method: "link_only" | "mailto"; targ
     urlDeclaresUnsubscribe = UNSUBSCRIBE_URL_HINT.test(structuralHint);
   } catch {}
   if (!textDeclaresUnsubscribe && !urlDeclaresUnsubscribe) return null;
-  if (/^https?:\/\//i.test(target)) return { method: "link_only", target };
+  if (/^https:\/\//i.test(target)) return { method: "link_only", target };
   if (/^mailto:/i.test(target)) return { method: "mailto", target };
   return null;
 }
@@ -75,13 +75,14 @@ function oneClickDkimAuthorized(envelope: CanonicalEnvelope): boolean {
  * one-click POST is offered only when the raw list-header field set is
  * unambiguous and a trusted passing DKIM identity maps unambiguously to exactly
  * one raw DKIM signature that signs both required list headers. Otherwise the
- * same message falls back to a manual List-Unsubscribe/footer option.
+ * same message falls back to a manual List-Unsubscribe/footer option only when
+ * that web destination is HTTPS, or to an explicit mailto action.
  *
  * Manual footer discovery accepts either explicit unsubscribe text or a clear
  * unsubscribe/preferences URL structure. It never executes the target during
- * classification; the action still passes the same bounded URL validation at
+ * classification; the action still passes bounded HTTPS/mail validation at
  * registration/use time, so attacker-controlled message HTML cannot become an
- * SSRF or automatic navigation primitive.
+ * insecure navigation or SSRF primitive.
  */
 export function unsubscribeCapability(envelope: CanonicalEnvelope): UnsubscribeCapability {
   const targets = headerTargets(envelope.listHeaders.listUnsubscribe);
@@ -94,7 +95,7 @@ export function unsubscribeCapability(envelope: CanonicalEnvelope): UnsubscribeC
     return { available: true, method: "one_click_post", target: httpsTarget, source: "list_header" };
   }
 
-  const webTarget = targets.find((target) => /^https?:\/\//i.test(target));
+  const webTarget = targets.find((target) => /^https:\/\//i.test(target));
   if (webTarget) {
     return { available: true, method: "link_only", target: webTarget, source: "list_header" };
   }
@@ -121,13 +122,15 @@ function normalizeWebTarget(input: unknown, automatic: boolean): string {
   try { url = new URL(value); }
   catch { throw new Error("Unsubscribe target is not a valid URL."); }
 
-  const allowedProtocols = automatic ? ["https:"] : ["https:", "http:"];
-  if (!allowedProtocols.includes(url.protocol)) {
-    throw new Error(automatic ? "One-click unsubscribe requires HTTPS." : "Unsubscribe page must use HTTP or HTTPS.");
+  if (url.protocol !== "https:") {
+    throw new Error(automatic ? "One-click unsubscribe requires HTTPS." : "Unsubscribe page must use HTTPS.");
   }
   if (url.username || url.password) throw new Error("Unsubscribe target must not contain credentials.");
-  if (automatic && url.port && url.port !== "443") throw new Error("One-click unsubscribe must use the standard HTTPS port.");
-  if (!automatic && url.port && !["80", "443"].includes(url.port)) throw new Error("Unsubscribe page uses an unsupported network port.");
+  if (url.port && url.port !== "443") {
+    throw new Error(automatic
+      ? "One-click unsubscribe must use the standard HTTPS port."
+      : "Unsubscribe page must use the standard HTTPS port.");
+  }
   if (!url.hostname || url.hostname === "localhost" || url.hostname.endsWith(".local")) {
     throw new Error("Unsubscribe target host is not allowed.");
   }
