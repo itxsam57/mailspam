@@ -42,6 +42,10 @@
 
   const providerOrder = ['gmail', 'outlook', 'icloud', 'yahoo', 'imap'];
   const providerButtons = Array.from(grid.querySelectorAll('button.consumer-provider'));
+  const oauthConfiguration = {
+    gmail: { path: '/api/accounts/oauth/google/config', label: 'Google' },
+    outlook: { path: '/api/accounts/oauth/microsoft/config', label: 'Microsoft' },
+  };
 
   function selectProvider(provider) {
     providerSelect.value = provider;
@@ -97,25 +101,71 @@
 
   function startOAuth(provider) {
     actions.replaceChildren();
-    // gmail-oauth.js / outlook-oauth.js own the secure popup, PKCE, one-time
-    // callback and provider validation. Triggering the internal button here is
-    // only a module boundary; the consumer never sees or operates that control.
-    // It remains a synchronous click so popup blockers still recognize the
-    // user gesture.
-    connectBtn.hidden = true;
-    connectBtn.click();
+    const owner = provider === 'gmail'
+      ? window.emailShieldGoogleOAuth
+      : window.emailShieldMicrosoftOAuth;
+    if (!owner || typeof owner.start !== 'function') {
+      connectStatus.textContent = `${provider === 'gmail' ? 'Google' : 'Microsoft'} sign-in is unavailable in this build.`;
+      return;
+    }
+    // OAuth ownership stays in the hardened provider module. Calling it
+    // directly preserves the user's click gesture for popup handling and avoids
+    // the old synthetic-click dependency on an invisible engineering button.
+    void owner.start();
     restoreConsumerVisibility();
+  }
+
+  function setOAuthButtonState(provider, configured) {
+    const index = providerOrder.indexOf(provider);
+    const button = providerButtons[index];
+    if (!(button instanceof HTMLButtonElement)) return;
+    const description = button.querySelector('div span');
+    if (description instanceof HTMLElement && !description.dataset.originalText) {
+      description.dataset.originalText = description.textContent || '';
+    }
+    button.disabled = !configured;
+    button.setAttribute('aria-disabled', String(!configured));
+    button.dataset.oauthConfigured = String(configured);
+    if (configured) {
+      button.removeAttribute('title');
+      if (description instanceof HTMLElement) description.textContent = description.dataset.originalText || '';
+    } else {
+      const label = oauthConfiguration[provider].label;
+      button.title = `${label} sign-in is not available in this build.`;
+      if (description instanceof HTMLElement) description.textContent = `${label} sign-in · unavailable in this build`;
+    }
+  }
+
+  async function loadOAuthAvailability(provider) {
+    const configuration = oauthConfiguration[provider];
+    if (!configuration) return;
+    try {
+      const response = await fetch(configuration.path, { cache: 'no-store' });
+      const body = await response.json().catch(() => ({}));
+      setOAuthButtonState(provider, response.ok && body.configured === true);
+    } catch {
+      setOAuthButtonState(provider, false);
+    }
   }
 
   providerButtons.forEach((button, index) => {
     const provider = providerOrder[index];
     if (!provider) return;
     button.dataset.consumerProvider = provider;
+    if (oauthConfiguration[provider]) {
+      const description = button.querySelector('div span');
+      if (description instanceof HTMLElement) {
+        description.dataset.originalText = description.textContent || '';
+        description.textContent = `Checking ${oauthConfiguration[provider].label} sign-in…`;
+      }
+      button.disabled = true;
+      button.setAttribute('aria-disabled', 'true');
+    }
 
     // Capture phase makes this module authoritative over the older
     // consumer-product compatibility handler. That handler used to reveal the
-    // hidden engineering Connect control for credential providers and used a
-    // deferred synthetic click for OAuth providers.
+    // hidden engineering Connect control and defer OAuth through a synthetic
+    // click. Normal consumer actions now terminate here.
     button.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -124,6 +174,10 @@
       selectProvider(provider);
 
       if (provider === 'gmail' || provider === 'outlook') {
+        if (button.dataset.oauthConfigured !== 'true') {
+          connectStatus.textContent = `${oauthConfiguration[provider].label} sign-in is unavailable in this build.`;
+          return;
+        }
         startOAuth(provider);
         return;
       }
@@ -139,4 +193,6 @@
   observer.observe(legacyRow, { attributes: true, attributeFilter: ['hidden', 'style'] });
 
   restoreConsumerVisibility();
+  void loadOAuthAvailability('gmail');
+  void loadOAuthAvailability('outlook');
 })();
