@@ -33,7 +33,7 @@ function report(index: number, now: Date): CommunityReportSubmission {
 }
 
 describe("community release-capacity qualification", () => {
-  it("durably accepts 10,000 independent clients, survives restart and does not inflate a duplicate", { timeout: 300_000 }, () => {
+  it("durably accepts 10,000 independent clients, survives restart, deduplicates reporters, and never bypasses trusted review", { timeout: 300_000 }, () => {
     const directory = mkdtempSync(join(tmpdir(), "email-shield-community-release-capacity-"));
     directories.push(directory);
     const acceptedAt = new Date("2026-08-11T00:00:00.000Z");
@@ -51,16 +51,24 @@ describe("community release-capacity qualification", () => {
 
     expect(statSync(join(directory, COMMUNITY_REPORT_JOURNAL_FILE)).size).toBeGreaterThan(0);
     const restarted = new EncryptedCommunityAggregateStore(directory, undefined, { now: () => acceptedAt });
-    expect(restarted.stats()).toEqual({ campaigns: 1, warnings: 0, confirmed: 1 });
+    // Raw client volume can create a warning but can never manufacture the
+    // explicit human-action evidence, time spread, and trusted review required
+    // for a signed Confirmed Threat.
+    expect(restarted.stats()).toEqual({ campaigns: 1, warnings: 1, confirmed: 0 });
+    expect(restarted.listReviewCandidates()).toEqual([]);
     expect(restarted.accept(report(CAPACITY_CLIENTS - 1, acceptedAt))).toMatchObject({
       duplicate: true,
       independentReporters: CAPACITY_CLIENTS,
-      status: "confirmed",
+      status: "warning",
     });
 
     const signer = new CommunityFeedSigner(directory);
     const verified = verifyCommunityFeed(signer.sign(restarted.buildFeedPayload(acceptedAt)), [signer.publicPem], acceptedAt);
     expect(verified?.entries).toHaveLength(2);
-    expect(verified?.entries.every((entry) => entry.type !== "identity" && entry.independentReports === CAPACITY_CLIENTS)).toBe(true);
+    expect(verified?.entries.every((entry) =>
+      entry.type !== "identity"
+      && entry.independentReports === CAPACITY_CLIENTS
+      && entry.confirmedThreat === false
+    )).toBe(true);
   });
 });
