@@ -312,19 +312,19 @@
         if (result.family?.shared) window.dispatchEvent(new CustomEvent('email-shield-family-changed'));
 
         const mailboxState = 'The current message was not moved. Use the separate Trash or Move to Spam/Junk action if you want to remove it from Inbox.';
-      const familyState = familyDeliveryMessage(result);
-      const communityState = communityDeliveryMessage(result);
-      const complete = result.communityAccepted === true && !result.family?.error;
-      if (status) {
-        status.className = complete ? 'review-action-status success' : 'review-action-status error';
-        status.textContent = `Matching campaign messages are protected locally. ${mailboxState} ${familyState} ${communityState}${result.senderBlocked ? ' The exact sender is also blocked.' : ''}`;
-      }
-      setGlobalStatus(
-        complete
-          ? `Scam campaign protected locally. The current message was left in place.${result.family?.shared ? ' Family Shield updated.' : ' Community evidence accepted.'}`
-          : 'Scam campaign protection is active; Family Shield or community delivery needs attention. The current message was left in place.',
-        complete ? 'complete' : 'error',
-      );
+        const familyState = familyDeliveryMessage(result);
+        const communityState = communityDeliveryMessage(result);
+        const complete = result.communityAccepted === true && !result.family?.error;
+        if (status) {
+          status.className = complete ? 'review-action-status success' : 'review-action-status error';
+          status.textContent = `Matching campaign messages are protected locally. ${mailboxState} ${familyState} ${communityState}${result.senderBlocked ? ' The exact sender is also blocked.' : ''}`;
+        }
+        setGlobalStatus(
+          complete
+            ? `Scam campaign protected locally. The current message was left in place.${result.family?.shared ? ' Family Shield updated.' : ' Community evidence accepted.'}`
+            : 'Scam campaign protection is active; Family Shield or community delivery needs attention. The current message was left in place.',
+          complete ? 'complete' : 'error',
+        );
         return;
       }
 

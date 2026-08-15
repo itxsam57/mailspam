@@ -107,6 +107,8 @@ Status values:
 | REG-083 | LOCKED | Gate Result Summary must fail closed whenever any required Windows/macOS/Ubuntu matrix result is non-successful. Diagnostic artifacts may still be printed, but a green summary can never mask a red/cancelled platform qualification. | `engineeringAutomation.test.ts`, `.github/workflows/verify.yml`, full Engineering Gate |
 | REG-084 | LOCKED | Global Shield reporter reputation is derived only from still-retained human-reviewed evidence that existed at the review decision time. Expired reviewed evidence, reopened campaigns and post-review reporter arrivals/updates cannot leave or inherit stale reputation. Reputation may change escalation weight but can never create Confirmed Threat without the human review boundary. | `globalThreatConfidence.test.ts`, `globalThreatReputationReviewBoundary.test.ts`, community retention/review regressions, full Engineering Gate |
 
+| REG-085 | LOCKED | Report Scam owns local/community threat learning, not provider mailbox disposal. A successful report persists the local campaign rule, optional exact-sender block, Family Shield signal and privacy-reduced community submission while leaving the current message in place; Trash and Spam/Junk remain separate explicit actions with their own opaque-token/provider mutation boundaries. | `protectionActions.test.ts`, `reportScamActionSeparation.test.ts`, browser review-action contracts, full Engineering Gate |
+
 ## Resolved registered gaps
 
 | ID | Status | Former gap | Resolution |

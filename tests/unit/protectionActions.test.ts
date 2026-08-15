@@ -274,7 +274,7 @@ describe("durable block action API", () => {
     expect(stale.response.status).toBe(409);
   });
 
-  it("keeps Report Scam local protection authoritative when provider or Family Shield side effects fail", async () => {
+  it("keeps Report Scam local protection authoritative when Family Shield synchronization fails", async () => {
     const test = await fixture({ familyMode: "failure" });
     const registration = test.sessions.registerReviewAction(test.session, actionContext());
     const result = await post(test.baseUrl, test.session.id, "report-scam", { token: registration.token });

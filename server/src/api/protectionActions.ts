@@ -448,9 +448,9 @@ export function registerProtectionActionRoutes(
     );
 
     // Report Scam owns threat learning only. It deliberately does not perform
-  // a provider mailbox move: Trash and Spam/Junk are separate explicit
-  // user actions. Local campaign protection is committed first and remains
-  // authoritative even when Family Shield or community delivery is unavailable.
+    // a provider mailbox move: Trash and Spam/Junk are separate explicit
+    // user actions. Local campaign protection is committed first and remains
+    // authoritative even when Family Shield or community delivery is unavailable.
 
     let receipt: CommunityReportReceipt | null = null;
     let communityError: string | undefined;
