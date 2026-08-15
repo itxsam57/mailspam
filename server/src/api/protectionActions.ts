@@ -437,6 +437,13 @@ export function registerProtectionActionRoutes(
       });
     }
 
+    // The user's explicit Report Scam decision is authoritative for this
+    // account. Persist the local campaign rule first, then move the currently
+    // reported provider message to Trash. A transient provider failure never
+    // rolls back the durable rule, so future matching campaign mail remains
+    // eligible for the same account-local automatic Trash path.
+    const move = await moveCurrentMessageToTrash(session, action.providerNativeId, dependencies.adapterFactory);
+
     // Family sharing is privacy-reduced and separate from the public community
     // service. A local report automatically enters the member's private circle
     // when this mailbox has been linked to a Family Shield account.
@@ -446,11 +453,6 @@ export function registerProtectionActionRoutes(
       action.communityReport.campaignFingerprint,
       "report_scam",
     );
-
-    // Report Scam owns threat learning only. It deliberately does not perform
-    // a provider mailbox move: Trash and Spam/Junk are separate explicit
-    // user actions. Local campaign protection is committed first and remains
-    // authoritative even when Family Shield or community delivery is unavailable.
 
     let receipt: CommunityReportReceipt | null = null;
     let communityError: string | undefined;
@@ -465,13 +467,13 @@ export function registerProtectionActionRoutes(
     recordActivity(dependencies, session, {
       kind: "reported",
       severity: "critical",
-      title: "Scam report protected locally",
-      detail: `The current mailbox message was not moved; Trash and Spam/Junk remain separate explicit actions. ${receipt?.accepted ? "Privacy-reduced community evidence was accepted. " : "Community delivery was unavailable or not accepted. "}${family.shared ? "Family Shield received the private campaign signal." : "No Family Shield campaign share was completed."}`,
+      title: move.movedCurrent ? "Scam reported and moved to Trash" : "Scam report protected locally",
+      detail: `${move.movedCurrent ? "The current mailbox message was moved to Trash. " : `The local campaign rule was saved, but the current provider Trash move needs a retry${move.moveError ? `: ${move.moveError}` : "."} `}${receipt?.accepted ? "Privacy-reduced community evidence was accepted. " : "Community delivery was unavailable or not accepted. "}${family.shared ? "Family Shield received the private campaign signal." : "No Family Shield campaign share was completed."}`,
       reasonCodes: ["USER_REPORTED_SCAM", ...(blockSender ? ["USER_BLOCK_SENDER"] : [])],
       undo: null,
     });
 
-    const complete = receipt?.accepted === true && !family.error;
+    const complete = move.movedCurrent && receipt?.accepted === true && !family.error;
     noStore(res);
     return res.status(complete ? 200 : 207).json({
       success: true,
@@ -479,8 +481,9 @@ export function registerProtectionActionRoutes(
       senderBlocked: Boolean(blockSender && action.senderAddress),
       accountId: session.id,
       token: action.token,
-      movedCurrent: false,
-      providerAction: "none",
+      movedCurrent: move.movedCurrent,
+      moveError: move.moveError,
+      providerAction: move.movedCurrent ? "trash" : "trash_pending",
       family,
       communityAccepted: receipt?.accepted === true,
       communityError,
