@@ -66,7 +66,7 @@ function report(label) {
     reportedAt: new Date().toISOString(),
     verdict: "high_risk",
     evidenceScore: 8,
-    evidenceCodes: ["UNSOLICITED_ADULT_SITE_CAMPAIGN", "REPLY_TO_MISMATCH"],
+    evidenceCodes: ["USER_REPORTED_SCAM", "UNSOLICITED_ADULT_SITE_CAMPAIGN", "REPLY_TO_MISMATCH"],
     indicators: [
       { type: "campaign", value: campaignFingerprint },
       { type: "sender", value: "smoke-scammer@example.test" },
@@ -164,6 +164,7 @@ try {
     entry.confirmedThreat === false &&
     entry.independentReports === 3
   ), "Signed warning feed did not contain the expected three-reporter campaign indicator.");
+  assert(verification.payload.entries.every((entry) => entry.type === "identity" || entry.confirmedThreat === false), "Report ingestion alone unexpectedly published a Confirmed Threat.");
 
   const tampered = structuredClone(feedDocument);
   tampered.payload.entries.push({
