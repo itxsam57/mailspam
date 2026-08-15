@@ -10,6 +10,7 @@ describe("AI Engineering Automation Kit installation", () => {
     const profile = read(".engineering/PROJECT_PROFILE.md");
     const matrix = read(".engineering/TEST_MATRIX.md");
     const regressions = read(".engineering/REGRESSION_REGISTER.md");
+    const reportScamSeparation = read(".engineering/REG-085_REPORT_SCAM_ACTION_SEPARATION.md");
 
     expect(profile).toContain("itxsam57/mailspam");
     expect(profile).toContain("Express `4.19.x`");
@@ -21,8 +22,11 @@ describe("AI Engineering Automation Kit installation", () => {
     expect(regressions).toContain("PRE-001");
     expect(regressions).toContain("DEP-001");
     expect(regressions).toContain("REG-001");
+    expect(regressions).toContain("REG-085");
     expect(regressions).toContain("GAP-001");
     expect(regressions).toContain("Do not delete history to make the register appear green");
+    expect(reportScamSeparation).toContain("Status: **LOCKED**");
+    expect(reportScamSeparation).toContain("Trash and Spam/Junk remain separate explicit actions");
   });
 
   it("exposes one full gate without adding unrelated framework checks", () => {
