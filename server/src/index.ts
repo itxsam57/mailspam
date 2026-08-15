@@ -25,6 +25,7 @@ import { createDefaultInboundEventStateRepository } from "./realtime/inboundEven
 import { RealtimeProtectionProcessor } from "./realtime/realtimeProtectionProcessor.js";
 import { RealtimeProtectionService } from "./realtime/realtimeProtectionService.js";
 import { SerialProtectionExecutor } from "./realtime/serialProtectionExecutor.js";
+import { createTechnicalTelemetryFromEnvironment } from "./telemetry/technicalTelemetry.js";
 
 const PORT = Number(process.env.PORT ?? 4173);
 const HOST = process.env.HOST ?? "127.0.0.1";
@@ -32,6 +33,14 @@ const HOST = process.env.HOST ?? "127.0.0.1";
 if (!["127.0.0.1", "localhost", "::1"].includes(HOST)) {
   throw new Error("The Email Shield desktop server may bind only to a loopback host.");
 }
+
+// Technical telemetry is a separate, opt-in boundary. It receives only fixed
+// startup-health events and anonymous platform/version metadata. Mailbox data,
+// account identity, device identity, credentials and raw errors never cross it.
+const telemetry = createTechnicalTelemetryFromEnvironment({
+  appVersion: process.env.EMAIL_SHIELD_RELEASE_VERSION ?? "0.2.0",
+});
+void telemetry.capture("email_shield_app_started");
 
 const dataDirectory = defaultEmailShieldDataDirectory();
 ensureManagedDataDirectory(dataDirectory);
@@ -45,19 +54,32 @@ ensureManagedDataDirectory(dataDirectory);
 const credentialVault = getRuntimeCredentialVault();
 const protectedStateStartedAt = Date.now();
 console.log("Email Shield initializing protected local state...");
-const initialized = await Promise.all([
-  initializeDefaultPersonalPolicyRepository({ credentialVault }),
-  initializeDefaultScanStateRepository({ credentialVault }),
-  initializeDefaultRelationshipHistoryRepository({ credentialVault }),
-  initializeDefaultBackgroundProtectionRepository({ credentialVault }),
-  initializeDefaultConsumerStateRepository({ credentialVault, dataDirectory }),
-  initializeDefaultAccountPlatform({ credentialVault, dataDirectory }),
-  createDefaultInboundEventStateRepository({ credentialVault, dataDirectory }),
-  createDefaultLiveConnectionPersistence({ credentialVault, dataDirectory }),
-] as const);
+const initialized = await (async () => {
+  try {
+    return await Promise.all([
+      initializeDefaultPersonalPolicyRepository({ credentialVault }),
+      initializeDefaultScanStateRepository({ credentialVault }),
+      initializeDefaultRelationshipHistoryRepository({ credentialVault }),
+      initializeDefaultBackgroundProtectionRepository({ credentialVault }),
+      initializeDefaultConsumerStateRepository({ credentialVault, dataDirectory }),
+      initializeDefaultAccountPlatform({ credentialVault, dataDirectory }),
+      createDefaultInboundEventStateRepository({ credentialVault, dataDirectory }),
+      createDefaultLiveConnectionPersistence({ credentialVault, dataDirectory }),
+    ] as const);
+  } catch (error) {
+    await telemetry.capture("email_shield_protected_state_failed", {
+      failure_kind: "initialization_error",
+    });
+    throw error;
+  }
+})();
 const inboundEventRepository = initialized[6];
 const liveConnections = initialized[7];
-console.log(`Email Shield protected local state ready in ${Date.now() - protectedStateStartedAt}ms.`);
+const protectedStateDurationMs = Date.now() - protectedStateStartedAt;
+console.log(`Email Shield protected local state ready in ${protectedStateDurationMs}ms.`);
+void telemetry.capture("email_shield_protected_state_ready", {
+  duration_ms: protectedStateDurationMs,
+});
 
 const accountPlatform = getAccountPlatformService();
 const accountLifecycle = getAccountLifecycleService();
@@ -105,4 +127,5 @@ const app = createConsumerDesktopServer({
 });
 app.listen(PORT, HOST, () => {
   console.log(`Email Shield listening on http://${HOST}:${PORT}`);
+  void telemetry.capture("email_shield_server_listening");
 });
