@@ -5,10 +5,12 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
   assertManifestShape,
+  launcherContent,
   launcherRelativePath,
   listPackageFiles,
   MAX_PORTABLE_PACKAGE_BYTES,
   portablePackageName,
+  publicOAuthClientIds,
   RELEASE_MANIFEST_FILE,
   runtimeRelativePath,
 } from "./portable-package-lib.mjs";
@@ -22,6 +24,22 @@ if (manifest.platform !== process.platform || manifest.architecture !== process.
 if (manifest.nodeVersion !== process.versions.node) throw new Error("Portable package Node version does not match the verified build runtime.");
 if (manifest.launcher !== launcherRelativePath() || manifest.entrypoint !== "app/server/dist/index.js") throw new Error("Portable package entrypoint or launcher is invalid.");
 if (manifest.productionPackages.includes("googleapis")) throw new Error("Portable package contains the broad generated Google API catalog.");
+
+const oauthClientIds = publicOAuthClientIds();
+if (process.env.EMAIL_SHIELD_REQUIRE_LIVE_OAUTH === "1" && !oauthClientIds.google) {
+  throw new Error("Consumer release verification requires the product-owned Google desktop OAuth application client ID.");
+}
+const actualLauncher = readFileSync(join(packageRoot, manifest.launcher), "utf8");
+const expectedLauncher = launcherContent(process.platform, oauthClientIds);
+if (actualLauncher !== expectedLauncher) {
+  throw new Error("Portable package launcher does not contain the verified release OAuth configuration.");
+}
+if (!actualLauncher.includes(oauthClientIds.google)) {
+  throw new Error("Portable package launcher is missing the product-owned Google OAuth client ID.");
+}
+if (!oauthClientIds.microsoft && actualLauncher.includes("EMAIL_SHIELD_MICROSOFT_CLIENT_ID=")) {
+  throw new Error("Portable package must not advertise an unconfigured Microsoft OAuth application ID.");
+}
 
 const actualFiles = listPackageFiles(packageRoot, new Set([RELEASE_MANIFEST_FILE]));
 if (JSON.stringify(actualFiles) !== JSON.stringify(manifest.files)) throw new Error("Portable package file inventory or digest verification failed.");
@@ -102,6 +120,8 @@ try {
       PORT: String(port),
       EMAIL_SHIELD_DATA_DIR: dataDirectory,
       XDG_DATA_HOME: dataDirectory,
+      EMAIL_SHIELD_GOOGLE_CLIENT_ID: oauthClientIds.google,
+      ...(oauthClientIds.microsoft ? { EMAIL_SHIELD_MICROSOFT_CLIENT_ID: oauthClientIds.microsoft } : {}),
     },
     stdio: ["ignore", "ignore", "pipe"],
     windowsHide: true,
@@ -121,6 +141,34 @@ try {
   if (!response?.ok) throw new Error(`Portable package did not become ready: ${stderr}`);
   const html = await response.text();
   if (!html.includes("Email Shield")) throw new Error("Portable package served an unexpected dashboard.");
+
+  const csrf = html.match(/<meta name="email-shield-csrf" content="([^"]+)"/)?.[1] ?? "";
+  const cookie = response.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
+  if (!csrf || !cookie.startsWith("email_shield_local_session=")) {
+    throw new Error("Portable package smoke could not establish its protected dashboard session.");
+  }
+  const origin = `http://${host}:${port}`;
+  const protectedHeaders = {
+    Cookie: cookie,
+    Origin: origin,
+    "x-email-shield-csrf": csrf,
+  };
+  const googleConfigResponse = await fetch(`${origin}/api/accounts/oauth/google/config`, {
+    headers: protectedHeaders,
+    signal: AbortSignal.timeout(5_000),
+  });
+  const googleConfig = await googleConfigResponse.json().catch(() => ({}));
+  if (!googleConfigResponse.ok || googleConfig.configured !== true) {
+    throw new Error("Portable package server did not activate its embedded Google OAuth application identity.");
+  }
+  const microsoftConfigResponse = await fetch(`${origin}/api/accounts/oauth/microsoft/config`, {
+    headers: protectedHeaders,
+    signal: AbortSignal.timeout(5_000),
+  });
+  const microsoftConfig = await microsoftConfigResponse.json().catch(() => ({}));
+  if (!microsoftConfigResponse.ok || microsoftConfig.configured !== Boolean(oauthClientIds.microsoft)) {
+    throw new Error("Portable package Microsoft OAuth capability did not match the release configuration.");
+  }
 } finally {
   if (child && child.exitCode === null) {
     child.kill();
@@ -133,4 +181,8 @@ try {
 }
 
 console.log(`Portable package verified: ${packageRoot}`);
+console.log(
+  `Release OAuth: Google ${oauthClientIds.google ? "configured" : "not configured"}; `
+  + `Microsoft ${oauthClientIds.microsoft ? "configured" : "unavailable in this release"}.`,
+);
 console.log(`Release ID: ${manifest.releaseId}; files: ${manifest.files.length}; artifact bytes: ${manifest.artifactBytes}.`);

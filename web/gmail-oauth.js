@@ -34,13 +34,14 @@
 
   async function loadConfiguration() {
     try {
-      const response = await fetch('/api/accounts/oauth/google/config');
+      const response = await fetch('/api/accounts/oauth/google/config', { cache: 'no-store' });
       const body = await response.json().catch(() => ({}));
       googleConfigured = response.ok && body.configured === true;
     } catch {
       googleConfigured = false;
     }
     if (isGuidedGmail()) renderGuidedState();
+    return googleConfigured;
   }
 
   function renderGuidedState() {
@@ -50,11 +51,11 @@
     if (activeFlowId) {
       setStatus('Complete the Google consent window. Email Shield is waiting for the protected loopback callback…');
     } else if (googleConfigured === false) {
-      setStatus('Google OAuth is not configured in this development build. Set the Email Shield desktop OAuth client ID and restart the app.');
+      setStatus('Google sign-in is unavailable in this build.');
     } else if (googleConfigured === true) {
       setStatus('Google opens in a separate browser window. Email Shield uses PKCE and a one-time local callback; your Google password is never given to Email Shield.');
     } else {
-      setStatus('Checking Google OAuth configuration…');
+      setStatus('Checking Google sign-in availability…');
     }
   }
 
@@ -99,12 +100,14 @@
   async function startGuidedGoogleOAuth() {
     if (activeFlowId) return;
     if (googleConfigured === false) {
-      setStatus('Google OAuth is not configured for this build. Configure the desktop client ID and restart Email Shield.');
+      setStatus('Google sign-in is unavailable in this build.');
       return;
     }
 
     // Open synchronously from the click so popup blocking cannot force Email
-    // Shield to navigate the protected dashboard away from localhost.
+    // Shield to navigate the protected dashboard away from localhost. If the
+    // configuration probe is still in flight, finish it only after this window
+    // exists so the browser's user-gesture contract cannot be lost to an await.
     const popup = window.open('about:blank', 'emailShieldGoogleOAuth', 'popup=yes,width=720,height=760');
     if (!popup) {
       setStatus('Your browser blocked the Google window. Allow popups for this local Email Shield page and try again.');
@@ -114,6 +117,16 @@
       popup.document.title = 'Email Shield — Google';
       popup.document.body.textContent = 'Preparing secure Google authorization…';
     } catch {}
+
+    if (googleConfigured === null) {
+      setStatus('Checking Google sign-in availability…');
+      const configured = await loadConfiguration();
+      if (!configured) {
+        setStatus('Google sign-in is unavailable in this build.');
+        try { popup.close(); } catch {}
+        return;
+      }
+    }
 
     connectBtn.disabled = true;
     connectBtn.textContent = 'Waiting for Google…';
@@ -148,6 +161,17 @@
       try { popup.close(); } catch {}
     }
   }
+
+  // The consumer provider boundary calls this owner directly. The legacy
+  // internal Connect control retains the same owner for developer acceptance.
+  Object.defineProperty(window, 'emailShieldGoogleOAuth', {
+    value: Object.freeze({
+      start: () => startGuidedGoogleOAuth(),
+      configured: () => googleConfigured,
+    }),
+    writable: false,
+    configurable: false,
+  });
 
   // Capture phase prevents the legacy live-Gmail click handler from sending an
   // empty credential payload to /api/accounts/connect.

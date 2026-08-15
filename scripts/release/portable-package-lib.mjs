@@ -20,6 +20,30 @@ export const MAX_PORTABLE_PACKAGE_BYTES = 256 * 1024 * 1024;
 export const NORMALIZED_MTIME = new Date("2000-01-01T00:00:00.000Z");
 export const RELEASE_MANIFEST_FILE = "release-manifest.json";
 const lexicalCompare = (left, right) => left < right ? -1 : left > right ? 1 : 0;
+const GOOGLE_DESKTOP_CLIENT_ID = /^\d+-[A-Za-z0-9_-]+\.apps\.googleusercontent\.com$/;
+const MICROSOFT_PUBLIC_CLIENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// OAuth client IDs identify the Email Shield application; they are public
+// desktop-app metadata, not credentials. The consumer package must carry the
+// product-owned identifier so customers never configure developer settings.
+const RELEASE_PUBLIC_OAUTH_CLIENT_IDS = Object.freeze({
+  google: "482228116337-vkfjua15qvctnkebuodlk4q5rrk6j27c.apps.googleusercontent.com",
+  microsoft: "",
+});
+
+export function publicOAuthClientIds(environment = process.env) {
+  const google = String(environment.EMAIL_SHIELD_GOOGLE_CLIENT_ID ?? "").trim()
+    || RELEASE_PUBLIC_OAUTH_CLIENT_IDS.google;
+  const microsoft = String(environment.EMAIL_SHIELD_MICROSOFT_CLIENT_ID ?? "").trim()
+    || RELEASE_PUBLIC_OAUTH_CLIENT_IDS.microsoft;
+  if (google && !GOOGLE_DESKTOP_CLIENT_ID.test(google)) {
+    throw new Error("EMAIL_SHIELD_GOOGLE_CLIENT_ID is not a valid Google desktop OAuth client ID.");
+  }
+  if (microsoft && !MICROSOFT_PUBLIC_CLIENT_ID.test(microsoft)) {
+    throw new Error("EMAIL_SHIELD_MICROSOFT_CLIENT_ID is not a valid Microsoft application client ID.");
+  }
+  return { google, microsoft };
+}
 
 export function sha256File(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
@@ -166,11 +190,23 @@ export function launcherRelativePath(platform = process.platform) {
   return platform === "win32" ? "EmailShield.cmd" : "email-shield";
 }
 
-export function launcherContent(platform = process.platform) {
+export function launcherContent(platform = process.platform, oauthClientIds = publicOAuthClientIds()) {
+  const { google, microsoft } = publicOAuthClientIds({
+    EMAIL_SHIELD_GOOGLE_CLIENT_ID: oauthClientIds?.google ?? "",
+    EMAIL_SHIELD_MICROSOFT_CLIENT_ID: oauthClientIds?.microsoft ?? "",
+  });
   if (platform === "win32") {
-    return "@echo off\r\nsetlocal\r\nset \"EMAIL_SHIELD_PACKAGE_ROOT=%~dp0\"\r\n\"%EMAIL_SHIELD_PACKAGE_ROOT%runtime\\node.exe\" \"%EMAIL_SHIELD_PACKAGE_ROOT%app\\server\\dist\\index.js\"\r\n";
+    const oauthLines = [
+      google ? `set "EMAIL_SHIELD_GOOGLE_CLIENT_ID=${google}"\r\n` : "",
+      microsoft ? `set "EMAIL_SHIELD_MICROSOFT_CLIENT_ID=${microsoft}"\r\n` : "",
+    ].join("");
+    return `@echo off\r\nsetlocal\r\nset "EMAIL_SHIELD_PACKAGE_ROOT=%~dp0"\r\n${oauthLines}"%EMAIL_SHIELD_PACKAGE_ROOT%runtime\\node.exe" "%EMAIL_SHIELD_PACKAGE_ROOT%app\\server\\dist\\index.js"\r\n`;
   }
-  return "#!/bin/sh\nset -eu\nEMAIL_SHIELD_PACKAGE_ROOT=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\nexec \"$EMAIL_SHIELD_PACKAGE_ROOT/runtime/node\" \"$EMAIL_SHIELD_PACKAGE_ROOT/app/server/dist/index.js\"\n";
+  const oauthLines = [
+    google ? `EMAIL_SHIELD_GOOGLE_CLIENT_ID='${google}'\nexport EMAIL_SHIELD_GOOGLE_CLIENT_ID\n` : "",
+    microsoft ? `EMAIL_SHIELD_MICROSOFT_CLIENT_ID='${microsoft}'\nexport EMAIL_SHIELD_MICROSOFT_CLIENT_ID\n` : "",
+  ].join("");
+  return `#!/bin/sh\nset -eu\nEMAIL_SHIELD_PACKAGE_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)\n${oauthLines}exec "$EMAIL_SHIELD_PACKAGE_ROOT/runtime/node" "$EMAIL_SHIELD_PACKAGE_ROOT/app/server/dist/index.js"\n`;
 }
 
 export function assertManifestShape(manifest) {
@@ -189,5 +225,4 @@ export function assertManifestShape(manifest) {
 
 export function packageRootFromManifestPath(manifestPath) {
   if (basename(manifestPath) !== RELEASE_MANIFEST_FILE) throw new Error("Unexpected portable manifest filename.");
-  return dirname(manifestPath);
 }

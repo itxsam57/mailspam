@@ -10,6 +10,7 @@ import {
   listPackageFiles,
   portablePackageName,
   productionPackagePaths,
+  publicOAuthClientIds,
   releaseId,
   RELEASE_MANIFEST_FILE,
   runtimeRelativePath,
@@ -24,6 +25,14 @@ if (Number(process.versions.node.split(".")[0]) !== 22) {
   throw new Error(`Portable packages must embed Node.js 22; current runtime is ${process.versions.node}.`);
 }
 assertCleanReleaseTree(root);
+
+const oauthClientIds = publicOAuthClientIds();
+if (process.env.EMAIL_SHIELD_REQUIRE_LIVE_OAUTH === "1" && !oauthClientIds.google) {
+  throw new Error(
+    "Consumer release packaging requires the product-owned Google desktop OAuth client ID. "
+    + "OAuth providers without an application ID must remain unavailable in the consumer UI.",
+  );
+}
 
 const releaseRoot = resolve(root, "artifacts/release");
 const packageName = portablePackageName(packageJson.version);
@@ -86,7 +95,11 @@ for (const dependency of productionPackagePaths(lockfile)) {
 }
 
 copyRegularFile(process.execPath, join(packageRoot, runtimeRelativePath()), true);
-writeNormalizedText(join(packageRoot, launcherRelativePath()), launcherContent(), process.platform !== "win32");
+writeNormalizedText(
+  join(packageRoot, launcherRelativePath()),
+  launcherContent(process.platform, oauthClientIds),
+  process.platform !== "win32",
+);
 
 const manifest = {
   schemaVersion: 1,
@@ -107,4 +120,8 @@ writeNormalizedText(join(packageRoot, RELEASE_MANIFEST_FILE), `${JSON.stringify(
 
 console.log(`Portable package built: ${packageRoot}`);
 console.log(`Release ID: ${manifest.releaseId}`);
+console.log(
+  `Live OAuth: Google ${oauthClientIds.google ? "configured" : "not configured"}; `
+  + `Microsoft ${oauthClientIds.microsoft ? "configured" : "unavailable in this release"}.`,
+);
 console.log(`Files: ${manifest.files.length}; production packages: ${productionPackages.length}; artifact bytes: ${manifest.artifactBytes}.`);

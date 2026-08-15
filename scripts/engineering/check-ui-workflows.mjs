@@ -49,6 +49,9 @@ const routeIds = ["home", "scan", "protection", "family", "community", "history"
 const shell = read("web/app-shell.js");
 const router = read("web/ui-router.js");
 const consumer = read("web/consumer-product.js");
+const providerOnboarding = read("web/consumer-provider-onboarding.js");
+const gmailOAuth = read("web/gmail-oauth.js");
+const outlookOAuth = read("web/outlook-oauth.js");
 const onboarding = read("web/consumer-onboarding.js");
 const composition = read("server/src/api/dashboardScripts.ts");
 
@@ -75,9 +78,14 @@ if (!router.includes("emailShieldNavigate")) fail("UI router no longer exposes t
 const shellIndex = composition.indexOf('"/app-shell.js"');
 const routerIndex = composition.indexOf('"/ui-router.js"');
 const consumerIndex = composition.indexOf('"/consumer-product.js"');
+const providerOnboardingIndex = composition.indexOf('"/consumer-provider-onboarding.js"');
 const onboardingIndex = composition.indexOf('"/consumer-onboarding.js"');
-if (!(shellIndex >= 0 && routerIndex > shellIndex && consumerIndex > routerIndex && onboardingIndex > routerIndex)) {
-  fail("Desktop dashboard modules are no longer ordered shell -> authoritative router -> consumer modules.");
+if (!(shellIndex >= 0
+    && routerIndex > shellIndex
+    && consumerIndex > routerIndex
+    && providerOnboardingIndex > consumerIndex
+    && onboardingIndex > providerOnboardingIndex)) {
+  fail("Desktop dashboard modules are no longer ordered shell -> router -> consumer product -> provider onboarding -> onboarding.");
 }
 
 for (const route of ["protection", "history", "family", "settings"]) {
@@ -90,6 +98,40 @@ if (!onboarding.includes("emailShieldNavigate")) {
 }
 if (!onboarding.includes("route('protection')")) {
   fail("Continuous-protection onboarding must open the Protection route where Background Protection is mounted.");
+}
+
+const providerOnboardingLocks = [
+  "if (!legacyRow.hidden) legacyRow.hidden = true",
+  "if (legacyRow.style.display !== 'none') legacyRow.style.display = 'none'",
+  "if (legacyRow.getAttribute('aria-hidden') !== 'true') legacyRow.setAttribute('aria-hidden', 'true')",
+  "if (!connectBtn.hidden) connectBtn.hidden = true",
+  "new MutationObserver(restoreConsumerVisibility)",
+  "attributeFilter: ['hidden', 'style', 'aria-hidden']",
+  "event.stopImmediatePropagation()",
+  "providerOrder = ['gmail', 'outlook', 'icloud', 'yahoo', 'imap']",
+  "consumerCredentialActions",
+  "window.emailShieldGoogleOAuth",
+  "window.emailShieldMicrosoftOAuth",
+  "button.dataset.oauthConfigured",
+  "loadOAuthAvailability('gmail')",
+  "loadOAuthAvailability('outlook')",
+];
+for (const lock of providerOnboardingLocks) {
+  if (!providerOnboarding.includes(lock)) {
+    fail(`Consumer provider onboarding regression lock is missing: ${lock}`);
+  }
+}
+if (!providerOnboarding.includes("new URLSearchParams(location.search).get('developer') === '1'")) {
+  fail("Consumer provider onboarding must preserve explicit developer acceptance mode while hiding engineering controls normally.");
+}
+if (!providerOnboarding.includes("void owner.start()")) {
+  fail("Consumer OAuth cards must call the hardened provider owner directly instead of synthesizing a hidden Connect click.");
+}
+if (!gmailOAuth.includes("Object.defineProperty(window, 'emailShieldGoogleOAuth'")) {
+  fail("Google OAuth module no longer exposes its hardened consumer start boundary.");
+}
+if (!outlookOAuth.includes("Object.defineProperty(window, 'emailShieldMicrosoftOAuth'")) {
+  fail("Microsoft OAuth module no longer exposes its hardened consumer start boundary.");
 }
 
 const actionableDataAttributes = [
