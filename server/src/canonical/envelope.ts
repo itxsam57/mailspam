@@ -48,6 +48,24 @@ export interface LinkInfo {
 
 export type AttachmentMagicType = "pe_executable" | "elf_executable" | "zip" | "pdf" | "png" | "jpeg" | "ole_compound" | "rtf" | "text_or_unknown";
 
+export type StaticMalwareIndicator =
+  | "eicar_test_signature"
+  | "encoded_powershell_execution"
+  | "powershell_download_execute_chain"
+  | "script_host_download_execute_chain"
+  | "shell_download_execute_chain"
+  | "office_autoexec_execution_chain"
+  | "living_off_land_execution_chain";
+
+export interface StaticMalwareInspection {
+  /** Conservative local static result. Heuristic-only results never imply an exact known-malware identity. */
+  risk: "none" | "suspicious" | "high";
+  /** Stable privacy-safe indicator codes only; never matched source text or attachment bytes. */
+  indicators: StaticMalwareIndicator[];
+  /** Full means every attachment byte was considered by the bounded text/binary matcher. */
+  coverage: "full" | "sampled";
+}
+
 export interface ArchiveSecurityInspection {
   format: "zip";
   entryCount: number;
@@ -69,6 +87,8 @@ export interface AttachmentSecurityInspection {
   executableOrScript: boolean;
   macroCapable: boolean;
   archive: ArchiveSecurityInspection | null;
+  /** Content-aware deterministic malware heuristic over transient local attachment bytes. */
+  staticMalware: StaticMalwareInspection;
   incomplete: boolean;
   reasons: string[];
 }
