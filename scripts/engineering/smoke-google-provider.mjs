@@ -113,8 +113,15 @@ async function waitForDevToolsPort(profileDirectory, processRef, stderr, timeout
       throw new Error(`Chromium exited before publishing DevToolsActivePort with code ${processRef.exitCode}.\n${stderr()}`);
     }
     if (existsSync(activePortPath)) {
-      const port = Number.parseInt(readFileSync(activePortPath, "utf8").split(/\r?\n/, 1)[0]?.trim() ?? "", 10);
-      if (Number.isInteger(port) && port > 0 && port <= 65_535) return port;
+      try {
+        const port = Number.parseInt(readFileSync(activePortPath, "utf8").split(/\r?\n/, 1)[0]?.trim() ?? "", 10);
+        if (Number.isInteger(port) && port > 0 && port <= 65_535) return port;
+      } catch (error) {
+        // Chromium can briefly hold this file open exclusively on Windows while
+        // publishing it. The surrounding loop is already a readiness poll, so
+        // EBUSY means "not ready yet" rather than a terminal smoke failure.
+        if (error?.code !== "EBUSY") throw error;
+      }
     }
     await sleep(50);
   }
