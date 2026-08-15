@@ -101,8 +101,12 @@ if (!onboarding.includes("route('protection')")) {
 }
 
 const providerOnboardingLocks = [
-  "legacyRow.hidden = true",
-  "legacyRow.style.display = 'none'",
+  "if (!legacyRow.hidden) legacyRow.hidden = true",
+  "if (legacyRow.style.display !== 'none') legacyRow.style.display = 'none'",
+  "if (legacyRow.getAttribute('aria-hidden') !== 'true') legacyRow.setAttribute('aria-hidden', 'true')",
+  "if (!connectBtn.hidden) connectBtn.hidden = true",
+  "new MutationObserver(restoreConsumerVisibility)",
+  "attributeFilter: ['hidden', 'style', 'aria-hidden']",
   "event.stopImmediatePropagation()",
   "providerOrder = ['gmail', 'outlook', 'icloud', 'yahoo', 'imap']",
   "consumerCredentialActions",
