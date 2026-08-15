@@ -14,6 +14,31 @@ export function registerMediaAuthenticityRoute(
   app: Express,
   options: { security: LocalSecurityManager; detector?: MediaAuthenticityPort },
 ): void {
+  app.get(
+    "/api/consumer/v1/media/authenticity/status",
+    options.security.requireProtectedRead(),
+    options.security.requireSameOrigin(),
+    (_req: Request, res: Response) => {
+      noStore(res);
+      res.json({
+        schemaVersion: 1,
+        available: Boolean(options.detector),
+        implementationStatus: options.detector
+          ? "vetted_detector_configured"
+          : "detector_not_configured",
+        supportedInput: {
+          imageMaxBytes: 8 * 1024 * 1024,
+          audioMaxBytes: 10 * 1024 * 1024,
+          videoMaxBytes: 25 * 1024 * 1024,
+        },
+        privacy: "explicit_user_selected_media_only",
+        limitation: options.detector
+          ? "A detector result is probabilistic evidence, not proof that media is authentic or manipulated."
+          : "No vetted detector is configured in this build. Email Shield will not fabricate a deepfake verdict.",
+      });
+    },
+  );
+
   app.post(
     "/api/consumer/v1/media/authenticity",
     options.security.requireProtectedRead(),
