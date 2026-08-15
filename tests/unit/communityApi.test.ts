@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "../../server/src/api/server.js";
+import { USER_REPORTED_SCAM_CODE } from "../../server/src/community/feedback.js";
 import { CommunityNetwork } from "../../server/src/community/network.js";
 import { verifyCommunityFeed } from "../../server/src/community/signing.js";
 import type { CommunityReportSubmission, SignedCommunityFeed } from "../../server/src/community/types.js";
@@ -43,7 +44,7 @@ function report(reporterDigit: string): CommunityReportSubmission {
     reportedAt: new Date().toISOString(),
     verdict: "high_risk",
     evidenceScore: 8,
-    evidenceCodes: ["UNSOLICITED_ADULT_SITE_CAMPAIGN", "REPLY_TO_MISMATCH"],
+    evidenceCodes: [USER_REPORTED_SCAM_CODE, "UNSOLICITED_ADULT_SITE_CAMPAIGN", "REPLY_TO_MISMATCH"],
     indicators: [
       { type: "campaign", value: fingerprint },
       { type: "sender", value: "scammer@direct.example" },
@@ -78,7 +79,7 @@ describe("community service HTTP API", () => {
     expect((await fetch(`${base}/api/community/v1/public-key`)).status).toBe(404);
   });
 
-  it("accepts independent reports, deduplicates one reporter, and publishes a valid signed warning feed", async () => {
+  it("accepts independent explicit reports, deduplicates one reporter, and publishes only an unconfirmed warning feed", async () => {
     const network = new CommunityNetwork({ dataDirectory: temporaryDirectory(), serverEnabled: true });
     const base = await start(network);
 
@@ -123,7 +124,7 @@ describe("community service HTTP API", () => {
     }));
   });
 
-  it("publishes confirmed indicators only after all five reporters support each indicator", async () => {
+  it("never lets report ingestion alone publish a Confirmed Threat", async () => {
     const network = new CommunityNetwork({ dataDirectory: temporaryDirectory(), serverEnabled: true });
     const base = await start(network);
 
@@ -140,8 +141,9 @@ describe("community service HTTP API", () => {
     const document = await json(await fetch(`${base}/api/community/v1/feed`)) as SignedCommunityFeed;
     const payload = verifyCommunityFeed(document, [publicInfo.publicKey]);
     expect(payload).not.toBeNull();
+    expect(publicInfo.stats).toEqual({ campaigns: 1, warnings: 1, confirmed: 0 });
     expect(payload!.entries.length).toBeGreaterThan(0);
-    expect(payload!.entries.every((entry) => entry.type === "identity" || (entry.confirmedThreat && entry.independentReports === 5))).toBe(true);
+    expect(payload!.entries.every((entry) => entry.type === "identity" || entry.confirmedThreat === false)).toBe(true);
   });
 
   it("rejects oversized or invalid report payloads without storing them", async () => {
