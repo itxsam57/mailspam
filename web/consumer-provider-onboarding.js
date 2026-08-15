@@ -119,7 +119,7 @@
     actions.replaceChildren();
     const owner = window.emailShieldGoogleOAuth;
     if (!owner || typeof owner.start !== 'function') {
-      connectStatus.textContent = 'Google sign-in is unavailable in this build.';
+      connectStatus.textContent = 'Google sign-in is unavailable in this running Email Shield session.';
       return;
     }
     void owner.start();
@@ -133,16 +133,22 @@
     if (description instanceof HTMLElement && !description.dataset.originalText) {
       description.dataset.originalText = description.textContent || '';
     }
-    button.disabled = !configured;
-    button.setAttribute('aria-disabled', String(!configured));
+
+    // Readiness is information, not permission to interact with the control.
+    // A native disabled button suppresses click/focus events entirely, which
+    // previously trapped the owner with no way to retry or see why Google was
+    // unavailable after one failed readiness probe. The hardened OAuth owner
+    // and server remain the authorization boundary; this card stays actionable.
+    button.disabled = false;
+    button.setAttribute('aria-disabled', 'false');
     button.dataset.oauthConfigured = String(configured);
     if (configured) {
       button.removeAttribute('title');
       if (description instanceof HTMLElement) description.textContent = description.dataset.originalText || '';
     } else {
       const label = oauthConfiguration[provider].label;
-      button.title = `${label} sign-in is not available in this build.`;
-      if (description instanceof HTMLElement) description.textContent = `${label} sign-in · unavailable in this build`;
+      button.title = `Click to re-check ${label} sign-in availability.`;
+      if (description instanceof HTMLElement) description.textContent = `${label} sign-in · click to re-check setup`;
     }
   }
 
@@ -165,8 +171,9 @@
         description.dataset.originalText = description.textContent || '';
         description.textContent = `Checking ${oauthConfiguration[provider].label} sign-in…`;
       }
-      button.disabled = true;
-      button.setAttribute('aria-disabled', 'true');
+      button.disabled = false;
+      button.setAttribute('aria-disabled', 'false');
+      button.dataset.oauthConfigured = 'checking';
     }
 
     // Capture phase makes this module authoritative over the older
@@ -180,10 +187,9 @@
       selectProvider(provider);
 
       if (provider === 'gmail') {
-        if (button.dataset.oauthConfigured !== 'true') {
-          connectStatus.textContent = 'Google sign-in is unavailable in this build.';
-          return;
-        }
+        // Never gate the user's click on a cached browser-side readiness probe.
+        // The OAuth owner performs a fresh protected check and the server is the
+        // final fail-closed authority for whether authorization can start.
         startGoogleOAuth();
         return;
       }
