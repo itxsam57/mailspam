@@ -1,28 +1,26 @@
 # REG-085 — Report Scam / Provider Disposal Separation
 
-Status: **LOCKED**
+Status: **SUPERSEDED BY REG-089**
 
-## Defect
+## Historical contract
 
-The Report Scam route had accumulated a second responsibility: after committing local campaign protection it also invoked the provider Trash mutation. That made the visible Report Scam, Trash and Spam/Junk controls look separate while the server silently coupled reporting to disposal. It also contradicted the owner acceptance contract that a controlled report leaves the current provider message unchanged unless disposal is separately requested.
+REG-085 previously required **Report Scam to Email Shield** to save local/community threat learning while leaving the current provider message in place. Trash and Spam/Junk were separate explicit disposal actions.
 
-## Root repair
+That contract was intentionally changed by the product owner for the consumer desktop release. It must not be used to revert the newer account-local disposal behavior.
 
-Report Scam now owns only the threat-learning transaction:
+## Preserved boundaries
 
-- persist the account-local reported-campaign rule;
-- optionally persist the exact-sender block when the user explicitly chooses it;
-- submit the privacy-reduced Family Shield campaign signal when applicable; and
-- submit/queue privacy-reduced community evidence.
+The parts of REG-085 that protected scope and privacy remain mandatory under REG-089:
 
-It does **not** call the provider Trash or Spam/Junk mutation. The response explicitly reports `movedCurrent: false` and `providerAction: "none"`. The browser tells the user before and after reporting that the current message stays in place and that disposal requires the separate Trash or Move to Spam/Junk action.
+- a report is still account-local authority first;
+- one user's report still cannot publish a global Confirmed Threat;
+- community thresholds, independent-reporter requirements, time-spread corroboration and trusted human review remain unchanged;
+- Family Shield and community submissions remain privacy-reduced;
+- Spam/Junk remains a distinct provider action and does not become a community report;
+- provider failure must never roll back the saved local campaign rule.
 
-The existing protection capability is preserved: the durable local campaign rule still classifies later matching campaign mail as locally Confirmed Threat according to the personal-policy engine. Global auto-disposition authority remains governed independently by the existing durable-protection rules and signed Global Shield review boundary.
+## Superseding behavior
 
-## Permanent protection
+REG-089 makes an explicit user Report Scam decision also own **reversible Trash disposal for that user's mailbox**: the reported current message is moved to Trash, and later messages matching the locally reported campaign are eligible for the existing durable account-local automatic Trash path. Exact sender/domain blocks retain their existing current-message and future-match Trash behavior.
 
-- `tests/unit/protectionActions.test.ts` proves Report Scam persists protection/family/community outcomes without invoking the adapter Trash operation, including Family Shield failure.
-- `tests/unit/reportScamActionSeparation.test.ts` slices the canonical Report Scam route and rejects any future `moveCurrentMessageToTrash()` ownership; it also locks the browser disclosure that Report Scam does not move mail.
-- Existing Block, Trash and Spam/Junk tests continue to prove that their provider mutations still work, so this regression lock cannot be satisfied by removing disposal capability from the product.
-
-Any future implementation that couples Report Scam to a provider move, disguises a move inside another reporting side effect, or removes the separate disposal capabilities is a blocking regression.
+See `.engineering/REG-089_CONSUMER_REPORT_BLOCK_AUTO_TRASH.md`.
