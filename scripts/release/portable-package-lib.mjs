@@ -23,9 +23,19 @@ const lexicalCompare = (left, right) => left < right ? -1 : left > right ? 1 : 0
 const GOOGLE_DESKTOP_CLIENT_ID = /^\d+-[A-Za-z0-9_-]+\.apps\.googleusercontent\.com$/;
 const MICROSOFT_PUBLIC_CLIENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+// OAuth client IDs identify the Email Shield application; they are public
+// desktop-app metadata, not credentials. The consumer package must carry the
+// product-owned identifier so customers never configure developer settings.
+const RELEASE_PUBLIC_OAUTH_CLIENT_IDS = Object.freeze({
+  google: "482228116337-vkfjua15qvctnkebuodlk4q5rrk6j27c.apps.googleusercontent.com",
+  microsoft: "",
+});
+
 export function publicOAuthClientIds(environment = process.env) {
-  const google = String(environment.EMAIL_SHIELD_GOOGLE_CLIENT_ID ?? "").trim();
-  const microsoft = String(environment.EMAIL_SHIELD_MICROSOFT_CLIENT_ID ?? "").trim();
+  const google = String(environment.EMAIL_SHIELD_GOOGLE_CLIENT_ID ?? "").trim()
+    || RELEASE_PUBLIC_OAUTH_CLIENT_IDS.google;
+  const microsoft = String(environment.EMAIL_SHIELD_MICROSOFT_CLIENT_ID ?? "").trim()
+    || RELEASE_PUBLIC_OAUTH_CLIENT_IDS.microsoft;
   if (google && !GOOGLE_DESKTOP_CLIENT_ID.test(google)) {
     throw new Error("EMAIL_SHIELD_GOOGLE_CLIENT_ID is not a valid Google desktop OAuth client ID.");
   }
@@ -215,5 +225,4 @@ export function assertManifestShape(manifest) {
 
 export function packageRootFromManifestPath(manifestPath) {
   if (basename(manifestPath) !== RELEASE_MANIFEST_FILE) throw new Error("Unexpected portable manifest filename.");
-  return dirname(manifestPath);
 }
