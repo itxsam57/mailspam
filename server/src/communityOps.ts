@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { EncryptedCommunityAggregateStore } from "./community/aggregateStore.js";
 import {
   createEncryptedCommunityBackup,
   prepareCommunitySigningRotation,
@@ -24,22 +25,32 @@ function requirePassphrase(): Buffer {
   return readCommunityBackupPassphraseFile(resolve(path));
 }
 
+function requireReviewReason(): string {
+  const reason = process.env.EMAIL_SHIELD_COMMUNITY_REVIEW_REASON?.trim();
+  if (!reason) {
+    throw new Error("Set EMAIL_SHIELD_COMMUNITY_REVIEW_REASON for review-resolve. Review reasons are not accepted in argv.");
+  }
+  return reason;
+}
+
 function usage(): never {
   throw new Error(
-    "Usage: communityOps backup <data-dir> <backup-file> | restore <backup-file> <new-data-dir> | prepare-rotation <data-dir> <new-package-dir>",
+    "Usage: communityOps backup <data-dir> <backup-file> | restore <backup-file> <new-data-dir> | prepare-rotation <data-dir> <new-package-dir> | review-list <data-dir> | review-resolve <data-dir> <campaign-fingerprint> <approve|reject> <reviewer-id>",
   );
 }
 
 async function main(): Promise<void> {
-  const [command, first, second, ...rest] = process.argv.slice(2);
-  if (!command || !first || !second || rest.length > 0) usage();
+  const [command, ...args] = process.argv.slice(2);
+  if (!command) usage();
 
   if (command === "backup") {
+    if (args.length !== 2) usage();
+    const [dataDir, backupFile] = args as [string, string];
     const passphrase = requirePassphrase();
     try {
       const result = createEncryptedCommunityBackup({
-        dataDirectory: resolve(first),
-        backupPath: resolve(second),
+        dataDirectory: resolve(dataDir),
+        backupPath: resolve(backupFile),
         passphrase,
         configuredSigningKeys: signingKeysFromEnvironment(),
       });
@@ -51,11 +62,13 @@ async function main(): Promise<void> {
   }
 
   if (command === "restore") {
+    if (args.length !== 2) usage();
+    const [backupFile, targetDir] = args as [string, string];
     const passphrase = requirePassphrase();
     try {
       const result = restoreEncryptedCommunityBackup({
-        backupPath: resolve(first),
-        targetDataDirectory: resolve(second),
+        backupPath: resolve(backupFile),
+        targetDataDirectory: resolve(targetDir),
         passphrase,
       });
       process.stdout.write(`${JSON.stringify(result)}\n`);
@@ -66,12 +79,45 @@ async function main(): Promise<void> {
   }
 
   if (command === "prepare-rotation") {
+    if (args.length !== 2) usage();
+    const [dataDir, outputDir] = args as [string, string];
     const result = prepareCommunitySigningRotation({
-      dataDirectory: resolve(first),
-      outputDirectory: resolve(second),
+      dataDirectory: resolve(dataDir),
+      outputDirectory: resolve(outputDir),
       configuredCurrentSigningKeys: signingKeysFromEnvironment(),
     });
     process.stdout.write(`${JSON.stringify(result)}\n`);
+    return;
+  }
+
+  if (command === "review-list") {
+    if (args.length !== 1) usage();
+    const store = new EncryptedCommunityAggregateStore(resolve(args[0]!));
+    try {
+      process.stdout.write(`${JSON.stringify(store.listReviewCandidates())}\n`);
+    } finally {
+      store.close();
+    }
+    return;
+  }
+
+  if (command === "review-resolve") {
+    if (args.length !== 4) usage();
+    const [dataDir, campaignFingerprint, decisionArg, reviewerId] = args as [string, string, string, string];
+    const decision = decisionArg === "approve" ? "approved" : decisionArg === "reject" ? "rejected" : null;
+    if (!decision) usage();
+    const store = new EncryptedCommunityAggregateStore(resolve(dataDir));
+    try {
+      const result = store.resolveReviewCandidate({
+        campaignFingerprint,
+        decision,
+        reviewerId,
+        reason: requireReviewReason(),
+      });
+      process.stdout.write(`${JSON.stringify(result)}\n`);
+    } finally {
+      store.close();
+    }
     return;
   }
 
