@@ -247,12 +247,14 @@ function validateCampaignV2(fingerprint: string, value: unknown): StoredCommunit
   return campaign as unknown as StoredCommunityCampaignRecordV2;
 }
 
-function validateReview(value: unknown, firstSeen: number): StoredCommunityReviewRecord | null | undefined {
+function validateReview(value: unknown): StoredCommunityReviewRecord | null | undefined {
   if (value === null) return null;
   const review = record(value);
   if (!review || !onlyKeys(review, ["status", "createdAt", "resolvedAt", "reviewerId", "reason"])) return undefined;
   if (typeof review.status !== "string" || !REVIEW_STATUSES.has(review.status)) return undefined;
-  if (!canonicalTimestamp(review.createdAt) || Date.parse(review.createdAt) < firstSeen) return undefined;
+  // Review timestamps are audit history, not live-evidence timestamps. The
+  // evidence retention window may advance campaign.firstSeen after review.
+  if (!canonicalTimestamp(review.createdAt)) return undefined;
   if (review.status === "candidate") {
     if (review.resolvedAt !== null || review.reviewerId !== null || review.reason !== null) return undefined;
   } else {
@@ -284,7 +286,7 @@ function validateCampaign(fingerprint: string, value: unknown): StoredCommunityC
     observedLast = Math.max(observedLast, timestamp);
   }
   if (new Date(observedFirst).toISOString() !== campaign.firstSeen || new Date(observedLast).toISOString() !== campaign.lastSeen) return null;
-  const review = validateReview(campaign.review, firstSeen);
+  const review = validateReview(campaign.review);
   if (review === undefined) return null;
   return { ...campaign, review } as unknown as StoredCommunityCampaignRecord;
 }
