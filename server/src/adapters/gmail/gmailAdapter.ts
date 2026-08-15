@@ -20,6 +20,8 @@ export interface GmailOAuthCredentials {
   accountSubject?: string;
 }
 
+const GMAIL_ARCHIVE_QUERY = "in:archive";
+
 function normalizeLabelToFolder(labelId: string): NormalizedFolder {
   const map: Record<string, NormalizedFolder> = {
     INBOX: "inbox",
@@ -27,9 +29,59 @@ function normalizeLabelToFolder(labelId: string): NormalizedFolder {
     SENT: "sent",
     DRAFT: "drafts",
     TRASH: "trash",
-    ALL_MAIL: "archive",
   };
   return map[labelId] ?? "other";
+}
+
+/**
+ * Build the provider-neutral folder plan from Gmail's real system labels.
+ * Gmail's REST API does not expose Archive as a normal label ID, so Archive is
+ * represented by a synthetic descriptor whose fetch is implemented with the
+ * provider-native `in:archive` search query instead of inventing a label ID.
+ */
+export function resolveGmailFolderDescriptors(labelIds: readonly string[]): FolderDescriptor[] {
+  const systemLabels = new Set(["INBOX", "SPAM", "SENT", "DRAFT", "TRASH"]);
+  const folders = labelIds
+    .filter((labelId) => systemLabels.has(labelId))
+    .map((labelId) => {
+      const normalized = normalizeLabelToFolder(labelId);
+      return {
+        providerFolderName: labelId,
+        normalized,
+        includedByDefault: !["sent", "drafts", "trash"].includes(normalized),
+      } satisfies FolderDescriptor;
+    });
+  folders.push({
+    providerFolderName: GMAIL_ARCHIVE_QUERY,
+    normalized: "archive",
+    includedByDefault: true,
+  });
+  return folders;
+}
+
+/**
+ * Translate a provider-neutral Gmail folder into one bounded messages.list call.
+ * Spam/Trash require includeSpamTrash. Archive is not a label; Gmail exposes it
+ * through its search grammar, so no fake labelId is sent for that source.
+ */
+export function gmailMessageListParameters(
+  folder: FolderDescriptor,
+  cursor: string | null,
+  pageSize: number,
+): gmail_v1.Params$Resource$Users$Messages$List {
+  const base: gmail_v1.Params$Resource$Users$Messages$List = {
+    userId: "me",
+    maxResults: pageSize,
+    pageToken: cursor ?? undefined,
+  };
+  if (folder.normalized === "archive") {
+    return { ...base, q: GMAIL_ARCHIVE_QUERY };
+  }
+  return {
+    ...base,
+    labelIds: [folder.providerFolderName],
+    ...(["spam", "trash"].includes(folder.normalized) ? { includeSpamTrash: true } : {}),
+  };
 }
 
 function inaccessibleGmailEnvelope(input: {
@@ -169,13 +221,9 @@ export class GmailAdapter implements EmailAdapter {
     if (!this.gmail) throw new Error("Not connected");
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
     const res = await this.gmail.users.labels.list({ userId: "me" });
-    const systemLabels = ["INBOX", "SPAM", "SENT", "DRAFT", "TRASH"];
-    return (res.data.labels ?? [])
-      .filter((l) => l.id && systemLabels.includes(l.id))
-      .map((l) => {
-        const normalized = normalizeLabelToFolder(l.id!);
-        return { providerFolderName: l.id!, normalized, includedByDefault: !["sent", "drafts", "trash"].includes(normalized) };
-      });
+    return resolveGmailFolderDescriptors(
+      (res.data.labels ?? []).map((label) => label.id).filter((id): id is string => Boolean(id)),
+    );
   }
 
   async fetchPage(
@@ -187,12 +235,9 @@ export class GmailAdapter implements EmailAdapter {
     if (!this.gmail || !this.accountProof) throw new Error("Not connected");
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
 
-    const listRes = await this.gmail.users.messages.list({
-      userId: "me",
-      labelIds: [folder.providerFolderName],
-      maxResults: pageSize,
-      pageToken: cursor ?? undefined,
-    });
+    const listRes = await this.gmail.users.messages.list(
+      gmailMessageListParameters(folder, cursor, pageSize),
+    );
     const ids = (listRes.data.messages ?? []).map((m) => m.id!).filter(Boolean);
 
     if (ids.length === 0) {
