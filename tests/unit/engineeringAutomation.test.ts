@@ -98,6 +98,8 @@ describe("AI Engineering Automation Kit installation", () => {
     expect(workflow).toContain("if: always()");
     expect(workflow).toContain("actions/upload-artifact@v4");
     expect(workflow).toContain("artifacts/engineering/");
+    expect(workflow).toContain("VERIFY_RESULT: ${{ needs.verify.result }}");
+    expect(workflow).toContain('if [ "$VERIFY_RESULT" != "success" ]; then');
   });
 
   it("keeps central-service stress qualification outside workstation unit tests", () => {
