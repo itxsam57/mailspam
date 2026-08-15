@@ -34,13 +34,14 @@
 
   async function loadConfiguration() {
     try {
-      const response = await fetch('/api/accounts/oauth/google/config');
+      const response = await fetch('/api/accounts/oauth/google/config', { cache: 'no-store' });
       const body = await response.json().catch(() => ({}));
       googleConfigured = response.ok && body.configured === true;
     } catch {
       googleConfigured = false;
     }
     if (isGuidedGmail()) renderGuidedState();
+    return googleConfigured;
   }
 
   function renderGuidedState() {
@@ -50,11 +51,11 @@
     if (activeFlowId) {
       setStatus('Complete the Google consent window. Email Shield is waiting for the protected loopback callback…');
     } else if (googleConfigured === false) {
-      setStatus('Google OAuth is not configured in this development build. Set the Email Shield desktop OAuth client ID and restart the app.');
+      setStatus('Google sign-in is unavailable in this build.');
     } else if (googleConfigured === true) {
       setStatus('Google opens in a separate browser window. Email Shield uses PKCE and a one-time local callback; your Google password is never given to Email Shield.');
     } else {
-      setStatus('Checking Google OAuth configuration…');
+      setStatus('Checking Google sign-in availability…');
     }
   }
 
@@ -98,8 +99,9 @@
 
   async function startGuidedGoogleOAuth() {
     if (activeFlowId) return;
+    if (googleConfigured === null) await loadConfiguration();
     if (googleConfigured === false) {
-      setStatus('Google OAuth is not configured for this build. Configure the desktop client ID and restart Email Shield.');
+      setStatus('Google sign-in is unavailable in this build.');
       return;
     }
 
@@ -148,6 +150,17 @@
       try { popup.close(); } catch {}
     }
   }
+
+  // The consumer provider boundary calls this owner directly. The legacy
+  // internal Connect control retains the same owner for developer acceptance.
+  Object.defineProperty(window, 'emailShieldGoogleOAuth', {
+    value: Object.freeze({
+      start: () => startGuidedGoogleOAuth(),
+      configured: () => googleConfigured,
+    }),
+    writable: false,
+    configurable: false,
+  });
 
   // Capture phase prevents the legacy live-Gmail click handler from sending an
   // empty credential payload to /api/accounts/connect.
