@@ -41,7 +41,7 @@
     "audit:prod": "npm audit --omit=dev --audit-level=high",
     "gate": "node scripts/engineering/run-gate.mjs",
     "verify": "npm run gate",
-    "dev": "npm run dev -w server",
+    "dev": "node scripts/dev.mjs",
     "dev:community": "npm run dev:community -w server",
     "dev:account-service": "npm run dev:account-service -w server",
     "recover:local-state": "npm run recover:local-state -w server",
