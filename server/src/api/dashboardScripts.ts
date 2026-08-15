@@ -26,6 +26,7 @@ const DESKTOP_ONLY_SCRIPTS = [
   "/ui-router.js",
   "/scam-check.js",
   "/consumer-product.js",
+  "/shopping-safety.js",
   "/consumer-onboarding.js",
   "/billing-plan-ui.js",
   "/family-guardian-preferences.js",
@@ -48,8 +49,10 @@ function scriptTags(paths: readonly string[]): string {
  * the visual shell can expose the base HTML button; app-shell then constructs
  * the visual route containers. ui-router becomes the authoritative navigation/
  * mount contract before consumer feature modules declare route-owned panels.
- * scan-monitor owns the scan stream; consumer-scan-results owns only the
- * all-message consumer projection derived from scan-monitor's bounded rows.
+ * consumer-product constructs the settings tool container before the dedicated
+ * Shopping Safety owner mounts its explicit storefront check. scan-monitor owns
+ * the scan stream; consumer-scan-results owns only the all-message consumer
+ * projection derived from scan-monitor's bounded rows.
  */
 export function dashboardScriptTags(desktop: boolean): string {
   return scriptTags(desktop
