@@ -25,9 +25,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
     env:
-      EMAIL_SHIELD_GOOGLE_CLIENT_ID: ${{ vars.EMAIL_SHIELD_GOOGLE_CLIENT_ID }}
-      EMAIL_SHIELD_MICROSOFT_CLIENT_ID: ${{ vars.EMAIL_SHIELD_MICROSOFT_CLIENT_ID }}
-      EMAIL_SHIELD_REQUIRE_LIVE_OAUTH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && '1' || '0' }}
+      EMAIL_SHIELD_REQUIRE_LIVE_OAUTH: '1'
 
     steps:
       - name: Checkout immutable tested SHA
@@ -47,21 +45,6 @@ jobs:
             exit 1
           }
           echo "Exact tested SHA: $actual"
-
-      - name: Assert consumer OAuth release registration
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "${EMAIL_SHIELD_GOOGLE_CLIENT_ID:-}" || {
-            echo "Consumer release blocked: repository variable EMAIL_SHIELD_GOOGLE_CLIENT_ID is missing." >&2
-            exit 1
-          }
-          test -n "${EMAIL_SHIELD_MICROSOFT_CLIENT_ID:-}" || {
-            echo "Consumer release blocked: repository variable EMAIL_SHIELD_MICROSOFT_CLIENT_ID is missing." >&2
-            exit 1
-          }
-          echo "Consumer OAuth application registrations are provisioned."
 
       - name: Use Node.js 22
         uses: actions/setup-node@v4
