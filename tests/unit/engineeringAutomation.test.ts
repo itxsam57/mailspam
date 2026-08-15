@@ -26,7 +26,9 @@ describe("AI Engineering Automation Kit installation", () => {
     expect(regressions).toContain("GAP-001");
     expect(regressions).toContain("Do not delete history to make the register appear green");
     expect(reportScamSeparation).toContain("Status: **LOCKED**");
-    expect(reportScamSeparation).toContain("Trash and Spam/Junk remain separate explicit actions");
+    expect(reportScamSeparation).toContain('`movedCurrent: false`');
+    expect(reportScamSeparation).toContain('`providerAction: "none"`');
+    expect(reportScamSeparation).toContain("disposal requires the separate Trash or Move to Spam/Junk action");
   });
 
   it("exposes one full gate without adding unrelated framework checks", () => {
