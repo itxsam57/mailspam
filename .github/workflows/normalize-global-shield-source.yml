@@ -1,0 +1,69 @@
+name: One-shot Global Shield source normalization
+
+on:
+  push:
+    branches: [fix/final-release-hardening]
+    paths: [.github/workflows/normalize-global-shield-source.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  normalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/final-release-hardening
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Normalize only the two generated indentation ranges
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('server/src/community/aggregateStore.ts')
+          text = path.read_text()
+
+          def indent_range(source: str, start_marker: str, end_marker: str) -> str:
+              start = source.index(start_marker)
+              end = source.index(end_marker, start)
+              block = source[start:end]
+              normalized = ''.join(('  ' + line if line.strip() else line) for line in block.splitlines(keepends=True))
+              return source[:start] + normalized + source[end:]
+
+          text = indent_range(
+              text,
+              '  const updatedCampaign = database.campaigns[report.campaignFingerprint]!;\n',
+              '    const reporterCampaigns = this.reporterActivity.get(report.reporterProof) ?? new Map<string, number>();\n',
+          )
+          text = indent_range(
+              text,
+              '  const previousReputation = structuredClone(database.reporterReputation);\n',
+              '\n    return {\n',
+          )
+          path.write_text(text)
+          PY
+
+      - name: Certify no semantic regression
+        run: |
+          npm ci
+          npm run typecheck
+          npx vitest run tests/unit/globalThreatConfidence.test.ts
+
+      - name: Commit normalization and remove one-shot workflow
+        shell: bash
+        run: |
+          rm .github/workflows/normalize-global-shield-source.yml
+          git config user.name "email-shield-engineering"
+          git config user.email "engineering@email-shield.local"
+          git add -A
+          git commit -m "Normalize Global Shield retained-evidence implementation"
+          git push origin HEAD:fix/final-release-hardening
