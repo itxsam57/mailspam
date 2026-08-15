@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { loadEnvFile } from "node:process";
+import { parseEnv } from "node:util";
 
 // npm exposes the JavaScript entry point that launched this lifecycle script.
 // Capture it before loading project-local configuration so .env.local can never
@@ -8,14 +9,34 @@ import { loadEnvFile } from "node:process";
 // executable avoids trying to execute npm.cmd directly on Windows.
 const npmExecPath = process.env.npm_execpath?.trim();
 
+// Source/owner acceptance deliberately treats the repository-local .env.local
+// as the authoritative configuration layer. Node's built-in --env-file/loadEnvFile
+// behavior gives an already-existing machine environment variable precedence,
+// which can silently retain an old OAuth value and make the browser report that
+// Google is unavailable even though .env.local was corrected. Parse the local
+// file and apply its values explicitly so the file the owner is editing is the
+// configuration the spawned Email Shield server actually receives.
 const envFile = resolve(process.cwd(), ".env.local");
+let envLocalLoaded = false;
 try {
-  loadEnvFile(envFile);
+  const localEnvironment = parseEnv(readFileSync(envFile, "utf8"));
+  for (const [key, value] of Object.entries(localEnvironment)) {
+    process.env[key] = value;
+  }
+  envLocalLoaded = true;
 } catch (error) {
   if (!(error && typeof error === "object" && "code" in error && error.code === "ENOENT")) {
     throw error;
   }
 }
+
+const googleClientIdLoaded = Boolean(process.env.EMAIL_SHIELD_GOOGLE_CLIENT_ID?.trim());
+const googleClientSecretLoaded = Boolean(process.env.EMAIL_SHIELD_GOOGLE_CLIENT_SECRET?.trim());
+console.log(
+  `Email Shield source configuration: .env.local ${envLocalLoaded ? "loaded" : "not found"}; `
+  + `Google client ID ${googleClientIdLoaded ? "loaded" : "missing"}; `
+  + `Google client secret ${googleClientSecretLoaded ? "loaded" : "missing"}.`,
+);
 
 let command;
 let args;
