@@ -15,6 +15,20 @@ describe("desktop startup performance architecture", () => {
     expect(pkg.scripts?.start).toBe("node dist/index.js");
   });
 
+  it("launches the workspace dev process without spawning npm.cmd directly on Windows", () => {
+    const launcher = read("scripts/dev.mjs");
+    const captureIndex = launcher.indexOf("const npmExecPath = process.env.npm_execpath?.trim()");
+    const envLoadIndex = launcher.indexOf("loadEnvFile(envFile)");
+
+    expect(captureIndex).toBeGreaterThanOrEqual(0);
+    expect(envLoadIndex).toBeGreaterThan(captureIndex);
+    expect(launcher).toContain("command = process.execPath");
+    expect(launcher).toContain('[npmExecPath, "run", "dev", "-w", "server"]');
+    expect(launcher).not.toContain('const npm = process.platform === "win32" ? "npm.cmd" : "npm"');
+    expect(launcher).not.toContain('spawn("npm.cmd"');
+    expect(launcher).toContain('process.env.ComSpec?.trim() || "cmd.exe"');
+  });
+
   it("initializes independent protected repositories in one awaited concurrent phase", () => {
     const source = read("server/src/index.ts");
     const vault = source.indexOf("const credentialVault = getRuntimeCredentialVault()");

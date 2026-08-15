@@ -2,6 +2,12 @@ import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { loadEnvFile } from "node:process";
 
+// npm exposes the JavaScript entry point that launched this lifecycle script.
+// Capture it before loading project-local configuration so .env.local can never
+// redirect the process launcher. Running that CLI through the current Node
+// executable avoids trying to execute npm.cmd directly on Windows.
+const npmExecPath = process.env.npm_execpath?.trim();
+
 const envFile = resolve(process.cwd(), ".env.local");
 try {
   loadEnvFile(envFile);
@@ -11,8 +17,23 @@ try {
   }
 }
 
-const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-const child = spawn(npm, ["run", "dev", "-w", "server"], {
+let command;
+let args;
+if (npmExecPath) {
+  command = process.execPath;
+  args = [npmExecPath, "run", "dev", "-w", "server"];
+} else if (process.platform === "win32") {
+  // Direct `node scripts/dev.mjs` remains supported on Windows. .cmd files must
+  // be invoked through the Windows command processor rather than spawn()ed as
+  // standalone executables.
+  command = process.env.ComSpec?.trim() || "cmd.exe";
+  args = ["/d", "/s", "/c", "npm run dev -w server"];
+} else {
+  command = "npm";
+  args = ["run", "dev", "-w", "server"];
+}
+
+const child = spawn(command, args, {
   stdio: "inherit",
   env: process.env,
   windowsHide: true,
