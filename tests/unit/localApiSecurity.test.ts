@@ -178,6 +178,8 @@ describe("local desktop security boundary", () => {
     const context = await start();
     expect(await rawStatus(context.baseUrl, { Host: "attacker.example" })).toBe(421);
     expect((await fetch(context.baseUrl, { headers: { "X-Forwarded-Host": "attacker.example" } })).status).toBe(421);
+    expect((await fetch(context.baseUrl, { headers: { Forwarded: "for=198.51.100.9;host=attacker.example;proto=https" } })).status).toBe(421);
+    expect((await fetch(context.baseUrl, { headers: { "X-Forwarded-Port": "443" } })).status).toBe(421);
     expect((await fetch(`${context.baseUrl}/api/security/mutation-token`, {
       method: "POST",
       headers: headers(context, { Origin: "http://127.0.0.1:65531" }),
