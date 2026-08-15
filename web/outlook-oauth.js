@@ -34,13 +34,14 @@
 
   async function loadConfiguration() {
     try {
-      const response = await fetch('/api/accounts/oauth/microsoft/config');
+      const response = await fetch('/api/accounts/oauth/microsoft/config', { cache: 'no-store' });
       const body = await response.json().catch(() => ({}));
       microsoftConfigured = response.ok && body.configured === true;
     } catch {
       microsoftConfigured = false;
     }
     if (isGuidedOutlook()) renderGuidedState();
+    return microsoftConfigured;
   }
 
   function renderGuidedState() {
@@ -50,11 +51,11 @@
     if (activeFlowId) {
       setStatus('Complete the Microsoft consent window. Email Shield is waiting for the one-time local PKCE callback…');
     } else if (microsoftConfigured === false) {
-      setStatus('Microsoft OAuth is not configured in this development build. Set the Email Shield Microsoft public-client ID and restart the app.');
+      setStatus('Microsoft sign-in is unavailable in this build.');
     } else if (microsoftConfigured === true) {
       setStatus('Microsoft opens in a separate browser window. Email Shield uses a public desktop client, PKCE and a one-time local callback; your Microsoft password is never given to Email Shield.');
     } else {
-      setStatus('Checking Microsoft OAuth configuration…');
+      setStatus('Checking Microsoft sign-in availability…');
     }
   }
 
@@ -98,8 +99,13 @@
 
   async function startGuidedMicrosoftOAuth() {
     if (activeFlowId) return;
+    if (microsoftConfigured === null) {
+      setStatus('Checking Microsoft sign-in availability…');
+      void loadConfiguration();
+      return;
+    }
     if (microsoftConfigured === false) {
-      setStatus('Microsoft OAuth is not configured for this build. Configure the public desktop client ID and restart Email Shield.');
+      setStatus('Microsoft sign-in is unavailable in this build.');
       return;
     }
 
@@ -146,6 +152,15 @@
       try { popup.close(); } catch {}
     }
   }
+
+  Object.defineProperty(window, 'emailShieldMicrosoftOAuth', {
+    value: Object.freeze({
+      start: () => startGuidedMicrosoftOAuth(),
+      configured: () => microsoftConfigured,
+    }),
+    writable: false,
+    configurable: false,
+  });
 
   connectBtn.addEventListener('click', (event) => {
     if (!isGuidedOutlook()) return;
