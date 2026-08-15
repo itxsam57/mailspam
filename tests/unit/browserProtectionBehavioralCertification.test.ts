@@ -1,0 +1,91 @@
+import { describe, expect, it } from "vitest";
+import { evaluateBrowserUrl } from "../../server/src/consumer/browserProtection.js";
+import { createDestinationAnalysisCoordinator } from "../../server/src/workflows/analyzeLinks.js";
+
+const EICAR_TEST_SIGNATURE = "X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*";
+
+function coordinator(body: string | null) {
+  return createDestinationAnalysisCoordinator({
+    networkEnabled: true,
+    cacheKey: Buffer.alloc(32, 31),
+    fetchImpl: async (url) => body === null ? null : ({
+      finalUrl: url,
+      contentType: "text/html",
+      body,
+    }),
+  });
+}
+
+describe("Browser Protection behavioral certification", () => {
+  it("blocks a destination whose actually fetched content matches deterministic malware evidence", async () => {
+    const result = await evaluateBrowserUrl({
+      schemaVersion: 1,
+      url: "https://example.com/download",
+      context: "explicit_check",
+    }, {
+      destinationAnalyzer: coordinator(`<html><body><pre>${EICAR_TEST_SIGNATURE}</pre></body></html>`),
+    });
+
+    expect(result.destinationClassification).toBe("malware");
+    expect(result.disposition).toBe("block");
+    expect(result.reasonCodes).toContain("DESTINATION_MALWARE");
+    expect(result.explanation).toMatch(/do not continue/i);
+  });
+
+  it("blocks a credential-collection destination after real destination HTML classification", async () => {
+    const result = await evaluateBrowserUrl({
+      schemaVersion: 1,
+      url: "https://example.com/login",
+      context: "navigation",
+    }, {
+      destinationAnalyzer: coordinator("<html><form><input name=user><input type=password></form></html>"),
+    });
+
+    expect(result.destinationClassification).toBe("credential_trap");
+    expect(result.disposition).toBe("block");
+    expect(result.reasonCodes).toContain("DESTINATION_CREDENTIAL_TRAP");
+  });
+
+  it("never allows a destination when bounded acquisition fails", async () => {
+    const result = await evaluateBrowserUrl({
+      schemaVersion: 1,
+      url: "https://example.com/ordinary",
+      context: "explicit_check",
+    }, {
+      destinationAnalyzer: coordinator(null),
+    });
+
+    expect(result.destinationClassification).toBe("error");
+    expect(result.disposition).not.toBe("allow");
+    expect(result.explanation).toMatch(/not treated as safe|verify/i);
+  });
+
+  it("warns on executable download metadata even when the inspected destination itself is benign", async () => {
+    const result = await evaluateBrowserUrl({
+      schemaVersion: 1,
+      url: "https://example.com/files",
+      context: "download",
+      download: { filename: "invoice-viewer.exe", mimeType: "application/octet-stream" },
+    }, {
+      destinationAnalyzer: coordinator("<html><body>ordinary documentation download page</body></html>"),
+    });
+
+    expect(result.destinationClassification).toBe("benign");
+    expect(result.reasonCodes).toContain("EXECUTABLE_OR_SCRIPT_DOWNLOAD");
+    expect(result.disposition).toBe("warn");
+  });
+
+  it("allows an ordinary explicitly checked destination only when both URL evidence and fetched content have no strong signal", async () => {
+    const result = await evaluateBrowserUrl({
+      schemaVersion: 1,
+      url: "https://example.com/help",
+      context: "explicit_check",
+    }, {
+      destinationAnalyzer: coordinator("<html><body>ordinary public documentation and help information</body></html>"),
+    });
+
+    expect(result.destinationClassification).toBe("benign");
+    expect(result.disposition).toBe("allow");
+    expect(result.explanation).toMatch(/not a guarantee/i);
+  });
+});
