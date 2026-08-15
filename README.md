@@ -4,7 +4,26 @@ Email Shield is a local-first, deterministic email scam-detection layer. Mailbox
 
 Milestone 1 is closed. Milestone 2 is **code-complete to its audited and automated boundary** but awaits registered owner/live/deployment acceptance. Milestone 3 repository work now includes signed release lifecycle, bounded background protection, portable core, accessibility/localization foundation, aggregate operations, Regression Vault, provider contracts and executable capacity/public-security documentation; actual Android/iOS mailbox shells remain missing and external/native acceptance remains open. See `docs/THREE_MILESTONE_FINAL_RECONCILIATION.md`.
 
-## Run the desktop client
+## Run the consumer desktop build
+
+The normal desktop product is the verified portable package. It already contains the supported Node runtime and does **not** require Node.js, npm, Git, the engineering gate, fixture entitlements or developer tools on the consumer computer.
+
+### Windows
+
+1. Extract the verified Windows portable ZIP.
+2. Open the extracted `email-shield-<version>-win32-x64` folder.
+3. Run `EmailShield.cmd`.
+4. Open `http://127.0.0.1:4173` if the browser is not already open.
+
+### macOS / Linux
+
+Run the packaged `email-shield` launcher from the extracted portable folder, then open `http://127.0.0.1:4173`.
+
+The consumer interface defaults to live mailbox onboarding. Synthetic fixture mailboxes and developer acceptance controls are engineering-only and are not part of the normal consumer journey.
+
+## Source engineering workflow
+
+Repository contributors still use the blocking quality gate before a build reaches `main`:
 
 ```bash
 npm ci
@@ -12,7 +31,7 @@ npm run gate
 npm run dev
 ```
 
-Open `http://127.0.0.1:4173`. Fixture mode loads the synthetic scam corpus without credentials. Live mode connects directly from the user's computer to the selected provider.
+This source workflow is for development/release qualification, not normal consumer startup.
 
 ## Providers and live onboarding
 
@@ -50,11 +69,15 @@ A failed, expired, tampered or untrusted signed community feed is treated as una
 
 ## Message actions
 
-**Report Scam to Email Shield** creates immediate encrypted account-local campaign protection and may queue/send only privacy-reduced indicators to the community service. It does not move or delete mail. Optional exact-sender blocking is a separate decision.
+**Report Scam to Email Shield** creates immediate encrypted account-local campaign protection and then requests a provider Trash move for the currently reported message. Later messages matching that locally reported campaign are eligible for the same account-local durable automatic Trash path. If the current provider move is temporarily unavailable, the saved campaign rule remains active rather than being rolled back. An optional exact-sender block is a separate choice.
 
-**Move to Spam/Junk** and **Trash** operate on the exact selected provider message and require provider confirmation. They do not automatically create shared intelligence.
+**Block Sender** and permitted **Block Domain** actions save an account-local personal block, move the currently selected message to Trash after provider confirmation and make later matching mail eligible for account-local automatic Trash. Broad shared-consumer-domain blocking remains restricted.
 
-**Mark Safe**, **Trust sender**, sender/domain block/unblock and the Personal Policy Management Centre are account-scoped and persisted through encrypted local state.
+These personal decisions do **not** lower the Global Shield publication threshold for anyone else. Community candidate/warning/confirmed requirements, independent reporters, time-spread corroboration and trusted human review remain separate. A warning does not gain automatic Trash authority merely because another user reported it.
+
+**Move to Spam/Junk** and the standalone **Trash** control still operate on the exact selected provider message and require provider confirmation. They do not automatically create shared intelligence.
+
+**Mark Safe**, **Trust sender**, sender/domain unblock and the Personal Policy Management Centre are account-scoped and persisted through encrypted local state.
 
 ## Unsubscribe safety
 
@@ -68,7 +91,7 @@ Email Shield supports manual web/mailto unsubscribe plus RFC 8058 one-click. Aut
 - Relationship history stores only HMAC identities and bounded aggregate observations; it never becomes an allowlist or positive trust score.
 - Thread continuity uses bounded RFC `In-Reply-To` / `References` observations and deletes raw identifiers before scoring/browser output.
 - Local encrypted/security-sensitive persistence reads are descriptor-bound and size-bounded before allocation; failed atomic replacement preserves the last good database.
-- If an encrypted local-state file can no longer authenticate because its original native-vault key is unavailable, startup preserves it and names `npm run recover:local-state`. That explicit command archives only confirmed unreadable ciphertext with an integrity manifest before allowing clean state; it does not claim to decrypt data without the original key.
+- If an encrypted local-state file can no longer authenticate because its original native-vault key is unavailable, startup preserves it and names `npm run recover:local-state`. That explicit source-engineering command archives only confirmed unreadable ciphertext with an integrity manifest before allowing clean state; it does not claim to decrypt data without the original key.
 
 ## Links, HTML, QR and attachments
 
@@ -84,7 +107,7 @@ The selected account can manage blocked senders/domains, trusted senders, exact-
 
 ## Community intelligence
 
-Community reports are privacy-reduced and reporter-deduplicated. Signed Ed25519 feed entries may represent campaign, sender, Reply-To domain, destination domain and attachment-hash indicators. Candidate/warning/confirmed thresholds are independent of one user's report.
+Community reports are privacy-reduced and reporter-deduplicated. Signed Ed25519 feed entries may represent campaign, sender, Reply-To domain, destination domain and attachment-hash indicators. Candidate/warning/confirmed thresholds are independent of one user's account-local Report Scam or Block decision.
 
 A dedicated community-only service exposes only community health/report/feed/public-key/status surfaces. Normal desktop clients do not expose mailbox APIs through the community service. Public production deployment still requires the registered DNS/TLS, gateway, monitoring, recovery and abuse-control acceptance work.
 
@@ -92,7 +115,7 @@ A dedicated community-only service exposes only community health/report/feed/pub
 
 The Engineering Gate runs strict typecheck, production build, unit/API/regression tests, the full five-provider corpus, portable-core vectors, provider compatibility, approved Regression Vault, capacity/cost and public-document contracts, Worker runtime, browser source/privacy/wiring checks, compiled desktop/community/background smoke, reproducible package/signed lifecycle verification, dependency inventory and the production dependency audit on Windows, macOS and Ubuntu/Linux with real Linux Secret Service coverage.
 
-The accepted Milestone 2 dependency graph currently has zero installed npm advisories. Future advisories are new evidence and must be reviewed; audit policy must not be weakened to hide them.
+The gate is a release-control mechanism; consumers do not run it. The accepted Milestone 2 dependency graph currently has zero installed npm advisories. Future advisories are new evidence and must be reviewed; audit policy must not be weakened to hide them.
 
 ## Remaining Milestone 2 acceptance — not code-complete claims
 
@@ -105,7 +128,7 @@ These remain open until real owner/deployment evidence exists:
 - **GAP-008:** production gateway reporter reputation and volumetric/DDoS controls;
 - required visible/manual acceptance items in `.engineering/REGRESSION_REGISTER.md`.
 
-Run `npm run gate` before live acceptance. Follow `docs/MILESTONE_2_LIVE_ACCEPTANCE.md` and record only PASS/FAIL evidence—never credentials, OAuth codes/tokens, mailbox bodies or private provider identifiers.
+Repository maintainers run `npm run gate` before live acceptance/release publication. Owner acceptance follows `docs/MILESTONE_2_LIVE_ACCEPTANCE.md` and records only PASS/FAIL evidence—never credentials, OAuth codes/tokens, mailbox bodies or private provider identifiers.
 
 ## Public security and deployment documents
 
