@@ -32,14 +32,33 @@ function bounded(value: unknown, max: number): string {
   return value.trim();
 }
 
+export function assertShoppingSafetyInput(input: unknown): asserts input is ShoppingSafetyInputV1 {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Shopping Safety input is invalid.");
+  const value = input as Record<string, unknown>;
+  const allowed = new Set(["schemaVersion", "url", "pageText", "sellerName", "advertisedPriceText", "paymentText"]);
+  if (Object.keys(value).some((key) => !allowed.has(key)) || value.schemaVersion !== 1) {
+    throw new Error("Shopping Safety input is invalid.");
+  }
+  const url = bounded(value.url, 8_192);
+  if (!url) throw new Error("Shopping Safety requires a storefront URL.");
+  let parsed: URL;
+  try { parsed = new URL(url); }
+  catch { throw new Error("Shopping Safety storefront URL is invalid."); }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("Shopping Safety accepts HTTP(S) storefronts only.");
+  if (parsed.username || parsed.password) throw new Error("Shopping Safety storefront URLs must not contain embedded credentials.");
+  bounded(value.pageText, 32_000);
+  bounded(value.sellerName, 512);
+  bounded(value.advertisedPriceText, 1_024);
+  bounded(value.paymentText, 8_000);
+}
+
 export function analyzeShoppingSafety(
-  input: ShoppingSafetyInputV1,
+  input: unknown,
   dependencies: ConsumerScamCheckDependencies = {},
 ): ShoppingSafetyResultV1 {
-  if (!input || input.schemaVersion !== 1) throw new Error("Shopping Safety input is invalid.");
+  assertShoppingSafetyInput(input);
   const url = bounded(input.url, 8_192);
   const parsed = new URL(url);
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("Shopping Safety accepts HTTP(S) storefronts only.");
   const pageText = bounded(input.pageText, 32_000);
   const sellerName = bounded(input.sellerName, 512);
   const advertisedPriceText = bounded(input.advertisedPriceText, 1_024);
