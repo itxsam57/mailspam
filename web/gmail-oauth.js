@@ -99,14 +99,15 @@
 
   async function startGuidedGoogleOAuth() {
     if (activeFlowId) return;
-    if (googleConfigured === null) await loadConfiguration();
     if (googleConfigured === false) {
       setStatus('Google sign-in is unavailable in this build.');
       return;
     }
 
     // Open synchronously from the click so popup blocking cannot force Email
-    // Shield to navigate the protected dashboard away from localhost.
+    // Shield to navigate the protected dashboard away from localhost. If the
+    // configuration probe is still in flight, finish it only after this window
+    // exists so the browser's user-gesture contract cannot be lost to an await.
     const popup = window.open('about:blank', 'emailShieldGoogleOAuth', 'popup=yes,width=720,height=760');
     if (!popup) {
       setStatus('Your browser blocked the Google window. Allow popups for this local Email Shield page and try again.');
@@ -116,6 +117,16 @@
       popup.document.title = 'Email Shield — Google';
       popup.document.body.textContent = 'Preparing secure Google authorization…';
     } catch {}
+
+    if (googleConfigured === null) {
+      setStatus('Checking Google sign-in availability…');
+      const configured = await loadConfiguration();
+      if (!configured) {
+        setStatus('Google sign-in is unavailable in this build.');
+        try { popup.close(); } catch {}
+        return;
+      }
+    }
 
     connectBtn.disabled = true;
     connectBtn.textContent = 'Waiting for Google…';
