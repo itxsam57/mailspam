@@ -24,14 +24,6 @@
       || !(grid instanceof HTMLElement)
       || !(legacyRow instanceof HTMLElement)) return;
 
-  // The old selector/mode/button row remains an internal implementation detail.
-  // Hiding the entire row, rather than individual fields, prevents a later
-  // provider renderer from accidentally exposing Fixture/demo controls.
-  legacyRow.hidden = true;
-  legacyRow.style.display = 'none';
-  legacyRow.setAttribute('aria-hidden', 'true');
-  connectBtn.hidden = true;
-
   let actions = document.getElementById('consumerCredentialActions');
   if (!(actions instanceof HTMLElement)) {
     actions = document.createElement('div');
@@ -47,6 +39,17 @@
     outlook: { path: '/api/accounts/oauth/microsoft/config', label: 'Microsoft' },
   };
 
+  // This guard is deliberately idempotent. A MutationObserver watches the
+  // legacy row for compatibility code that tries to reveal it, so writing the
+  // same watched attributes unconditionally would create a self-triggering
+  // mutation loop and hang the browser renderer.
+  function restoreConsumerVisibility() {
+    if (!legacyRow.hidden) legacyRow.hidden = true;
+    if (legacyRow.style.display !== 'none') legacyRow.style.display = 'none';
+    if (legacyRow.getAttribute('aria-hidden') !== 'true') legacyRow.setAttribute('aria-hidden', 'true');
+    if (!connectBtn.hidden) connectBtn.hidden = true;
+  }
+
   function selectProvider(provider) {
     providerSelect.value = provider;
     modeSelect.value = 'live';
@@ -54,15 +57,7 @@
     modeSelect.dispatchEvent(new Event('change', { bubbles: true }));
     // Consumer onboarding owns visibility. Provider-specific renderers may
     // change labels/disabled state, but they must not expose this legacy row.
-    legacyRow.hidden = true;
-    legacyRow.style.display = 'none';
-    connectBtn.hidden = true;
-  }
-
-  function restoreConsumerVisibility() {
-    legacyRow.hidden = true;
-    legacyRow.style.display = 'none';
-    connectBtn.hidden = true;
+    restoreConsumerVisibility();
   }
 
   function waitForLegacyConnectToSettle(button) {
@@ -91,7 +86,6 @@
         : 'Connect email provider';
     button.addEventListener('click', () => {
       button.disabled = true;
-      connectBtn.hidden = true;
       connectBtn.click();
       restoreConsumerVisibility();
       waitForLegacyConnectToSettle(button);
@@ -188,9 +182,10 @@
   });
 
   // A defensive observer keeps the legacy row private if another compatibility
-  // module mutates hidden/display state after provider changes.
+  // module mutates hidden/display state after provider changes. The callback is
+  // safe because restoreConsumerVisibility only writes when state differs.
   const observer = new MutationObserver(restoreConsumerVisibility);
-  observer.observe(legacyRow, { attributes: true, attributeFilter: ['hidden', 'style'] });
+  observer.observe(legacyRow, { attributes: true, attributeFilter: ['hidden', 'style', 'aria-hidden'] });
 
   restoreConsumerVisibility();
   void loadOAuthAvailability('gmail');
