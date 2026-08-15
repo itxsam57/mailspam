@@ -115,7 +115,8 @@ describe("technical telemetry", () => {
     expect(source).toContain('telemetry.capture("email_shield_protected_state_failed"');
     expect(source).toContain('failure_kind: "initialization_error"');
     expect(source).toContain('telemetry.capture("email_shield_server_listening")');
-    expect(source).not.toContain('telemetry.capture("email_');
+    expect(source).not.toContain('telemetry.capture("mailbox_');
     expect(source).not.toContain('telemetry.capture("message_');
+    expect(source).not.toContain('email_body:');
   });
 });
