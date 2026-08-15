@@ -99,11 +99,6 @@
 
   async function startGuidedMicrosoftOAuth() {
     if (activeFlowId) return;
-    if (microsoftConfigured === null) {
-      setStatus('Checking Microsoft sign-in availability…');
-      void loadConfiguration();
-      return;
-    }
     if (microsoftConfigured === false) {
       setStatus('Microsoft sign-in is unavailable in this build.');
       return;
@@ -118,6 +113,16 @@
       popup.document.title = 'Email Shield — Microsoft';
       popup.document.body.textContent = 'Preparing secure Microsoft authorization…';
     } catch {}
+
+    if (microsoftConfigured === null) {
+      setStatus('Checking Microsoft sign-in availability…');
+      const configured = await loadConfiguration();
+      if (!configured) {
+        setStatus('Microsoft sign-in is unavailable in this build.');
+        try { popup.close(); } catch {}
+        return;
+      }
+    }
 
     connectBtn.disabled = true;
     connectBtn.textContent = 'Waiting for Microsoft…';
