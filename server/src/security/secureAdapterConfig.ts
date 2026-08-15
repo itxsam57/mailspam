@@ -250,7 +250,10 @@ async function secureGuidedGmail(
       mode: "live",
       credentials: {
         clientId: config.credentials.clientId,
-        clientSecret: config.credentials.clientSecret ? memorySecret(config.credentials.clientSecret) : undefined,
+        // The Google Desktop client credential belongs to the Email Shield
+        // application, not this mailbox. It must not enter the per-mailbox
+        // encrypted connection registry. materializeAdapterConfig rehydrates it
+        // from process-local application configuration when the adapter runs.
         refreshToken: { storage: "vault", reference },
         accountSubject,
       },
@@ -377,9 +380,12 @@ export async function materializeAdapterConfig(
 
   switch (config.provider) {
     case "gmail": {
+      const clientSecret = config.credentials.clientSecret
+        ? await materializeSecret(config.credentials.clientSecret, vault)
+        : process.env.EMAIL_SHIELD_GOOGLE_CLIENT_SECRET?.trim() || undefined;
       const credentials: GmailOAuthCredentials = {
         clientId: config.credentials.clientId,
-        clientSecret: config.credentials.clientSecret ? await materializeSecret(config.credentials.clientSecret, vault) : undefined,
+        clientSecret,
         refreshToken: await materializeSecret(config.credentials.refreshToken, vault),
         accountSubject: config.credentials.accountSubject,
       };
