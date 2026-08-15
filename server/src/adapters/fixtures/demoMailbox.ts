@@ -6,6 +6,11 @@ import {
   type FixtureFolderOverrides,
   type FixtureMessage,
 } from "./fixtureAdapter.js";
+import {
+  type FixtureFolderState,
+  readFixtureFolderState,
+  writeFixtureFolderState,
+} from "./fixtureFolderState.js";
 import type { Provider } from "../../canonical/envelope.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -17,8 +22,9 @@ interface ManifestEntry { category: string; kind: "malicious" | "legit"; file: s
  * Builds a demo mailbox from the synthetic scam corpus: malicious "plain"
  * variants land in Inbox (as if they slipped past provider spam filtering,
  * which is the realistic case this app targets) and Spam; legit controls
- * land in Inbox. Fixture folder mutations are held in the account session so
- * a provider-confirmed move remains visible on the next scan.
+ * land in Inbox. Fixture folder mutations are held in worker-shared account
+ * state so a provider-confirmed move remains visible after adapter recreation
+ * and across the desktop/Worker structured-clone boundary.
  *
  * The corpus is controlled test input. Its Authentication-Results values model
  * provider-produced outcomes and are therefore marked trusted explicitly here;
@@ -27,6 +33,7 @@ interface ManifestEntry { category: string; kind: "malicious" | "legit"; file: s
 export function buildDemoMailbox(
   provider: Provider,
   folderOverrides: FixtureFolderOverrides = {},
+  sharedFolderState?: FixtureFolderState,
 ): FixtureAdapter {
   const manifest: ManifestEntry[] = JSON.parse(readFileSync(join(CORPUS_DIR, "manifest.json"), "utf-8"));
   const plainOnly = manifest.filter((m) => m.variant === "plain");
@@ -35,20 +42,19 @@ export function buildDemoMailbox(
   const messages: FixtureMessage[] = plainOnly.map((entry, i) => {
     const rawEml = readFileSync(join(CORPUS_DIR, entry.file), "utf-8");
     const id = `${entry.category}-${entry.kind}-${i}`;
+    const defaultFolder = entry.kind === "malicious"
+      ? (maliciousIndex++ % 2 === 0 ? ("inbox" as const) : ("spam" as const))
+      : ("inbox" as const);
+    const configuredFolder = folderOverrides[id] ?? defaultFolder;
+    const sharedFolder = sharedFolderState ? readFixtureFolderState(sharedFolderState, i) : null;
+    const folder = sharedFolder ?? configuredFolder;
 
-    if (entry.kind === "malicious") {
-      const defaultFolder = maliciousIndex++ % 2 === 0 ? ("inbox" as const) : ("spam" as const);
-      const folder = folderOverrides[id] ?? defaultFolder;
-      return {
-        id,
-        rawEml,
-        folder,
-        providerFolderName: folder === "inbox" ? "INBOX" : folder === "spam" ? "Spam" : "Trash",
-        authenticationTrust: entry.authenticationTrust,
-      };
+    // Zero means this fixture slot has not been initialized yet. Seed it from
+    // the same deterministic default/override used by the non-Worker adapter.
+    if (sharedFolderState && sharedFolder === null) {
+      writeFixtureFolderState(sharedFolderState, i, configuredFolder);
     }
 
-    const folder = folderOverrides[id] ?? ("inbox" as const);
     return {
       id,
       rawEml,
@@ -58,5 +64,5 @@ export function buildDemoMailbox(
     };
   });
 
-  return new FixtureAdapter(provider, messages, folderOverrides);
+  return new FixtureAdapter(provider, messages, folderOverrides, sharedFolderState);
 }
