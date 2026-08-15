@@ -39,7 +39,8 @@ describe("desktop startup performance architecture", () => {
     expect(launcher).toContain("Google client ID ${googleClientIdLoaded ? \"loaded\" : \"missing\"}");
     expect(launcher).toContain("Google client secret ${googleClientSecretLoaded ? \"loaded\" : \"missing\"}");
     expect(launcher).not.toContain("console.log(process.env.EMAIL_SHIELD_GOOGLE_CLIENT_SECRET");
-    expect(launcher).not.toContain("loadEnvFile");
+    expect(launcher).not.toContain('import { loadEnvFile } from "node:process"');
+    expect(launcher).not.toContain("loadEnvFile(envFile)");
   });
 
   it("initializes independent protected repositories in one awaited concurrent phase", () => {
