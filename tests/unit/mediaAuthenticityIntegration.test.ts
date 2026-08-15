@@ -46,6 +46,12 @@ async function mutationNonce(session: Awaited<ReturnType<typeof startDesktop>>):
   return body.nonce;
 }
 
+function requestBody(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+}
+
 async function postMedia(
   session: Awaited<ReturnType<typeof startDesktop>>,
   bytes: Uint8Array,
@@ -62,7 +68,7 @@ async function postMedia(
       "X-Email-Shield-Media-Mime": mime,
       "X-Email-Shield-Nonce": nonce,
     },
-    body: bytes,
+    body: requestBody(bytes),
   });
 }
 
@@ -159,7 +165,7 @@ describe("Media Authenticity capability-gated integration", () => {
         "X-Email-Shield-Media-Kind": "image",
         "X-Email-Shield-Media-Mime": "image/png",
       },
-      body: Uint8Array.from([1, 2, 3]),
+      body: requestBody(Uint8Array.from([1, 2, 3])),
     });
     expect(response.status).toBe(409);
   });
