@@ -7,6 +7,7 @@ import { defaultConsumerStateRepository } from "./defaultConsumerStateRepository
 import { defaultRelationshipHistoryRepository } from "./defaultRelationshipHistoryRepository.js";
 import { createAdapter } from "./adapterConfig.js";
 import { localOperationalMetrics } from "./localOperationalMetrics.js";
+import { resolveRuntimeReleaseIdentity } from "./runtimeReleaseIdentity.js";
 import { destinationAnalysisCoordinator, type DestinationAnalysisCoordinator } from "../workflows/analyzeLinks.js";
 import { evaluateBrowserUrl } from "../consumer/browserProtection.js";
 import { analyzeMobileScamInput } from "../consumer/mobileProtection.js";
@@ -475,11 +476,12 @@ export function registerConsumerProtectionRoutes(
         for (const item of defaultConsumerStateRepository.listActivity(session.policyAccountKey)) counts[item.kind] = (counts[item.kind] ?? 0) + 1;
         return counts;
       }, {});
+      const releaseIdentity = resolveRuntimeReleaseIdentity();
       noStore(res);
       res.json({
         schemaVersion: 1,
         generatedAt: new Date().toISOString(),
-        app: { version: process.env.npm_package_version ?? "unknown", release: process.env.EMAIL_SHIELD_RELEASE_ID?.trim() || "development" },
+        app: { version: releaseIdentity.version, release: releaseIdentity.release },
         runtime: { node: process.version, platform: process.platform, arch: process.arch },
         connected,
         activityCounts,

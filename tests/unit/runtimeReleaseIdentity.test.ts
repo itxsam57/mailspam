@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -66,4 +66,15 @@ describe("runtime release identity", () => {
       source: "development",
     });
   });
+  it("keeps the consumer Support Bundle wired to the runtime manifest resolver", () => {
+    const routeSource = readFileSync(join(import.meta.dirname, "../../server/src/api/consumerProtectionRoutes.ts"), "utf8");
+    const start = routeSource.indexOf('app.get("/api/consumer/v1/support-bundle"');
+    expect(start).toBeGreaterThanOrEqual(0);
+    const section = routeSource.slice(start);
+    expect(section).toContain("const releaseIdentity = resolveRuntimeReleaseIdentity();");
+    expect(section).toContain("app: { version: releaseIdentity.version, release: releaseIdentity.release }");
+    expect(section).not.toContain("process.env.npm_package_version");
+    expect(section).not.toContain("process.env.EMAIL_SHIELD_RELEASE_ID");
+  });
+
 });
