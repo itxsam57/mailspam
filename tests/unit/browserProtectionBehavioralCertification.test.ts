@@ -24,6 +24,7 @@ describe("Browser Protection behavioral certification", () => {
       context: "explicit_check",
     }, {
       destinationAnalyzer: coordinator(`<html><body><pre>${EICAR_TEST_SIGNATURE}</pre></body></html>`),
+      scamCheck: { intelligenceEntries: [] },
     });
 
     expect(result.destinationClassification).toBe("malware");
@@ -39,6 +40,7 @@ describe("Browser Protection behavioral certification", () => {
       context: "navigation",
     }, {
       destinationAnalyzer: coordinator("<html><form><input name=user><input type=password></form></html>"),
+      scamCheck: { intelligenceEntries: [] },
     });
 
     expect(result.destinationClassification).toBe("credential_trap");
@@ -53,6 +55,7 @@ describe("Browser Protection behavioral certification", () => {
       context: "explicit_check",
     }, {
       destinationAnalyzer: coordinator(null),
+      scamCheck: { intelligenceEntries: [] },
     });
 
     expect(result.destinationClassification).toBe("error");
@@ -68,6 +71,7 @@ describe("Browser Protection behavioral certification", () => {
       download: { filename: "invoice-viewer.exe", mimeType: "application/octet-stream" },
     }, {
       destinationAnalyzer: coordinator("<html><body>ordinary documentation download page</body></html>"),
+      scamCheck: { intelligenceEntries: [] },
     });
 
     expect(result.destinationClassification).toBe("benign");
@@ -75,17 +79,33 @@ describe("Browser Protection behavioral certification", () => {
     expect(result.disposition).toBe("warn");
   });
 
-  it("allows an ordinary explicitly checked destination only when both URL evidence and fetched content have no strong signal", async () => {
+  it("allows an ordinary explicitly checked destination only when the signed intelligence cache is verified and empty", async () => {
     const result = await evaluateBrowserUrl({
       schemaVersion: 1,
       url: "https://example.com/help",
       context: "explicit_check",
     }, {
       destinationAnalyzer: coordinator("<html><body>ordinary public documentation and help information</body></html>"),
+      scamCheck: { intelligenceEntries: [] },
     });
 
     expect(result.destinationClassification).toBe("benign");
     expect(result.disposition).toBe("allow");
     expect(result.explanation).toMatch(/not a guarantee/i);
+  });
+
+  it("fails closed when signed Global Shield intelligence is unavailable even if fetched content looks benign", async () => {
+    const result = await evaluateBrowserUrl({
+      schemaVersion: 1,
+      url: "https://example.com/help",
+      context: "explicit_check",
+    }, {
+      destinationAnalyzer: coordinator("<html><body>ordinary public documentation and help information</body></html>"),
+      scamCheck: { intelligenceEntries: null },
+    });
+
+    expect(result.destinationClassification).toBe("benign");
+    expect(result.disposition).toBe("unknown");
+    expect(result.reasonCodes).toContain("GLOBAL_INTELLIGENCE_UNAVAILABLE");
   });
 });
