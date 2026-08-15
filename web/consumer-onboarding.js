@@ -14,7 +14,14 @@
     'consumer_home_ready',
   ];
   const LEGACY_MARKER = 'consumer_intro';
-  const state = { profileSignedIn: false, completed: new Set(), dismissed: false, loading: false };
+  const state = {
+    profileSignedIn: false,
+    mailboxId: null,
+    completed: new Set(),
+    dismissed: false,
+    loading: false,
+    refreshQueued: false,
+  };
 
   const style = document.createElement('style');
   style.textContent = `
@@ -105,6 +112,7 @@
       skip.type = 'button';
       skip.textContent = 'Not now';
       skip.addEventListener('click', async () => {
+        if (!await ensureBoundMailbox()) return;
         state.completed.add('family_option_reviewed');
         await persistProgress(false).catch(showError);
         render();
@@ -116,30 +124,17 @@
 
   function showError(error) { status.textContent = error instanceof Error ? error.message : String(error); }
 
-  function liveFacts() {
-    const signedInPanel = document.querySelector('#accountSignedIn');
-    const backgroundToggle = document.querySelector('#backgroundToggle');
-    return {
-      mailbox: activeMailboxId(),
-      account: state.profileSignedIn || (signedInPanel instanceof HTMLElement && !signedInPanel.hidden),
-      scanDone: Boolean(document.querySelector('#scanHistoryList .scan-history-status.completed')),
-      backgroundEnabled: backgroundToggle instanceof HTMLButtonElement && backgroundToggle.getAttribute('aria-pressed') === 'true',
-    };
-  }
-
-  function synchronizeObservedSteps() {
-    const facts = liveFacts();
-    if (facts.account) state.completed.add('account_ready'); else state.completed.delete('account_ready');
-    if (facts.mailbox) state.completed.add('mailbox_connected'); else state.completed.delete('mailbox_connected');
-    if (facts.scanDone) state.completed.add('first_scan_completed');
-    if (facts.backgroundEnabled) state.completed.add('continuous_protection_configured');
-    else state.completed.delete('continuous_protection_configured');
+  function synchronizeLocalSteps() {
+    if (state.profileSignedIn) state.completed.add('account_ready');
+    else state.completed.delete('account_ready');
+    if (state.mailboxId && state.mailboxId === activeMailboxId()) state.completed.add('mailbox_connected');
+    else state.completed.delete('mailbox_connected');
   }
 
   function coreReadyForHome() { return STEP_IDS.slice(0, 7).every((id) => state.completed.has(id)); }
 
   function render() {
-    synchronizeObservedSteps();
+    synchronizeLocalSteps();
     if (state.dismissed && state.completed.has('consumer_home_ready')) { panel.hidden = true; return; }
     panel.hidden = false;
     for (const element of list.querySelectorAll('.first-run-step')) {
@@ -152,26 +147,42 @@
     status.textContent = coreReadyForHome() ? 'Core setup is ready. Check Home to finish onboarding.' : 'Complete the remaining items; local Scam Check stays available before mailbox setup.';
   }
 
-  async function persistProgress(dismissed) {
-    const id = activeMailboxId();
-    if (!id) return;
+  async function persistProgress(dismissed, expectedMailboxId = state.mailboxId) {
+    const activeId = activeMailboxId();
+    if (!expectedMailboxId || state.mailboxId !== expectedMailboxId || activeId !== expectedMailboxId) return false;
     const completedSteps = [LEGACY_MARKER, ...STEP_IDS.filter((step) => state.completed.has(step))];
-    const response = await fetch(`/api/consumer/v1/accounts/${encodeURIComponent(id)}/onboarding`, {
+    const response = await fetch(`/api/consumer/v1/accounts/${encodeURIComponent(expectedMailboxId)}/onboarding`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ completedSteps, dismissed }),
     });
     await readJson(response, 'Saving onboarding progress');
-    state.dismissed = dismissed;
+    if (state.mailboxId === expectedMailboxId && activeMailboxId() === expectedMailboxId) state.dismissed = dismissed;
+    return true;
+  }
+
+  async function ensureBoundMailbox() {
+    const id = activeMailboxId();
+    if (!id) {
+      status.textContent = 'Connect and select a mailbox before saving setup progress.';
+      return null;
+    }
+    if (state.mailboxId !== id) await refresh();
+    if (state.mailboxId !== id || activeMailboxId() !== id) {
+      status.textContent = 'Mailbox selection changed. Setup state was refreshed without copying progress between accounts.';
+      return null;
+    }
+    return id;
   }
 
   async function chooseSensitivity(profile) {
-    const id = activeMailboxId();
-    if (!id) { status.textContent = 'Connect a mailbox before choosing its protection sensitivity.'; route('settings'); return; }
+    const id = await ensureBoundMailbox();
+    if (!id) { route('settings'); return; }
     try {
       await readJson(await fetch(`/api/consumer/v1/accounts/${encodeURIComponent(id)}/sensitivity`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profile }),
       }), 'Saving protection sensitivity');
+      if (state.mailboxId !== id || activeMailboxId() !== id) { void refresh(); return; }
       state.completed.add('sensitivity_chosen');
-      await persistProgress(false);
+      await persistProgress(false, id);
       render();
     } catch (error) { showError(error); }
   }
@@ -179,9 +190,11 @@
   async function handleAction(action) {
     status.textContent = '';
     if (action === 'permissions') {
+      const id = await ensureBoundMailbox();
+      if (!id) return;
       permissionNote.hidden = false;
       state.completed.add('permissions_reviewed');
-      await persistProgress(false).catch(showError);
+      await persistProgress(false, id).catch(showError);
       render();
       return;
     }
@@ -192,18 +205,22 @@
       return;
     }
     if (action === 'family') {
+      const id = await ensureBoundMailbox();
+      if (!id) return;
       route('family');
       state.completed.add('family_option_reviewed');
-      await persistProgress(false).catch(showError);
+      await persistProgress(false, id).catch(showError);
       render();
       return;
     }
     if (action === 'home') {
-      synchronizeObservedSteps();
+      const id = await ensureBoundMailbox();
+      if (!id) return;
+      synchronizeLocalSteps();
       if (!coreReadyForHome()) { status.textContent = 'Home cannot be marked ready until steps 1–7 are complete.'; render(); return; }
       route('home');
       state.completed.add('consumer_home_ready');
-      try { await persistProgress(true); status.textContent = 'Protection setup complete.'; }
+      try { await persistProgress(true, id); status.textContent = 'Protection setup complete.'; }
       catch (error) { state.completed.delete('consumer_home_ready'); showError(error); }
       render();
       return;
@@ -212,31 +229,68 @@
   }
 
   async function refresh() {
-    if (state.loading) return;
+    if (state.loading) { state.refreshQueued = true; return; }
     state.loading = true;
+    state.refreshQueued = false;
+    const requestedMailboxId = activeMailboxId();
     try {
       const profile = await readJson(await fetch('/api/profile/v1/snapshot', { cache: 'no-store' }), 'Account status');
+      if (activeMailboxId() !== requestedMailboxId) { state.refreshQueued = true; return; }
       state.profileSignedIn = profile.signedIn === true;
-      const id = activeMailboxId();
-      if (id) {
-        const consumer = await readJson(await fetch(`/api/consumer/v1/accounts/${encodeURIComponent(id)}/state`, { cache: 'no-store' }), 'Onboarding state');
-        const saved = Array.isArray(consumer?.onboarding?.completedSteps) ? consumer.onboarding.completedSteps : [];
-        for (const step of saved) if (STEP_IDS.includes(step)) state.completed.add(step);
-        state.dismissed = Boolean(consumer?.onboarding?.dismissedAt) && state.completed.has('consumer_home_ready');
-        if (!saved.includes(LEGACY_MARKER)) await persistProgress(false);
+
+      if (!requestedMailboxId) {
+        state.mailboxId = null;
+        state.completed = new Set();
+        state.dismissed = false;
+        return;
       }
+
+      const [consumer, scanHistory, background] = await Promise.all([
+        readJson(await fetch(`/api/consumer/v1/accounts/${encodeURIComponent(requestedMailboxId)}/state`, { cache: 'no-store' }), 'Onboarding state'),
+        readJson(await fetch(`/api/accounts/${encodeURIComponent(requestedMailboxId)}/scan-history`, { cache: 'no-store' }), 'Scan history'),
+        readJson(await fetch(`/api/accounts/${encodeURIComponent(requestedMailboxId)}/background-protection`, { cache: 'no-store' }), 'Background protection'),
+      ]);
+      if (activeMailboxId() !== requestedMailboxId) { state.refreshQueued = true; return; }
+
+      const saved = Array.isArray(consumer?.onboarding?.completedSteps) ? consumer.onboarding.completedSteps : [];
+      const completed = new Set(saved.filter((step) => STEP_IDS.includes(step)));
+      if (profile.signedIn === true) completed.add('account_ready'); else completed.delete('account_ready');
+      completed.add('mailbox_connected');
+      // This is a monotonic historical milestone. Current history can prove it
+      // happened, but bounded history retention must never revoke persisted
+      // completion after the original completed record ages out.
+      if (Array.isArray(scanHistory?.history) && scanHistory.history.some((record) => record?.status === 'completed')) completed.add('first_scan_completed');
+      if (background?.enabled === true) completed.add('continuous_protection_configured');
+      else completed.delete('continuous_protection_configured');
+
+      state.mailboxId = requestedMailboxId;
+      state.completed = completed;
+      state.dismissed = Boolean(consumer?.onboarding?.dismissedAt) && completed.has('consumer_home_ready');
+
+      const observedChanged = STEP_IDS.some((step) => completed.has(step) !== saved.includes(step));
+      if (!saved.includes(LEGACY_MARKER) || observedChanged) await persistProgress(state.dismissed, requestedMailboxId);
     } catch (error) { showError(error); }
-    finally { state.loading = false; render(); }
+    finally {
+      state.loading = false;
+      render();
+      if (state.refreshQueued || activeMailboxId() !== requestedMailboxId) queueMicrotask(() => { void refresh(); });
+    }
   }
 
   window.addEventListener('email-shield-profile-changed', () => { void refresh(); });
-  window.addEventListener('email-shield-family-changed', () => { state.completed.add('family_option_reviewed'); void persistProgress(false).finally(render); });
+  window.addEventListener('email-shield-family-changed', () => {
+    if (state.mailboxId && state.mailboxId === activeMailboxId()) {
+      state.completed.add('family_option_reviewed');
+      void persistProgress(false, state.mailboxId).finally(render);
+    } else void refresh();
+  });
+  window.addEventListener('email-shield-scan-history-changed', () => { void refresh(); });
   const accounts = document.querySelector('#accountsList');
   if (accounts) new MutationObserver(() => { void refresh(); }).observe(accounts, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'aria-current'] });
   const scanHistory = document.querySelector('#scanHistoryList');
-  if (scanHistory) new MutationObserver(() => { synchronizeObservedSteps(); void persistProgress(false).finally(render); }).observe(scanHistory, { childList: true, subtree: true, characterData: true });
+  if (scanHistory) new MutationObserver(() => { void refresh(); }).observe(scanHistory, { childList: true, subtree: true, characterData: true });
   const backgroundToggle = document.querySelector('#backgroundToggle');
-  if (backgroundToggle) new MutationObserver(() => { synchronizeObservedSteps(); void persistProgress(false).finally(render); }).observe(backgroundToggle, { attributes: true, attributeFilter: ['aria-pressed'] });
+  if (backgroundToggle) new MutationObserver(() => { void refresh(); }).observe(backgroundToggle, { attributes: true, attributeFilter: ['aria-pressed'] });
   window.setInterval(() => { if (!state.dismissed) void refresh(); }, 15_000);
   void refresh();
 })();

@@ -67,6 +67,8 @@ export interface ScanActionContext {
   exceptionKey: string;
   senderAddress: string | null;
   normalizedFolder: NormalizedFolder;
+  /** Server-only canonical destinations for the explicit Analyze Links action. */
+  links: CanonicalEnvelope["links"];
   unsubscribe: UnsubscribeCapability;
   communityReport: CommunityReportContext;
 }
@@ -147,6 +149,7 @@ function diagnosticSummary(result: ScanResult): ScanDiagnosticSummary {
       exceptionKey: messageExceptionKey(result.envelope),
       senderAddress: result.envelope.from.address,
       normalizedFolder: result.envelope.folder,
+      links: structuredClone(result.envelope.links),
       unsubscribe: unsubscribeCapability(result.envelope),
       communityReport: buildCommunityReportContext(result.envelope, result.scored),
     },

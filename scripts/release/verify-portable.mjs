@@ -28,6 +28,30 @@ if (JSON.stringify(actualFiles) !== JSON.stringify(manifest.files)) throw new Er
 for (const requiredTool of ["tools/release-cli.mjs", "tools/release-lifecycle-lib.mjs", "tools/portable-package-lib.mjs"]) {
   if (!actualFiles.some((entry) => entry.path === requiredTool)) throw new Error(`Portable package is missing release lifecycle tool: ${requiredTool}`);
 }
+
+// The shipped Fixture-mode adapters are an intentional product acceptance path,
+// not a source-tree-only test helper. Verify both the corpus manifest and every
+// file it names, so a package cannot pass integrity verification while still
+// being unusable by consumers in Fixture mode.
+const fixtureManifestPath = join(packageRoot, "app/fixtures/scam-corpus/manifest.json");
+let fixtureManifest;
+try {
+  fixtureManifest = JSON.parse(readFileSync(fixtureManifestPath, "utf8"));
+} catch (error) {
+  throw new Error(`Portable package is missing or has an invalid Fixture corpus manifest: ${error instanceof Error ? error.message : String(error)}`);
+}
+if (!Array.isArray(fixtureManifest) || fixtureManifest.length === 0) {
+  throw new Error("Portable package Fixture corpus manifest must contain at least one message.");
+}
+const packagePaths = new Set(actualFiles.map((entry) => entry.path));
+for (const entry of fixtureManifest) {
+  if (!entry || typeof entry !== "object" || typeof entry.file !== "string" || !/^[A-Za-z0-9._/-]+$/.test(entry.file) || entry.file.includes("..")) {
+    throw new Error("Portable package Fixture corpus manifest contains an unsafe or invalid file entry.");
+  }
+  const requiredPath = `app/fixtures/scam-corpus/${entry.file}`;
+  if (!packagePaths.has(requiredPath)) throw new Error(`Portable package is missing Fixture corpus message: ${requiredPath}`);
+}
+
 const actualArtifactBytes = actualFiles.reduce((total, file) => total + file.bytes, 0);
 if (actualArtifactBytes !== manifest.artifactBytes || actualArtifactBytes > MAX_PORTABLE_PACKAGE_BYTES) {
   throw new Error("Portable package size verification failed.");

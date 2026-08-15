@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EncryptedCommunityAggregateStore } from "../../server/src/community/aggregateStore.js";
+import { USER_REPORTED_SCAM_CODE } from "../../server/src/community/feedback.js";
 import type { CommunityReportSubmission } from "../../server/src/community/types.js";
 
 const directories: string[] = [];
@@ -30,7 +31,7 @@ function safeReport(reporter: string): CommunityReportSubmission {
     reportedAt: new Date().toISOString(),
     verdict: "safe",
     evidenceScore: 0,
-    evidenceCodes: [],
+    evidenceCodes: [USER_REPORTED_SCAM_CODE],
     indicators: [
       { type: "campaign", value: campaignFingerprint },
       { type: "sender", value: "reported-by-humans@example.test" },
@@ -39,7 +40,7 @@ function safeReport(reporter: string): CommunityReportSubmission {
 }
 
 describe("explicit human report weighting", () => {
-  it("creates a warning from three distinct human reports even when the old detector called the mail Safe", () => {
+  it("creates a warning from three distinct explicit Report Scam actions even when the detector called the mail Safe", () => {
     const aggregate = store();
     for (const reporter of ["1", "2", "3"]) aggregate.accept(safeReport(reporter));
     const feed = aggregate.buildFeedPayload();
@@ -52,11 +53,12 @@ describe("explicit human report weighting", () => {
     }));
   });
 
-  it("does not turn five evidence-free human reports into a Confirmed Threat", () => {
+  it("does not turn five same-burst human reports into a Confirmed Threat", () => {
     const aggregate = store();
     for (const reporter of ["1", "2", "3", "4", "5"]) aggregate.accept(safeReport(reporter));
     const feed = aggregate.buildFeedPayload();
     expect(aggregate.stats()).toEqual({ campaigns: 1, warnings: 1, confirmed: 0 });
+    expect(aggregate.listReviewCandidates()).toEqual([]);
     expect(feed.entries.length).toBeGreaterThan(0);
     expect(feed.entries.every((entry) => entry.type === "identity" || entry.confirmedThreat === false)).toBe(true);
   });

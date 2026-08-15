@@ -10,6 +10,7 @@ describe("AI Engineering Automation Kit installation", () => {
     const profile = read(".engineering/PROJECT_PROFILE.md");
     const matrix = read(".engineering/TEST_MATRIX.md");
     const regressions = read(".engineering/REGRESSION_REGISTER.md");
+    const reportScamSeparation = read(".engineering/REG-085_REPORT_SCAM_ACTION_SEPARATION.md");
 
     expect(profile).toContain("itxsam57/mailspam");
     expect(profile).toContain("Express `4.19.x`");
@@ -21,8 +22,13 @@ describe("AI Engineering Automation Kit installation", () => {
     expect(regressions).toContain("PRE-001");
     expect(regressions).toContain("DEP-001");
     expect(regressions).toContain("REG-001");
+    expect(regressions).toContain("REG-085");
     expect(regressions).toContain("GAP-001");
     expect(regressions).toContain("Do not delete history to make the register appear green");
+    expect(reportScamSeparation).toContain("Status: **LOCKED**");
+    expect(reportScamSeparation).toContain('`movedCurrent: false`');
+    expect(reportScamSeparation).toContain('`providerAction: "none"`');
+    expect(reportScamSeparation).toContain("disposal requires the separate Trash or Move to Spam/Junk action");
   });
 
   it("exposes one full gate without adding unrelated framework checks", () => {
@@ -98,6 +104,8 @@ describe("AI Engineering Automation Kit installation", () => {
     expect(workflow).toContain("if: always()");
     expect(workflow).toContain("actions/upload-artifact@v4");
     expect(workflow).toContain("artifacts/engineering/");
+    expect(workflow).toContain("VERIFY_RESULT: ${{ needs.verify.result }}");
+    expect(workflow).toContain('if [ "$VERIFY_RESULT" != "success" ]; then');
   });
 
   it("keeps central-service stress qualification outside workstation unit tests", () => {
@@ -133,5 +141,18 @@ describe("AI Engineering Automation Kit installation", () => {
     expect(handoff).not.toContain("normal Apple ID password");
     expect(handoff).not.toContain("Playwright");
     expect(handoff).not.toContain("Puppeteer");
+  });
+
+  it("lets Chromium own its DevTools port instead of racing an OS-released port", () => {
+    for (const path of [
+      "scripts/engineering/smoke-browser-boot.mjs",
+      "scripts/engineering/smoke-browser-scan-results.mjs",
+    ]) {
+      const source = read(path);
+      expect(source).toContain('"--remote-debugging-port=0"');
+      expect(source).toContain('join(profileDirectory, "DevToolsActivePort")');
+      expect(source).toContain("waitForDevToolsPort(browserProfile");
+      expect(source).not.toContain("`--remote-debugging-port=${debugPort}`");
+    }
   });
 });

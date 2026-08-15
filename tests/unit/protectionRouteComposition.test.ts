@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
@@ -11,7 +12,7 @@ afterEach(async () => {
 });
 
 async function start(): Promise<Context> {
-  const app = createLocalDesktopServer({ security: new LocalSecurityManager() });
+  const app = createLocalDesktopServer({ security: new LocalSecurityManager(), developmentEntitlementsEnabled: true });
   const server = app.listen(0, "127.0.0.1");
   servers.push(server);
   await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -68,5 +69,12 @@ describe("desktop durable protection route composition", () => {
     const policy = await fetch(`${context.baseUrl}/api/accounts/${accountId}/personal-policy`, { headers: headers(context) });
     expect(policy.status).toBe(200);
     expect((await policy.json()).blockedSenders).not.toContain("attacker@example.test");
+  });
+
+  it("wires the same verified Global Shield cache used by Campaign Radar into Browser Protection", () => {
+    const source = readFileSync(new URL("../../server/src/api/consumerProtectionRoutes.ts", import.meta.url), "utf8");
+    expect(source).toContain("scamCheck: { intelligenceEntries: community.getVerifiedEntries() }");
+    expect(source).toContain("campaignRadar(community.getVerifiedEntries())");
+    expect(source).not.toContain("evaluateBrowserUrl(req.body, { destinationAnalyzer })");
   });
 });

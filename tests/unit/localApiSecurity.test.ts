@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { request as httpRequest, type Server } from "node:http";
 import express, { type Express } from "express";
 import { createLocalDesktopServer } from "../../server/src/api/localDesktopServer.js";
+import { createServer } from "../../server/src/api/server.js";
 import { LocalSecurityManager, redactSensitiveText } from "../../server/src/api/localSecurity.js";
 
 interface BrowserContext {
@@ -17,12 +18,16 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
 });
 
-async function listen(app: Express): Promise<BrowserContext> {
+async function listenBaseUrl(app: Express): Promise<string> {
   const server = app.listen(0, "127.0.0.1");
   servers.push(server);
   await new Promise<void>((resolve) => server.once("listening", () => resolve()));
   const port = (server.address() as AddressInfo).port;
-  const baseUrl = `http://127.0.0.1:${port}`;
+  return `http://127.0.0.1:${port}`;
+}
+
+async function listen(app: Express): Promise<BrowserContext> {
+  const baseUrl = await listenBaseUrl(app);
   const home = await fetch(baseUrl);
   const html = await home.text();
   const cookie = home.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
@@ -132,11 +137,18 @@ describe("local desktop security boundary", () => {
     expect(response.headers.get("cross-origin-opener-policy")).toBe("same-origin");
   });
 
-  it("rejects account access without both the local session and CSRF proof", async () => {
+  it("rejects account access without session, CSRF proof, and same-dashboard provenance", async () => {
     const context = await start();
     expect((await fetch(`${context.baseUrl}/api/accounts`)).status).toBe(401);
     expect((await fetch(`${context.baseUrl}/api/accounts`, {
       headers: { Cookie: context.cookie },
+    })).status).toBe(403);
+    expect((await fetch(`${context.baseUrl}/api/accounts`, {
+      headers: headers(context, {
+        Origin: "https://attacker.example",
+        Referer: "https://attacker.example/",
+        "Sec-Fetch-Site": "cross-site",
+      }),
     })).status).toBe(403);
     expect((await fetch(`${context.baseUrl}/api/accounts`, {
       headers: headers(context),
@@ -172,25 +184,88 @@ describe("local desktop security boundary", () => {
     })).status).toBe(403);
   });
 
-  it("requires a single-use mutation nonce", async () => {
-    const context = await start();
+  it("requires a single-use mutation nonce independently of mailbox fixture availability", async () => {
+    const context = await startActionHarness();
     const mutationNonce = await nonce(context);
-    const request = () => fetch(`${context.baseUrl}/api/accounts/connect`, {
+    const request = () => fetch(`${context.baseUrl}/api/action`, {
       method: "POST",
       headers: headers(context, {
         "Content-Type": "application/json",
         "X-Email-Shield-Nonce": mutationNonce,
       }),
-      body: JSON.stringify({ provider: "gmail", mode: "fixture", label: "nonce-test" }),
+      body: "{}",
     });
 
     expect((await request()).status).toBe(200);
     expect((await request()).status).toBe(409);
-    expect((await fetch(`${context.baseUrl}/api/accounts/connect`, {
+    expect((await fetch(`${context.baseUrl}/api/action`, {
       method: "POST",
       headers: headers(context, { "Content-Type": "application/json" }),
-      body: JSON.stringify({ provider: "gmail", mode: "fixture" }),
+      body: "{}",
     })).status).toBe(409);
+  });
+
+  it("keeps synthetic Fixture mailboxes out of consumer mode and enables them only through the resolved development entitlement", async () => {
+    const consumer = await start();
+    const denied = await mutate(consumer, "/api/accounts/connect", {
+      provider: "gmail",
+      mode: "fixture",
+      label: "must-not-exist",
+    });
+    expect(denied.status).toBe(403);
+    expect((await denied.json()).error).toMatch(/development-entitled/i);
+
+    const developer = await listen(createLocalDesktopServer({
+      security: new LocalSecurityManager(),
+      developmentEntitlementsEnabled: true,
+    }));
+    const connected = await mutate(developer, "/api/accounts/connect", {
+      provider: "gmail",
+      mode: "fixture",
+      label: "explicit-developer-fixture",
+    });
+    expect(connected.status).toBe(200);
+    const body = await connected.json();
+    expect(body).toMatchObject({ provider: "gmail", mode: "fixture" });
+    expect(typeof body.accountId).toBe("string");
+    expect((await mutate(developer, `/api/accounts/${encodeURIComponent(body.accountId)}`, {}, "DELETE")).status).toBe(204);
+  });
+
+  it("rejects malformed account-connect input before any provider attempt", async () => {
+    const context = await start();
+    const malformed = [
+      { provider: "smtp", mode: "live", credentials: {} },
+      { provider: "imap", mode: "sideways", credentials: {} },
+      { provider: "imap", mode: "live", credentials: { host: "mail.example", port: "70000", secure: "true", user: "u", appPassword: "p" } },
+      { provider: "imap", mode: "live", credentials: { host: "mail.example", port: "993", secure: "maybe", user: "u", appPassword: "p" } },
+      { provider: "gmail", mode: "fixture", credentials: { refreshToken: "fixture-must-not-carry-secrets" } },
+      { provider: "gmail", mode: "fixture", unexpected: true },
+    ];
+
+    for (const body of malformed) {
+      const response = await mutate(context, "/api/accounts/connect", body);
+      expect(response.status).toBe(400);
+      const payload = await response.json();
+      expect(String(payload.error)).not.toContain("Failed to connect");
+    }
+  });
+
+  it("does not register developer execution in consumer mode and contains runner failures when explicitly enabled", async () => {
+    const consumerUrl = await listenBaseUrl(createServer({ developerToolsEnabled: false }));
+    expect((await fetch(`${consumerUrl}/api/dev/test-suite`)).status).toBe(404);
+
+    const marker = "developer-runner-secret-marker";
+    const developerUrl = await listenBaseUrl(createServer({
+      developerToolsEnabled: true,
+      developerTestSuiteRunner: async () => { throw new Error(marker); },
+    }));
+    const failed = await fetch(`${developerUrl}/api/dev/test-suite`);
+    expect(failed.status).toBe(500);
+    const failureBody = await failed.text();
+    expect(failureBody).toContain("failed safely");
+    expect(failureBody).not.toContain(marker);
+
+    expect((await fetch(developerUrl)).status).toBe(200);
   });
 
   it("consumes a successful opaque action token before it can be replayed", async () => {

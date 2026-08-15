@@ -72,6 +72,53 @@ describe("browser boot architecture", () => {
     expect(history).not.toContain("Resume newest");
   });
 
+  it("binds asynchronous account-scoped browser work to a monotonic selection generation", () => {
+    const selection = read("web/account-selection-state.js");
+    const background = read("web/background-protection.js");
+    const history = read("web/scan-history.js");
+    const policy = read("web/policy-management.js");
+    const monitor = read("web/scan-monitor.js");
+
+    expect(selection).toContain("let generation = 0");
+    expect(selection).toContain("const changed = normalized !== selectedId");
+    expect(selection).toContain("if (changed) generation += 1");
+    expect(selection).toContain("email-shield-account-selection-changed");
+    expect(selection).toContain("capture,");
+    expect(selection).toContain("matches,");
+    expect(selection).toContain("snapshot.generation === generation");
+    expect(selection).toContain("A -> B -> A stale async responses");
+
+    for (const source of [background, history, policy, monitor]) {
+      expect(source).toContain("emailShieldAccountSelection");
+      expect(source).toContain("capture");
+      expect(source).toContain("matches");
+    }
+
+    expect(background).toContain("loadedAccountId !== id");
+    expect(background).toContain("Mailbox selection changed. Background protection was not modified");
+    expect(background).toContain("if (!selectionMatches(snapshot)) return");
+
+    expect(history).not.toContain("let refreshing = false");
+    expect(history).toContain("let refreshSequence = 0");
+    expect(history).toContain("resumeScanButton.dataset.accountId");
+    expect(history).toContain("resumeScanButton.dataset.selectionGeneration");
+    expect(history).toContain("The selected account changed. Refresh Scan history before resuming.");
+
+    expect(policy).toContain("loadedSelectionGeneration");
+    expect(policy).toContain("function loadedPolicyMatchesSelection");
+    expect(policy).toContain("No personal policy was modified");
+    expect(policy).toContain("if (!selectionMatches(ownerSnapshot)) return");
+
+    expect(monitor).toContain("let scanOwnerSnapshot = null");
+    expect(monitor).toContain("const presentationIsCurrent = () => source === es && selectionMatches(requestedSelection)");
+    expect(monitor).toContain("email-shield-account-selection-changed");
+    expect(monitor).toContain("clearScanPresentation()");
+    expect(monitor).toContain("finish(es)");
+    expect(monitor).toContain("const id = accountId");
+    expect(monitor).toContain("Stop the scan that is still running for the previously selected mailbox?");
+    expect(monitor).not.toContain("document.querySelector('.account-chip.active')?.dataset.id || accountId");
+  });
+
   it("binds block actions to opaque review tokens instead of browser-supplied policy values", () => {
     const review = read("web/review-actions.js");
     const monitor = read("web/scan-monitor.js");
@@ -101,18 +148,32 @@ describe("browser boot architecture", () => {
 
   it("preserves stopped scan presentation on Resume and requires server-final Stop confirmation", () => {
     const source = read("web/scan-monitor.js");
-    const resumeGuard = source.indexOf("if (!resumeScanId) {");
-    const clearCounters = source.indexOf("counters.innerHTML = ''", resumeGuard);
-    const clearCards = source.indexOf("cards.innerHTML = ''", resumeGuard);
-    const clearRows = source.indexOf("diagnosticRows = []", resumeGuard);
-    expect(resumeGuard).toBeGreaterThan(-1);
-    expect(clearCounters).toBeGreaterThan(resumeGuard);
-    expect(clearCards).toBeGreaterThan(resumeGuard);
-    expect(clearRows).toBeGreaterThan(resumeGuard);
+    expect(source).toContain("function clearScanPresentation()");
+    expect(source).toContain("if (!resumeScanId) clearScanPresentation()");
     expect(source).toContain("value.resumed === true && value.counters");
     expect(source).toContain("result.active !== false");
     expect(source).toContain("result.historySaved === true && result.resumable === true");
     expect(source).toContain("serverFinal = result.active === false");
+  });
+
+  it("keeps all developer execution and fixture controls fail-closed in the normal consumer UI", () => {
+    const controls = read("web/developer-controls.js");
+    const composition = read("server/src/api/dashboardScripts.ts");
+    const controlsIndex = composition.indexOf('"/developer-controls.js"');
+    const shellIndex = composition.indexOf('"/app-shell.js"');
+    expect(controlsIndex).toBeGreaterThan(-1);
+    expect(controlsIndex).toBeLessThan(shellIndex);
+    expect(controls).toContain("button.hidden = true");
+    expect(controls).toContain("get('developer') === '1'");
+    expect(controls).toContain("profile.developmentEntitlementsEnabled === true");
+    expect(controls).toContain("new MutationObserver");
+    expect(controls).toContain("Developer acceptance controls");
+    expect(controls).toContain("data-email-shield-developer-control");
+    expect(controls).toContain("detail.hidden = !developerUiEnabled");
+    expect(controls).toContain("button.addEventListener('click', runDeveloperSuite, true)");
+    expect(controls).toContain("event.stopImmediatePropagation()");
+    expect(controls).toContain("results.textContent");
+    expect(controls).not.toContain("results.innerHTML");
   });
 
   it("uses one visible desktop brand while preserving the compact mobile header", () => {

@@ -9,10 +9,12 @@ import { registerConsumerCatchTrashRoutes } from "./consumerCatchTrashRoutes.js"
 import { registerConsumerProtectionRoutes } from "./consumerProtectionRoutes.js";
 import { registerConsumerUnsubscribeActivityRoutes } from "./consumerUnsubscribeActivityRoutes.js";
 import { registerFamilyGuardianPreferenceRoutes } from "./familyGuardianPreferenceRoutes.js";
+import { registerLinkAnalysisActionRoutes } from "./linkAnalysisActions.js";
 import { registerMediaAuthenticityRoute } from "./mediaAuthenticityRoute.js";
 import { createLocalDesktopServer } from "./localDesktopServer.js";
 import { localSecurity } from "./localSecurity.js";
 import { registerScamCheckRoutes } from "./scamCheckRoutes.js";
+import { registerShoppingSafetyRoute } from "./shoppingSafetyRoute.js";
 
 type LocalDesktopOptions = NonNullable<Parameters<typeof createLocalDesktopServer>[0]>;
 
@@ -29,7 +31,9 @@ export type ConsumerDesktopServerOptions = LocalDesktopOptions & {
  * Large/binary consumer analyzers are mounted before the legacy desktop API's
  * global JSON parser. The entire /api/consumer namespace still inherits the
  * same loopback/session/origin/CSRF/one-use mutation security boundary; only
- * the body parser differs per bounded input type.
+ * the body parser differs per bounded input type. Message Analyze Links is also
+ * mounted before the legacy endpoint so consumer execution accepts only the
+ * opaque scan action token and never a browser-supplied envelope/URL list.
  */
 export function createConsumerDesktopServer(options: ConsumerDesktopServerOptions = {}) {
   const {
@@ -47,6 +51,11 @@ export function createConsumerDesktopServer(options: ConsumerDesktopServerOption
     security,
     community,
     visualTextExtractor,
+  });
+
+  registerLinkAnalysisActionRoutes(app, {
+    security,
+    destinationAnalyzer: localOptions.destinationAnalyzer,
   });
 
   if (accountLifecycle) {
@@ -82,6 +91,7 @@ export function createConsumerDesktopServer(options: ConsumerDesktopServerOption
   // The binary media route above consumes application/octet-stream itself.
   // Remaining consumer API operations are small, strictly bounded JSON.
   app.use("/api/consumer", express.json({ limit: "64kb", strict: true }));
+  registerShoppingSafetyRoute(app);
   registerConsumerUnsubscribeActivityRoutes(app);
   registerConsumerCatchTrashRoutes(app);
   registerConsumerProtectionRoutes(app, {

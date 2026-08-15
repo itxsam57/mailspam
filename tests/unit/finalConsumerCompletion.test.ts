@@ -202,4 +202,24 @@ describe("final consumer completion contracts", () => {
       expect(browserSource).not.toContain("appPassword:");
     }
   });
+
+  it("binds account-scoped consumer reads, renders, Undo and cleanup to the mailbox that produced them", () => {
+    const source = readFileSync(new URL("../../web/consumer-product.js", import.meta.url), "utf8");
+
+    expect(source).toContain("healthAccountId: null");
+    expect(source).toContain("function bindSelectedAccount(id)");
+    expect(source).toContain("function stillSelected(id)");
+    expect(source).toContain("state.accountId === id && activeMailboxId() === id");
+    expect(source).toContain("clearAccountScopedViews()");
+    expect(source).toContain("if (!stillSelected(id)) return");
+    expect(source).toContain("function renderHealth(result, accountId)");
+    expect(source).toContain("if (!stillSelected(accountId)) return");
+    expect(source).toContain("state.healthAccountId = accountId");
+    expect(source).toContain("/api/consumer/v1/accounts/${encodeURIComponent(accountId)}/cleanup");
+    expect(source).toContain("Mailbox selection changed. Run Health again before cleaning mail.");
+    expect(source).toContain("if(!stillSelected(id)){document.getElementById('consumerActivityStatus').textContent='Mailbox selection changed. Refresh Activity before using Undo.'");
+    expect(source).toContain("state.healthAccountId===id");
+    expect(source).not.toContain("|| state.accountId");
+    expect(source).not.toContain("const id=selectedSessionOrThrow();if(!confirm(`Move older matching mail");
+  });
 });

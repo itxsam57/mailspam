@@ -43,6 +43,34 @@ export interface DestinationResult {
   detail: string;
 }
 
+const EICAR_TEST_SIGNATURE = "x5o!p%@ap[4\\pzx54(p^)7cc)7}$eicar-standard-antivirus-test-file!$h+h*";
+
+/**
+ * Conservative static destination-content inspection. This is intentionally
+ * narrower than a browser antivirus/sandbox: fetched text is never executed.
+ * "malware" is emitted only for the harmless EICAR AV test signature or a
+ * deterministic download/decode/execute chain that is implausible in ordinary
+ * storefront/login prose. Unknown content remains error/benign according to the
+ * bounded fetch result rather than being overclaimed as malware.
+ */
+function containsDeterministicMalwareBehavior(body: string): boolean {
+  const lower = body.toLowerCase();
+  if (lower.includes(EICAR_TEST_SIGNATURE)) return true;
+
+  const hasPowerShell = /(?:^|[^a-z0-9_])powershell(?:\.exe)?(?:[^a-z0-9_]|$)/i.test(lower);
+  const hasEncodedExecution = /(?:-enc(?:odedcommand)?\b|frombase64string\s*\()/i.test(lower);
+  const hasDownload = /(?:downloadstring\s*\(|downloadfile\s*\(|invoke-webrequest\b|start-bitstransfer\b|net\.webclient\b)/i.test(lower);
+  const hasExecution = /(?:invoke-expression\b|\biex\s*(?:\(|\s)|start-process\b|cmd\.exe\b|cmd\s+\/c\b)/i.test(lower);
+  if (hasPowerShell && hasEncodedExecution && hasDownload && hasExecution) return true;
+
+  const hasLolbin = /(?:^|[^a-z0-9_])(?:mshta|regsvr32|rundll32)(?:\.exe)?(?:[^a-z0-9_]|$)/i.test(lower);
+  const hasRemoteScript = /(?:https?:\/\/|javascript:|vbscript:|scrobj\.dll)/i.test(lower);
+  if (hasLolbin && hasRemoteScript) return true;
+
+  const unixDownloadExecute = /(?:^|[;&|\s])(?:curl|wget)(?:\s|$)[^\r\n]{0,2048}\|\s*(?:\/bin\/)?(?:ba|z|k)?sh(?:\s|$)/im.test(lower);
+  return unixDownloadExecute;
+}
+
 /**
  * Explicit Analyze Links classifier. Network acquisition is isolated behind
  * fetchImpl and the production composition root supplies hardenedFetch, which
@@ -93,7 +121,8 @@ export async function classifyDestination(
   const lower = result.body.toLowerCase();
 
   let classification: DestinationResult["classification"] = "benign";
-  if (hasPasswordField) classification = "credential_trap";
+  if (containsDeterministicMalwareBehavior(result.body)) classification = "malware";
+  else if (hasPasswordField) classification = "credential_trap";
   else if (/dating|adult|onlyfans|hookup/.test(lower)) classification = "adult_dating";
   else if (/wallet|seed phrase|connect wallet|metamask/.test(lower)) classification = "crypto_payment";
   else if (/support agent|call now|your computer is infected/.test(lower)) classification = "fake_support";
@@ -101,7 +130,15 @@ export async function classifyDestination(
 
   // Do not copy a complete destination (which may contain path/query secrets)
   // into coordinator caches or operational telemetry.
-  return { url, classification, hasForm, hasPasswordField, detail: "Classified from the resolved destination." };
+  return {
+    url,
+    classification,
+    hasForm,
+    hasPasswordField,
+    detail: classification === "malware"
+      ? "Fetched destination text matched a deterministic local malware-behavior signature. Content was inspected as text and never executed."
+      : "Classified from the resolved destination.",
+  };
 }
 
 function isBlockedTarget(url: URL): boolean {

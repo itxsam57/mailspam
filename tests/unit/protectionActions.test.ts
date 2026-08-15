@@ -45,6 +45,7 @@ function actionContext(senderAddress = "scammer@fraud.example") {
     exceptionKey: `message:${"b".repeat(64)}`,
     senderAddress,
     normalizedFolder: "inbox" as const,
+    links: [],
     unsubscribe: { available: false, method: "none" as const, target: null, source: "none" as const, actionKey: null },
     communityReport: structuredClone(report),
   };
@@ -243,7 +244,7 @@ describe("durable block action API", () => {
     expect(staleThreat.response.status).toBe(409);
   });
 
-  it("makes Report Scam one server-side transaction and automatically shares privacy-reduced family campaign state", async () => {
+  it("keeps Report Scam separate from provider disposal while sharing privacy-reduced family campaign state", async () => {
     const test = await fixture({ familyMode: "success" });
     const registration = test.sessions.registerReviewAction(test.session, actionContext());
     const result = await post(test.baseUrl, test.session.id, "report-scam", { token: registration.token, blockSender: true });
@@ -253,7 +254,8 @@ describe("durable block action API", () => {
       success: true,
       localProtected: true,
       senderBlocked: true,
-      movedCurrent: true,
+      movedCurrent: false,
+      providerAction: "none",
       communityAccepted: true,
       accepted: true,
       independentReporters: 1,
@@ -261,7 +263,7 @@ describe("durable block action API", () => {
     });
     expect(test.session.personalPolicy.isReportedCampaign(campaignFingerprint)).toBe(true);
     expect(test.session.personalPolicy.isBlockedSender("scammer@fraud.example")).toBe(true);
-    expect(test.trashCalls).toEqual([["provider-native-1"]]);
+    expect(test.trashCalls).toEqual([]);
     expect(test.familyCalls).toEqual([{
       mailboxAccountKey: test.session.policyAccountKey,
       fingerprint: campaignFingerprint,
@@ -272,8 +274,8 @@ describe("durable block action API", () => {
     expect(stale.response.status).toBe(409);
   });
 
-  it("keeps Report Scam local protection authoritative when provider or Family Shield side effects fail", async () => {
-    const test = await fixture({ failMove: true, familyMode: "failure" });
+  it("keeps Report Scam local protection authoritative when Family Shield synchronization fails", async () => {
+    const test = await fixture({ familyMode: "failure" });
     const registration = test.sessions.registerReviewAction(test.session, actionContext());
     const result = await post(test.baseUrl, test.session.id, "report-scam", { token: registration.token });
 
@@ -282,12 +284,13 @@ describe("durable block action API", () => {
       success: true,
       localProtected: true,
       movedCurrent: false,
+      providerAction: "none",
       communityAccepted: true,
       accepted: true,
       family: { shared: false, error: "family sync unavailable" },
     });
     expect(test.session.personalPolicy.isReportedCampaign(campaignFingerprint)).toBe(true);
-    expect(test.trashCalls).toEqual([["provider-native-1"]]);
+    expect(test.trashCalls).toEqual([]);
 
     const stale = await post(test.baseUrl, test.session.id, "report-scam", { token: registration.token });
     expect(stale.response.status).toBe(409);

@@ -1,9 +1,10 @@
 /**
  * Verdict model (spec Section 7).
  *
- * Unavailable content is never machine-labelled Safe. The only exception is
- * an explicit account-scoped user approval for that exact message. Personal
- * blocks and verified confirmed-threat rules remain higher precedence.
+ * Unavailable content is never machine-labelled Safe by default. An explicit
+ * account-scoped approval for that exact message may override ordinary Review
+ * or uncertainty, but it cannot override High Risk evidence, personal blocks,
+ * or verified confirmed-threat rules.
  */
 
 export type Verdict = "safe" | "review" | "high_risk" | "confirmed_threat" | "unknown";
@@ -42,7 +43,10 @@ export function computeVerdict(params: {
   confirmedByRule: boolean;
   /** True only for authenticated, deterministically identified bounded mail. */
   boundedContentAllowsSafe?: boolean;
-  /** Explicit approval of this exact message, never a sender/domain allowlist. */
+  /**
+   * Explicit approval of this exact message, never a sender/domain allowlist.
+   * It may resolve ordinary Review/uncertainty but never High Risk/Confirmed.
+   */
   exactMessageApprovedByUser?: boolean;
   /**
    * Authenticated campaign/sender learning may suppress only a borderline
@@ -63,21 +67,23 @@ export function computeVerdict(params: {
   const evidence = layerResults.flatMap((layer) => layer.evidence);
   // Risk evidence is monotonic. Personal trust is useful context, but it must
   // never cancel independent transport, intent, link, or attachment evidence.
-  // Exact-message approval remains an explicit precedence decision below.
   const score = evidence.reduce((sum, item) => sum + Math.max(0, item.scoreContribution), 0);
   const parseBlocksSafe = parseStatus !== "complete" && !boundedContentAllowsSafe;
   const hasUnavailableContent =
     parseBlocksSafe ||
     layerResults.some((layer) => layer.incomplete && layer.blocksSafeVerdict);
 
+  // Hard/strong security decisions are authoritative. A prior user decision
+  // about this exact message must never turn a newly High-Risk or confirmed
+  // message into Safe after stronger evidence becomes available.
   if (confirmedByRule) {
     return { score, evidence, verdict: "confirmed_threat", confirmedByRule: true, layerResults };
   }
-  if (exactMessageApprovedByUser) {
-    return { score, evidence, verdict: "safe", confirmedByRule: false, layerResults };
-  }
   if (score >= HIGH_RISK_THRESHOLD) {
     return { score, evidence, verdict: "high_risk", confirmedByRule: false, layerResults };
+  }
+  if (exactMessageApprovedByUser) {
+    return { score, evidence, verdict: "safe", confirmedByRule: false, layerResults };
   }
   if (adaptiveLegitimateAllowsSafe && !hasUnavailableContent) {
     return { score, evidence, verdict: "safe", confirmedByRule: false, layerResults };

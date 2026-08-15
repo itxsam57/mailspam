@@ -3,13 +3,14 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CanonicalEnvelope } from "../../server/src/canonical/envelope.js";
-import { buildCommunityReportContext, campaignFingerprint } from "../../server/src/community/fingerprint.js";
 import { EncryptedCommunityAggregateStore } from "../../server/src/community/aggregateStore.js";
-import { CommunityFeedSigner, verifyCommunityFeed } from "../../server/src/community/signing.js";
+import { USER_REPORTED_SCAM_CODE } from "../../server/src/community/feedback.js";
+import { buildCommunityReportContext, campaignFingerprint } from "../../server/src/community/fingerprint.js";
 import { CommunityNetwork } from "../../server/src/community/network.js";
+import { CommunityFeedSigner, verifyCommunityFeed } from "../../server/src/community/signing.js";
 import type { CommunityReportSubmission } from "../../server/src/community/types.js";
-import { InMemoryPersonalPolicyStore, personalRulesLayer } from "../../server/src/engine/layers/personalRules.js";
 import { globalIntelligenceLayer } from "../../server/src/engine/layers/globalIntelligence.js";
+import { InMemoryPersonalPolicyStore, personalRulesLayer } from "../../server/src/engine/layers/personalRules.js";
 import type { ScoredMessage } from "../../server/src/engine/verdict.js";
 
 const temporaryDirectories: string[] = [];
@@ -75,12 +76,17 @@ function scored(verdict: ScoredMessage["verdict"] = "high_risk", score = 8): Sco
   };
 }
 
-function submission(reporter: string, context = buildCommunityReportContext(envelope(), scored())): CommunityReportSubmission {
+function submission(
+  reporter: string,
+  context = buildCommunityReportContext(envelope(), scored()),
+  reportedAt = new Date(),
+): CommunityReportSubmission {
   return {
     schemaVersion: 1,
     reporterProof: reporter.padEnd(64, "0").slice(0, 64),
-    reportedAt: new Date().toISOString(),
+    reportedAt: reportedAt.toISOString(),
     ...context,
+    evidenceCodes: [...new Set([...context.evidenceCodes, USER_REPORTED_SCAM_CODE])].sort(),
   };
 }
 
@@ -140,7 +146,7 @@ describe("independent report aggregation", () => {
     expect(store.buildFeedPayload().entries).toEqual([]);
   });
 
-  it("publishes a warning after three independent evidence-bearing reporters", () => {
+  it("publishes an unconfirmed warning after three independent explicit Report Scam actions", () => {
     const directory = temporaryDirectory();
     const store = new EncryptedCommunityAggregateStore(directory);
     for (const reporter of ["1", "2", "3"]) store.accept(submission(reporter));
@@ -156,11 +162,29 @@ describe("independent report aggregation", () => {
     expect(feed.entries.some((item) => item.type === "sender")).toBe(false);
   });
 
-  it("publishes confirmed indicators only after five reporters and strong evidence thresholds", () => {
+  it("publishes confirmed indicators only after time-spread corroboration and explicit trusted review", () => {
     const directory = temporaryDirectory();
-    const store = new EncryptedCommunityAggregateStore(directory);
-    for (const reporter of ["1", "2", "3", "4", "5"]) store.accept(submission(reporter));
-    const feed = store.buildFeedPayload();
+    let now = new Date("2026-08-10T00:00:00.000Z");
+    const store = new EncryptedCommunityAggregateStore(directory, undefined, { now: () => new Date(now) });
+    for (const [index, value] of [
+      "2026-08-10T00:00:00.000Z",
+      "2026-08-10T01:00:00.000Z",
+      "2026-08-10T02:00:00.000Z",
+      "2026-08-10T03:00:00.000Z",
+      "2026-08-11T07:00:00.000Z",
+    ].entries()) {
+      now = new Date(value);
+      store.accept(submission(String(index + 1), buildCommunityReportContext(envelope(), scored()), now));
+    }
+    expect(store.stats()).toEqual({ campaigns: 1, warnings: 1, confirmed: 0 });
+    expect(store.listReviewCandidates()).toHaveLength(1);
+    store.resolveReviewCandidate({
+      campaignFingerprint: buildCommunityReportContext(envelope(), scored()).campaignFingerprint,
+      decision: "approved",
+      reviewerId: "community-reporting-reviewer",
+      reason: "Manual review verified the independently corroborated campaign before signed global confirmation.",
+    });
+    const feed = store.buildFeedPayload(now);
     expect(feed.entries.length).toBeGreaterThan(0);
     expect(feed.entries.filter((item) => item.type !== "identity").every((item) => item.confirmedThreat)).toBe(true);
     expect(store.stats().confirmed).toBe(1);

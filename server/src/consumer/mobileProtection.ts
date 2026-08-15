@@ -69,6 +69,11 @@ export function assertMobileScamInput(input: unknown): asserts input is MobileSc
   }
 }
 
+/**
+ * Portable mobile analysis. This function is real today and can be called by a
+ * future native bridge, but it must never be used as evidence that an iOS or
+ * Android hook has already been integrated into the shipping desktop build.
+ */
 export function analyzeMobileScamInput(
   input: unknown,
   deps: ConsumerScamCheckDependencies = {},
@@ -93,58 +98,82 @@ export function analyzeMobileScamInput(
   };
 }
 
+export type NativeBridgeCapabilityState =
+  | "portable_engine_ready_native_bridge_required"
+  | "permission_and_native_bridge_required"
+  | "platform_restricted"
+  | "not_applicable"
+  | "implemented_in_desktop";
+
 export interface NativeProtectionBridgeV1 {
   schemaVersion: 1;
   platform: "windows" | "macos" | "android" | "ios";
+  /**
+   * Explicit release truth. Android/iOS currently have a portable analysis
+   * engine contract, not a shipping native interception/share/notification
+   * bridge. Packaging code must not translate this field into "protected".
+   */
+  implementationStatus:
+    | "portable_analysis_ready_native_bridge_not_built"
+    | "desktop_mailbox_protection_only";
   capabilities: {
-    sms: "supported" | "platform_restricted" | "not_applicable";
-    notificationText: "supported" | "permission_required" | "platform_restricted" | "not_applicable";
-    shareSheet: "supported";
-    clipboardExplicit: "supported";
-    calendarInvite: "permission_required" | "supported";
-    qrCameraOrImage: "supported";
-    backgroundMailboxProtection: "supported" | "platform_managed";
+    sms: NativeBridgeCapabilityState;
+    notificationText: NativeBridgeCapabilityState;
+    shareSheet: NativeBridgeCapabilityState;
+    clipboardExplicit: NativeBridgeCapabilityState;
+    calendarInvite: NativeBridgeCapabilityState;
+    qrCameraOrImage: NativeBridgeCapabilityState;
+    backgroundMailboxProtection: NativeBridgeCapabilityState;
   };
 }
 
+/**
+ * Describes integration readiness, not current device protection. The return
+ * value intentionally refuses the word "supported" for native hooks that do
+ * not exist yet, preventing a portable engine from being mistaken for a built
+ * Android/iOS feature during wrapping.
+ */
 export function nativeProtectionBridgeContract(platform: NativeProtectionBridgeV1["platform"]): NativeProtectionBridgeV1 {
   if (platform === "android") return {
     schemaVersion: 1,
     platform,
+    implementationStatus: "portable_analysis_ready_native_bridge_not_built",
     capabilities: {
-      sms: "supported",
-      notificationText: "permission_required",
-      shareSheet: "supported",
-      clipboardExplicit: "supported",
-      calendarInvite: "permission_required",
-      qrCameraOrImage: "supported",
-      backgroundMailboxProtection: "platform_managed",
+      sms: "portable_engine_ready_native_bridge_required",
+      notificationText: "permission_and_native_bridge_required",
+      shareSheet: "portable_engine_ready_native_bridge_required",
+      clipboardExplicit: "portable_engine_ready_native_bridge_required",
+      calendarInvite: "permission_and_native_bridge_required",
+      qrCameraOrImage: "portable_engine_ready_native_bridge_required",
+      backgroundMailboxProtection: "permission_and_native_bridge_required",
     },
   };
   if (platform === "ios") return {
     schemaVersion: 1,
     platform,
+    implementationStatus: "portable_analysis_ready_native_bridge_not_built",
     capabilities: {
       sms: "platform_restricted",
       notificationText: "platform_restricted",
-      shareSheet: "supported",
-      clipboardExplicit: "supported",
-      calendarInvite: "permission_required",
-      qrCameraOrImage: "supported",
-      backgroundMailboxProtection: "platform_managed",
+      shareSheet: "portable_engine_ready_native_bridge_required",
+      clipboardExplicit: "portable_engine_ready_native_bridge_required",
+      calendarInvite: "permission_and_native_bridge_required",
+      qrCameraOrImage: "portable_engine_ready_native_bridge_required",
+      backgroundMailboxProtection: "permission_and_native_bridge_required",
     },
   };
   return {
     schemaVersion: 1,
     platform,
+    implementationStatus: "desktop_mailbox_protection_only",
     capabilities: {
       sms: "not_applicable",
       notificationText: "not_applicable",
-      shareSheet: "supported",
-      clipboardExplicit: "supported",
-      calendarInvite: "permission_required",
-      qrCameraOrImage: "supported",
-      backgroundMailboxProtection: "supported",
+      shareSheet: "portable_engine_ready_native_bridge_required",
+      clipboardExplicit: "portable_engine_ready_native_bridge_required",
+      calendarInvite: "permission_and_native_bridge_required",
+      qrCameraOrImage: "portable_engine_ready_native_bridge_required",
+      backgroundMailboxProtection: "implemented_in_desktop",
     },
   };
 }

@@ -10,10 +10,12 @@ describe("Personal Policy browser ownership", () => {
     const source = read("web/policy-management.js");
     expect(source).toContain("let loadSequence = 0");
     expect(source).toContain("const requestSequence = ++loadSequence");
-    expect(source).toContain("requestSequence !== loadSequence || selectedAccountId() !== accountId");
+    expect(source).toContain("requestSequence !== loadSequence || !selectionMatches(ownerSnapshot)");
     expect(source).toContain("cache: 'no-store'");
     expect(source).toContain("const mutationAccountId = loadedAccountId");
-    expect(source).toContain("selectedAccountId() !== mutationAccountId");
+    expect(source).toContain("if (!selectionMatches(ownerSnapshot)) return");
+    expect(source).toContain("loadedSelectionGeneration");
+    expect(source).toContain("loadedPolicyMatchesSelection(ownerSnapshot)");
   });
 
   it("makes Personal Policy the one owned refresh boundary for Block and confirmed unsubscribe", () => {

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CanonicalEnvelope } from "../../server/src/canonical/envelope.js";
 import { EncryptedCommunityAggregateStore } from "../../server/src/community/aggregateStore.js";
+import { USER_REPORTED_SCAM_CODE } from "../../server/src/community/feedback.js";
 import { campaignFingerprint } from "../../server/src/community/fingerprint.js";
 import type { CommunityReportSubmission } from "../../server/src/community/types.js";
 import { InMemoryPersonalPolicyStore } from "../../server/src/engine/layers/personalRules.js";
@@ -19,10 +20,10 @@ afterEach(() => {
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
-function aggregate(): EncryptedCommunityAggregateStore {
+function aggregate(now?: () => Date): EncryptedCommunityAggregateStore {
   const directory = mkdtempSync(join(tmpdir(), "email-shield-disposition-"));
   directories.push(directory);
-  return new EncryptedCommunityAggregateStore(directory);
+  return new EncryptedCommunityAggregateStore(directory, undefined, now ? { now } : {});
 }
 
 function envelope(): CanonicalEnvelope {
@@ -55,16 +56,18 @@ function envelope(): CanonicalEnvelope {
   };
 }
 
-function submission(input: CanonicalEnvelope, reporter: string, strong = false): CommunityReportSubmission {
+function submission(input: CanonicalEnvelope, reporter: string, strong = false, reportedAt = new Date()): CommunityReportSubmission {
   const fingerprint = campaignFingerprint(input);
   return {
     schemaVersion: 1,
     reporterProof: createHash("sha256").update(`disposition:${reporter}`).digest("hex"),
     campaignFingerprint: fingerprint,
-    reportedAt: new Date().toISOString(),
+    reportedAt: reportedAt.toISOString(),
     verdict: strong ? "high_risk" : "safe",
     evidenceScore: strong ? 6 : 0,
-    evidenceCodes: strong ? ["CALLBACK_SCAM_INTENT", "DMARC_FAIL"] : [],
+    evidenceCodes: strong
+      ? [USER_REPORTED_SCAM_CODE, "CALLBACK_SCAM_INTENT", "DMARC_FAIL"]
+      : [USER_REPORTED_SCAM_CODE],
     indicators: [
       { type: "campaign", value: fingerprint },
       { type: "sender", value: input.from.address! },
@@ -115,11 +118,29 @@ describe("community protection disposition ladder", () => {
     expect(isDurableAutoTrashResult(result)).toBe(false);
   });
 
-  it("auto-trashes a globally confirmed campaign for non-reporting users", () => {
+  it("auto-trashes only a globally confirmed campaign that passed time-spread corroboration and trusted review", () => {
     const input = envelope();
-    const central = aggregate();
-    for (const reporter of ["1", "2", "3", "4", "5"]) central.accept(submission(input, reporter, true));
-    const feed = central.buildFeedPayload();
+    let now = new Date("2026-08-10T00:00:00.000Z");
+    const central = aggregate(() => new Date(now));
+    for (const [index, value] of [
+      "2026-08-10T00:00:00.000Z",
+      "2026-08-10T01:00:00.000Z",
+      "2026-08-10T02:00:00.000Z",
+      "2026-08-10T03:00:00.000Z",
+      "2026-08-11T07:00:00.000Z",
+    ].entries()) {
+      now = new Date(value);
+      central.accept(submission(input, `reviewed-${index}`, true, now));
+    }
+    expect(central.stats()).toEqual({ campaigns: 1, warnings: 1, confirmed: 0 });
+    central.resolveReviewCandidate({
+      campaignFingerprint: campaignFingerprint(input),
+      decision: "approved",
+      reviewerId: "disposition-reviewer",
+      reason: "Independent reports and campaign evidence were manually verified before granting global Trash authority.",
+    });
+
+    const feed = central.buildFeedPayload(now);
     expect(central.stats()).toEqual({ campaigns: 1, warnings: 0, confirmed: 1 });
     expect(feed.entries).toContainEqual(expect.objectContaining({
       type: "campaign",

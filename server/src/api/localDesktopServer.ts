@@ -109,7 +109,12 @@ export function createLocalDesktopServer(options: {
   );
   const deviceIdentity = options.deviceIdentity ?? new EphemeralDesktopDeviceIdentityProvider();
   const developmentEntitlementsEnabled = options.developmentEntitlementsEnabled ?? false;
-  const inner = createServer({ community, destinationAnalyzer, fixtureConnections });
+  const inner = createServer({
+    community,
+    destinationAnalyzer,
+    fixtureConnections,
+    developerToolsEnabled: developmentEntitlementsEnabled,
+  });
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const webDir = join(__dirname, "../../../web");
   const dashboardTemplate = readFileSync(join(webDir, "index.html"), "utf8");
@@ -229,10 +234,6 @@ export function createLocalDesktopServer(options: {
     resolveMailboxAccountKey: (sessionId) => sessionStore.get(sessionId)?.policyAccountKey ?? null,
   });
 
-  // Register the token-authoritative Block/Report implementation on the outer
-  // protected desktop server before the legacy inner API. This ensures the
-  // live product path uses durable Trash semantics, stale-action 409 handling,
-  // community learning and Family Shield sharing rather than raw-address routes.
   registerProtectionActionRoutes(app, {
     community,
     familyThreats: accountPlatform,

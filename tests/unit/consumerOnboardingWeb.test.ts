@@ -27,15 +27,38 @@ describe("canonical consumer first-run journey", () => {
     expect(source).toContain("Low Noise");
   });
 
-  it("credits security-relevant steps only from real observed or successful production state", () => {
+  it("credits security-relevant steps only from account-authoritative production state", () => {
     const source = read("web/consumer-onboarding.js");
-    expect(source).toContain("#scanHistoryList .scan-history-status.completed");
-    expect(source).toContain("backgroundToggle.getAttribute('aria-pressed') === 'true'");
+    expect(source).toContain("/scan-history`");
+    expect(source).toContain("/background-protection`");
+    expect(source).toContain("scanHistory.history.some((record) => record?.status === 'completed')");
+    expect(source).toContain("background?.enabled === true");
     expect(source).toContain("/sensitivity`");
     expect(source).toContain("await readJson(await fetch(`/api/consumer/v1/accounts/${encodeURIComponent(id)}/sensitivity`");
     expect(source).toContain("state.completed.add('sensitivity_chosen')");
     expect(source).toContain("Home cannot be marked ready until steps 1–7 are complete.");
-    expect(source).not.toContain("state.completed.add('continuous_protection_configured');\n      await persistProgress(false)");
+    expect(source).not.toContain("#scanHistoryList .scan-history-status.completed");
+    expect(source).not.toContain("backgroundToggle.getAttribute('aria-pressed') === 'true'");
+  });
+
+  it("keeps completed first-scan credit monotonic even when bounded scan history no longer contains the original record", () => {
+    const source = read("web/consumer-onboarding.js");
+    expect(source).toContain("completed.add('first_scan_completed')");
+    expect(source).toContain("monotonic historical milestone");
+    expect(source).not.toContain("else completed.delete('first_scan_completed')");
+  });
+
+  it("replaces rather than accumulates mailbox onboarding state and refuses cross-account writes", () => {
+    const source = read("web/consumer-onboarding.js");
+    expect(source).toContain("mailboxId: null");
+    expect(source).toContain("state.completed = new Set()");
+    expect(source).toContain("state.completed = completed");
+    expect(source).toContain("state.mailboxId = requestedMailboxId");
+    expect(source).toContain("activeMailboxId() !== requestedMailboxId");
+    expect(source).toContain("state.mailboxId !== expectedMailboxId || activeId !== expectedMailboxId");
+    expect(source).toContain("Mailbox selection changed. Setup state was refreshed without copying progress between accounts.");
+    expect(source).toContain("refreshQueued");
+    expect(source).not.toContain("for (const step of saved) if (STEP_IDS.includes(step)) state.completed.add(step)");
   });
 
   it("persists only privacy-safe progress and retires the legacy popup through its existing marker", () => {
@@ -55,9 +78,9 @@ describe("canonical consumer first-run journey", () => {
     const source = read("web/consumer-onboarding.js");
     expect(source).toContain("Not now");
     expect(source).toContain("STEP_IDS.slice(0, 7).every");
-    expect(source).toContain("if (facts.account) state.completed.add('account_ready')");
-    expect(source).toContain("if (facts.mailbox) state.completed.add('mailbox_connected')");
-    expect(source).toContain("if (facts.scanDone) state.completed.add('first_scan_completed')");
-    expect(source).toContain("if (facts.backgroundEnabled) state.completed.add('continuous_protection_configured')");
+    expect(source).toContain("if (state.profileSignedIn) state.completed.add('account_ready')");
+    expect(source).toContain("state.completed.add('mailbox_connected')");
+    expect(source).toContain("completed.add('first_scan_completed')");
+    expect(source).toContain("completed.add('continuous_protection_configured')");
   });
 });

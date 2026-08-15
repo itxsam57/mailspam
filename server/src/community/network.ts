@@ -5,6 +5,11 @@ import { existsSync, writeFileSync } from "node:fs";
 import type { SignedFeedEntry, ThreatFeedCache } from "../engine/layers/globalIntelligence.js";
 import { EncryptedCommunityAggregateStore } from "./aggregateStore.js";
 import { CommunityServiceDisabledError } from "./errors.js";
+import {
+  hasBlockFeedback,
+  hasLegitimateFeedback,
+  USER_REPORTED_SCAM_CODE,
+} from "./feedback.js";
 import { EncryptedCommunityOutbox } from "./outbox.js";
 import { CommunityReporterIdentity } from "./reporterIdentity.js";
 import { CommunityFeedRollbackGuard } from "./feedRollbackGuard.js";
@@ -127,6 +132,13 @@ function isReceipt(value: unknown): value is CommunityReportReceipt {
     ["candidate", "warning", "confirmed"].includes(item.status ?? "");
 }
 
+function explicitUserReportContext(context: CommunityReportContext): CommunityReportContext {
+  const copy = structuredClone(context);
+  if (hasBlockFeedback(copy.evidenceCodes) || hasLegitimateFeedback(copy.evidenceCodes)) return copy;
+  copy.evidenceCodes = [...new Set([...copy.evidenceCodes, USER_REPORTED_SCAM_CODE])].sort();
+  return copy;
+}
+
 export class CommunityNetwork implements ThreatFeedCache {
   readonly dataDirectory: string;
   readonly serverEnabled: boolean;
@@ -192,7 +204,7 @@ export class CommunityNetwork implements ThreatFeedCache {
       schemaVersion: 1,
       reporterProof: this.reporterIdentity.proofForAccount(accountKey),
       reportedAt: new Date().toISOString(),
-      ...structuredClone(context),
+      ...explicitUserReportContext(context),
     };
 
     if (!this.remoteUrl) {

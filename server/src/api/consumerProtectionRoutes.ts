@@ -377,7 +377,10 @@ export function registerConsumerProtectionRoutes(
 
   app.post("/api/consumer/v1/browser/check", async (req, res) => {
     try {
-      const result = await evaluateBrowserUrl(req.body, { destinationAnalyzer });
+      const result = await evaluateBrowserUrl(req.body, {
+        destinationAnalyzer,
+        scamCheck: { intelligenceEntries: community.getVerifiedEntries() },
+      });
       noStore(res);
       res.json(result);
     } catch (error) { errorResponse(res, error); }

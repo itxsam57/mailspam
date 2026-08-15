@@ -24,12 +24,14 @@ describe("durable protection browser ownership", () => {
     expect(scan).not.toContain("unblock-domain");
   });
 
-  it("keeps Report Scam under the canonical review controller and accepts durable local protection through partial external failures", () => {
+  it("keeps Report Scam under the canonical review controller, preserves local protection and leaves provider disposal explicit", () => {
     expect(review).toContain("[data-action=\"mark-safe\"],[data-action=\"trust-sender\"],[data-action=\"move-spam\"],[data-action=\"report-scam\"]");
     expect(review).toContain("JSON.stringify(isReportScam ? { token, blockSender } : { token })");
     expect(review).toContain("result.localProtected !== true");
     expect(review).toContain("Local campaign protection remains active");
-    expect(review).toContain("result.movedCurrent === true");
+    expect(review).toContain("Reporting does not move the current message; Trash and Spam/Junk remain separate explicit actions.");
+    expect(review).toContain("The current message was not moved. Use the separate Trash or Move to Spam/Junk action");
+    expect(review).not.toContain("result.movedCurrent === true");
     expect(review).toContain("result.communityAccepted === true");
     expect(review).toContain("email-shield-family-changed");
     expect(review).toContain("await refreshPersonalPolicy()");

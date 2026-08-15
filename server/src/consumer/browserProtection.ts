@@ -65,6 +65,11 @@ export async function evaluateBrowserUrl(
   assertBrowserProtectionRequest(input);
   const parsed = new URL(input.url);
   const normalizedUrl = parsed.toString();
+  const intelligenceEntries = dependencies.scamCheck?.intelligenceEntries;
+  // [] means a signed feed was successfully verified and currently contains no
+  // matching entries. null/undefined means trusted Global Shield intelligence
+  // is unavailable and Browser Protection must not silently treat that as safe.
+  const intelligenceAvailable = Array.isArray(intelligenceEntries);
   const scam = evaluateConsumerScamCheck({ schemaVersion: 1, kind: "url", url: normalizedUrl }, dependencies.scamCheck ?? {});
   const envelope = {
     provider: "imap" as const,
@@ -98,22 +103,41 @@ export async function evaluateBrowserUrl(
   };
   const destination = await dependencies.destinationAnalyzer.analyze(envelope);
   const destinationResult = destination.results[0] ?? null;
+  const positiveScamEvidence = scam.evidence.filter((item) => item.scoreContribution > 0);
+  const downloadReasons = downloadRisk(input.download);
   const reasonCodes = [
-    ...scam.evidence.filter((item) => item.scoreContribution > 0).map((item) => item.code),
-    ...downloadRisk(input.download),
+    ...positiveScamEvidence.map((item) => item.code),
+    ...downloadReasons,
+    ...(!intelligenceAvailable ? ["GLOBAL_INTELLIGENCE_UNAVAILABLE"] : []),
   ];
   if (destinationResult?.classification && destinationResult.classification !== "benign") {
     reasonCodes.push(`DESTINATION_${destinationResult.classification.toUpperCase()}`);
   }
-  const hardDestination = destinationResult?.classification === "credential_trap" || destinationResult?.classification === "malware";
-  const dangerousDownload = reasonCodes.some((code) => code.includes("EXECUTABLE") || code.includes("SCRIPT_DOWNLOAD"));
+
+  const classification = destinationResult?.classification ?? null;
+  const hardDestination = classification === "credential_trap" || classification === "malware";
+  const cautionDestination = classification === "adult_dating"
+    || classification === "fake_support"
+    || classification === "crypto_payment"
+    || classification === "notification_trap";
+  const unverifiableDestination = classification === "error" || classification === "blocked_unsafe_target" || classification === null;
+  const hasDownloadRisk = downloadReasons.length > 0;
+  const hasPositiveScamEvidence = positiveScamEvidence.length > 0;
+
+  // Browser Protection has two different evidence boundaries:
+  // 1) mailbox provenance is intentionally absent for a URL-only check, which
+  //    may make Scam Check's whole-message verdict Unknown; and
+  // 2) signed Global Shield availability, which is independently knowable.
+  // A benign destination with a verified feed and no positive URL evidence may
+  // therefore be allowed. Missing signed intelligence remains fail-closed.
   const disposition: BrowserProtectionDisposition = hardDestination || scam.verdict === "confirmed_threat"
     ? "block"
-    : scam.verdict === "high_risk" || scam.verdict === "review" || dangerousDownload
+    : scam.verdict === "high_risk" || scam.verdict === "review" || cautionDestination || hasDownloadRisk || hasPositiveScamEvidence
       ? "warn"
-      : destinationResult?.classification === "error" || scam.verdict === "unknown"
+      : unverifiableDestination || !intelligenceAvailable
         ? "unknown"
         : "allow";
+
   return {
     schemaVersion: 1,
     disposition,
@@ -122,11 +146,13 @@ export async function evaluateBrowserUrl(
     explanation: disposition === "block"
       ? "Email Shield found a hard local/signed or destination-level threat signal. Do not continue to this destination."
       : disposition === "warn"
-        ? "Email Shield found suspicious URL/download evidence. Verify the destination independently before continuing."
+        ? "Email Shield found suspicious URL, destination, or download evidence. Verify the destination independently before continuing."
         : disposition === "unknown"
-          ? "Email Shield could not obtain enough trustworthy evidence. The destination was not treated as safe."
-          : "No strong deterministic threat signal was observed for this URL at check time. This is not a guarantee that future content cannot change.",
-    destinationClassification: destinationResult?.classification ?? null,
+          ? !intelligenceAvailable
+            ? "Email Shield could not verify the current signed Global Shield intelligence feed, so this destination was not treated as safe."
+            : "Email Shield could not obtain enough trustworthy destination evidence. The destination was not treated as safe."
+          : "No strong deterministic threat signal was observed in the inspected destination or the verified Global Shield feed at check time. This is not a guarantee that future content cannot change.",
+    destinationClassification: classification,
     privacy: "single_explicit_or_navigation_url_no_history",
   };
 }

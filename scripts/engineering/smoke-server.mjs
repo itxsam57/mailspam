@@ -7,8 +7,8 @@ import { join, resolve } from "node:path";
 
 const root = process.cwd();
 const host = "127.0.0.1";
-const dataDir = mkdtempSync(join(tmpdir(), "email-shield-smoke-"));
-let child;
+const dataDirs = [];
+const children = [];
 let stdout = "";
 let stderr = "";
 
@@ -46,13 +46,15 @@ async function rawStatus(baseUrl, requestHeaders) {
   });
 }
 
-async function waitForServer(baseUrl, timeoutMs = 20_000) {
+async function waitForServer(instance, timeoutMs = 20_000) {
   const deadline = Date.now() + timeoutMs;
   let lastError;
   while (Date.now() < deadline) {
-    if (child?.exitCode !== null) throw new Error(`Server exited before readiness with code ${child.exitCode}.\n${stderr}`);
+    if (instance.child.exitCode !== null) {
+      throw new Error(`Server exited before readiness with code ${instance.child.exitCode}.\n${instance.stderr}`);
+    }
     try {
-      const response = await fetch(baseUrl, { signal: AbortSignal.timeout(2_000) });
+      const response = await fetch(instance.baseUrl, { signal: AbortSignal.timeout(2_000) });
       if (response.ok) return;
       lastError = new Error(`HTTP ${response.status}`);
     } catch (error) {
@@ -60,21 +62,23 @@ async function waitForServer(baseUrl, timeoutMs = 20_000) {
     }
     await new Promise((resolveWait) => setTimeout(resolveWait, 150));
   }
-  throw new Error(`Server did not become ready: ${lastError?.message ?? "unknown error"}\n${stderr}`);
+  throw new Error(`Server did not become ready: ${lastError?.message ?? "unknown error"}\n${instance.stderr}`);
 }
 
-async function json(response, label) {
-  const body = await response.json().catch(() => null);
-  assert(response.ok, `${label} failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
-  return body;
-}
-
-try {
+async function startServer(mode) {
   const port = await freePort();
-  assert(Number.isInteger(port), "Could not allocate an isolated smoke-test port.");
+  assert(Number.isInteger(port), `Could not allocate an isolated ${mode} smoke-test port.`);
+  const dataDir = mkdtempSync(join(tmpdir(), `email-shield-${mode}-smoke-`));
+  dataDirs.push(dataDir);
   const baseUrl = `http://${host}:${port}`;
-
-  child = spawn(process.execPath, [resolve(root, "server/dist/index.js")], {
+  const instance = {
+    mode,
+    baseUrl,
+    stdout: "",
+    stderr: "",
+    child: null,
+  };
+  instance.child = spawn(process.execPath, [resolve(root, "server/dist/index.js")], {
     cwd: root,
     env: {
       ...process.env,
@@ -83,52 +87,107 @@ try {
       EMAIL_SHIELD_DATA_DIR: dataDir,
       EMAIL_SHIELD_COMMUNITY_SERVER: "0",
       EMAIL_SHIELD_COMMUNITY_URL: "",
+      EMAIL_SHIELD_ENABLE_DEVELOPMENT_ENTITLEMENTS: mode === "developer" ? "1" : "0",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
-  child.stdout.setEncoding("utf8");
-  child.stderr.setEncoding("utf8");
-  child.stdout.on("data", (chunk) => { stdout += chunk; });
-  child.stderr.on("data", (chunk) => { stderr += chunk; });
+  children.push(instance);
+  instance.child.stdout.setEncoding("utf8");
+  instance.child.stderr.setEncoding("utf8");
+  instance.child.stdout.on("data", (chunk) => {
+    instance.stdout += chunk;
+    stdout += chunk;
+  });
+  instance.child.stderr.on("data", (chunk) => {
+    instance.stderr += chunk;
+    stderr += chunk;
+  });
+  await waitForServer(instance);
+  return instance;
+}
 
-  await waitForServer(baseUrl);
+async function stopServer(instance) {
+  if (!instance?.child || instance.child.exitCode !== null) return;
+  instance.child.kill();
+  await new Promise((resolveWait) => {
+    const timer = setTimeout(() => {
+      if (instance.child.exitCode === null) instance.child.kill("SIGKILL");
+      resolveWait();
+    }, 2_000);
+    instance.child.once("exit", () => {
+      clearTimeout(timer);
+      resolveWait();
+    });
+  });
+}
 
+async function json(response, label) {
+  const body = await response.json().catch(() => null);
+  assert(response.ok, `${label} failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+  return body;
+}
+
+async function dashboardContext(baseUrl) {
   const home = await fetch(baseUrl, { signal: AbortSignal.timeout(5_000) });
   const homeHtml = await home.text();
   assert(home.status === 200, `Homepage returned HTTP ${home.status}.`);
   assert(homeHtml.includes("Email Shield"), "Homepage is missing the Email Shield application marker.");
-  assert(homeHtml.includes('/local-security.js') && homeHtml.includes('/scan-monitor.js') && homeHtml.includes('/unsubscribe-monitor.js') && homeHtml.includes('/operations-dashboard.js'), "Dashboard response is missing local security, action or operations scripts.");
-  assert(home.headers.get("content-security-policy")?.includes("frame-ancestors 'none'"), "Dashboard is missing its restrictive Content Security Policy.");
   const cookie = home.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
   const csrf = homeHtml.match(/<meta name="email-shield-csrf" content="([^"]+)"/)?.[1] ?? "";
   assert(cookie.startsWith("email_shield_local_session="), "Dashboard did not issue an HttpOnly local session cookie.");
   assert(csrf.length >= 32, "Dashboard did not issue a browser CSRF token.");
-  assert(!homeHtml.includes(cookie.split("=", 2)[1] ?? "missing-session"), "Dashboard HTML exposed the HttpOnly session secret.");
+  return {
+    home,
+    homeHtml,
+    cookie,
+    csrf,
+    protectedHeaders: () => ({
+      Cookie: cookie,
+      Origin: baseUrl,
+      Referer: `${baseUrl}/`,
+      "X-Email-Shield-CSRF": csrf,
+    }),
+  };
+}
 
-  const protectedHeaders = () => ({
-    Cookie: cookie,
-    Origin: baseUrl,
-    Referer: `${baseUrl}/`,
-    "X-Email-Shield-CSRF": csrf,
+async function mutation(baseUrl, protectedHeaders, path, init = {}) {
+  const nonceResponse = await fetch(`${baseUrl}/api/security/mutation-token`, {
+    method: "POST",
+    headers: protectedHeaders(),
+    signal: AbortSignal.timeout(5_000),
   });
+  const nonceBody = await json(nonceResponse, "Local mutation authorization");
+  return fetch(`${baseUrl}${path}`, {
+    ...init,
+    method: init.method ?? "POST",
+    headers: {
+      ...protectedHeaders(),
+      ...(init.headers ?? {}),
+      "X-Email-Shield-Nonce": nonceBody.nonce,
+    },
+  });
+}
 
-  async function mutation(path, init = {}) {
-    const nonceResponse = await fetch(`${baseUrl}/api/security/mutation-token`, {
-      method: "POST",
-      headers: protectedHeaders(),
-      signal: AbortSignal.timeout(5_000),
-    });
-    const nonceBody = await json(nonceResponse, "Local mutation authorization");
-    return fetch(`${baseUrl}${path}`, {
-      ...init,
-      method: init.method ?? "POST",
-      headers: {
-        ...protectedHeaders(),
-        ...(init.headers ?? {}),
-        "X-Email-Shield-Nonce": nonceBody.nonce,
-      },
-    });
+function assertOperationsPrivacy(response, operations) {
+  assert(response.headers.get("cache-control") === "no-store", "Operations snapshot is cacheable.");
+  assert(operations.schemaVersion === 1 && operations.privacy === "aggregate_only_no_mailbox_identity_or_content", "Operations snapshot omitted its strict privacy contract.");
+  assert(Array.isArray(operations.providerContracts) && operations.providerContracts.length === 5, "Operations snapshot omitted a provider contract.");
+  const serialized = JSON.stringify(operations);
+  for (const forbidden of ["subject", "fromAddress", "messageId", "accountId", "providerNativeId", "exception", "token", "body"]) {
+    assert(!serialized.includes(`\"${forbidden}\"`), `Operations snapshot exposed forbidden field ${forbidden}.`);
   }
+}
+
+try {
+  const consumer = await startServer("consumer");
+  const baseUrl = consumer.baseUrl;
+  const context = await dashboardContext(baseUrl);
+  const { home, homeHtml, protectedHeaders } = context;
+
+  assert(homeHtml.includes('/local-security.js') && homeHtml.includes('/scan-monitor.js') && homeHtml.includes('/unsubscribe-monitor.js') && homeHtml.includes('/operations-dashboard.js'), "Dashboard response is missing local security, action or operations scripts.");
+  assert(homeHtml.includes('/developer-controls.js'), "Dashboard response is missing the fail-closed developer-control boundary.");
+  assert(home.headers.get("content-security-policy")?.includes("frame-ancestors 'none'"), "Dashboard is missing its restrictive Content Security Policy.");
+  assert(!homeHtml.includes(context.cookie.split("=", 2)[1] ?? "missing-session"), "Dashboard HTML exposed the HttpOnly session secret.");
 
   const unauthenticated = await fetch(`${baseUrl}/api/accounts`, { signal: AbortSignal.timeout(5_000) });
   assert(unauthenticated.status === 401, `Unauthenticated account access returned HTTP ${unauthenticated.status}.`);
@@ -144,24 +203,96 @@ try {
   assert((await fetch(`${baseUrl}/api/community/v1/feed`, { signal: AbortSignal.timeout(5_000) })).status === 404, "Normal client unexpectedly served the central signed feed endpoint.");
   assert((await fetch(`${baseUrl}/api/community/v1/public-key`, { signal: AbortSignal.timeout(5_000) })).status === 404, "Normal client unexpectedly served central public-key metadata.");
 
-  const initialAccounts = await json(await fetch(`${baseUrl}/api/accounts`, {
+  const consumerDeveloperRoute = await fetch(`${baseUrl}/api/dev/test-suite`, {
     headers: protectedHeaders(),
-  }), "Initial accounts request");
+    signal: AbortSignal.timeout(5_000),
+  });
+  assert(consumerDeveloperRoute.status === 404, `Consumer-mode developer suite returned HTTP ${consumerDeveloperRoute.status} instead of 404.`);
+
+  const initialAccounts = await json(await fetch(`${baseUrl}/api/accounts`, { headers: protectedHeaders() }), "Initial accounts request");
   assert(Array.isArray(initialAccounts) && initialAccounts.length === 0, "Smoke server did not start with an isolated empty session store.");
 
-  const connected = await json(await mutation("/api/accounts/connect", {
+  const deniedFixture = await mutation(baseUrl, protectedHeaders, "/api/accounts/connect", {
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider: "gmail", mode: "fixture", label: "consumer-must-not-create" }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  assert(deniedFixture.status === 403, `Consumer-mode Fixture connection returned HTTP ${deniedFixture.status} instead of 403.`);
+  const deniedFixtureBody = await deniedFixture.json().catch(() => ({}));
+  assert(/development-entitled/i.test(String(deniedFixtureBody.error ?? "")), "Consumer-mode Fixture denial did not explain the development boundary.");
+  const afterDenied = await json(await fetch(`${baseUrl}/api/accounts`, { headers: protectedHeaders() }), "Accounts after denied Fixture request");
+  assert(Array.isArray(afterDenied) && afterDenied.length === 0, "Denied consumer Fixture request created an account anyway.");
+
+  const operationsResponse = await fetch(`${baseUrl}/api/operations/v1/snapshot`, {
+    headers: protectedHeaders(),
+    signal: AbortSignal.timeout(5_000),
+  });
+  const operations = await json(operationsResponse, "Privacy-safe operations snapshot");
+  assertOperationsPrivacy(operationsResponse, operations);
+
+  const replayNonce = await json(await fetch(`${baseUrl}/api/security/mutation-token`, {
+    method: "POST",
+    headers: protectedHeaders(),
+  }), "Replay-test mutation authorization");
+  const replayHeaders = { ...protectedHeaders(), "X-Email-Shield-Nonce": replayNonce.nonce };
+  const firstReplayUse = await fetch(`${baseUrl}/api/accounts/connect`, {
+    method: "POST",
+    headers: { ...replayHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({ provider: "gmail", mode: "fixture", label: "nonce-denied-once" }),
+  });
+  assert(firstReplayUse.status === 403, `First consumer Fixture denial returned HTTP ${firstReplayUse.status}.`);
+  const replayed = await fetch(`${baseUrl}/api/accounts/connect`, {
+    method: "POST",
+    headers: { ...replayHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({ provider: "gmail", mode: "fixture", label: "nonce-replay" }),
+  });
+  assert(replayed.status === 409, `Replayed mutation authorization returned HTTP ${replayed.status}.`);
+
+  const crossOriginRead = await fetch(`${baseUrl}/api/accounts`, {
+    headers: {
+      ...protectedHeaders(),
+      Origin: "https://attacker.example",
+      Referer: "https://attacker.example/",
+      "Sec-Fetch-Site": "cross-site",
+    },
+  });
+  assert(crossOriginRead.status === 403, `Cross-origin protected read returned HTTP ${crossOriginRead.status}.`);
+
+  const crossOriginNonce = await fetch(`${baseUrl}/api/security/mutation-token`, {
+    method: "POST",
+    headers: { ...protectedHeaders(), Origin: "http://127.0.0.1:65530" },
+  });
+  assert(crossOriginNonce.status === 403, `Cross-origin mutation authorization returned HTTP ${crossOriginNonce.status}.`);
+
+  const rebindingStatus = await rawStatus(baseUrl, { Host: "attacker.example" });
+  assert(rebindingStatus === 421, `DNS-rebinding Host request returned HTTP ${rebindingStatus}.`);
+
+  const forwarded = await fetch(baseUrl, { headers: { "X-Forwarded-Host": "attacker.example" } });
+  assert(forwarded.status === 421, `Forwarded-Host request returned HTTP ${forwarded.status}.`);
+
+  const notFound = await fetch(`${baseUrl}/engineering-controlled-404`, { signal: AbortSignal.timeout(5_000) });
+  assert(notFound.status === 404, `Unknown route returned HTTP ${notFound.status} instead of 404.`);
+
+  await stopServer(consumer);
+
+  const developer = await startServer("developer");
+  const developerContext = await dashboardContext(developer.baseUrl);
+  const developerBaseUrl = developer.baseUrl;
+  const developerHeaders = developerContext.protectedHeaders;
+
+  const connected = await json(await mutation(developerBaseUrl, developerHeaders, "/api/accounts/connect", {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ provider: "gmail", mode: "fixture", label: "engineering-smoke" }),
     signal: AbortSignal.timeout(15_000),
-  }), "Fixture account connection");
-  assert(typeof connected.accountId === "string" && connected.provider === "gmail" && connected.mode === "fixture", "Fixture connection returned an unexpected contract.");
+  }), "Explicit developer Fixture account connection");
+  assert(typeof connected.accountId === "string" && connected.provider === "gmail" && connected.mode === "fixture", "Developer Fixture connection returned an unexpected contract.");
   assert(connected.community && Number.isInteger(connected.community.verifiedFeedEntries), "Fixture connection omitted community protection status.");
 
-  const scanResponse = await fetch(`${baseUrl}/api/accounts/${encodeURIComponent(connected.accountId)}/scan/quick`, {
+  const scanResponse = await fetch(`${developerBaseUrl}/api/accounts/${encodeURIComponent(connected.accountId)}/scan/quick`, {
     headers: {
-      Cookie: cookie,
-      Origin: baseUrl,
-      Referer: `${baseUrl}/`,
+      Cookie: developerContext.cookie,
+      Origin: developerBaseUrl,
+      Referer: `${developerBaseUrl}/`,
     },
     signal: AbortSignal.timeout(60_000),
   });
@@ -194,88 +325,65 @@ try {
     assert(summary.reviewAction && typeof summary.reviewAction.token === "string", "Diagnostic summary is missing an opaque review token.");
   }
 
-  const operationsResponse = await fetch(`${baseUrl}/api/operations/v1/snapshot`, {
-    headers: protectedHeaders(),
+  const developerOperationsResponse = await fetch(`${developerBaseUrl}/api/operations/v1/snapshot`, {
+    headers: developerHeaders(),
     signal: AbortSignal.timeout(5_000),
   });
-  const operations = await json(operationsResponse, "Privacy-safe operations snapshot");
-  assert(operationsResponse.headers.get("cache-control") === "no-store", "Operations snapshot is cacheable.");
-  assert(operations.schemaVersion === 1 && operations.privacy === "aggregate_only_no_mailbox_identity_or_content", "Operations snapshot omitted its strict privacy contract.");
-  assert(operations.local?.providers?.gmail?.scans?.completed >= 1, "Operations snapshot did not record the compiled Gmail fixture scan.");
-  assert(Array.isArray(operations.providerContracts) && operations.providerContracts.length === 5, "Operations snapshot omitted a provider contract.");
-  const serializedOperations = JSON.stringify(operations);
-  for (const forbidden of ["subject", "fromAddress", "messageId", "accountId", "providerNativeId", "exception", "token", "body"]) {
-    assert(!serializedOperations.includes(`\"${forbidden}\"`), `Operations snapshot exposed forbidden field ${forbidden}.`);
-  }
+  const developerOperations = await json(developerOperationsResponse, "Developer operations snapshot");
+  assertOperationsPrivacy(developerOperationsResponse, developerOperations);
+  assert(developerOperations.local?.providers?.gmail?.scans?.completed >= 1, "Operations snapshot did not record the compiled Gmail Fixture scan.");
 
-  const developerReport = await json(await fetch(`${baseUrl}/api/dev/test-suite`, {
-    headers: protectedHeaders(),
-    signal: AbortSignal.timeout(60_000),
-  }), "Developer corpus suite");
-  assert(developerReport.totalScans > 0, "Developer corpus suite ran zero scans.");
-  assert(Array.isArray(developerReport.falsePositives) && developerReport.falsePositives.length === 0, `Developer corpus suite reported false positives: ${JSON.stringify(developerReport.falsePositives)}`);
-  assert(Array.isArray(developerReport.falseNegatives) && developerReport.falseNegatives.length === 0, `Developer corpus suite reported false negatives: ${JSON.stringify(developerReport.falseNegatives)}`);
-  assert(Array.isArray(developerReport.crossProviderParityFailures) && developerReport.crossProviderParityFailures.length === 0, `Developer corpus suite reported provider parity failures: ${JSON.stringify(developerReport.crossProviderParityFailures)}`);
-
-  const removed = await mutation(`/api/accounts/${encodeURIComponent(connected.accountId)}`, {
+  const removed = await mutation(developerBaseUrl, developerHeaders, `/api/accounts/${encodeURIComponent(connected.accountId)}`, {
     method: "DELETE",
     signal: AbortSignal.timeout(5_000),
   });
   assert(removed.status === 204, `Fixture account removal returned HTTP ${removed.status}.`);
 
-  const replayNonce = await json(await fetch(`${baseUrl}/api/security/mutation-token`, {
+  const developerReplayNonce = await json(await fetch(`${developerBaseUrl}/api/security/mutation-token`, {
     method: "POST",
-    headers: protectedHeaders(),
-  }), "Replay-test mutation authorization");
-  const replayHeaders = { ...protectedHeaders(), "X-Email-Shield-Nonce": replayNonce.nonce };
-  const firstReplayUse = await fetch(`${baseUrl}/api/accounts/connect`, {
+    headers: developerHeaders(),
+  }), "Developer replay-test mutation authorization");
+  const developerReplayHeaders = { ...developerHeaders(), "X-Email-Shield-Nonce": developerReplayNonce.nonce };
+  const developerReplayFirst = await fetch(`${developerBaseUrl}/api/accounts/connect`, {
     method: "POST",
-    headers: { ...replayHeaders, "Content-Type": "application/json" },
-    body: JSON.stringify({ provider: "gmail", mode: "fixture", label: "nonce-once" }),
+    headers: { ...developerReplayHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({ provider: "gmail", mode: "fixture", label: "developer-nonce-once" }),
   });
-  assert(firstReplayUse.ok, "The first use of a mutation authorization failed unexpectedly.");
-  const replayed = await fetch(`${baseUrl}/api/accounts/connect`, {
+  const developerReplayBody = await json(developerReplayFirst, "Developer first replay-nonce use");
+  const developerReplaySecond = await fetch(`${developerBaseUrl}/api/accounts/connect`, {
     method: "POST",
-    headers: { ...replayHeaders, "Content-Type": "application/json" },
-    body: JSON.stringify({ provider: "gmail", mode: "fixture", label: "nonce-replay" }),
+    headers: { ...developerReplayHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({ provider: "gmail", mode: "fixture", label: "developer-nonce-replay" }),
   });
-  assert(replayed.status === 409, `Replayed mutation authorization returned HTTP ${replayed.status}.`);
-
-  const crossOriginNonce = await fetch(`${baseUrl}/api/security/mutation-token`, {
-    method: "POST",
-    headers: { ...protectedHeaders(), Origin: "http://127.0.0.1:65530" },
+  assert(developerReplaySecond.status === 409, `Developer replayed mutation authorization returned HTTP ${developerReplaySecond.status}.`);
+  const cleanupReplayAccount = await mutation(developerBaseUrl, developerHeaders, `/api/accounts/${encodeURIComponent(developerReplayBody.accountId)}`, {
+    method: "DELETE",
+    signal: AbortSignal.timeout(5_000),
   });
-  assert(crossOriginNonce.status === 403, `Cross-origin mutation authorization returned HTTP ${crossOriginNonce.status}.`);
+  assert(cleanupReplayAccount.status === 204, `Developer replay Fixture cleanup returned HTTP ${cleanupReplayAccount.status}.`);
 
-  const rebindingStatus = await rawStatus(baseUrl, { Host: "attacker.example" });
-  assert(rebindingStatus === 421, `DNS-rebinding Host request returned HTTP ${rebindingStatus}.`);
+  const developerReport = await json(await fetch(`${developerBaseUrl}/api/dev/test-suite`, {
+    headers: developerHeaders(),
+    signal: AbortSignal.timeout(60_000),
+  }), "Explicit developer-mode corpus suite");
+  assert(developerReport.totalScans === 280, `Developer corpus suite ran ${developerReport.totalScans} scans instead of 280.`);
+  assert(Array.isArray(developerReport.falsePositives) && developerReport.falsePositives.length === 0, `Developer corpus suite reported false positives: ${JSON.stringify(developerReport.falsePositives)}`);
+  assert(Array.isArray(developerReport.falseNegatives) && developerReport.falseNegatives.length === 0, `Developer corpus suite reported false negatives: ${JSON.stringify(developerReport.falseNegatives)}`);
+  assert(Array.isArray(developerReport.crossProviderParityFailures) && developerReport.crossProviderParityFailures.length === 0, `Developer corpus suite reported provider parity failures: ${JSON.stringify(developerReport.crossProviderParityFailures)}`);
 
-  const notFound = await fetch(`${baseUrl}/engineering-controlled-404`, { signal: AbortSignal.timeout(5_000) });
-  assert(notFound.status === 404, `Unknown route returned HTTP ${notFound.status} instead of 404.`);
-
-  console.log(`Compiled server/API smoke passed at ${baseUrl}.`);
-  console.log(`Fixture messages examined: ${lastProgress.counters.examined}.`);
+  console.log(`Compiled consumer server/API smoke passed at ${baseUrl}.`);
+  console.log(`Consumer Fixture isolation: HTTP ${deniedFixture.status}; no synthetic account created.`);
+  console.log(`Developer Fixture messages examined: ${lastProgress.counters.examined}.`);
   console.log(`Verified community feed entries: ${communityStatus.verifiedFeedEntries}.`);
-  console.log(`Developer corpus scans: ${developerReport.totalScans}.`);
-  console.log("Local session, CSRF, one-time nonce, origin, and Host isolation checks passed.");
+  console.log(`Consumer developer-route isolation: HTTP ${consumerDeveloperRoute.status}.`);
+  console.log(`Explicit developer corpus scans: ${developerReport.totalScans}.`);
+  console.log("Local session, CSRF, protected-read origin, one-time nonce, forwarded-request, Host, and development-entitlement isolation checks passed.");
 } catch (error) {
   console.error(`FAIL: ${error.message}`);
   if (stdout.trim()) console.error(`Server stdout:\n${stdout.trim()}`);
   if (stderr.trim()) console.error(`Server stderr:\n${stderr.trim()}`);
   process.exitCode = 1;
 } finally {
-  if (child && child.exitCode === null) {
-    child.kill();
-    await new Promise((resolveWait) => {
-      const timer = setTimeout(() => {
-        if (child.exitCode === null) child.kill("SIGKILL");
-        resolveWait();
-      }, 2_000);
-      child.once("exit", () => {
-        clearTimeout(timer);
-        resolveWait();
-      });
-    });
-  }
-  rmSync(dataDir, { recursive: true, force: true });
+  for (const instance of children) await stopServer(instance);
+  for (const dataDir of dataDirs) rmSync(dataDir, { recursive: true, force: true });
 }
