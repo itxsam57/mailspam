@@ -22,5 +22,6 @@ This changes only diagnostic identity. No mailbox content, account identity, cre
 - Consumer Support Bundle uses this one resolver rather than reading npm-only release metadata directly.
 - The portable package verification and post-publication manifest integrity gates continue to bind the exact shipped release files.
 - Final consumer qualification must verify that a downloaded portable package's Support Bundle version/release exactly match its own canonical release manifest.
+- Release acceptance is based on the downloaded package's observed Support Bundle identity, not on source-tree environment variables or pre-publication assumptions.
 
 Any future packaged build that labels itself `development`/`unknown` despite a valid canonical portable manifest is a blocking support/release-diagnostics regression.
