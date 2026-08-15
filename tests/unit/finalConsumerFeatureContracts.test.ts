@@ -124,7 +124,7 @@ describe("final consumer feature contracts", () => {
     expect(JSON.stringify(radar)).not.toMatch(/mailbox|message body|reporter identity/i);
   });
 
-  it("enforces mobile permission and user-initiation boundaries", () => {
+  it("enforces mobile permission boundaries and never mislabels an unbuilt native bridge as supported", () => {
     expect(() => analyzeMobileScamInput({
       schemaVersion: 1,
       channel: "notification",
@@ -150,9 +150,15 @@ describe("final consumer feature contracts", () => {
     expect(result.intervention.officialVerificationRequired).toBe(true);
 
     const ios = nativeProtectionBridgeContract("ios");
+    const android = nativeProtectionBridgeContract("android");
+    expect(ios.implementationStatus).toBe("portable_analysis_ready_native_bridge_not_built");
+    expect(android.implementationStatus).toBe("portable_analysis_ready_native_bridge_not_built");
     expect(ios.capabilities.sms).toBe("platform_restricted");
-    expect(ios.capabilities.shareSheet).toBe("supported");
-    expect(ios.capabilities.backgroundMailboxProtection).toBe("platform_managed");
+    expect(ios.capabilities.shareSheet).toBe("portable_engine_ready_native_bridge_required");
+    expect(ios.capabilities.backgroundMailboxProtection).toBe("permission_and_native_bridge_required");
+    expect(android.capabilities.sms).toBe("portable_engine_ready_native_bridge_required");
+    expect(android.capabilities.notificationText).toBe("permission_and_native_bridge_required");
+    expect(JSON.stringify([ios, android])).not.toContain('"supported"');
   });
 
   it("treats remote-access plus irreversible payment pressure as a critical intervention", () => {
