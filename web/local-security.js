@@ -29,6 +29,20 @@
     return headers;
   }
 
+  function dashboardProvenance() {
+    // The document intentionally uses Referrer-Policy: no-referrer so ordinary
+    // navigation cannot leak local dashboard paths. Protected same-origin API
+    // requests are the one exception: the server requires browser provenance
+    // in addition to the HttpOnly session and CSRF token. RequestInit.referrer
+    // is browser-controlled and cannot be forged by a cross-origin page.
+    return {
+      credentials: 'same-origin',
+      cache: 'no-store',
+      referrer: `${window.location.origin}/`,
+      referrerPolicy: 'same-origin',
+    };
+  }
+
   function requestActionToken(init) {
     if (typeof init?.body !== 'string') return null;
     try {
@@ -58,9 +72,8 @@
 
   async function mutationNonce() {
     const response = await originalFetch('/api/security/mutation-token', {
+      ...dashboardProvenance(),
       method: 'POST',
-      credentials: 'same-origin',
-      cache: 'no-store',
       headers: { 'X-Email-Shield-CSRF': csrfToken },
     });
     const body = await response.json().catch(() => ({}));
@@ -79,7 +92,12 @@
 
     const method = requestMethod(input, init);
     const headers = mergedHeaders(input, init);
-    const options = { ...init, method, headers, credentials: 'same-origin', cache: init.cache || 'no-store' };
+    const options = {
+      ...init,
+      ...dashboardProvenance(),
+      method,
+      headers,
+    };
     const isNonceRequest = url.pathname === '/api/security/mutation-token';
     const token = requestActionToken(init);
 
