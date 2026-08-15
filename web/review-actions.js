@@ -240,7 +240,7 @@
 
     if (isReportScam) {
       promptTitle = 'Report this scam campaign to Email Shield';
-      explanation = 'Email Shield will save this campaign as an immediate local threat. Reporting does not move the current message; Trash and Spam/Junk remain separate explicit actions. Future matching campaign mail remains locally protected even if Family Shield or community delivery is temporarily unavailable. Only privacy-reduced indicators can leave the device; message content, subject, mailbox address, credentials, provider ID, contacts, attachment names and raw private URLs are not submitted. One report cannot globally block a sender; independent reports, time-spread corroboration and trusted human review are required before a network Confirmed Threat can be published.';
+      explanation = 'Email Shield will save this campaign as an immediate account-local threat. The current message will be moved to Trash for this mailbox. Future matching campaign mail will also be moved to Trash for this account by the normal protected scan/realtime path. Only privacy-reduced indicators can leave the device; message content, subject, mailbox address, credentials, provider ID, contacts, attachment names and raw private URLs are not submitted. One report cannot globally block a sender; independent reports, time-spread corroboration and trusted human review are still required before a network Confirmed Threat can be published.';
     } else if (isMoveSpam) {
       promptTitle = 'Move exactly this message to provider Spam/Junk';
       explanation = 'This affects only the selected mailbox message. It does not create Email Shield community protection and does not automatically block the sender.';
@@ -255,7 +255,7 @@
     const confirmed = window.confirm(`${promptTitle}?\n\n${subject}\n${sender}\n\n${explanation}`);
     if (!confirmed) return;
     if (isReportScam && button.dataset.sender) {
-      blockSender = window.confirm('Also block this exact sender address for your mailbox?\n\nChoose Cancel when the sender is a shared delivery platform such as a reporting or newsletter service. The campaign itself will still be protected locally.');
+      blockSender = window.confirm('Also block this exact sender address for your mailbox?\n\nChoose Cancel when the sender is a shared delivery platform such as a reporting or newsletter service. The campaign itself will still be protected locally and auto-moved when it matches again.');
     }
     if (!selectionMatches(ownerSnapshot)) {
       window.alert('The selected account changed. The message action was not sent; rescan the selected mailbox before acting.');
@@ -264,11 +264,11 @@
 
     const previousText = button.textContent;
     button.disabled = true;
-    button.textContent = isReportScam ? 'Saving protection…' : isMoveSpam ? 'Moving…' : isMarkSafe ? 'Saving…' : 'Trusting…';
+    button.textContent = isReportScam ? 'Reporting & moving…' : isMoveSpam ? 'Moving…' : isMarkSafe ? 'Saving…' : 'Trusting…';
     if (status) {
       status.className = 'review-action-status';
       status.textContent = isReportScam
-        ? 'Saving durable local campaign protection, then Family Shield and privacy-reduced community delivery. The current mailbox message will not be moved…'
+        ? 'Saving durable local campaign protection and moving the current message to Trash, then updating Family Shield and privacy-reduced community evidence…'
         : isMoveSpam
           ? 'Requesting an exact provider Spam/Junk move…'
           : isMarkSafe
@@ -294,7 +294,7 @@
 
         document.querySelectorAll(`[data-action="report-scam"][data-review-token="${CSS.escape(token)}"]`).forEach((candidate) => {
           candidate.disabled = true;
-          candidate.textContent = 'Campaign protected locally ✓';
+          candidate.textContent = result.movedCurrent === true ? 'Reported & moved to Trash ✓' : 'Campaign protected — Trash retry needed';
         });
         disableConflictingDecisions(token);
         container?.classList.add('community-reported');
@@ -306,23 +306,24 @@
           });
         }
 
-
         await refreshPersonalPolicy();
         if (!selectionMatches(ownerSnapshot)) return;
         if (result.family?.shared) window.dispatchEvent(new CustomEvent('email-shield-family-changed'));
 
-        const mailboxState = 'The current message was not moved. Use the separate Trash or Move to Spam/Junk action if you want to remove it from Inbox.';
+        const mailboxState = result.movedCurrent === true
+          ? 'The provider confirmed that the current message was moved to Trash. Future matching campaign mail will be auto-moved for this account.'
+          : `The campaign rule is active, but the current provider Trash move needs a retry${result.moveError ? `: ${result.moveError}` : '.'} Future matching campaign mail remains protected.`;
         const familyState = familyDeliveryMessage(result);
         const communityState = communityDeliveryMessage(result);
-        const complete = result.communityAccepted === true && !result.family?.error;
+        const complete = result.movedCurrent === true && result.communityAccepted === true && !result.family?.error;
         if (status) {
           status.className = complete ? 'review-action-status success' : 'review-action-status error';
-          status.textContent = `Matching campaign messages are protected locally. ${mailboxState} ${familyState} ${communityState}${result.senderBlocked ? ' The exact sender is also blocked.' : ''}`;
+          status.textContent = `${mailboxState} ${familyState} ${communityState}${result.senderBlocked ? ' The exact sender is also blocked and future mail from that address is auto-moved for this account.' : ''}`;
         }
         setGlobalStatus(
-          complete
-            ? `Scam campaign protected locally. The current message was left in place.${result.family?.shared ? ' Family Shield updated.' : ' Community evidence accepted.'}`
-            : 'Scam campaign protection is active; Family Shield or community delivery needs attention. The current message was left in place.',
+          result.movedCurrent === true
+            ? `Scam reported and current message moved to Trash. Future campaign matches are protected locally.${result.family?.shared ? ' Family Shield updated.' : result.communityAccepted ? ' Community evidence accepted.' : ''}`
+            : 'Scam campaign protection is active, but the current provider Trash move needs attention. Future matches remain protected.',
           complete ? 'complete' : 'error',
         );
         return;

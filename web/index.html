@@ -208,11 +208,11 @@
     <div class="brand-mark" aria-hidden="true">ES</div>
     <div>
       <h1 data-i18n="app.name">Email Shield</h1>
-      <div class="sub" data-i18n="app.tagline">Local, deterministic mailbox protection</div>
+      <div class="sub" data-i18n="app.tagline">Private local mailbox protection</div>
     </div>
   </div>
   <div class="row">
-    <button id="devSuiteBtn" type="button" data-i18n="developer.run">Run Developer Test Suite</button>
+    <button id="devSuiteBtn" type="button" data-i18n="developer.run" hidden>Run Developer Test Suite</button>
   </div>
 </header>
 
@@ -231,13 +231,13 @@
       </select></label>
       <label class="field" for="modeSelect"><span data-i18n="connect.mode">Connection mode</span>
       <select id="modeSelect">
-        <option value="fixture" data-i18n="connect.fixture">Fixture demo mailbox (no credentials needed)</option>
-        <option value="live" data-i18n="connect.live">Live account (requires provider authorization)</option>
+        <option value="live" data-i18n="connect.live" selected>Live account (requires provider authorization)</option>
+        <option value="fixture" data-i18n="connect.fixture">Fixture demo mailbox (engineering only)</option>
       </select></label>
       <button class="primary" id="connectBtn" type="button" data-i18n="connect.action">Connect</button>
     </div>
     <div id="credentialFields" class="row" style="margin-top:10px;"></div>
-    <div class="hint" data-i18n="connect.help">Fixture mode loads a synthetic scam corpus. Live mode uses provider OAuth or a provider-approved app password.</div>
+    <div class="hint" data-i18n="connect.help">Live accounts connect directly to the selected provider using provider OAuth or a provider-approved app password.</div>
     <p id="connectStatus" class="hint" role="status" aria-live="polite" aria-atomic="true"></p>
     <div class="accounts-list" id="accountsList" role="list" aria-live="polite" aria-label="Connected accounts"></div>
   </section>
@@ -267,7 +267,7 @@
         <button id="backgroundToggle" type="button" aria-pressed="false" data-i18n="background.enable">Enable</button>
       </div>
       <p id="backgroundStatus" class="hint" role="status" aria-live="polite" aria-atomic="true" data-i18n="background.paused">Background protection is paused.</p>
-      <div class="hint" data-i18n="background.help">Runs one resource-bounded Quick Scan at a time. Manual scans take priority; provider actions and Analyze Links never run automatically.</div>
+      <div class="hint" data-i18n="background.help">Runs one resource-bounded Quick Scan at a time. Manual scans take priority. Previously reported campaigns and blocked senders/domains may be moved to Trash automatically for this account; ad-hoc actions and Analyze Links never run automatically.</div>
     </div>
   </section>
 
@@ -277,7 +277,7 @@
     <div class="safety-grid">
       <article class="safety-item"><h3 data-i18n="education.verdicts.heading">Read the verdict carefully</h3><p data-i18n="education.verdicts.body">Safe means no meaningful warning was found in content that was successfully inspected. Unknown or partial means inspection was incomplete—retry it; never treat it as Safe. Unknown mail stays in the Diagnostic audit instead of being presented as a threat warning.</p></article>
       <article class="safety-item"><h3 data-i18n="education.actions.heading">Pause before you act</h3><p data-i18n="education.actions.body">Do not reply, call a number in the message, pay, or share a password, one-time code, recovery code, or seed phrase. Open the known official provider or organization site yourself.</p></article>
-      <article class="safety-item"><h3 data-i18n="education.controls.heading">Actions are separate</h3><p data-i18n="education.controls.body">Report Scam shares privacy-reduced indicators; it does not move mail. Block and Trash are account-scoped choices. Analyze Links is explicit and never uses mailbox cookies or provider credentials.</p></article>
+      <article class="safety-item"><h3 data-i18n="education.controls.heading">Actions are scoped</h3><p data-i18n="education.controls.body">Report Scam saves an account-local campaign rule and moves the current message to Trash after provider confirmation; future campaign matches are auto-moved for this account. Sender/domain blocks do the same for their scope. Global Shield thresholds remain independent. Analyze Links is explicit and never uses mailbox cookies or provider credentials.</p></article>
       <article class="safety-item"><h3 data-i18n="education.help.heading">When you still are not sure</h3><p data-i18n="education.help.body">Contact the organization using a trusted number or app, ask a trusted person, or leave the message untouched. Urgency is a reason to slow down.</p></article>
     </div>
   </section>
@@ -307,7 +307,7 @@
     <p id="operationsStatus" class="hint" role="status" aria-live="polite" aria-atomic="true" data-i18n="operations.loading">Loading aggregate operations…</p>
   </section>
 
-  <section class="panel dev-panel" id="devPanel" style="display:none;">
+  <section class="panel dev-panel" id="devPanel" style="display:none;" hidden>
     <h2 data-i18n="developer.heading">Developer Testing Suite</h2>
     <div id="devResults" class="dev-summary" role="status" aria-live="polite"></div>
   </section>
@@ -414,7 +414,7 @@ function renderCredentialFields() {
     <label class="field" for="credPort"><span>Port</span><input id="credPort" value="993" size="5" inputmode="numeric"></label>
     <label class="field" for="credUser"><span>Username or email</span><input id="credUser" type="email" autocomplete="username"></label>
     <label class="field" for="credPassword"><span>App password</span><input id="credPassword" type="password" autocomplete="current-password"></label>`;
-  else credentialFields.innerHTML = `<div class="hint">OAuth browser setup is not yet exposed in this hard-test build. Use fixture mode for ${p}, or configure provider credentials through the documented local developer flow.</div>`;
+  else credentialFields.innerHTML = `<div class="hint">Use the guided provider sign-in button to start secure OAuth setup for ${p}.</div>`;
 }
 providerSelect.addEventListener('change', renderCredentialFields);
 modeSelect.addEventListener('change', renderCredentialFields);
@@ -521,6 +521,7 @@ function renderCounters(c) {
 document.getElementById('devSuiteBtn').addEventListener('click', async () => {
   const devPanel = document.getElementById('devPanel');
   const devResults = document.getElementById('devResults');
+  devPanel.hidden = false;
   devPanel.style.display = 'block';
   devResults.innerHTML = 'Running full corpus across all 5 providers…';
   const res = await fetch(`${API}/api/dev/test-suite`);

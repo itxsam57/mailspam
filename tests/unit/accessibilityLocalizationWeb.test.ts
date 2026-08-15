@@ -105,7 +105,9 @@ describe("accessible localized safety interface", () => {
     expect(html).toContain("never treat it as Safe");
     expect(html).toContain("Do not reply, call a number in the message, pay");
     expect(html).toContain("one-time code, recovery code, or seed phrase");
-    expect(html).toContain("Report Scam shares privacy-reduced indicators; it does not move mail");
+    expect(html).toContain("Report Scam saves an account-local campaign rule and moves the current message to Trash after provider confirmation");
+    expect(html).toContain("future campaign matches are auto-moved for this account");
+    expect(html).toContain("Global Shield thresholds remain independent");
     expect(html).toContain("Analyze Links is explicit and never uses mailbox cookies or provider credentials");
     expect(html).toContain("Urgency is a reason to slow down");
     expect(html).not.toMatch(/(?:guaranteed|100%) safe/i);
