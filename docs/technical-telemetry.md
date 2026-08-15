@@ -36,4 +36,4 @@ Unknown event names and unknown property names are rejected at runtime. This rem
 
 ## Failure behavior
 
-Telemetry is non-authoritative. A disabled configuration, invalid payload, timeout, network failure or non-success PostHog response causes that telemetry call to return `false`; it does not change Email Shield's local protection behavior. The protected-state initialization path always rethrows its original application error after the bounded telemetry attempt.
+Telemetry is non-authoritative. A disabled configuration, invalid payload, timeout, network failure or non-success PostHog response causes that telemetry call to return `false`; it does not change Email Shield's local protection behavior. Protected-state failure reporting is best-effort and non-blocking so telemetry can never delay, replace or reorder the application's original startup failure.
