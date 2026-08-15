@@ -32,6 +32,105 @@ function normalizeLabelToFolder(labelId: string): NormalizedFolder {
   return map[labelId] ?? "other";
 }
 
+function inaccessibleGmailEnvelope(input: {
+  accountProof: string;
+  folder: FolderDescriptor;
+  providerNativeId: string;
+}): CanonicalEnvelope {
+  const stableMessageId = createHash("sha256")
+    .update(input.accountProof, "utf8")
+    .update("\0", "utf8")
+    .update(input.providerNativeId, "utf8")
+    .digest("hex");
+  return {
+    provider: "gmail",
+    accountProof: input.accountProof,
+    messageId: `gmail-inaccessible-${stableMessageId}`,
+    providerNativeId: input.providerNativeId,
+    folder: input.folder.normalized,
+    providerFolderName: input.folder.providerFolderName,
+    from: { displayName: null, address: null, domain: null },
+    replyTo: null,
+    subject: "",
+    date: new Date().toISOString(),
+    authentication: { spf: "unknown", dkim: "unknown", dmarc: "unknown", arc: "unknown" },
+    textPreview: null,
+    htmlSignals: null,
+    links: [],
+    attachments: [],
+    listHeaders: { listId: null, listUnsubscribe: null, listUnsubscribePost: null },
+    threadContext: { isFirstContact: true, threadContinuityBroken: false, replyToChangedMidThread: false },
+    parseStatus: "inaccessible",
+    parseNotes: ["Gmail message content could not be inspected safely."],
+    diagnostics: {
+      fetchedAt: new Date().toISOString(),
+      sizeBytes: 0,
+      encoding: "unknown",
+      contentCoverage: "insufficient",
+      qrInspection: { supportedImages: 0, decodedUrlCount: 0, incomplete: false, incompleteReasons: [] },
+      attachmentHashInspection: { attachments: 0, hashed: 0, incomplete: false, incompleteReasons: [] },
+    },
+  };
+}
+
+/**
+ * Isolate individual Gmail message failures without hiding a provider-wide read
+ * failure. A message whose raw body was unavailable or whose local MIME/security
+ * normalization failed becomes an inaccessible canonical envelope, which the
+ * verdict model keeps Unknown. If Gmail cannot read even one listed message in
+ * the page, the page still fails so auth/provider outages are never reported as
+ * a successful scan.
+ */
+export async function resolveGmailPageMessages(options: {
+  ids: readonly string[];
+  signal: AbortSignal;
+  readRawMessage: (id: string) => Promise<Buffer | null>;
+  normalizeMessage: (raw: Buffer, id: string) => Promise<CanonicalEnvelope>;
+  inaccessibleMessage: (id: string) => CanonicalEnvelope;
+  concurrency?: number;
+}): Promise<CanonicalEnvelope[]> {
+  if (options.ids.length === 0) return [];
+  const concurrency = Math.max(1, Math.min(options.concurrency ?? 4, options.ids.length));
+  const envelopes = new Array<CanonicalEnvelope>(options.ids.length);
+  let nextIndex = 0;
+  let providerReadSuccesses = 0;
+
+  const workers = Array.from({ length: concurrency }, async () => {
+    while (true) {
+      if (options.signal.aborted) throw new DOMException("Aborted", "AbortError");
+      const index = nextIndex++;
+      if (index >= options.ids.length) return;
+      const id = options.ids[index]!;
+      try {
+        const raw = await options.readRawMessage(id);
+        providerReadSuccesses += 1;
+        if (options.signal.aborted) throw new DOMException("Aborted", "AbortError");
+        if (!raw || raw.length === 0) {
+          envelopes[index] = options.inaccessibleMessage(id);
+          continue;
+        }
+        try {
+          envelopes[index] = await options.normalizeMessage(raw, id);
+        } catch {
+          if (options.signal.aborted) throw new DOMException("Aborted", "AbortError");
+          envelopes[index] = options.inaccessibleMessage(id);
+        }
+      } catch (error) {
+        if (options.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) {
+          throw new DOMException("Aborted", "AbortError");
+        }
+        envelopes[index] = options.inaccessibleMessage(id);
+      }
+    }
+  });
+
+  await Promise.all(workers);
+  if (providerReadSuccesses === 0) {
+    throw new Error("Gmail could not read any messages in the selected page.");
+  }
+  return envelopes;
+}
+
 /**
  * Gmail adapter (spec Section 3): OAuth-based, uses Gmail API bounded concurrent
  * requests rather than fully serial per-message HTTP calls. Guided desktop OAuth
@@ -100,29 +199,30 @@ export class GmailAdapter implements EmailAdapter {
       return { envelopes: [], nextCursor: null, done: true };
     }
 
-    const envelopes: CanonicalEnvelope[] = [];
-    const concurrency = 4;
-    let nextIndex = 0;
-    const workers = Array.from({ length: Math.min(concurrency, ids.length) }, async () => {
-      while (true) {
-        if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-        const index = nextIndex++;
-        if (index >= ids.length) return;
-        const id = ids[index]!;
+    const envelopes = await resolveGmailPageMessages({
+      ids,
+      signal,
+      concurrency: 4,
+      readRawMessage: async (id) => {
         const msgRes = await this.gmail!.users.messages.get({ userId: "me", id, format: "raw" });
-        if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-        const raw = msgRes.data.raw ? Buffer.from(msgRes.data.raw, "base64url") : Buffer.from("");
-        const envelope = await normalizeRawMessage(raw, {
-          provider: "gmail",
-          accountProof: this.accountProof!,
-          providerFolderName: folder.providerFolderName,
-          normalizedFolder: folder.normalized,
-          providerNativeId: id,
-        });
-        envelopes[index] = envelope;
-      }
+        const encoded = msgRes.data.raw;
+        return typeof encoded === "string" && encoded.length > 0
+          ? Buffer.from(encoded, "base64url")
+          : null;
+      },
+      normalizeMessage: async (raw, id) => normalizeRawMessage(raw, {
+        provider: "gmail",
+        accountProof: this.accountProof!,
+        providerFolderName: folder.providerFolderName,
+        normalizedFolder: folder.normalized,
+        providerNativeId: id,
+      }),
+      inaccessibleMessage: (id) => inaccessibleGmailEnvelope({
+        accountProof: this.accountProof!,
+        folder,
+        providerNativeId: id,
+      }),
     });
-    await Promise.all(workers);
 
     return {
       envelopes,
