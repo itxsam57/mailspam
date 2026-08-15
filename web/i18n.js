@@ -120,7 +120,7 @@
       element.textContent = t(element.getAttribute('data-i18n'));
     });
     root.querySelectorAll('[data-i18n-aria-label]').forEach((element) => {
-      element.setAttribute('aria-label', t(element.getAttribute('data-i18n-aria-label'));
+      element.setAttribute('aria-label', t(element.getAttribute('data-i18n-aria-label')));
     });
   }
 
