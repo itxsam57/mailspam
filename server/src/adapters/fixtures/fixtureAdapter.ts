@@ -7,6 +7,11 @@ import type {
 } from "../../canonical/adapter.js";
 import type { AuthenticationSignals, Provider, NormalizedFolder } from "../../canonical/envelope.js";
 import { normalizeRawMessage } from "../../util/mimeNormalize.js";
+import {
+  type FixtureFolderState,
+  type FixtureMutableFolder,
+  writeFixtureFolderState,
+} from "./fixtureFolderState.js";
 
 export interface FixtureMessage {
   id: string;
@@ -35,14 +40,19 @@ export class FixtureAdapter implements EmailAdapter {
   readonly provider: Provider;
   private messages: FixtureMessage[];
   private connected = false;
+  private readonly messageIndexes = new Map<string, number>();
 
   constructor(
     provider: Provider,
     messages: FixtureMessage[],
     private readonly folderOverrides: FixtureFolderOverrides = {},
+    private readonly sharedFolderState?: FixtureFolderState,
   ) {
     this.provider = provider;
-    this.messages = messages.map((message) => ({ ...message }));
+    this.messages = messages.map((message, index) => {
+      this.messageIndexes.set(message.id, index);
+      return { ...message };
+    });
   }
 
   async connect(signal: AbortSignal): Promise<void> {
@@ -105,7 +115,7 @@ export class FixtureAdapter implements EmailAdapter {
     return { envelopes, nextCursor: nextIndex < inFolder.length ? String(nextIndex) : null, done: nextIndex >= inFolder.length };
   }
 
-  private moveFixtureMessages(messageIds: string[], target: Extract<NormalizedFolder, "inbox" | "trash" | "spam">): number {
+  private moveFixtureMessages(messageIds: string[], target: FixtureMutableFolder): number {
     const targetProviderFolderName = this.messages.find((message) => message.folder === target)?.providerFolderName
       ?? (target === "trash" ? "Trash" : target === "spam" ? "Spam" : "INBOX");
     const idSet = new Set(messageIds);
@@ -115,6 +125,10 @@ export class FixtureAdapter implements EmailAdapter {
       message.folder = target;
       message.providerFolderName = targetProviderFolderName;
       this.folderOverrides[message.id] = target;
+      const index = this.messageIndexes.get(message.id);
+      if (this.sharedFolderState && index !== undefined) {
+        writeFixtureFolderState(this.sharedFolderState, index, target);
+      }
       moved++;
     }
     if (moved !== idSet.size) {
