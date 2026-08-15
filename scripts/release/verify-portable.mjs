@@ -120,6 +120,8 @@ try {
       PORT: String(port),
       EMAIL_SHIELD_DATA_DIR: dataDirectory,
       XDG_DATA_HOME: dataDirectory,
+      EMAIL_SHIELD_GOOGLE_CLIENT_ID: oauthClientIds.google,
+      ...(oauthClientIds.microsoft ? { EMAIL_SHIELD_MICROSOFT_CLIENT_ID: oauthClientIds.microsoft } : {}),
     },
     stdio: ["ignore", "ignore", "pipe"],
     windowsHide: true,
@@ -139,6 +141,34 @@ try {
   if (!response?.ok) throw new Error(`Portable package did not become ready: ${stderr}`);
   const html = await response.text();
   if (!html.includes("Email Shield")) throw new Error("Portable package served an unexpected dashboard.");
+
+  const csrf = html.match(/<meta name="email-shield-csrf" content="([^"]+)"/)?.[1] ?? "";
+  const cookie = response.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
+  if (!csrf || !cookie.startsWith("email_shield_local_session=")) {
+    throw new Error("Portable package smoke could not establish its protected dashboard session.");
+  }
+  const origin = `http://${host}:${port}`;
+  const protectedHeaders = {
+    Cookie: cookie,
+    Origin: origin,
+    "x-email-shield-csrf": csrf,
+  };
+  const googleConfigResponse = await fetch(`${origin}/api/accounts/oauth/google/config`, {
+    headers: protectedHeaders,
+    signal: AbortSignal.timeout(5_000),
+  });
+  const googleConfig = await googleConfigResponse.json().catch(() => ({}));
+  if (!googleConfigResponse.ok || googleConfig.configured !== true) {
+    throw new Error("Portable package server did not activate its embedded Google OAuth application identity.");
+  }
+  const microsoftConfigResponse = await fetch(`${origin}/api/accounts/oauth/microsoft/config`, {
+    headers: protectedHeaders,
+    signal: AbortSignal.timeout(5_000),
+  });
+  const microsoftConfig = await microsoftConfigResponse.json().catch(() => ({}));
+  if (!microsoftConfigResponse.ok || microsoftConfig.configured !== Boolean(oauthClientIds.microsoft)) {
+    throw new Error("Portable package Microsoft OAuth capability did not match the release configuration.");
+  }
 } finally {
   if (child && child.exitCode === null) {
     child.kill();
