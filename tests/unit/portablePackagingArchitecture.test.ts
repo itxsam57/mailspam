@@ -75,12 +75,13 @@ describe("portable release packaging architecture", () => {
     expect(gate).toContain('"smoke:release"');
   });
 
-  it("publishes one verified host-targeted artifact on every CI platform", () => {
+  it("publishes one verified host-targeted artifact on every CI platform without dropping manifest-listed hidden files", () => {
     const workflow = read(".github/workflows/verify.yml");
     const ignore = read(".gitignore");
 
     expect(workflow).toContain("Upload verified portable package");
     expect(workflow).toContain("email-shield-portable-${{ runner.os }}-${{ runner.arch }}");
+    expect(workflow).toContain("include-hidden-files: true");
     expect(workflow).toContain("artifacts/release/");
     expect(ignore).toContain("artifacts/release/");
   });
