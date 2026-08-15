@@ -5,10 +5,12 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
   assertManifestShape,
+  launcherContent,
   launcherRelativePath,
   listPackageFiles,
   MAX_PORTABLE_PACKAGE_BYTES,
   portablePackageName,
+  publicOAuthClientIds,
   RELEASE_MANIFEST_FILE,
   runtimeRelativePath,
 } from "./portable-package-lib.mjs";
@@ -22,6 +24,19 @@ if (manifest.platform !== process.platform || manifest.architecture !== process.
 if (manifest.nodeVersion !== process.versions.node) throw new Error("Portable package Node version does not match the verified build runtime.");
 if (manifest.launcher !== launcherRelativePath() || manifest.entrypoint !== "app/server/dist/index.js") throw new Error("Portable package entrypoint or launcher is invalid.");
 if (manifest.productionPackages.includes("googleapis")) throw new Error("Portable package contains the broad generated Google API catalog.");
+
+const oauthClientIds = publicOAuthClientIds();
+if (process.env.EMAIL_SHIELD_REQUIRE_LIVE_OAUTH === "1"
+    && (!oauthClientIds.google || !oauthClientIds.microsoft)) {
+  throw new Error(
+    "Consumer release verification requires both public Google and Microsoft OAuth application client IDs.",
+  );
+}
+const actualLauncher = readFileSync(join(packageRoot, manifest.launcher), "utf8");
+const expectedLauncher = launcherContent(process.platform, oauthClientIds);
+if (actualLauncher !== expectedLauncher) {
+  throw new Error("Portable package launcher does not contain the verified release OAuth configuration.");
+}
 
 const actualFiles = listPackageFiles(packageRoot, new Set([RELEASE_MANIFEST_FILE]));
 if (JSON.stringify(actualFiles) !== JSON.stringify(manifest.files)) throw new Error("Portable package file inventory or digest verification failed.");
@@ -133,4 +148,8 @@ try {
 }
 
 console.log(`Portable package verified: ${packageRoot}`);
+console.log(
+  `Release OAuth: Google ${oauthClientIds.google ? "configured" : "not configured"}; `
+  + `Microsoft ${oauthClientIds.microsoft ? "configured" : "not configured"}.`,
+);
 console.log(`Release ID: ${manifest.releaseId}; files: ${manifest.files.length}; artifact bytes: ${manifest.artifactBytes}.`);
