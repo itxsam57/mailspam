@@ -50,6 +50,8 @@ const shell = read("web/app-shell.js");
 const router = read("web/ui-router.js");
 const consumer = read("web/consumer-product.js");
 const providerOnboarding = read("web/consumer-provider-onboarding.js");
+const gmailOAuth = read("web/gmail-oauth.js");
+const outlookOAuth = read("web/outlook-oauth.js");
 const onboarding = read("web/consumer-onboarding.js");
 const composition = read("server/src/api/dashboardScripts.ts");
 
@@ -103,8 +105,12 @@ const providerOnboardingLocks = [
   "legacyRow.style.display = 'none'",
   "event.stopImmediatePropagation()",
   "providerOrder = ['gmail', 'outlook', 'icloud', 'yahoo', 'imap']",
-  "connectBtn.click()",
   "consumerCredentialActions",
+  "window.emailShieldGoogleOAuth",
+  "window.emailShieldMicrosoftOAuth",
+  "button.dataset.oauthConfigured",
+  "loadOAuthAvailability('gmail')",
+  "loadOAuthAvailability('outlook')",
 ];
 for (const lock of providerOnboardingLocks) {
   if (!providerOnboarding.includes(lock)) {
@@ -113,6 +119,15 @@ for (const lock of providerOnboardingLocks) {
 }
 if (!providerOnboarding.includes("new URLSearchParams(location.search).get('developer') === '1'")) {
   fail("Consumer provider onboarding must preserve explicit developer acceptance mode while hiding engineering controls normally.");
+}
+if (!providerOnboarding.includes("void owner.start()")) {
+  fail("Consumer OAuth cards must call the hardened provider owner directly instead of synthesizing a hidden Connect click.");
+}
+if (!gmailOAuth.includes("Object.defineProperty(window, 'emailShieldGoogleOAuth'")) {
+  fail("Google OAuth module no longer exposes its hardened consumer start boundary.");
+}
+if (!outlookOAuth.includes("Object.defineProperty(window, 'emailShieldMicrosoftOAuth'")) {
+  fail("Microsoft OAuth module no longer exposes its hardened consumer start boundary.");
 }
 
 const actionableDataAttributes = [
