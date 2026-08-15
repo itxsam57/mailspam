@@ -36,6 +36,36 @@ function protectedHeaders(session: Awaited<ReturnType<typeof startDesktop>>): Re
   };
 }
 
+async function mutationNonce(session: Awaited<ReturnType<typeof startDesktop>>): Promise<string> {
+  const response = await fetch(`${session.baseUrl}/api/security/mutation-token`, {
+    method: "POST",
+    headers: protectedHeaders(session),
+  });
+  const body = await response.json() as { nonce?: string; error?: string };
+  if (!response.ok || !body.nonce) throw new Error(body.error ?? "Could not obtain mutation nonce.");
+  return body.nonce;
+}
+
+async function postMedia(
+  session: Awaited<ReturnType<typeof startDesktop>>,
+  bytes: Uint8Array,
+  kind = "image",
+  mime = "image/png",
+): Promise<Response> {
+  const nonce = await mutationNonce(session);
+  return fetch(`${session.baseUrl}/api/consumer/v1/media/authenticity`, {
+    method: "POST",
+    headers: {
+      ...protectedHeaders(session),
+      "Content-Type": "application/octet-stream",
+      "X-Email-Shield-Media-Kind": kind,
+      "X-Email-Shield-Media-Mime": mime,
+      "X-Email-Shield-Nonce": nonce,
+    },
+    body: bytes,
+  });
+}
+
 describe("Media Authenticity capability-gated integration", () => {
   it("renders the consumer tool but truthfully disables capability when no vetted detector is configured", async () => {
     const session = await startDesktop();
@@ -62,16 +92,10 @@ describe("Media Authenticity capability-gated integration", () => {
 
   it("never converts an unconfigured detector into an authentic/no-indicator result after real byte submission", async () => {
     const session = await startDesktop();
-    const response = await fetch(`${session.baseUrl}/api/consumer/v1/media/authenticity`, {
-      method: "POST",
-      headers: {
-        ...protectedHeaders(session),
-        "Content-Type": "application/octet-stream",
-        "X-Email-Shield-Media-Kind": "image",
-        "X-Email-Shield-Media-Mime": "image/png",
-      },
-      body: Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    });
+    const response = await postMedia(
+      session,
+      Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    );
     expect(response.status).toBe(200);
     const body = await response.json() as Record<string, unknown>;
     expect(body.state).toBe("unavailable");
@@ -109,16 +133,7 @@ describe("Media Authenticity capability-gated integration", () => {
     });
 
     const bytes = Uint8Array.from([1, 2, 3, 4, 5, 6]);
-    const response = await fetch(`${session.baseUrl}/api/consumer/v1/media/authenticity`, {
-      method: "POST",
-      headers: {
-        ...protectedHeaders(session),
-        "Content-Type": "application/octet-stream",
-        "X-Email-Shield-Media-Kind": "image",
-        "X-Email-Shield-Media-Mime": "image/png",
-      },
-      body: bytes,
-    });
+    const response = await postMedia(session, bytes);
     expect(response.status).toBe(200);
     const body = await response.json() as Record<string, unknown>;
     expect(body).toMatchObject({
@@ -132,5 +147,20 @@ describe("Media Authenticity capability-gated integration", () => {
     expect(observed!.sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(observed!.mimeType).toBe("image/png");
     expect(observed!.kind).toBe("image");
+  });
+
+  it("rejects media mutation without a one-use local authorization nonce", async () => {
+    const session = await startDesktop();
+    const response = await fetch(`${session.baseUrl}/api/consumer/v1/media/authenticity`, {
+      method: "POST",
+      headers: {
+        ...protectedHeaders(session),
+        "Content-Type": "application/octet-stream",
+        "X-Email-Shield-Media-Kind": "image",
+        "X-Email-Shield-Media-Mime": "image/png",
+      },
+      body: Uint8Array.from([1, 2, 3]),
+    });
+    expect(response.status).toBe(409);
   });
 });
