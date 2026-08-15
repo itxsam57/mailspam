@@ -1,12 +1,14 @@
 # REG-085 — Report Scam / Provider Disposal Separation
 
-Status: **SUPERSEDED BY REG-089**
+Status: **LOCKED**
+
+Historical disposal rule: **SUPERSEDED BY REG-089**
 
 ## Historical contract
 
 REG-085 previously required **Report Scam to Email Shield** to save local/community threat learning while leaving the current provider message in place. Trash and Spam/Junk were separate explicit disposal actions.
 
-That contract was intentionally changed by the product owner for the consumer desktop release. It must not be used to revert the newer account-local disposal behavior.
+That historical disposal rule was intentionally changed by the product owner for the consumer desktop release. REG-085 remains locked as historical governance and must not be used to revert the newer account-local disposal behavior.
 
 ## Preserved boundaries
 
