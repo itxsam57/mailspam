@@ -129,6 +129,7 @@ jobs:
         with:
           name: email-shield-portable-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
           path: artifacts/release/
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
 
