@@ -54,25 +54,21 @@ ensureManagedDataDirectory(dataDirectory);
 const credentialVault = getRuntimeCredentialVault();
 const protectedStateStartedAt = Date.now();
 console.log("Email Shield initializing protected local state...");
-const initialized = await (async () => {
-  try {
-    return await Promise.all([
-      initializeDefaultPersonalPolicyRepository({ credentialVault }),
-      initializeDefaultScanStateRepository({ credentialVault }),
-      initializeDefaultRelationshipHistoryRepository({ credentialVault }),
-      initializeDefaultBackgroundProtectionRepository({ credentialVault }),
-      initializeDefaultConsumerStateRepository({ credentialVault, dataDirectory }),
-      initializeDefaultAccountPlatform({ credentialVault, dataDirectory }),
-      createDefaultInboundEventStateRepository({ credentialVault, dataDirectory }),
-      createDefaultLiveConnectionPersistence({ credentialVault, dataDirectory }),
-    ] as const);
-  } catch (error) {
-    await telemetry.capture("email_shield_protected_state_failed", {
-      failure_kind: "initialization_error",
-    });
-    throw error;
-  }
-})();
+const initialized = await Promise.all([
+  initializeDefaultPersonalPolicyRepository({ credentialVault }),
+  initializeDefaultScanStateRepository({ credentialVault }),
+  initializeDefaultRelationshipHistoryRepository({ credentialVault }),
+  initializeDefaultBackgroundProtectionRepository({ credentialVault }),
+  initializeDefaultConsumerStateRepository({ credentialVault, dataDirectory }),
+  initializeDefaultAccountPlatform({ credentialVault, dataDirectory }),
+  createDefaultInboundEventStateRepository({ credentialVault, dataDirectory }),
+  createDefaultLiveConnectionPersistence({ credentialVault, dataDirectory }),
+] as const).catch(async (error) => {
+  await telemetry.capture("email_shield_protected_state_failed", {
+    failure_kind: "initialization_error",
+  });
+  throw error;
+});
 const inboundEventRepository = initialized[6];
 const liveConnections = initialized[7];
 const protectedStateDurationMs = Date.now() - protectedStateStartedAt;
