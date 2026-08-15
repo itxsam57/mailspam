@@ -11,6 +11,7 @@ describe("AI Engineering Automation Kit installation", () => {
     const matrix = read(".engineering/TEST_MATRIX.md");
     const regressions = read(".engineering/REGRESSION_REGISTER.md");
     const reportScamSeparation = read(".engineering/REG-085_REPORT_SCAM_ACTION_SEPARATION.md");
+    const reportScamAutoTrash = read(".engineering/REG-089_CONSUMER_REPORT_BLOCK_AUTO_TRASH.md");
 
     expect(profile).toContain("itxsam57/mailspam");
     expect(profile).toContain("Express `4.19.x`");
@@ -23,12 +24,15 @@ describe("AI Engineering Automation Kit installation", () => {
     expect(regressions).toContain("DEP-001");
     expect(regressions).toContain("REG-001");
     expect(regressions).toContain("REG-085");
+    expect(regressions).toContain("REG-089");
     expect(regressions).toContain("GAP-001");
     expect(regressions).toContain("Do not delete history to make the register appear green");
     expect(reportScamSeparation).toContain("Status: **LOCKED**");
-    expect(reportScamSeparation).toContain('`movedCurrent: false`');
-    expect(reportScamSeparation).toContain('`providerAction: "none"`');
-    expect(reportScamSeparation).toContain("disposal requires the separate Trash or Move to Spam/Junk action");
+    expect(reportScamSeparation).toContain("Historical disposal rule: **SUPERSEDED BY REG-089**");
+    expect(reportScamSeparation).toContain("one user's report still cannot publish a global Confirmed Threat");
+    expect(reportScamAutoTrash).toContain("Status: **LOCKED**");
+    expect(reportScamAutoTrash).toContain("persist the account-local reported-campaign rule and then request a reversible provider Trash move");
+    expect(reportScamAutoTrash).toContain("One user report cannot create a network Confirmed Threat for other users");
   });
 
   it("exposes one full gate without adding unrelated framework checks", () => {
