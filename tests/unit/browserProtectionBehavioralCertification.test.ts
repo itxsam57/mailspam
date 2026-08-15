@@ -48,6 +48,21 @@ describe("Browser Protection behavioral certification", () => {
     expect(result.reasonCodes).toContain("DESTINATION_CREDENTIAL_TRAP");
   });
 
+  it("warns on a deterministic fake-support destination even when no mailbox context exists", async () => {
+    const result = await evaluateBrowserUrl({
+      schemaVersion: 1,
+      url: "https://example.com/support",
+      context: "navigation",
+    }, {
+      destinationAnalyzer: coordinator("<html><body>Your computer is infected. Call now to speak with our support agent.</body></html>"),
+      scamCheck: { intelligenceEntries: [] },
+    });
+
+    expect(result.destinationClassification).toBe("fake_support");
+    expect(result.disposition).toBe("warn");
+    expect(result.reasonCodes).toContain("DESTINATION_FAKE_SUPPORT");
+  });
+
   it("never allows a destination when bounded acquisition fails", async () => {
     const result = await evaluateBrowserUrl({
       schemaVersion: 1,
@@ -76,6 +91,22 @@ describe("Browser Protection behavioral certification", () => {
 
     expect(result.destinationClassification).toBe("benign");
     expect(result.reasonCodes).toContain("EXECUTABLE_OR_SCRIPT_DOWNLOAD");
+    expect(result.disposition).toBe("warn");
+  });
+
+  it("warns on macro-capable office downloads rather than silently allowing them", async () => {
+    const result = await evaluateBrowserUrl({
+      schemaVersion: 1,
+      url: "https://example.com/files",
+      context: "download",
+      download: { filename: "invoice.xlsm", mimeType: "application/vnd.ms-excel.sheet.macroEnabled.12" },
+    }, {
+      destinationAnalyzer: coordinator("<html><body>ordinary documentation download page</body></html>"),
+      scamCheck: { intelligenceEntries: [] },
+    });
+
+    expect(result.destinationClassification).toBe("benign");
+    expect(result.reasonCodes).toContain("MACRO_CAPABLE_DOCUMENT_DOWNLOAD");
     expect(result.disposition).toBe("warn");
   });
 
