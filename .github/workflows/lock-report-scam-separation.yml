@@ -1,0 +1,112 @@
+name: One-shot Report Scam regression lock
+
+on:
+  push:
+    branches: [fix/final-release-hardening]
+    paths: [.github/workflows/lock-report-scam-separation.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  lock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/final-release-hardening
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Normalize implementation and register REG-085
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          route_path = Path('server/src/api/protectionActions.ts')
+          route = route_path.read_text()
+          route = route.replace(
+              '''    // Report Scam owns threat learning only. It deliberately does not perform
+            // a provider mailbox move: Trash and Spam/Junk are separate explicit
+            // user actions. Local campaign protection is committed first and remains
+            // authoritative even when Family Shield or community delivery is unavailable.
+          ''',
+              '''    // Report Scam owns threat learning only. It deliberately does not perform
+              // a provider mailbox move: Trash and Spam/Junk are separate explicit
+              // user actions. Local campaign protection is committed first and remains
+              // authoritative even when Family Shield or community delivery is unavailable.
+          '''
+          )
+          # Strip only the two extra spaces introduced inside this generated comment.
+          route = route.replace('    // Report Scam owns threat learning only. It deliberately does not perform\n      // a provider mailbox move', '    // Report Scam owns threat learning only. It deliberately does not perform\n    // a provider mailbox move')
+          route = route.replace('    // a provider mailbox move: Trash and Spam/Junk are separate explicit\n      // user actions.', '    // a provider mailbox move: Trash and Spam/Junk are separate explicit\n    // user actions.')
+          route = route.replace('    // user actions. Local campaign protection is committed first and remains\n      // authoritative', '    // user actions. Local campaign protection is committed first and remains\n    // authoritative')
+          route_path.write_text(route)
+
+          web_path = Path('web/review-actions.js')
+          web = web_path.read_text()
+          start = web.index("        const mailboxState = 'The current message was not moved.")
+          end = web.index('        return;', start)
+          block = '''        const mailboxState = 'The current message was not moved. Use the separate Trash or Move to Spam/Junk action if you want to remove it from Inbox.';
+                const familyState = familyDeliveryMessage(result);
+                const communityState = communityDeliveryMessage(result);
+                const complete = result.communityAccepted === true && !result.family?.error;
+                if (status) {
+                  status.className = complete ? 'review-action-status success' : 'review-action-status error';
+                  status.textContent = `Matching campaign messages are protected locally. ${mailboxState} ${familyState} ${communityState}${result.senderBlocked ? ' The exact sender is also blocked.' : ''}`;
+                }
+                setGlobalStatus(
+                  complete
+                    ? `Scam campaign protected locally. The current message was left in place.${result.family?.shared ? ' Family Shield updated.' : ' Community evidence accepted.'}`
+                    : 'Scam campaign protection is active; Family Shield or community delivery needs attention. The current message was left in place.',
+                  complete ? 'complete' : 'error',
+                );
+          '''
+          # Normalize the generated block to the surrounding 8-space branch indentation.
+          block = block.replace('\n      const ', '\n        const ').replace('\n      if (status)', '\n        if (status)').replace('\n        status.', '\n          status.').replace('\n        status.textContent', '\n          status.textContent').replace('\n      }\n      setGlobalStatus(', '\n        }\n        setGlobalStatus(').replace('\n        complete\n', '\n          complete\n').replace('\n          ?', '\n            ?').replace('\n          :', '\n            :').replace('\n        complete ? \'complete\' : \'error\',', '\n          complete ? \'complete\' : \'error\',').replace('\n      );', '\n        );')
+          web = web[:start] + block + web[end:]
+          web_path.write_text(web)
+
+          tests_path = Path('tests/unit/protectionActions.test.ts')
+          tests = tests_path.read_text().replace(
+              'it("keeps Report Scam local protection authoritative when provider or Family Shield side effects fail", async () => {',
+              'it("keeps Report Scam local protection authoritative when Family Shield synchronization fails", async () => {',
+              1,
+          )
+          tests_path.write_text(tests)
+
+          reg_path = Path('.engineering/REGRESSION_REGISTER.md')
+          register = reg_path.read_text()
+          if '| REG-085 |' not in register:
+              marker = '\n## Resolved registered gaps\n'
+              if register.count(marker) != 1:
+                  raise SystemExit('REG-085 insertion marker mismatch')
+              row = '| REG-085 | LOCKED | Report Scam owns local/community threat learning, not provider mailbox disposal. A successful report persists the local campaign rule, optional exact-sender block, Family Shield signal and privacy-reduced community submission while leaving the current message in place; Trash and Spam/Junk remain separate explicit actions with their own opaque-token/provider mutation boundaries. | `protectionActions.test.ts`, `reportScamActionSeparation.test.ts`, browser review-action contracts, full Engineering Gate |\n'
+              register = register.replace(marker, '\n' + row + marker, 1)
+              reg_path.write_text(register)
+
+          Path('.engineering/REG-085_REPORT_SCAM_ACTION_SEPARATION.md').write_text('''# REG-085 — Report Scam / Provider Disposal Separation\n\nStatus: **LOCKED**\n\n## Defect\n\nThe Report Scam route had accumulated a second responsibility: after committing local campaign protection it also invoked the provider Trash mutation. That made the visible Report Scam, Trash and Spam/Junk controls look separate while the server silently coupled reporting to disposal. It also contradicted the owner acceptance contract that a controlled report leaves the current provider message unchanged unless disposal is separately requested.\n\n## Root repair\n\nReport Scam now owns only the threat-learning transaction:\n\n- persist the account-local reported-campaign rule;\n- optionally persist the exact-sender block when the user explicitly chooses it;\n- submit the privacy-reduced Family Shield campaign signal when applicable; and\n- submit/queue privacy-reduced community evidence.\n\nIt does **not** call the provider Trash or Spam/Junk mutation. The response explicitly reports `movedCurrent: false` and `providerAction: "none"`. The browser tells the user before and after reporting that the current message stays in place and that disposal requires the separate Trash or Move to Spam/Junk action.\n\nThe existing protection capability is preserved: the durable local campaign rule still classifies later matching campaign mail as locally Confirmed Threat according to the personal-policy engine. Global auto-disposition authority remains governed independently by the existing durable-protection rules and signed Global Shield review boundary.\n\n## Permanent protection\n\n- `tests/unit/protectionActions.test.ts` proves Report Scam persists protection/family/community outcomes without invoking the adapter Trash operation, including Family Shield failure.\n- `tests/unit/reportScamActionSeparation.test.ts` slices the canonical Report Scam route and rejects any future `moveCurrentMessageToTrash()` ownership; it also locks the browser disclosure that Report Scam does not move mail.\n- Existing Block, Trash and Spam/Junk tests continue to prove that their provider mutations still work, so this regression lock cannot be satisfied by removing disposal capability from the product.\n\nAny future implementation that couples Report Scam to a provider move, disguises a move inside another reporting side effect, or removes the separate disposal capabilities is a blocking regression.\n''')
+          PY
+
+      - name: Certify normalized locked contract
+        run: |
+          npm ci
+          npm run typecheck
+          npx vitest run tests/unit/protectionActions.test.ts tests/unit/reportScamActionSeparation.test.ts tests/unit/communityProtectionDisposition.test.ts
+          npm run check:web
+
+      - name: Commit regression lock and remove one-shot workflow
+        shell: bash
+        run: |
+          rm .github/workflows/lock-report-scam-separation.yml
+          git config user.name "email-shield-engineering"
+          git config user.email "engineering@email-shield.local"
+          git add -A
+          git commit -m "Lock Report Scam provider-action separation"
+          git push origin HEAD:fix/final-release-hardening
