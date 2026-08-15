@@ -222,4 +222,109 @@ describe("Global Shield server-owned confidence", () => {
     expect(aggregate.listReviewCandidates()).toEqual([]);
     expect(aggregate.stats().confirmed).toBe(0);
   });
+
+  it("forgets expired reviewed reputation even while the reporter remains active in retained evidence", () => {
+    const { aggregate, setNow } = harness();
+    const reporters = ["retained-0", "retained-1", "retained-2", "retained-3", "retained-4"];
+
+    for (let caseIndex = 0; caseIndex < 3; caseIndex++) {
+      const campaign = String(caseIndex + 2).repeat(64);
+      const baseDay = 10 + (caseIndex * 2);
+      const times = [
+        `2026-08-${baseDay}T00:00:00.000Z`,
+        `2026-08-${baseDay}T01:00:00.000Z`,
+        `2026-08-${baseDay}T02:00:00.000Z`,
+        `2026-08-${baseDay}T03:00:00.000Z`,
+        `2026-08-${baseDay + 1}T07:00:00.000Z`,
+      ];
+      for (let index = 0; index < reporters.length; index++) {
+        setNow(times[index]!);
+        aggregate.accept(report(reporters[index]!, new Date(times[index]!), campaign));
+      }
+      aggregate.resolveReviewCandidate({
+        campaignFingerprint: campaign,
+        decision: "rejected",
+        reviewerId: "reviewer-retention",
+        reason: "Controlled rejected case used to certify reputation retention boundaries.",
+      });
+    }
+
+    const anchor = "8".repeat(64);
+    for (const [index, reporterId] of reporters.entries()) {
+      const value = `2026-10-30T0${index}:00:00.000Z`;
+      setNow(value);
+      aggregate.accept(report(reporterId, new Date(value), anchor));
+    }
+
+    const fresh = "7".repeat(64);
+    for (const [index, value] of [
+      "2026-11-15T00:00:00.000Z",
+      "2026-11-15T01:00:00.000Z",
+      "2026-11-15T02:00:00.000Z",
+      "2026-11-15T03:00:00.000Z",
+      "2026-11-16T07:00:00.000Z",
+    ].entries()) {
+      setNow(value);
+      aggregate.accept(report(reporters[index]!, new Date(value), fresh));
+    }
+
+    expect(aggregate.listReviewCandidates()).toContainEqual(expect.objectContaining({
+      campaignFingerprint: fresh,
+      independentReporters: 5,
+      strongReporters: 5,
+    }));
+  });
+
+  it("does not retroactively apply a resolved review to a reporter that arrives afterward", () => {
+    const { aggregate, setNow, now } = harness();
+    const campaign = "6".repeat(64);
+    submitSpreadReports(aggregate, setNow, campaign);
+    aggregate.resolveReviewCandidate({
+      campaignFingerprint: campaign,
+      decision: "approved",
+      reviewerId: "reviewer-retroactive",
+      reason: "Controlled approved case used to certify review-time evidence ownership.",
+    });
+
+    setNow("2026-08-12T09:00:00.000Z");
+    aggregate.accept(report("late-reporter", now(), campaign));
+
+    for (let caseIndex = 0; caseIndex < 3; caseIndex++) {
+      const rejected = ["a", "b", "c"][caseIndex]!.repeat(64);
+      const cohort = ["late-reporter", `late-peer-${caseIndex}-1`, `late-peer-${caseIndex}-2`, `late-peer-${caseIndex}-3`, `late-peer-${caseIndex}-4`];
+      const first = 13 + (caseIndex * 2);
+      const times = [
+        `2026-08-${first}T00:00:00.000Z`,
+        `2026-08-${first}T01:00:00.000Z`,
+        `2026-08-${first}T02:00:00.000Z`,
+        `2026-08-${first}T03:00:00.000Z`,
+        `2026-08-${first + 1}T07:00:00.000Z`,
+      ];
+      for (let index = 0; index < cohort.length; index++) {
+        setNow(times[index]!);
+        aggregate.accept(report(cohort[index]!, new Date(times[index]!), rejected));
+      }
+      aggregate.resolveReviewCandidate({
+        campaignFingerprint: rejected,
+        decision: "rejected",
+        reviewerId: "reviewer-retroactive",
+        reason: "Controlled reputation history after late arrival.",
+      });
+    }
+
+    const probe = "d".repeat(64);
+    const probeCohort = ["late-reporter", "probe-1", "probe-2", "probe-3", "probe-4"];
+    for (const [index, value] of [
+      "2026-08-20T00:00:00.000Z",
+      "2026-08-20T01:00:00.000Z",
+      "2026-08-20T02:00:00.000Z",
+      "2026-08-20T03:00:00.000Z",
+      "2026-08-21T07:00:00.000Z",
+    ].entries()) {
+      setNow(value);
+      aggregate.accept(report(probeCohort[index]!, new Date(value), probe));
+    }
+    expect(aggregate.listReviewCandidates().some((candidate) => candidate.campaignFingerprint === probe)).toBe(false);
+  });
+
 });

@@ -482,6 +482,41 @@ function reviewReplacement(
   return prior;
 }
 
+function deriveReporterReputation(database: StoredCommunityDatabase): StoredCommunityDatabase["reporterReputation"] {
+  const derived: StoredCommunityDatabase["reporterReputation"] = {};
+  for (const campaign of Object.values(database.campaigns)) {
+    const review = campaign.review;
+    if (!review || (review.status !== "approved" && review.status !== "rejected") || !review.resolvedAt) continue;
+    const resolvedAt = Date.parse(review.resolvedAt);
+    for (const [proof, reporter] of Object.entries(campaign.reporters)) {
+      // Reputation may only be learned from evidence that actually existed
+      // when the human decision was made. Later reports are not covered.
+      if (Date.parse(reporter.reportedAt) > resolvedAt) continue;
+      const prior = derived[proof] ?? { resolvedCases: 0, alignedCases: 0 };
+      const threatReporter = !isLegitimate(reporter);
+      const aligned = review.status === "approved" ? threatReporter : !threatReporter;
+      derived[proof] = {
+        resolvedCases: prior.resolvedCases + 1,
+        alignedCases: prior.alignedCases + (aligned ? 1 : 0),
+      };
+    }
+  }
+  return derived;
+}
+
+function reconcileReporterReputation(database: StoredCommunityDatabase): boolean {
+  const derived = deriveReporterReputation(database);
+  const currentProofs = Object.keys(database.reporterReputation);
+  const derivedProofs = Object.keys(derived);
+  const changed = currentProofs.length !== derivedProofs.length || derivedProofs.some((proof) => {
+    const current = database.reporterReputation[proof];
+    const next = derived[proof]!;
+    return !current || current.resolvedCases !== next.resolvedCases || current.alignedCases !== next.alignedCases;
+  });
+  if (changed) database.reporterReputation = derived;
+  return changed;
+}
+
 function pruneExpired(database: StoredCommunityDatabase, nowMs: number): boolean {
   const cutoff = nowMs - COMMUNITY_REPORT_RETENTION_MS;
   let changed = false;
@@ -502,18 +537,10 @@ function pruneExpired(database: StoredCommunityDatabase, nowMs: number): boolean
     };
   }
 
-  // Reporter history is confidence metadata derived from retained evidence.
-  // Once no retained campaign references a proof, keeping reputation would be
-  // both unbounded state growth and unnecessary long-lived pseudonymous data.
-  const retainedProofs = new Set<string>();
-  for (const campaign of Object.values(database.campaigns)) {
-    for (const proof of Object.keys(campaign.reporters)) retainedProofs.add(proof);
-  }
-  for (const proof of Object.keys(database.reporterReputation)) {
-    if (retainedProofs.has(proof)) continue;
-    delete database.reporterReputation[proof];
-    changed = true;
-  }
+  // Confidence is derived only from still-retained resolved review evidence.
+  // Recomputing here removes expired reviews, reopened campaigns and any
+  // reporter evidence that was updated after the human decision.
+  if (reconcileReporterReputation(database)) changed = true;
   return changed;
 }
 
@@ -608,12 +635,18 @@ export class EncryptedCommunityAggregateStore {
     this.appendJournal(line);
 
     applyReportToDatabase(database, report, acceptedAt);
-    database.campaigns[report.campaignFingerprint]!.review = nextReview;
-    this.databaseCache = database;
-    this.snapshotPlaintextBytes = candidatePlaintextBytes;
-    this.campaignMetrics.set(report.campaignFingerprint, nextMetrics);
-    const nextLegitimate = previousLegitimate - (priorReporter && isLegitimate(priorReporter) ? 1 : 0) + (isLegitimate(candidateReporter) ? 1 : 0);
-    const nextPositiveConsensus = nextLegitimate >= LEGITIMATE_CONSENSUS_REPORTERS && nextMetrics.reporters === 0;
+  const updatedCampaign = database.campaigns[report.campaignFingerprint]!;
+  updatedCampaign.review = nextReview;
+  const reputationChanged = reconcileReporterReputation(database);
+  const effectiveMetrics = metricsFor(updatedCampaign, database.reporterReputation);
+  this.databaseCache = database;
+  this.snapshotPlaintextBytes = reputationChanged
+    ? Buffer.byteLength(JSON.stringify(database), "utf8")
+    : candidatePlaintextBytes;
+  if (reputationChanged) this.rebuildIndexes(database);
+  else this.campaignMetrics.set(report.campaignFingerprint, effectiveMetrics);
+  const nextLegitimate = previousLegitimate - (priorReporter && isLegitimate(priorReporter) ? 1 : 0) + (isLegitimate(candidateReporter) ? 1 : 0);
+  const nextPositiveConsensus = nextLegitimate >= LEGITIMATE_CONSENSUS_REPORTERS && effectiveMetrics.reporters === 0;
     const reporterCampaigns = this.reporterActivity.get(report.reporterProof) ?? new Map<string, number>();
     reporterCampaigns.set(report.campaignFingerprint, acceptedAtMs);
     this.reporterActivity.set(report.reporterProof, reporterCampaigns);
@@ -633,9 +666,9 @@ export class EncryptedCommunityAggregateStore {
       duplicate,
       queued: false,
       campaignFingerprint: report.campaignFingerprint,
-      independentReporters: isLegitimate(candidateReporter) ? nextLegitimate : nextMetrics.reporters,
+      independentReporters: isLegitimate(candidateReporter) ? nextLegitimate : effectiveMetrics.reporters,
       status,
-      feedUpdated: status !== previousStatus || previousPositiveConsensus !== nextPositiveConsensus,
+      feedUpdated: reputationChanged || status !== previousStatus || previousPositiveConsensus !== nextPositiveConsensus,
     };
   }
 
@@ -685,45 +718,35 @@ export class EncryptedCommunityAggregateStore {
     if (!meetsReviewThreshold(metrics, spread, this.thresholds)) throw new CommunityReportValidationError("Campaign no longer meets the corroboration boundary for human review.");
 
     const previousReview = structuredClone(campaign.review);
-    const previousReputation = new Map<string, StoredCommunityReporterReputation | undefined>();
-    const resolvedAt = now.toISOString();
-    campaign.review = {
-      status: input.decision,
-      createdAt: previousReview.createdAt,
-      resolvedAt,
-      reviewerId: input.reviewerId,
-      reason,
-    };
-    for (const [proof, reporter] of Object.entries(campaign.reporters)) {
-      previousReputation.set(proof, database.reporterReputation[proof] ? { ...database.reporterReputation[proof]! } : undefined);
-      const prior = database.reporterReputation[proof] ?? { resolvedCases: 0, alignedCases: 0 };
-      const threatReporter = !isLegitimate(reporter);
-      const aligned = input.decision === "approved" ? threatReporter : !threatReporter;
-      database.reporterReputation[proof] = {
-        resolvedCases: prior.resolvedCases + 1,
-        alignedCases: prior.alignedCases + (aligned ? 1 : 0),
-      };
-    }
+  const previousReputation = structuredClone(database.reporterReputation);
+  const resolvedAt = now.toISOString();
+  campaign.review = {
+    status: input.decision,
+    createdAt: previousReview.createdAt,
+    resolvedAt,
+    reviewerId: input.reviewerId,
+    reason,
+  };
+  reconcileReporterReputation(database);
+  const reporterHistoriesUpdated = Object.values(campaign.reporters)
+    .filter((reporter) => Date.parse(reporter.reportedAt) <= Date.parse(resolvedAt)).length;
 
-    try {
-      this.assertSnapshotCapacity(database);
-      this.compact(database);
-      this.rebuildIndexes(database);
-    } catch (error) {
-      campaign.review = previousReview;
-      for (const [proof, prior] of previousReputation) {
-        if (prior) database.reporterReputation[proof] = prior;
-        else delete database.reporterReputation[proof];
-      }
-      this.rebuildIndexes(database);
-      throw error;
-    }
+  try {
+    this.assertSnapshotCapacity(database);
+    this.compact(database);
+    this.rebuildIndexes(database);
+  } catch (error) {
+    campaign.review = previousReview;
+    database.reporterReputation = previousReputation;
+    this.rebuildIndexes(database);
+    throw error;
+  }
 
     return {
       campaignFingerprint: input.campaignFingerprint,
       decision: input.decision,
       resolvedAt,
-      reporterHistoriesUpdated: previousReputation.size,
+      reporterHistoriesUpdated,
     };
   }
 
