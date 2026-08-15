@@ -1,3 +1,4 @@
+export const USER_REPORTED_SCAM_CODE = "USER_REPORTED_SCAM";
 export const USER_BLOCKED_MESSAGE_CODE = "USER_BLOCKED_MESSAGE";
 export const USER_CONFIRMED_LEGITIMATE_CODE = "USER_CONFIRMED_LEGITIMATE";
 
@@ -14,4 +15,8 @@ export function hasLegitimateFeedback(codes: readonly string[]): boolean {
 
 export function hasBlockFeedback(codes: readonly string[]): boolean {
   return codes.includes(USER_BLOCKED_MESSAGE_CODE);
+}
+
+export function hasExplicitScamFeedback(codes: readonly string[]): boolean {
+  return codes.includes(USER_REPORTED_SCAM_CODE);
 }
