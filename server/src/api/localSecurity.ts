@@ -81,7 +81,7 @@ export class LocalSecurityManager {
 
   validateLoopbackRequest: RequestHandler = (req, res, next) => {
     try {
-      if (req.get("x-forwarded-host") || req.get("x-forwarded-proto") || req.get("x-forwarded-for")) {
+      if (Object.keys(req.headers).some((name) => name === "forwarded" || name.startsWith("x-forwarded-"))) {
         throw new Error("Forwarded requests are not accepted by the local Email Shield server.");
       }
       const host = req.get("host");
