@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -49,6 +49,29 @@ async function waitForHttp(url, processRef, stderr, timeoutMs = 20_000) {
     await sleep(100);
   }
   throw new Error(`Timed out waiting for ${url}: ${lastError?.message ?? "unknown error"}\n${stderr()}`);
+}
+
+async function waitForDevToolsPort(profileDirectory, processRef, stderr, timeoutMs = 20_000) {
+  const activePortPath = join(profileDirectory, "DevToolsActivePort");
+  const deadline = Date.now() + timeoutMs;
+  let lastError;
+  while (Date.now() < deadline) {
+    if (processRef?.exitCode !== null) {
+      throw new Error(`Chromium exited before publishing DevToolsActivePort with code ${processRef.exitCode}.\n${stderr()}`);
+    }
+    try {
+      if (existsSync(activePortPath)) {
+        const firstLine = readFileSync(activePortPath, "utf8").split(/\r?\n/, 1)[0]?.trim() ?? "";
+        const port = Number.parseInt(firstLine, 10);
+        if (Number.isInteger(port) && port > 0 && port <= 65_535) return port;
+        lastError = new Error(`Invalid DevToolsActivePort value: ${JSON.stringify(firstLine)}`);
+      }
+    } catch (error) {
+      lastError = error;
+    }
+    await sleep(50);
+  }
+  throw new Error(`Timed out waiting for Chromium to publish its authoritative DevTools port: ${lastError?.message ?? "DevToolsActivePort was not created"}\n${stderr()}`);
 }
 
 function findOnPath(command) {
@@ -173,8 +196,7 @@ async function evaluate(client, expression, timeoutMs = 10_000) {
 
 try {
   const port = await freePort();
-  const debugPort = await freePort();
-  assert(Number.isInteger(port) && Number.isInteger(debugPort), "Could not allocate isolated browser-scan ports.");
+  assert(Number.isInteger(port), "Could not allocate isolated browser-scan server port.");
   const baseUrl = `http://${host}:${port}`;
 
   server = spawn(process.execPath, [resolve(root, "server/dist/index.js")], {
@@ -197,7 +219,7 @@ try {
   const executable = findBrowser();
   browser = spawn(executable, [
     "--headless=new",
-    `--remote-debugging-port=${debugPort}`,
+    "--remote-debugging-port=0",
     "--remote-debugging-address=127.0.0.1",
     `--user-data-dir=${browserProfile}`,
     "--no-first-run",
@@ -212,6 +234,7 @@ try {
   ], { stdio: ["ignore", "ignore", "pipe"] });
   browser.stderr.setEncoding("utf8");
   browser.stderr.on("data", (chunk) => { browserStderr += chunk; });
+  const debugPort = await waitForDevToolsPort(browserProfile, browser, () => browserStderr);
   await waitForHttp(`http://${host}:${debugPort}/json/version`, browser, () => browserStderr, 15_000);
 
   const targets = await (await fetch(`http://${host}:${debugPort}/json/list`, { signal: AbortSignal.timeout(5_000) })).json();
