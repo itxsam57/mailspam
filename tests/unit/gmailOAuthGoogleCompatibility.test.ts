@@ -58,7 +58,7 @@ describe("Google OAuth provider compatibility", () => {
     ]));
   });
 
-  it("posts an optional matching client value only to Google's token endpoint", async () => {
+  it("posts the matching client value only to Google's token endpoint", async () => {
     const clientSecret = "desktop-client-secret-private";
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       const body = init?.body;
@@ -118,11 +118,11 @@ describe("Google OAuth provider compatibility", () => {
     expect(result.grantedScopes).toContain("https://www.googleapis.com/auth/userinfo.email");
   });
 
-  it("uses the process-local client value only at OAuth exchange and excludes it from the persistent Gmail session", async () => {
+  it("uses the process-local client value for token exchange and provider validation without exposing it to the browser", async () => {
     process.env.EMAIL_SHIELD_GOOGLE_CLIENT_SECRET = "process-client-secret-private";
     let expectedNonce = "";
     let exchangeSecret: string | undefined;
-    let committedClientSecret: string | undefined;
+    let transactionClientSecret: string | undefined;
     const runtime: GoogleOAuthRuntime = {
       async exchangeAuthorizationCode(input) {
         exchangeSecret = input.clientSecret;
@@ -144,7 +144,7 @@ describe("Google OAuth provider compatibility", () => {
     const store = fakeSessionStore(async (_provider, _label, config, validate) => {
       const runtimeConfig = config as AdapterConfig;
       if (runtimeConfig.provider === "gmail" && runtimeConfig.mode === "live") {
-        committedClientSecret = runtimeConfig.credentials.clientSecret;
+        transactionClientSecret = runtimeConfig.credentials.clientSecret;
       }
       await validate();
       return mockSession();
@@ -164,7 +164,7 @@ describe("Google OAuth provider compatibility", () => {
     const body = await response.text();
     expect(response.status).toBe(200);
     expect(exchangeSecret).toBe("process-client-secret-private");
-    expect(committedClientSecret).toBeUndefined();
+    expect(transactionClientSecret).toBe("process-client-secret-private");
     expect(body).not.toContain("process-client-secret-private");
     expect(manager.status(started.flowId)).toMatchObject({ status: "complete", provider: "gmail" });
   });

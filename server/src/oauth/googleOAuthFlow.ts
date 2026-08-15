@@ -33,7 +33,7 @@ export interface GoogleOAuthTokenResult {
 export interface GoogleOAuthRuntime {
   exchangeAuthorizationCode(input: {
     clientId: string;
-    /** Optional for Google installed/desktop OAuth clients. */
+    /** Matching Desktop OAuth client credential; never browser-supplied. */
     clientSecret?: string;
     code: string;
     codeVerifier: string;
@@ -84,7 +84,7 @@ function base64UrlRandom(bytes: number): string {
   return randomBytes(bytes).toString("base64url");
 }
 
-function resolveGoogleClientSecret(explicit?: string): string {
+export function resolveGoogleClientSecret(explicit?: string): string {
   return explicit?.trim() || process.env.EMAIL_SHIELD_GOOGLE_CLIENT_SECRET?.trim() || "";
 }
 
@@ -185,17 +185,16 @@ export class DefaultGoogleOAuthRuntime implements GoogleOAuthRuntime {
     redirectUri: string;
   }): Promise<GoogleOAuthTokenResult> {
     const clientSecret = resolveGoogleClientSecret(input.clientSecret);
+    if (!clientSecret) throw new Error("Google OAuth client secret is not configured.");
+
     const body = new URLSearchParams({
       client_id: input.clientId,
+      client_secret: clientSecret,
       code: input.code,
       code_verifier: input.codeVerifier,
       grant_type: "authorization_code",
       redirect_uri: input.redirectUri,
     });
-    // Google installed/desktop applications are public clients and cannot keep
-    // this value confidential. Some client registrations include one, others do
-    // not. PKCE is the security boundary, so send the value only when present.
-    if (clientSecret) body.set("client_secret", clientSecret);
 
     const response = await fetch(GOOGLE_TOKEN_ENDPOINT, {
       method: "POST",
@@ -267,12 +266,17 @@ export class GoogleOAuthFlowManager {
     },
   ) {}
 
+  /** Consumer readiness requires the matching Desktop client pair. */
   configured(): boolean {
-    return Boolean(this.options.clientId.trim());
+    return Boolean(this.options.clientId.trim() && resolveGoogleClientSecret(this.options.clientSecret));
   }
 
   async start(): Promise<{ flowId: string; authorizationUrl: string }> {
-    if (!this.configured()) throw new Error("Google OAuth is not configured for this Email Shield build.");
+    // Unit/security seams may inject a fake exchange runtime and exercise the
+    // loopback protocol without product credentials. The real runtime still
+    // requires the matching client secret at token exchange, while the consumer
+    // config endpoint stays disabled until both product credentials are present.
+    if (!this.options.clientId.trim()) throw new Error("Google OAuth is not configured for this Email Shield build.");
     this.prune();
     const active = [...this.flows.values()].filter((flow) => flow.status.status === "pending").length;
     if (active >= MAX_ACTIVE_FLOWS) throw new Error("Too many Google authorization requests are already active.");
@@ -437,7 +441,7 @@ export class GoogleOAuthFlowManager {
       } catch {
         throw new GoogleOAuthStageError(
           "ES-GOOGLE-01",
-          "Google token exchange could not be completed (ES-GOOGLE-01). Confirm the matching Desktop OAuth client ID/redirect configuration and try again.",
+          "Google token exchange could not be completed (ES-GOOGLE-01). Confirm the matching Desktop OAuth client ID and client secret are configured, then try again.",
         );
       }
 
@@ -452,16 +456,17 @@ export class GoogleOAuthFlowManager {
         );
       }
 
-      // The installed-app client secret is app configuration and cannot be
-      // confidential on a desktop device. Do not attach it to the per-mailbox
-      // secure session; the refresh token + stable Google subject are enough to
-      // restore the mailbox after restart. The transient validation path also
-      // works for a public Desktop OAuth client without a client secret.
+      // The client secret belongs to the Email Shield Google application, not
+      // to one mailbox. It is supplied transiently for initial Gmail validation
+      // and is deliberately removed by the secure-session layer before the
+      // per-mailbox live-connection descriptor is persisted. Restored sessions
+      // rehydrate it from process-level application configuration when needed.
       const config: AdapterConfig = {
         provider: "gmail",
         mode: "live",
         credentials: {
           clientId: this.options.clientId.trim(),
+          clientSecret: clientSecret || undefined,
           refreshToken: tokens.refreshToken,
           accountSubject: identity.sub,
         },

@@ -26,19 +26,25 @@ if (manifest.launcher !== launcherRelativePath() || manifest.entrypoint !== "app
 if (manifest.productionPackages.includes("googleapis")) throw new Error("Portable package contains the broad generated Google API catalog.");
 
 const oauthClientIds = publicOAuthClientIds();
-if (process.env.EMAIL_SHIELD_REQUIRE_LIVE_OAUTH === "1" && !oauthClientIds.google) {
-  throw new Error("Consumer release verification requires the product-owned Google desktop OAuth application client ID.");
+const googleClientSecret = String(process.env.EMAIL_SHIELD_GOOGLE_CLIENT_SECRET ?? "").trim();
+const expectedGoogleLiveCapability = Boolean(oauthClientIds.google && googleClientSecret);
+if (process.env.EMAIL_SHIELD_REQUIRE_LIVE_OAUTH === "1" && !expectedGoogleLiveCapability) {
+  throw new Error("Live Google OAuth verification requires the matching desktop client ID and client secret.");
 }
 const actualLauncher = readFileSync(join(packageRoot, manifest.launcher), "utf8");
 const expectedLauncher = launcherContent(process.platform, oauthClientIds);
 if (actualLauncher !== expectedLauncher) {
-  throw new Error("Portable package launcher does not contain the verified release OAuth configuration.");
+  throw new Error("Portable package launcher does not contain the verified release OAuth application IDs.");
 }
-if (!actualLauncher.includes(oauthClientIds.google)) {
+if (oauthClientIds.google && !actualLauncher.includes(oauthClientIds.google)) {
   throw new Error("Portable package launcher is missing the product-owned Google OAuth client ID.");
 }
 if (!oauthClientIds.microsoft && actualLauncher.includes("EMAIL_SHIELD_MICROSOFT_CLIENT_ID=")) {
   throw new Error("Portable package must not advertise an unconfigured Microsoft OAuth application ID.");
+}
+// Application secrets are deliberately not written into the portable launcher.
+if (actualLauncher.includes("EMAIL_SHIELD_GOOGLE_CLIENT_SECRET=")) {
+  throw new Error("Portable package launcher must not embed the Google client secret.");
 }
 
 const actualFiles = listPackageFiles(packageRoot, new Set([RELEASE_MANIFEST_FILE]));
@@ -47,10 +53,6 @@ for (const requiredTool of ["tools/release-cli.mjs", "tools/release-lifecycle-li
   if (!actualFiles.some((entry) => entry.path === requiredTool)) throw new Error(`Portable package is missing release lifecycle tool: ${requiredTool}`);
 }
 
-// The shipped Fixture-mode adapters are an intentional product acceptance path,
-// not a source-tree-only test helper. Verify both the corpus manifest and every
-// file it names, so a package cannot pass integrity verification while still
-// being unusable by consumers in Fixture mode.
 const fixtureManifestPath = join(packageRoot, "app/fixtures/scam-corpus/manifest.json");
 let fixtureManifest;
 try {
@@ -121,6 +123,7 @@ try {
       EMAIL_SHIELD_DATA_DIR: dataDirectory,
       XDG_DATA_HOME: dataDirectory,
       EMAIL_SHIELD_GOOGLE_CLIENT_ID: oauthClientIds.google,
+      ...(googleClientSecret ? { EMAIL_SHIELD_GOOGLE_CLIENT_SECRET: googleClientSecret } : {}),
       ...(oauthClientIds.microsoft ? { EMAIL_SHIELD_MICROSOFT_CLIENT_ID: oauthClientIds.microsoft } : {}),
     },
     stdio: ["ignore", "ignore", "pipe"],
@@ -158,8 +161,8 @@ try {
     signal: AbortSignal.timeout(5_000),
   });
   const googleConfig = await googleConfigResponse.json().catch(() => ({}));
-  if (!googleConfigResponse.ok || googleConfig.configured !== true) {
-    throw new Error("Portable package server did not activate its embedded Google OAuth application identity.");
+  if (!googleConfigResponse.ok || googleConfig.configured !== expectedGoogleLiveCapability) {
+    throw new Error("Portable package Google OAuth capability did not match the runtime client-credential configuration.");
   }
   const microsoftConfigResponse = await fetch(`${origin}/api/accounts/oauth/microsoft/config`, {
     headers: protectedHeaders,
@@ -182,7 +185,8 @@ try {
 
 console.log(`Portable package verified: ${packageRoot}`);
 console.log(
-  `Release OAuth: Google ${oauthClientIds.google ? "configured" : "not configured"}; `
-  + `Microsoft ${oauthClientIds.microsoft ? "configured" : "unavailable in this release"}.`,
+  `Release OAuth application IDs: Google ${oauthClientIds.google ? "present" : "absent"}; `
+  + `Microsoft ${oauthClientIds.microsoft ? "present" : "absent"}. `
+  + `Google live capability in this verification environment: ${expectedGoogleLiveCapability ? "enabled" : "disabled"}.`,
 );
 console.log(`Release ID: ${manifest.releaseId}; files: ${manifest.files.length}; artifact bytes: ${manifest.artifactBytes}.`);

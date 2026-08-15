@@ -108,13 +108,14 @@ const providerOnboardingLocks = [
   "new MutationObserver(restoreConsumerVisibility)",
   "attributeFilter: ['hidden', 'style', 'aria-hidden']",
   "event.stopImmediatePropagation()",
-  "providerOrder = ['gmail', 'outlook', 'icloud', 'yahoo', 'imap']",
+  "providerByTitle = new Map",
+  "button.dataset.consumerProvider = provider",
+  "providerButtons.get('outlook')?.remove()",
+  "providerButtons.delete('outlook')",
   "consumerCredentialActions",
   "window.emailShieldGoogleOAuth",
-  "window.emailShieldMicrosoftOAuth",
   "button.dataset.oauthConfigured",
   "loadOAuthAvailability('gmail')",
-  "loadOAuthAvailability('outlook')",
 ];
 for (const lock of providerOnboardingLocks) {
   if (!providerOnboarding.includes(lock)) {
@@ -125,13 +126,21 @@ if (!providerOnboarding.includes("new URLSearchParams(location.search).get('deve
   fail("Consumer provider onboarding must preserve explicit developer acceptance mode while hiding engineering controls normally.");
 }
 if (!providerOnboarding.includes("void owner.start()")) {
-  fail("Consumer OAuth cards must call the hardened provider owner directly instead of synthesizing a hidden Connect click.");
+  fail("Consumer Google OAuth card must call the hardened provider owner directly instead of synthesizing a hidden Connect click.");
+}
+if (providerOnboarding.includes("providerOrder =")) {
+  fail("Consumer provider onboarding must not map provider identity by button position.");
+}
+if (providerOnboarding.includes("window.emailShieldMicrosoftOAuth")) {
+  fail("Normal consumer onboarding must not expose Microsoft OAuth while Outlook owner acceptance is deferred.");
 }
 if (!gmailOAuth.includes("Object.defineProperty(window, 'emailShieldGoogleOAuth'")) {
   fail("Google OAuth module no longer exposes its hardened consumer start boundary.");
 }
+// Microsoft remains implemented internally for later controlled acceptance even
+// though normal consumer onboarding deliberately omits it for the current build.
 if (!outlookOAuth.includes("Object.defineProperty(window, 'emailShieldMicrosoftOAuth'")) {
-  fail("Microsoft OAuth module no longer exposes its hardened consumer start boundary.");
+  fail("Microsoft OAuth module no longer exposes its internal hardened start boundary.");
 }
 
 const actionableDataAttributes = [

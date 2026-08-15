@@ -4,8 +4,8 @@
   installedModules.add('consumer-provider-onboarding');
 
   // Developer acceptance mode deliberately retains the raw provider/mode
-  // controls. Normal consumers must never have to operate the engineering
-  // connector that sits underneath the product UI.
+  // controls, including Microsoft/Outlook. Normal consumer acceptance currently
+  // exposes only providers whose live onboarding is ready for owner testing.
   if (new URLSearchParams(location.search).get('developer') === '1') return;
 
   const providerSelect = document.getElementById('providerSelect');
@@ -32,11 +32,35 @@
     credentialFields.insertAdjacentElement('afterend', actions);
   }
 
-  const providerOrder = ['gmail', 'outlook', 'icloud', 'yahoo', 'imap'];
-  const providerButtons = Array.from(grid.querySelectorAll('button.consumer-provider'));
+  // Bind consumer cards by their declared identity, never by DOM position. This
+  // prevents removing/defering one provider from silently remapping another
+  // card to the wrong authorization handler.
+  const providerByTitle = new Map([
+    ['Continue with Google', 'gmail'],
+    ['Continue with Microsoft', 'outlook'],
+    ['Add iCloud Mail', 'icloud'],
+    ['Add Yahoo Mail', 'yahoo'],
+    ['Other email provider', 'imap'],
+  ]);
+  const discoveredButtons = Array.from(grid.querySelectorAll('button.consumer-provider'));
+  const providerButtons = new Map();
+  for (const button of discoveredButtons) {
+    if (!(button instanceof HTMLButtonElement)) continue;
+    const title = button.querySelector('strong')?.textContent?.trim() || '';
+    const provider = providerByTitle.get(title);
+    if (!provider) continue;
+    button.dataset.consumerProvider = provider;
+    providerButtons.set(provider, button);
+  }
+
+  // Microsoft remains implemented internally for later acceptance, but it is
+  // intentionally absent from the normal consumer journey until that live path
+  // is provisioned and owner-accepted. Developer mode above keeps it reachable.
+  providerButtons.get('outlook')?.remove();
+  providerButtons.delete('outlook');
+
   const oauthConfiguration = {
     gmail: { path: '/api/accounts/oauth/google/config', label: 'Google' },
-    outlook: { path: '/api/accounts/oauth/microsoft/config', label: 'Microsoft' },
   };
 
   // This guard is deliberately idempotent. A MutationObserver watches the
@@ -55,8 +79,6 @@
     modeSelect.value = 'live';
     providerSelect.dispatchEvent(new Event('change', { bubbles: true }));
     modeSelect.dispatchEvent(new Event('change', { bubbles: true }));
-    // Consumer onboarding owns visibility. Provider-specific renderers may
-    // change labels/disabled state, but they must not expose this legacy row.
     restoreConsumerVisibility();
   }
 
@@ -93,25 +115,19 @@
     actions.append(button);
   }
 
-  function startOAuth(provider) {
+  function startGoogleOAuth() {
     actions.replaceChildren();
-    const owner = provider === 'gmail'
-      ? window.emailShieldGoogleOAuth
-      : window.emailShieldMicrosoftOAuth;
+    const owner = window.emailShieldGoogleOAuth;
     if (!owner || typeof owner.start !== 'function') {
-      connectStatus.textContent = `${provider === 'gmail' ? 'Google' : 'Microsoft'} sign-in is unavailable in this build.`;
+      connectStatus.textContent = 'Google sign-in is unavailable in this build.';
       return;
     }
-    // OAuth ownership stays in the hardened provider module. Calling it
-    // directly preserves the user's click gesture for popup handling and avoids
-    // the old synthetic-click dependency on an invisible engineering button.
     void owner.start();
     restoreConsumerVisibility();
   }
 
   function setOAuthButtonState(provider, configured) {
-    const index = providerOrder.indexOf(provider);
-    const button = providerButtons[index];
+    const button = providerButtons.get(provider);
     if (!(button instanceof HTMLButtonElement)) return;
     const description = button.querySelector('div span');
     if (description instanceof HTMLElement && !description.dataset.originalText) {
@@ -142,10 +158,7 @@
     }
   }
 
-  providerButtons.forEach((button, index) => {
-    const provider = providerOrder[index];
-    if (!provider) return;
-    button.dataset.consumerProvider = provider;
+  for (const [provider, button] of providerButtons) {
     if (oauthConfiguration[provider]) {
       const description = button.querySelector('div span');
       if (description instanceof HTMLElement) {
@@ -157,9 +170,8 @@
     }
 
     // Capture phase makes this module authoritative over the older
-    // consumer-product compatibility handler. That handler used to reveal the
-    // hidden engineering Connect control and defer OAuth through a synthetic
-    // click. Normal consumer actions now terminate here.
+    // consumer-product compatibility handler. Normal consumer actions terminate
+    // here and never synthesize a click into a provider with a different ID.
     button.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -167,27 +179,23 @@
       actions.replaceChildren();
       selectProvider(provider);
 
-      if (provider === 'gmail' || provider === 'outlook') {
+      if (provider === 'gmail') {
         if (button.dataset.oauthConfigured !== 'true') {
-          connectStatus.textContent = `${oauthConfiguration[provider].label} sign-in is unavailable in this build.`;
+          connectStatus.textContent = 'Google sign-in is unavailable in this build.';
           return;
         }
-        startOAuth(provider);
+        startGoogleOAuth();
         return;
       }
 
       renderCredentialAction(provider);
       credentialFields.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }, true);
-  });
+  }
 
-  // A defensive observer keeps the legacy row private if another compatibility
-  // module mutates hidden/display state after provider changes. The callback is
-  // safe because restoreConsumerVisibility only writes when state differs.
   const observer = new MutationObserver(restoreConsumerVisibility);
   observer.observe(legacyRow, { attributes: true, attributeFilter: ['hidden', 'style', 'aria-hidden'] });
 
   restoreConsumerVisibility();
   void loadOAuthAvailability('gmail');
-  void loadOAuthAvailability('outlook');
 })();
