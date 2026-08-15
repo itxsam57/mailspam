@@ -26,16 +26,19 @@ if (manifest.launcher !== launcherRelativePath() || manifest.entrypoint !== "app
 if (manifest.productionPackages.includes("googleapis")) throw new Error("Portable package contains the broad generated Google API catalog.");
 
 const oauthClientIds = publicOAuthClientIds();
-if (process.env.EMAIL_SHIELD_REQUIRE_LIVE_OAUTH === "1"
-    && (!oauthClientIds.google || !oauthClientIds.microsoft)) {
-  throw new Error(
-    "Consumer release verification requires both public Google and Microsoft OAuth application client IDs.",
-  );
+if (process.env.EMAIL_SHIELD_REQUIRE_LIVE_OAUTH === "1" && !oauthClientIds.google) {
+  throw new Error("Consumer release verification requires the product-owned Google desktop OAuth application client ID.");
 }
 const actualLauncher = readFileSync(join(packageRoot, manifest.launcher), "utf8");
 const expectedLauncher = launcherContent(process.platform, oauthClientIds);
 if (actualLauncher !== expectedLauncher) {
   throw new Error("Portable package launcher does not contain the verified release OAuth configuration.");
+}
+if (!actualLauncher.includes(oauthClientIds.google)) {
+  throw new Error("Portable package launcher is missing the product-owned Google OAuth client ID.");
+}
+if (!oauthClientIds.microsoft && actualLauncher.includes("EMAIL_SHIELD_MICROSOFT_CLIENT_ID=")) {
+  throw new Error("Portable package must not advertise an unconfigured Microsoft OAuth application ID.");
 }
 
 const actualFiles = listPackageFiles(packageRoot, new Set([RELEASE_MANIFEST_FILE]));
@@ -150,6 +153,6 @@ try {
 console.log(`Portable package verified: ${packageRoot}`);
 console.log(
   `Release OAuth: Google ${oauthClientIds.google ? "configured" : "not configured"}; `
-  + `Microsoft ${oauthClientIds.microsoft ? "configured" : "not configured"}.`,
+  + `Microsoft ${oauthClientIds.microsoft ? "configured" : "unavailable in this release"}.`,
 );
 console.log(`Release ID: ${manifest.releaseId}; files: ${manifest.files.length}; artifact bytes: ${manifest.artifactBytes}.`);
