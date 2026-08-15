@@ -51,7 +51,7 @@
     if (activeFlowId) {
       setStatus('Complete the Google consent window. Email Shield is waiting for the protected loopback callback…');
     } else if (googleConfigured === false) {
-      setStatus('Google sign-in is unavailable in this build.');
+      setStatus('Google sign-in is not ready in this running Email Shield session. Click Continue with Google to re-check the protected setup.');
     } else if (googleConfigured === true) {
       setStatus('Google opens in a separate browser window. Email Shield uses PKCE and a one-time local callback; your Google password is never given to Email Shield.');
     } else {
@@ -99,15 +99,12 @@
 
   async function startGuidedGoogleOAuth() {
     if (activeFlowId) return;
-    if (googleConfigured === false) {
-      setStatus('Google sign-in is unavailable in this build.');
-      return;
-    }
 
     // Open synchronously from the click so popup blocking cannot force Email
-    // Shield to navigate the protected dashboard away from localhost. If the
-    // configuration probe is still in flight, finish it only after this window
-    // exists so the browser's user-gesture contract cannot be lost to an await.
+    // Shield to navigate the protected dashboard away from localhost. Readiness
+    // is re-checked after the user gesture on every attempt unless the current
+    // protected session has already proved the Google application configured.
+    // This avoids permanently caching one failed startup probe as a dead button.
     const popup = window.open('about:blank', 'emailShieldGoogleOAuth', 'popup=yes,width=720,height=760');
     if (!popup) {
       setStatus('Your browser blocked the Google window. Allow popups for this local Email Shield page and try again.');
@@ -118,11 +115,11 @@
       popup.document.body.textContent = 'Preparing secure Google authorization…';
     } catch {}
 
-    if (googleConfigured === null) {
+    if (googleConfigured !== true) {
       setStatus('Checking Google sign-in availability…');
       const configured = await loadConfiguration();
       if (!configured) {
-        setStatus('Google sign-in is unavailable in this build.');
+        setStatus('Google sign-in is not configured in this running Email Shield session. Restart Email Shield after its matching Google Desktop OAuth client ID and client secret are loaded.');
         try { popup.close(); } catch {}
         return;
       }
