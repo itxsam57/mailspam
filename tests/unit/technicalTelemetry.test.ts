@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createTechnicalTelemetryFromEnvironment } from "../../server/src/telemetry/technicalTelemetry.js";
 
@@ -101,5 +103,19 @@ describe("technical telemetry", () => {
     });
 
     await expect(telemetry.capture("email_shield_app_started")).resolves.toBe(false);
+  });
+
+  it("wires only privacy-safe desktop startup lifecycle events", () => {
+    const root = join(import.meta.dirname, "../..");
+    const source = readFileSync(join(root, "server/src/index.ts"), "utf8");
+
+    expect(source).toContain('createTechnicalTelemetryFromEnvironment');
+    expect(source).toContain('telemetry.capture("email_shield_app_started")');
+    expect(source).toContain('telemetry.capture("email_shield_protected_state_ready"');
+    expect(source).toContain('telemetry.capture("email_shield_protected_state_failed"');
+    expect(source).toContain('failure_kind: "initialization_error"');
+    expect(source).toContain('telemetry.capture("email_shield_server_listening")');
+    expect(source).not.toContain('telemetry.capture("email_');
+    expect(source).not.toContain('telemetry.capture("message_');
   });
 });
