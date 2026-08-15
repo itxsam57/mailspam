@@ -18,15 +18,28 @@ describe("desktop startup performance architecture", () => {
   it("launches the workspace dev process without spawning npm.cmd directly on Windows", () => {
     const launcher = read("scripts/dev.mjs");
     const captureIndex = launcher.indexOf("const npmExecPath = process.env.npm_execpath?.trim()");
-    const envLoadIndex = launcher.indexOf("loadEnvFile(envFile)");
+    const localEnvIndex = launcher.indexOf("parseEnv(readFileSync(envFile, \"utf8\"))");
 
     expect(captureIndex).toBeGreaterThanOrEqual(0);
-    expect(envLoadIndex).toBeGreaterThan(captureIndex);
+    expect(localEnvIndex).toBeGreaterThan(captureIndex);
     expect(launcher).toContain("command = process.execPath");
     expect(launcher).toContain('[npmExecPath, "run", "dev", "-w", "server"]');
     expect(launcher).not.toContain('const npm = process.platform === "win32" ? "npm.cmd" : "npm"');
     expect(launcher).not.toContain('spawn("npm.cmd"');
     expect(launcher).toContain('process.env.ComSpec?.trim() || "cmd.exe"');
+  });
+
+  it("makes repository .env.local authoritative for source owner configuration and reports only credential presence", () => {
+    const launcher = read("scripts/dev.mjs");
+    expect(launcher).toContain('import { parseEnv } from "node:util"');
+    expect(launcher).toContain('parseEnv(readFileSync(envFile, "utf8"))');
+    expect(launcher).toContain("process.env[key] = value");
+    expect(launcher).toContain("EMAIL_SHIELD_GOOGLE_CLIENT_ID");
+    expect(launcher).toContain("EMAIL_SHIELD_GOOGLE_CLIENT_SECRET");
+    expect(launcher).toContain("Google client ID ${googleClientIdLoaded ? \"loaded\" : \"missing\"}");
+    expect(launcher).toContain("Google client secret ${googleClientSecretLoaded ? \"loaded\" : \"missing\"}");
+    expect(launcher).not.toContain("console.log(process.env.EMAIL_SHIELD_GOOGLE_CLIENT_SECRET");
+    expect(launcher).not.toContain("loadEnvFile");
   });
 
   it("initializes independent protected repositories in one awaited concurrent phase", () => {
