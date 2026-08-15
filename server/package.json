@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "node --env-file-if-exists=../.env.local --import tsx src/index.ts",
+    "dev": "tsx src/index.ts",
     "dev:community": "tsx src/communityIndex.ts",
     "dev:account-service": "tsx src/accountServiceIndex.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
