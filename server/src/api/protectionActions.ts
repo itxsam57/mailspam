@@ -447,10 +447,10 @@ export function registerProtectionActionRoutes(
       "report_scam",
     );
 
-    // Local campaign protection is committed before any network/provider side
-    // effect. Even if either service is temporarily unavailable, every future
-    // matching message remains a local Confirmed Threat and will auto-Trash.
-    const move = await moveCurrentMessageToTrash(session, action.providerNativeId, dependencies.adapterFactory);
+    // Report Scam owns threat learning only. It deliberately does not perform
+  // a provider mailbox move: Trash and Spam/Junk are separate explicit
+  // user actions. Local campaign protection is committed first and remains
+  // authoritative even when Family Shield or community delivery is unavailable.
 
     let receipt: CommunityReportReceipt | null = null;
     let communityError: string | undefined;
@@ -466,12 +466,12 @@ export function registerProtectionActionRoutes(
       kind: "reported",
       severity: "critical",
       title: "Scam report protected locally",
-      detail: `${move.movedCurrent ? "The current message was moved to Trash. " : "The current provider move needs a retry. "}${receipt?.accepted ? "Privacy-reduced community evidence was accepted. " : "Community delivery was unavailable or not accepted. "}${family.shared ? "Family Shield received the private campaign signal." : "No Family Shield campaign share was completed."}`,
+      detail: `The current mailbox message was not moved; Trash and Spam/Junk remain separate explicit actions. ${receipt?.accepted ? "Privacy-reduced community evidence was accepted. " : "Community delivery was unavailable or not accepted. "}${family.shared ? "Family Shield received the private campaign signal." : "No Family Shield campaign share was completed."}`,
       reasonCodes: ["USER_REPORTED_SCAM", ...(blockSender ? ["USER_BLOCK_SENDER"] : [])],
       undo: null,
     });
 
-    const complete = move.movedCurrent && receipt?.accepted === true && !family.error;
+    const complete = receipt?.accepted === true && !family.error;
     noStore(res);
     return res.status(complete ? 200 : 207).json({
       success: true,
@@ -479,8 +479,8 @@ export function registerProtectionActionRoutes(
       senderBlocked: Boolean(blockSender && action.senderAddress),
       accountId: session.id,
       token: action.token,
-      movedCurrent: move.movedCurrent,
-      moveError: move.moveError,
+      movedCurrent: false,
+      providerAction: "none",
       family,
       communityAccepted: receipt?.accepted === true,
       communityError,
