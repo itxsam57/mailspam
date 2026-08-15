@@ -60,7 +60,7 @@ async function reportProtectedStateFailure<T>(operation: Promise<T>): Promise<T>
   } catch (error) {
     if (!protectedStateFailureReported) {
       protectedStateFailureReported = true;
-      await telemetry.capture("email_shield_protected_state_failed", {
+      void telemetry.capture("email_shield_protected_state_failed", {
         failure_kind: "initialization_error",
       });
     }
