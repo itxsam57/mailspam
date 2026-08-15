@@ -134,4 +134,17 @@ describe("AI Engineering Automation Kit installation", () => {
     expect(handoff).not.toContain("Playwright");
     expect(handoff).not.toContain("Puppeteer");
   });
+
+  it("lets Chromium own its DevTools port instead of racing an OS-released port", () => {
+    for (const path of [
+      "scripts/engineering/smoke-browser-boot.mjs",
+      "scripts/engineering/smoke-browser-scan-results.mjs",
+    ]) {
+      const source = read(path);
+      expect(source).toContain('"--remote-debugging-port=0"');
+      expect(source).toContain('join(profileDirectory, "DevToolsActivePort")');
+      expect(source).toContain("waitForDevToolsPort(browserProfile");
+      expect(source).not.toContain("`--remote-debugging-port=${debugPort}`");
+    }
+  });
 });
