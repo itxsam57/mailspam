@@ -635,18 +635,18 @@ export class EncryptedCommunityAggregateStore {
     this.appendJournal(line);
 
     applyReportToDatabase(database, report, acceptedAt);
-  const updatedCampaign = database.campaigns[report.campaignFingerprint]!;
-  updatedCampaign.review = nextReview;
-  const reputationChanged = reconcileReporterReputation(database);
-  const effectiveMetrics = metricsFor(updatedCampaign, database.reporterReputation);
-  this.databaseCache = database;
-  this.snapshotPlaintextBytes = reputationChanged
-    ? Buffer.byteLength(JSON.stringify(database), "utf8")
-    : candidatePlaintextBytes;
-  if (reputationChanged) this.rebuildIndexes(database);
-  else this.campaignMetrics.set(report.campaignFingerprint, effectiveMetrics);
-  const nextLegitimate = previousLegitimate - (priorReporter && isLegitimate(priorReporter) ? 1 : 0) + (isLegitimate(candidateReporter) ? 1 : 0);
-  const nextPositiveConsensus = nextLegitimate >= LEGITIMATE_CONSENSUS_REPORTERS && effectiveMetrics.reporters === 0;
+    const updatedCampaign = database.campaigns[report.campaignFingerprint]!;
+    updatedCampaign.review = nextReview;
+    const reputationChanged = reconcileReporterReputation(database);
+    const effectiveMetrics = metricsFor(updatedCampaign, database.reporterReputation);
+    this.databaseCache = database;
+    this.snapshotPlaintextBytes = reputationChanged
+      ? Buffer.byteLength(JSON.stringify(database), "utf8")
+      : candidatePlaintextBytes;
+    if (reputationChanged) this.rebuildIndexes(database);
+    else this.campaignMetrics.set(report.campaignFingerprint, effectiveMetrics);
+    const nextLegitimate = previousLegitimate - (priorReporter && isLegitimate(priorReporter) ? 1 : 0) + (isLegitimate(candidateReporter) ? 1 : 0);
+    const nextPositiveConsensus = nextLegitimate >= LEGITIMATE_CONSENSUS_REPORTERS && effectiveMetrics.reporters === 0;
     const reporterCampaigns = this.reporterActivity.get(report.reporterProof) ?? new Map<string, number>();
     reporterCampaigns.set(report.campaignFingerprint, acceptedAtMs);
     this.reporterActivity.set(report.reporterProof, reporterCampaigns);
@@ -718,29 +718,29 @@ export class EncryptedCommunityAggregateStore {
     if (!meetsReviewThreshold(metrics, spread, this.thresholds)) throw new CommunityReportValidationError("Campaign no longer meets the corroboration boundary for human review.");
 
     const previousReview = structuredClone(campaign.review);
-  const previousReputation = structuredClone(database.reporterReputation);
-  const resolvedAt = now.toISOString();
-  campaign.review = {
-    status: input.decision,
-    createdAt: previousReview.createdAt,
-    resolvedAt,
-    reviewerId: input.reviewerId,
-    reason,
-  };
-  reconcileReporterReputation(database);
-  const reporterHistoriesUpdated = Object.values(campaign.reporters)
-    .filter((reporter) => Date.parse(reporter.reportedAt) <= Date.parse(resolvedAt)).length;
+    const previousReputation = structuredClone(database.reporterReputation);
+    const resolvedAt = now.toISOString();
+    campaign.review = {
+      status: input.decision,
+      createdAt: previousReview.createdAt,
+      resolvedAt,
+      reviewerId: input.reviewerId,
+      reason,
+    };
+    reconcileReporterReputation(database);
+    const reporterHistoriesUpdated = Object.values(campaign.reporters)
+      .filter((reporter) => Date.parse(reporter.reportedAt) <= Date.parse(resolvedAt)).length;
 
-  try {
-    this.assertSnapshotCapacity(database);
-    this.compact(database);
-    this.rebuildIndexes(database);
-  } catch (error) {
-    campaign.review = previousReview;
-    database.reporterReputation = previousReputation;
-    this.rebuildIndexes(database);
-    throw error;
-  }
+    try {
+      this.assertSnapshotCapacity(database);
+      this.compact(database);
+      this.rebuildIndexes(database);
+    } catch (error) {
+      campaign.review = previousReview;
+      database.reporterReputation = previousReputation;
+      this.rebuildIndexes(database);
+      throw error;
+    }
 
     return {
       campaignFingerprint: input.campaignFingerprint,
