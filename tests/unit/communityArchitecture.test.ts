@@ -30,11 +30,14 @@ describe("community shield architecture", () => {
     expect(server).toContain("delete summary.actionContext");
   });
 
-  it("requires independent reporters and weighted evidence before publishing", () => {
+  it("requires independent reporters, server-owned weighting, temporal spread, and human review before confirmation", () => {
     const store = read("server/src/community/aggregateStore.ts");
     expect(store).toContain("warningReporters: 3");
     expect(store).toContain("confirmedReporters: 5");
-    expect(store).toContain("confirmedStrongReporters: 3");
+    expect(store).toContain("confirmedStrongReporters: 5");
+    expect(store).toContain("COMMUNITY_REVIEW_MIN_SPAN_MS");
+    expect(store).toContain("distinctUtcDays >= 2");
+    expect(store).toContain('record.review?.status === "approved"');
     expect(store).toContain("MAX_REPORTS_PER_REPORTER_PER_DAY");
     expect(store).toContain("duplicate");
   });
@@ -49,11 +52,13 @@ describe("community shield architecture", () => {
     expect(network).toContain("this.verifiedEntries = cached?.entries ?? null");
   });
 
-  it("passes only verified entries into the provider-neutral scan worker", () => {
+  it("passes only verified entries into the provider-neutral scan worker and Browser Protection", () => {
     const server = read("server/src/api/server.ts");
+    const routes = read("server/src/api/consumerProtectionRoutes.ts");
     const worker = read("server/src/workers/scanWorker.ts");
     expect(server).toContain("await community.refreshFeed()");
     expect(server).toContain("threatFeedEntries: community.getVerifiedEntries()");
+    expect(routes).toContain("scamCheck: { intelligenceEntries: community.getVerifiedEntries() }");
     expect(worker).toContain("threatFeedEntries?: SignedFeedEntry[] | null");
     expect(worker).toContain("getVerifiedEntries: () => entries");
   });
@@ -74,13 +79,15 @@ describe("community shield architecture", () => {
     expect(desktopServer).toContain('/api/community/v1/public-key');
   });
 
-  it("stores local campaign protection and pending reports encrypted", () => {
+  it("stores local campaign protection, review state, and pending reports encrypted", () => {
     const policy = read("server/src/api/policyPersistence.ts");
     const outbox = read("server/src/community/outbox.ts");
     const aggregate = read("server/src/community/aggregateStore.ts");
+    const aggregateState = read("server/src/community/aggregateState.ts");
     expect(policy).toContain("reportedCampaigns");
     expect(outbox).toContain('const ALGORITHM = "aes-256-gcm"');
     expect(aggregate).toContain('const ALGORITHM = "aes-256-gcm"');
+    expect(aggregateState).toContain("review: StoredCommunityReviewRecord | null");
     expect(outbox).not.toContain("textPreview");
     expect(aggregate).not.toContain("textPreview");
   });
