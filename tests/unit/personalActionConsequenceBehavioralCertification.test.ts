@@ -28,7 +28,7 @@ function envelope(overrides: Partial<CanonicalEnvelope> = {}): CanonicalEnvelope
       providerTrust: "trusted",
       rawHeader: "mx.receiver.example; spf=pass smtp.mailfrom=example.test; dkim=pass header.d=example.test; dmarc=pass header.from=example.test",
     },
-    textPreview: "Routine authenticated correspondence with no credential request, payment pressure, urgent transfer, installation demand, or security-sensitive instruction.",
+    textPreview: "Hello team. Here are the routine notes from today's scheduled meeting. Regards, Operations.",
     htmlSignals: null,
     links: [],
     attachments: [],
@@ -71,15 +71,17 @@ describe("durable personal action consequences", () => {
     expect(scan(candidate, policy).scored.verdict).toBe("safe");
 
     policy.blockSender(candidate.from.address!);
+    expect(policy.isBlockedSender(candidate.from.address!)).toBe(true);
     const blocked = scan({ ...candidate, messageId: "<future-sender-block@example.test>", providerNativeId: "future-sender-block" }, policy);
     expect(blocked.scored.verdict).toBe("confirmed_threat");
     expect(blocked.scored.confirmedByRule).toBe(true);
     expect(blocked.action).toBe("auto_trash_allowed");
     expect(blocked.scored.evidence).toEqual(expect.arrayContaining([
-      expect.objectContaining({ layer: "personal_rules", code: "PERSONAL_BLOCKED_SENDER", scoreContribution: 100 }),
+      expect.objectContaining({ layer: "personal_rules", code: "BLOCKED_SENDER", scoreContribution: 10 }),
     ]));
 
-    expect(policy.unblockSender(candidate.from.address!)).toBe(true);
+    policy.unblockSender(candidate.from.address!);
+    expect(policy.isBlockedSender(candidate.from.address!)).toBe(false);
     const unblocked = scan({ ...candidate, messageId: "<after-sender-unblock@example.test>", providerNativeId: "after-sender-unblock" }, policy);
     expect(unblocked.scored.verdict).toBe("safe");
     expect(unblocked.scored.confirmedByRule).toBe(false);
@@ -89,6 +91,7 @@ describe("durable personal action consequences", () => {
     const policy = new InMemoryPersonalPolicyStore();
     const candidate = envelope();
     policy.blockDomain(candidate.from.domain!);
+    expect(policy.isBlockedDomain(candidate.from.domain!)).toBe(true);
 
     const anotherSender = envelope({
       messageId: "<future-domain-block@example.test>",
@@ -97,12 +100,17 @@ describe("durable personal action consequences", () => {
     });
     const blocked = scan(anotherSender, policy);
     expect(blocked.scored.verdict).toBe("confirmed_threat");
+    expect(blocked.scored.confirmedByRule).toBe(true);
+    expect(blocked.action).toBe("auto_trash_allowed");
     expect(blocked.scored.evidence).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: "PERSONAL_BLOCKED_DOMAIN", scoreContribution: 100 }),
+      expect.objectContaining({ code: "BLOCKED_DOMAIN", scoreContribution: 10 }),
     ]));
 
-    expect(policy.unblockDomain("example.test")).toBe(true);
-    expect(scan(anotherSender, policy).scored.verdict).toBe("safe");
+    policy.unblockDomain("example.test");
+    expect(policy.isBlockedDomain("example.test")).toBe(false);
+    const unblocked = scan(anotherSender, policy);
+    expect(unblocked.scored.verdict).toBe("safe");
+    expect(unblocked.scored.confirmedByRule).toBe(false);
   });
 
   it("Report Scam campaign protection survives sender/address changes when the stable campaign fingerprint still matches", () => {
@@ -121,6 +129,7 @@ describe("durable personal action consequences", () => {
     });
     const fingerprint = campaignFingerprint(original);
     policy.reportCampaign(fingerprint);
+    expect(policy.isReportedCampaign(fingerprint)).toBe(true);
 
     const rotatedDelivery = envelope({
       messageId: "<future-campaign@example.test>",
@@ -139,21 +148,33 @@ describe("durable personal action consequences", () => {
     expect(campaignFingerprint(rotatedDelivery)).toBe(fingerprint);
     const protectedResult = scan(rotatedDelivery, policy);
     expect(protectedResult.scored.verdict).toBe("confirmed_threat");
+    expect(protectedResult.scored.confirmedByRule).toBe(true);
     expect(protectedResult.action).toBe("auto_trash_allowed");
     expect(protectedResult.scored.evidence).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: "PERSONAL_REPORTED_SCAM_CAMPAIGN", scoreContribution: 100 }),
+      expect.objectContaining({ code: "LOCALLY_REPORTED_SCAM_CAMPAIGN", scoreContribution: 10 }),
     ]));
   });
 
-  it("Mark Safe applies only to the exact message and clears ordinary Review, not later messages from the same sender", () => {
+  it("Mark Safe applies only to the exact ordinary Review and not to later messages from the same sender", () => {
     const policy = new InMemoryPersonalPolicyStore();
     const reviewed = envelope({
       replyTo: { displayName: null, address: "reply@other.example", domain: "other.example" },
+      threadContext: {
+        ...envelope().threadContext,
+        hasEstablishedSenderHistory: false,
+        relationshipPriorMessages: 0,
+        relationshipPriorAuthenticatedMessages: 0,
+        relationshipPriorSafeMessages: 0,
+      },
     });
     expect(scan(reviewed, policy).scored.verdict).toBe("review");
 
     policy.approveException(messageExceptionKey(reviewed));
-    expect(scan(reviewed, policy).scored.verdict).toBe("safe");
+    const markedSafe = scan(reviewed, policy);
+    expect(markedSafe.scored.verdict).toBe("safe");
+    expect(markedSafe.scored.evidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "APPROVED_MESSAGE_EXCEPTION", scoreContribution: -100 }),
+    ]));
 
     const later = { ...reviewed, messageId: "<different-message@example.test>", providerNativeId: "different-message" };
     expect(messageExceptionKey(later)).not.toBe(messageExceptionKey(reviewed));
@@ -167,6 +188,11 @@ describe("durable personal action consequences", () => {
         { name: "documents-one.zip", mimeType: "application/zip", sizeBytes: 120, extension: "zip", sha256: "1".repeat(64), suspiciousNamePattern: false },
         { name: "documents-two.zip", mimeType: "application/zip", sizeBytes: 120, extension: "zip", sha256: "2".repeat(64), suspiciousNamePattern: false },
       ],
+      diagnostics: {
+        ...envelope().diagnostics,
+        attachmentHashInspection: { attachments: 2, hashed: 2, incomplete: false, incompleteReasons: [] },
+        attachmentSecurityInspection: { inspected: 0, incomplete: 0, encryptedArchives: 0, resourceLimitedArchives: 0 },
+      },
     });
     expect(scan(weakArchiveContext, policy).scored.verdict).toBe("review");
 
@@ -174,13 +200,20 @@ describe("durable personal action consequences", () => {
     const trustedWeak = scan(weakArchiveContext, policy);
     expect(trustedWeak.scored.verdict).toBe("safe");
     expect(trustedWeak.scored.evidence).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: "PERSONAL_TRUSTED_SENDER", scoreContribution: 0 }),
+      expect.objectContaining({ code: "TRUSTED_SENDER", scoreContribution: 0 }),
     ]));
 
     const replyToMismatch = envelope({
       messageId: "<trusted-but-mismatch@example.test>",
       providerNativeId: "trusted-but-mismatch",
       replyTo: { displayName: null, address: "reply@other.example", domain: "other.example" },
+      threadContext: {
+        ...envelope().threadContext,
+        hasEstablishedSenderHistory: false,
+        relationshipPriorMessages: 0,
+        relationshipPriorAuthenticatedMessages: 0,
+        relationshipPriorSafeMessages: 0,
+      },
     });
     const stillReview = scan(replyToMismatch, policy);
     expect(stillReview.scored.verdict).toBe("review");
