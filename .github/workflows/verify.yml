@@ -145,8 +145,10 @@ jobs:
           pattern: email-shield-engineering-*-${{ github.run_id }}
           path: gate-artifacts
 
-      - name: Print concise reports
+      - name: Print concise reports and enforce platform result
         shell: bash
+        env:
+          VERIFY_RESULT: ${{ needs.verify.result }}
         run: |
           set -euo pipefail
           found=0
@@ -171,3 +173,8 @@ jobs:
             echo "===== FAILURE DIAGNOSTIC: ${diagnostic} ====="
             tail -n 240 "${diagnostic}"
           done < <(find gate-artifacts \( -name '*-failure.log' -o -name 'failure-diagnostics-metadata.txt' \) -type f | sort)
+
+          if [ "$VERIFY_RESULT" != "success" ]; then
+            echo "One or more platform engineering gates failed: ${VERIFY_RESULT}" >&2
+            exit 1
+          fi
