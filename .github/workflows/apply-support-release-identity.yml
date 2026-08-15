@@ -1,0 +1,90 @@
+name: Apply Portable Support Identity Root Repair
+
+on:
+  push:
+    branches: [fix/local-forwarded-header-boundary]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/local-forwarded-header-boundary
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Wire verified runtime release identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          route = Path('server/src/api/consumerProtectionRoutes.ts')
+          text = route.read_text()
+          import_marker = 'import { localOperationalMetrics } from "./localOperationalMetrics.js";\n'
+          import_line = 'import { resolveRuntimeReleaseIdentity } from "./runtimeReleaseIdentity.js";\n'
+          if import_line not in text:
+              if import_marker not in text:
+                  raise SystemExit('Support route import marker not found')
+              text = text.replace(import_marker, import_marker + import_line, 1)
+          old = 'app: { version: process.env.npm_package_version ?? "unknown", release: process.env.EMAIL_SHIELD_RELEASE_ID?.trim() || "development" },'
+          new = 'app: { version: releaseIdentity.version, release: releaseIdentity.release },'
+          if old not in text:
+              raise SystemExit('Old Support Bundle release identity expression not found')
+          support_marker = '      noStore(res);\n      res.json({\n        schemaVersion: 1,\n'
+          support_replacement = '      const releaseIdentity = resolveRuntimeReleaseIdentity();\n      noStore(res);\n      res.json({\n        schemaVersion: 1,\n'
+          support_section_start = text.find('app.get("/api/consumer/v1/support-bundle"')
+          if support_section_start < 0:
+              raise SystemExit('Support Bundle route not found')
+          prefix = text[:support_section_start]
+          section = text[support_section_start:]
+          if support_marker not in section:
+              raise SystemExit('Support Bundle response marker not found')
+          section = section.replace(support_marker, support_replacement, 1)
+          section = section.replace(old, new, 1)
+          route.write_text(prefix + section)
+
+          test = Path('tests/unit/runtimeReleaseIdentity.test.ts')
+          text = test.read_text()
+          if 'readFileSync' not in text.split('\n', 1)[0]:
+              text = text.replace('import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";', 'import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";', 1)
+          if 'consumer Support Bundle is wired' not in text:
+              insertion = '''\n  it("keeps the consumer Support Bundle wired to the runtime manifest resolver", () => {\n    const routeSource = readFileSync(join(import.meta.dirname, "../../server/src/api/consumerProtectionRoutes.ts"), "utf8");\n    const start = routeSource.indexOf('app.get("/api/consumer/v1/support-bundle"');\n    expect(start).toBeGreaterThanOrEqual(0);\n    const section = routeSource.slice(start);\n    expect(section).toContain("const releaseIdentity = resolveRuntimeReleaseIdentity();");\n    expect(section).toContain("app: { version: releaseIdentity.version, release: releaseIdentity.release }");\n    expect(section).not.toContain("process.env.npm_package_version");\n    expect(section).not.toContain("process.env.EMAIL_SHIELD_RELEASE_ID");\n  });\n'''
+              final = '\n});\n'
+              if not text.endswith(final):
+                  raise SystemExit('Runtime release identity test footer not found')
+              text = text[:-len(final)] + insertion + final
+          test.write_text(text)
+
+          register = Path('.engineering/REGRESSION_REGISTER.md')
+          text = register.read_text()
+          row87 = '| REG-087 | LOCKED | The local desktop server accepts only direct loopback requests: attacker Host values, standardized `Forwarded` metadata and every `X-Forwarded-*` proxy header are rejected before dashboard/API handling. | `localApiSecurity.test.ts`, compiled desktop smoke, full Windows/macOS/Ubuntu Engineering Gate |\n'
+          row88 = '| REG-088 | LOCKED | A downloaded portable package Support Bundle must identify its version and release ID from its own bounded canonical release manifest; npm-only metadata may be used only for genuine source/development execution, while malformed portable identity fails honest as unverified. | `runtimeReleaseIdentity.test.ts`, Support Bundle packaged consumer acceptance, portable manifest verification, full Engineering Gate |\n'
+          if row87 not in text:
+              raise SystemExit('REG-087 register marker not found')
+          if 'REG-088 | LOCKED' not in text:
+              text = text.replace(row87, row87 + row88, 1)
+          register.write_text(text)
+          PY
+      - name: Focused verification
+        run: |
+          npm ci
+          npx vitest run tests/unit/runtimeReleaseIdentity.test.ts tests/unit/localApiSecurity.test.ts
+          npm run typecheck
+          npm run build
+      - name: Commit repair and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/apply-support-release-identity.yml
+          git add server/src/api/consumerProtectionRoutes.ts server/src/api/runtimeReleaseIdentity.ts tests/unit/runtimeReleaseIdentity.test.ts .engineering/REGRESSION_REGISTER.md .engineering/REG-088_PORTABLE_SUPPORT_RELEASE_IDENTITY.md
+          git commit -m "fix(support): report packaged release identity"
+          git push origin HEAD:fix/local-forwarded-header-boundary
