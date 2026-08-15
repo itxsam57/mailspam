@@ -501,6 +501,19 @@ function pruneExpired(database: StoredCommunityDatabase, nowMs: number): boolean
       review: campaign.review,
     };
   }
+
+  // Reporter history is confidence metadata derived from retained evidence.
+  // Once no retained campaign references a proof, keeping reputation would be
+  // both unbounded state growth and unnecessary long-lived pseudonymous data.
+  const retainedProofs = new Set<string>();
+  for (const campaign of Object.values(database.campaigns)) {
+    for (const proof of Object.keys(campaign.reporters)) retainedProofs.add(proof);
+  }
+  for (const proof of Object.keys(database.reporterReputation)) {
+    if (retainedProofs.has(proof)) continue;
+    delete database.reporterReputation[proof];
+    changed = true;
+  }
   return changed;
 }
 
@@ -547,12 +560,16 @@ export class EncryptedCommunityAggregateStore {
     if (!duplicate && reportsToday >= MAX_REPORTS_PER_REPORTER_PER_DAY) throw new CommunityReportRateLimitError();
     if (!existing && Object.keys(database.campaigns).length >= MAX_CAMPAIGNS) throw new CommunityReportCapacityError();
 
-    const acceptedAt = now.toISOString();
+    const priorReporter = existing?.reporters[report.reporterProof];
+    // acceptedAt is the durable ordering key for one reporter/campaign pair.
+    // Make it strictly monotonic even when two actions land in the same clock
+    // millisecond so snapshot+journal recovery can safely recognize replay.
+    const acceptedAtMs = Math.max(nowMs, priorReporter ? Date.parse(priorReporter.reportedAt) + 1 : nowMs);
+    const acceptedAt = new Date(acceptedAtMs).toISOString();
     const previousMetrics = this.campaignMetrics.get(report.campaignFingerprint) ?? { ...ZERO_METRICS };
     const previousStatus = existing ? statusFor(existing, database, this.thresholds) : "candidate";
     const previousLegitimate = legitimateReporterCount(existing);
     const previousPositiveConsensus = previousLegitimate >= LEGITIMATE_CONSENSUS_REPORTERS && previousMetrics.reporters === 0;
-    const priorReporter = existing?.reporters[report.reporterProof];
     const candidateReporter = mergedReporter(priorReporter, report, acceptedAt);
     const reputation = database.reporterReputation[report.reporterProof];
     const priorContribution = reporterContribution(priorReporter, reputation);
@@ -598,11 +615,11 @@ export class EncryptedCommunityAggregateStore {
     const nextLegitimate = previousLegitimate - (priorReporter && isLegitimate(priorReporter) ? 1 : 0) + (isLegitimate(candidateReporter) ? 1 : 0);
     const nextPositiveConsensus = nextLegitimate >= LEGITIMATE_CONSENSUS_REPORTERS && nextMetrics.reporters === 0;
     const reporterCampaigns = this.reporterActivity.get(report.reporterProof) ?? new Map<string, number>();
-    reporterCampaigns.set(report.campaignFingerprint, nowMs);
+    reporterCampaigns.set(report.campaignFingerprint, acceptedAtMs);
     this.reporterActivity.set(report.reporterProof, reporterCampaigns);
     this.nextPruneAt = this.nextPruneAt === 0
-      ? nowMs + COMMUNITY_REPORT_RETENTION_MS
-      : Math.min(this.nextPruneAt, nowMs + COMMUNITY_REPORT_RETENTION_MS);
+      ? acceptedAtMs + COMMUNITY_REPORT_RETENTION_MS
+      : Math.min(this.nextPruneAt, acceptedAtMs + COMMUNITY_REPORT_RETENTION_MS);
     this.journalEvents++;
     if (needsInitialSnapshot) {
       this.compact(database);
@@ -901,6 +918,13 @@ export class EncryptedCommunityAggregateStore {
           if (!Number.isFinite(acceptedAtMs) || new Date(acceptedAtMs).toISOString() !== raw.acceptedAt) throw new Error("Invalid journal timestamp.");
           const report = validateSubmission(raw.report, acceptedAtMs, false);
           const priorReporter = database.campaigns[report.campaignFingerprint]?.reporters[report.reporterProof];
+          // A successful snapshot may be followed by a failed journal truncate.
+          // The snapshot's per-reporter accepted timestamp is authoritative, so
+          // records already represented there are safe idempotent replay skips.
+          if (priorReporter && Date.parse(priorReporter.reportedAt) >= acceptedAtMs) {
+            this.journalEvents++;
+            continue;
+          }
           applyReportToDatabase(database, report, raw.acceptedAt);
           const campaign = database.campaigns[report.campaignFingerprint]!;
           campaign.review = reviewReplacement(
@@ -1002,18 +1026,30 @@ export class EncryptedCommunityAggregateStore {
     this.assertAuthoritativeStorageUnchanged();
     this.close();
     this.writeDatabase(database);
-    if (existsSync(this.journalPath)) {
-      const noFollow = process.platform === "win32" ? 0 : (fsConstants.O_NOFOLLOW ?? 0);
-      const descriptor = openSync(this.journalPath, fsConstants.O_WRONLY | noFollow);
+
+    // Snapshot replacement is the durable commit. Truncating the old WAL is
+    // maintenance only: if truncation fails, idempotent replay above safely
+    // skips records already represented by this snapshot on restart.
+    let journalTruncated = !existsSync(this.journalPath);
+    if (!journalTruncated) {
       try {
-        if (!fstatSync(descriptor).isFile()) throw new Error("Community report journal is not a regular file.");
-        ftruncateSync(descriptor, 0);
-      } finally {
-        closeSync(descriptor);
+        const noFollow = process.platform === "win32" ? 0 : (fsConstants.O_NOFOLLOW ?? 0);
+        const descriptor = openSync(this.journalPath, fsConstants.O_WRONLY | noFollow);
+        try {
+          if (!fstatSync(descriptor).isFile()) throw new Error("Community report journal is not a regular file.");
+          ftruncateSync(descriptor, 0);
+          journalTruncated = true;
+        } finally {
+          closeSync(descriptor);
+        }
+      } catch {
+        journalTruncated = false;
       }
     }
-    this.journalEvents = 0;
-    this.journalBytes = 0;
+    if (journalTruncated) {
+      this.journalEvents = 0;
+      this.journalBytes = 0;
+    }
     this.captureAuthoritativeStorageFingerprints();
   }
 
