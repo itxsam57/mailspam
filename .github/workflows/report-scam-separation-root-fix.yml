@@ -35,59 +35,45 @@ jobs:
           route_end = route.index('\n  app.post("/api/accounts/:id/messages/legitimate-feedback"', route_start)
           section = route[route_start:route_end]
 
-          old_move = '''    // Local campaign protection is committed before any network/provider side
-            // effect. Even if either service is temporarily unavailable, every future
-            // matching message remains a local Confirmed Threat and will auto-Trash.
-            const move = await moveCurrentMessageToTrash(session, action.providerNativeId, dependencies.adapterFactory);
-
-          '''
-          if old_move not in section:
-              raise SystemExit('Report Scam provider-move block anchor missing')
-          section = section.replace(old_move, '''    // Report Scam owns threat learning only. It deliberately does not perform
+          move_start = section.index('    // Local campaign protection is committed before any network/provider side')
+          move_end = section.index('    let receipt: CommunityReportReceipt | null = null;', move_start)
+          section = section[:move_start] + '''    // Report Scam owns threat learning only. It deliberately does not perform
             // a provider mailbox move: Trash and Spam/Junk are separate explicit
             // user actions. Local campaign protection is committed first and remains
             // authoritative even when Family Shield or community delivery is unavailable.
 
-          ''', 1)
+          ''' + section[move_end:]
 
-          old_detail = '''      detail: `${move.movedCurrent ? "The current message was moved to Trash. " : "The current provider move needs a retry. "}${receipt?.accepted ? "Privacy-reduced community evidence was accepted. " : "Community delivery was unavailable or not accepted. "}${family.shared ? "Family Shield received the private campaign signal." : "No Family Shield campaign share was completed."}`,
-          '''
-          if old_detail not in section:
-              raise SystemExit('Report Scam activity detail anchor missing')
-          section = section.replace(old_detail, '''      detail: `The current mailbox message was not moved; Trash and Spam/Junk remain separate explicit actions. ${receipt?.accepted ? "Privacy-reduced community evidence was accepted. " : "Community delivery was unavailable or not accepted. "}${family.shared ? "Family Shield received the private campaign signal." : "No Family Shield campaign share was completed."}`,
-          ''', 1)
+          detail_start = section.index('      detail: `${move.movedCurrent ?')
+          detail_end = section.index('\n', detail_start) + 1
+          section = section[:detail_start] + '''      detail: `The current mailbox message was not moved; Trash and Spam/Junk remain separate explicit actions. ${receipt?.accepted ? "Privacy-reduced community evidence was accepted. " : "Community delivery was unavailable or not accepted. "}${family.shared ? "Family Shield received the private campaign signal." : "No Family Shield campaign share was completed."}`,
+          ''' + section[detail_end:]
 
           old_complete = '    const complete = move.movedCurrent && receipt?.accepted === true && !family.error;\n'
           if old_complete not in section:
-              raise SystemExit('Report Scam completion anchor missing')
+              raise SystemExit('Report Scam completion boundary missing')
           section = section.replace(old_complete, '    const complete = receipt?.accepted === true && !family.error;\n', 1)
 
-          old_response = '''      movedCurrent: move.movedCurrent,
-                moveError: move.moveError,
-          '''
-          if old_response not in section:
-              raise SystemExit('Report Scam response move fields anchor missing')
-          section = section.replace(old_response, '''      movedCurrent: false,
+          response_start = section.index('      movedCurrent: move.movedCurrent,')
+          response_end = section.index('      family,', response_start)
+          section = section[:response_start] + '''      movedCurrent: false,
                 providerAction: "none",
-          ''', 1)
-
+          ''' + section[response_end:]
           if 'moveCurrentMessageToTrash(' in section:
-              raise SystemExit('Report Scam route still owns a provider Trash call after repair')
-          route = route[:route_start] + section + route[route_end:]
-          route_path.write_text(route)
+              raise SystemExit('Report Scam route still owns a provider Trash call')
+          route_path.write_text(route[:route_start] + section + route[route_end:])
 
           web_path = Path('web/review-actions.js')
           web = web_path.read_text()
-          replacements = {
-              "Email Shield will save this campaign as an immediate local threat and attempt to move the current message to Trash. Future matching campaign mail remains protected even if provider, Family Shield, or community delivery is temporarily unavailable. Only privacy-reduced indicators can leave the device; message content, subject, mailbox address, credentials, provider ID, contacts, attachment names and raw private URLs are not submitted. One report cannot globally block a sender; independent reports and evidence thresholds are required before cross-user warning or confirmed-threat states.":
-              "Email Shield will save this campaign as an immediate local threat. Reporting does not move the current message; Trash and Spam/Junk remain separate explicit actions. Future matching campaign mail remains locally protected even if Family Shield or community delivery is temporarily unavailable. Only privacy-reduced indicators can leave the device; message content, subject, mailbox address, credentials, provider ID, contacts, attachment names and raw private URLs are not submitted. One report cannot globally block a sender; independent reports, time-spread corroboration and trusted human review are required before a network Confirmed Threat can be published.",
-              "Saving durable local campaign protection first, then attempting current-message Trash, Family Shield and privacy-reduced community delivery…":
-              "Saving durable local campaign protection, then Family Shield and privacy-reduced community delivery. The current mailbox message will not be moved…",
-          }
-          for old, new in replacements.items():
-              if old not in web:
-                  raise SystemExit(f'web wording anchor missing: {old[:70]}')
-              web = web.replace(old, new, 1)
+          old_explanation = 'Email Shield will save this campaign as an immediate local threat and attempt to move the current message to Trash. Future matching campaign mail remains protected even if provider, Family Shield, or community delivery is temporarily unavailable. Only privacy-reduced indicators can leave the device; message content, subject, mailbox address, credentials, provider ID, contacts, attachment names and raw private URLs are not submitted. One report cannot globally block a sender; independent reports and evidence thresholds are required before cross-user warning or confirmed-threat states.'
+          new_explanation = 'Email Shield will save this campaign as an immediate local threat. Reporting does not move the current message; Trash and Spam/Junk remain separate explicit actions. Future matching campaign mail remains locally protected even if Family Shield or community delivery is temporarily unavailable. Only privacy-reduced indicators can leave the device; message content, subject, mailbox address, credentials, provider ID, contacts, attachment names and raw private URLs are not submitted. One report cannot globally block a sender; independent reports, time-spread corroboration and trusted human review are required before a network Confirmed Threat can be published.'
+          if old_explanation not in web:
+              raise SystemExit('Report Scam confirmation wording boundary missing')
+          web = web.replace(old_explanation, new_explanation, 1)
+          old_progress = 'Saving durable local campaign protection first, then attempting current-message Trash, Family Shield and privacy-reduced community delivery…'
+          if old_progress not in web:
+              raise SystemExit('Report Scam progress wording boundary missing')
+          web = web.replace(old_progress, 'Saving durable local campaign protection, then Family Shield and privacy-reduced community delivery. The current mailbox message will not be moved…', 1)
 
           move_ui_start = web.index("        if (result.movedCurrent === true) {")
           move_ui_end = web.index("\n\n        await refreshPersonalPolicy();", move_ui_start)
@@ -95,7 +81,7 @@ jobs:
 
           status_start = web.index("        const moveState = result.movedCurrent === true")
           status_end = web.index("        return;", status_start)
-          replacement = '''        const mailboxState = 'The current message was not moved. Use the separate Trash or Move to Spam/Junk action if you want to remove it from Inbox.';
+          status_block = '''        const mailboxState = 'The current message was not moved. Use the separate Trash or Move to Spam/Junk action if you want to remove it from Inbox.';
                 const familyState = familyDeliveryMessage(result);
                 const communityState = communityDeliveryMessage(result);
                 const complete = result.communityAccepted === true && !result.family?.error;
@@ -110,36 +96,38 @@ jobs:
                   complete ? 'complete' : 'error',
                 );
           '''
-          web = web[:status_start] + replacement + web[status_end:]
+          web = web[:status_start] + status_block + web[status_end:]
           web_path.write_text(web)
 
           test_path = Path('tests/unit/protectionActions.test.ts')
           tests = test_path.read_text()
-          tests = tests.replace(
-              'it("makes Report Scam one server-side transaction and automatically shares privacy-reduced family campaign state", async () => {',
-              'it("keeps Report Scam separate from provider disposal while sharing privacy-reduced family campaign state", async () => {',
-              1,
-          )
-          tests = tests.replace('      movedCurrent: true,\n', '      movedCurrent: false,\n      providerAction: "none",\n', 1)
-          # The first replacement above could hit a block test if used globally; anchor within the Report Scam section instead.
-          report_test_start = tests.index('it("keeps Report Scam separate from provider disposal')
-          report_test_end = tests.index('\n  it("keeps Report Scam local protection', report_test_start)
-          report_test = tests[report_test_start:report_test_end]
-          report_test = report_test.replace('      movedCurrent: true,\n', '      movedCurrent: false,\n      providerAction: "none",\n')
-          report_test = report_test.replace('    expect(test.trashCalls).toEqual([["provider-native-1"]]);\n', '    expect(test.trashCalls).toEqual([]);\n')
-          tests = tests[:report_test_start] + report_test + tests[report_test_end:]
+          old_name = 'it("makes Report Scam one server-side transaction and automatically shares privacy-reduced family campaign state", async () => {'
+          new_name = 'it("keeps Report Scam separate from provider disposal while sharing privacy-reduced family campaign state", async () => {'
+          if old_name not in tests:
+              raise SystemExit('Report Scam main API test boundary missing')
+          tests = tests.replace(old_name, new_name, 1)
+
+          first_start = tests.index(new_name)
+          first_end = tests.index('\n  it("keeps Report Scam local protection authoritative', first_start)
+          first = tests[first_start:first_end]
+          if '      movedCurrent: true,\n' not in first or '    expect(test.trashCalls).toEqual([["provider-native-1"]]);\n' not in first:
+              raise SystemExit('Report Scam main test expectations missing')
+          first = first.replace('      movedCurrent: true,\n', '      movedCurrent: false,\n      providerAction: "none",\n', 1)
+          first = first.replace('    expect(test.trashCalls).toEqual([["provider-native-1"]]);\n', '    expect(test.trashCalls).toEqual([]);\n', 1)
+          tests = tests[:first_start] + first + tests[first_end:]
 
           second_start = tests.index('it("keeps Report Scam local protection authoritative')
           second_end = tests.index('\n});', second_start)
           second = tests[second_start:second_end]
-          second = second.replace('const test = await fixture({ failMove: true, familyMode: "failure" });', 'const test = await fixture({ familyMode: "failure" });')
-          second = second.replace('      movedCurrent: false,\n', '      movedCurrent: false,\n      providerAction: "none",\n')
-          second = second.replace('    expect(test.trashCalls).toEqual([["provider-native-1"]]);\n', '    expect(test.trashCalls).toEqual([]);\n')
+          if 'const test = await fixture({ failMove: true, familyMode: "failure" });' not in second:
+              raise SystemExit('Report Scam failure test fixture boundary missing')
+          second = second.replace('const test = await fixture({ failMove: true, familyMode: "failure" });', 'const test = await fixture({ familyMode: "failure" });', 1)
+          second = second.replace('      movedCurrent: false,\n', '      movedCurrent: false,\n      providerAction: "none",\n', 1)
+          second = second.replace('    expect(test.trashCalls).toEqual([["provider-native-1"]]);\n', '    expect(test.trashCalls).toEqual([]);\n', 1)
           tests = tests[:second_start] + second + tests[second_end:]
           test_path.write_text(tests)
 
-          separation_path = Path('tests/unit/reportScamActionSeparation.test.ts')
-          separation_path.write_text('''import { readFileSync } from "node:fs";\nimport { describe, expect, it } from "vitest";\n\ndescribe("Report Scam action separation", () => {\n  it("never lets the Report Scam API own a provider Trash move", () => {\n    const source = readFileSync(new URL("../../server/src/api/protectionActions.ts", import.meta.url), "utf8");\n    const start = source.indexOf('app.post("/api/accounts/:id/messages/report-scam"');\n    const end = source.indexOf('app.post("/api/accounts/:id/messages/legitimate-feedback"', start);\n    expect(start).toBeGreaterThanOrEqual(0);\n    expect(end).toBeGreaterThan(start);\n    const route = source.slice(start, end);\n    expect(route).not.toContain("moveCurrentMessageToTrash(");\n    expect(route).toContain('movedCurrent: false');\n    expect(route).toContain('providerAction: "none"');\n  });\n\n  it("tells the user that reporting does not move mail and keeps Trash/Spam explicit", () => {\n    const source = readFileSync(new URL("../../web/review-actions.js", import.meta.url), "utf8");\n    expect(source).toContain("Reporting does not move the current message; Trash and Spam/Junk remain separate explicit actions.");\n    expect(source).toContain("The current message was not moved. Use the separate Trash or Move to Spam/Junk action");\n    expect(source).not.toContain("attempting current-message Trash");\n    expect(source).not.toContain("Scam campaign protected locally and current message moved to Trash");\n  });\n});\n''')
+          Path('tests/unit/reportScamActionSeparation.test.ts').write_text('''import { readFileSync } from "node:fs";\nimport { describe, expect, it } from "vitest";\n\ndescribe("Report Scam action separation", () => {\n  it("never lets the Report Scam API own a provider Trash move", () => {\n    const source = readFileSync(new URL("../../server/src/api/protectionActions.ts", import.meta.url), "utf8");\n    const start = source.indexOf('app.post("/api/accounts/:id/messages/report-scam"');\n    const end = source.indexOf('app.post("/api/accounts/:id/messages/legitimate-feedback"', start);\n    expect(start).toBeGreaterThanOrEqual(0);\n    expect(end).toBeGreaterThan(start);\n    const route = source.slice(start, end);\n    expect(route).not.toContain("moveCurrentMessageToTrash(");\n    expect(route).toContain('movedCurrent: false');\n    expect(route).toContain('providerAction: "none"');\n  });\n\n  it("tells the user that reporting does not move mail and keeps Trash/Spam explicit", () => {\n    const source = readFileSync(new URL("../../web/review-actions.js", import.meta.url), "utf8");\n    expect(source).toContain("Reporting does not move the current message; Trash and Spam/Junk remain separate explicit actions.");\n    expect(source).toContain("The current message was not moved. Use the separate Trash or Move to Spam/Junk action");\n    expect(source).not.toContain("attempting current-message Trash");\n    expect(source).not.toContain("Scam campaign protected locally and current message moved to Trash");\n  });\n});\n''')
           PY
 
       - name: Certify action-separation repair
