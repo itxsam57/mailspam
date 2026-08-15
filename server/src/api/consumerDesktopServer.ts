@@ -14,6 +14,7 @@ import { registerMediaAuthenticityRoute } from "./mediaAuthenticityRoute.js";
 import { createLocalDesktopServer } from "./localDesktopServer.js";
 import { localSecurity } from "./localSecurity.js";
 import { registerScamCheckRoutes } from "./scamCheckRoutes.js";
+import { registerShoppingSafetyRoute } from "./shoppingSafetyRoute.js";
 
 type LocalDesktopOptions = NonNullable<Parameters<typeof createLocalDesktopServer>[0]>;
 
@@ -90,6 +91,7 @@ export function createConsumerDesktopServer(options: ConsumerDesktopServerOption
   // The binary media route above consumes application/octet-stream itself.
   // Remaining consumer API operations are small, strictly bounded JSON.
   app.use("/api/consumer", express.json({ limit: "64kb", strict: true }));
+  registerShoppingSafetyRoute(app);
   registerConsumerUnsubscribeActivityRoutes(app);
   registerConsumerCatchTrashRoutes(app);
   registerConsumerProtectionRoutes(app, {
