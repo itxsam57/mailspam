@@ -48,4 +48,12 @@ describe("Google consumer mailbox entrypoint", () => {
     expect(flow).toContain("return Boolean(this.options.clientId.trim() && resolveGoogleClientSecret(this.options.clientSecret))");
     expect(flow).toContain("client_secret: clientSecret");
   });
+
+  it("retries a transient Windows lock while Chromium publishes DevToolsActivePort", () => {
+    const smoke = read("scripts/engineering/smoke-google-provider.mjs");
+
+    expect(smoke).toContain('error?.code !== "EBUSY"');
+    expect(smoke).toContain("await sleep(50)");
+    expect(smoke).toContain('Timed out waiting for Chromium DevTools port.');
+  });
 });
