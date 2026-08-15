@@ -10,6 +10,11 @@ import type {
 } from "../../canonical/adapter.js";
 import type { CanonicalEnvelope, NormalizedFolder } from "../../canonical/envelope.js";
 import { normalizeRawMessage } from "../../util/mimeNormalize.js";
+import {
+  GmailMessageReadPacer,
+  isMissingGmailMessageError,
+  runGmailReadWithBackoff,
+} from "./gmailReadPolicy.js";
 
 export interface GmailOAuthCredentials {
   clientId: string;
@@ -129,9 +134,10 @@ function inaccessibleGmailEnvelope(input: {
  * Isolate individual Gmail message failures without hiding a provider-wide read
  * failure. A message whose raw body was unavailable or whose local MIME/security
  * normalization failed becomes an inaccessible canonical envelope, which the
- * verdict model keeps Unknown. If Gmail cannot read even one listed message in
- * the page, the page still fails so auth/provider outages are never reported as
- * a successful scan.
+ * verdict model keeps Unknown. Messages that disappeared after messages.list
+ * (404/410) are skipped like vanished IMAP UIDs rather than collapsing a Full
+ * Audit page. If Gmail cannot successfully answer or definitively invalidate
+ * any listed message in the page, the page still fails closed.
  */
 export async function resolveGmailPageMessages(options: {
   ids: readonly string[];
@@ -143,9 +149,10 @@ export async function resolveGmailPageMessages(options: {
 }): Promise<CanonicalEnvelope[]> {
   if (options.ids.length === 0) return [];
   const concurrency = Math.max(1, Math.min(options.concurrency ?? 4, options.ids.length));
-  const envelopes = new Array<CanonicalEnvelope>(options.ids.length);
+  const envelopes = new Array<CanonicalEnvelope | null>(options.ids.length).fill(null);
   let nextIndex = 0;
   let providerReadSuccesses = 0;
+  let definitivelyMissingMessages = 0;
 
   const workers = Array.from({ length: concurrency }, async () => {
     while (true) {
@@ -171,16 +178,21 @@ export async function resolveGmailPageMessages(options: {
         if (options.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) {
           throw new DOMException("Aborted", "AbortError");
         }
+        if (isMissingGmailMessageError(error)) {
+          definitivelyMissingMessages += 1;
+          envelopes[index] = null;
+          continue;
+        }
         envelopes[index] = options.inaccessibleMessage(id);
       }
     }
   });
 
   await Promise.all(workers);
-  if (providerReadSuccesses === 0) {
+  if (providerReadSuccesses === 0 && definitivelyMissingMessages === 0) {
     throw new Error("Gmail could not read any messages in the selected page.");
   }
-  return envelopes;
+  return envelopes.filter((envelope): envelope is CanonicalEnvelope => envelope !== null);
 }
 
 /**
@@ -199,6 +211,7 @@ export class GmailAdapter implements EmailAdapter {
   private gmail: gmail_v1.Gmail | null = null;
   private accountProof: string | null = null;
   private credentials: GmailOAuthCredentials;
+  private readonly messageReadPacer = new GmailMessageReadPacer();
 
   constructor(credentials: GmailOAuthCredentials) {
     this.credentials = credentials;
@@ -213,14 +226,20 @@ export class GmailAdapter implements EmailAdapter {
     auth.setCredentials({ refresh_token: this.credentials.refreshToken });
     this.gmail = gmail({ version: "v1", auth });
 
-    const profile = await this.gmail.users.getProfile({ userId: "me" });
+    const profile = await runGmailReadWithBackoff(
+      () => this.gmail!.users.getProfile({ userId: "me" }),
+      signal,
+    );
     this.accountProof = createHash("sha256").update(profile.data.emailAddress ?? "unknown").digest("hex");
   }
 
   async listFolders(signal: AbortSignal): Promise<FolderDescriptor[]> {
     if (!this.gmail) throw new Error("Not connected");
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-    const res = await this.gmail.users.labels.list({ userId: "me" });
+    const res = await runGmailReadWithBackoff(
+      () => this.gmail!.users.labels.list({ userId: "me" }),
+      signal,
+    );
     return resolveGmailFolderDescriptors(
       (res.data.labels ?? []).map((label) => label.id).filter((id): id is string => Boolean(id)),
     );
@@ -235,13 +254,20 @@ export class GmailAdapter implements EmailAdapter {
     if (!this.gmail || !this.accountProof) throw new Error("Not connected");
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
 
-    const listRes = await this.gmail.users.messages.list(
-      gmailMessageListParameters(folder, cursor, pageSize),
+    const listRes = await runGmailReadWithBackoff(
+      () => this.gmail!.users.messages.list(
+        gmailMessageListParameters(folder, cursor, pageSize),
+      ),
+      signal,
     );
     const ids = (listRes.data.messages ?? []).map((m) => m.id!).filter(Boolean);
 
     if (ids.length === 0) {
-      return { envelopes: [], nextCursor: null, done: true };
+      return {
+        envelopes: [],
+        nextCursor: listRes.data.nextPageToken ?? null,
+        done: !listRes.data.nextPageToken,
+      };
     }
 
     const envelopes = await resolveGmailPageMessages({
@@ -249,7 +275,11 @@ export class GmailAdapter implements EmailAdapter {
       signal,
       concurrency: 4,
       readRawMessage: async (id) => {
-        const msgRes = await this.gmail!.users.messages.get({ userId: "me", id, format: "raw" });
+        const msgRes = await runGmailReadWithBackoff(
+          () => this.gmail!.users.messages.get({ userId: "me", id, format: "raw" }),
+          signal,
+          { beforeAttempt: async () => this.messageReadPacer.wait(signal) },
+        );
         const encoded = msgRes.data.raw;
         return typeof encoded === "string" && encoded.length > 0
           ? Buffer.from(encoded, "base64url")
