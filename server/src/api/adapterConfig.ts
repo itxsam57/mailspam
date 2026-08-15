@@ -8,6 +8,7 @@ import type {
 } from "../canonical/adapter.js";
 import { buildDemoMailbox } from "../adapters/fixtures/demoMailbox.js";
 import type { FixtureFolderOverrides } from "../adapters/fixtures/fixtureAdapter.js";
+import type { FixtureFolderState } from "../adapters/fixtures/fixtureFolderState.js";
 import { GmailAdapter, type GmailOAuthCredentials } from "../adapters/gmail/gmailAdapter.js";
 import { OutlookAdapter, type OutlookOAuthCredentials, type OutlookRefreshTokenSink } from "../adapters/outlook/outlookAdapter.js";
 import { createGenericImapAdapter, createIcloudAdapter, createYahooAdapter, type ImapCredentials } from "../adapters/imap/imapAdapter.js";
@@ -21,7 +22,12 @@ import {
 import { cancelledOperationalError, localOperationalMetrics, type AdapterOperation } from "./localOperationalMetrics.js";
 
 export type AdapterConfig =
-  | { provider: Provider; mode: "fixture"; fixtureFolderOverrides?: FixtureFolderOverrides }
+  | {
+      provider: Provider;
+      mode: "fixture";
+      fixtureFolderOverrides?: FixtureFolderOverrides;
+      fixtureFolderState?: FixtureFolderState;
+    }
   | { provider: "gmail"; mode: "live"; credentials: GmailOAuthCredentials }
   | { provider: "outlook"; mode: "live"; credentials: OutlookOAuthCredentials }
   | { provider: "icloud" | "yahoo"; mode: "live"; credentials: { user: string; appPassword: string } }
@@ -44,7 +50,7 @@ function createRuntimeAdapter(config: AdapterConfig, outlookRefreshTokenSink?: O
   if (config.mode === "fixture") {
     const folderOverrides = config.fixtureFolderOverrides ?? {};
     config.fixtureFolderOverrides = folderOverrides;
-    return buildDemoMailbox(config.provider, folderOverrides);
+    return buildDemoMailbox(config.provider, folderOverrides, config.fixtureFolderState);
   }
   switch (config.provider) {
     case "gmail": return new GmailAdapter(config.credentials);
