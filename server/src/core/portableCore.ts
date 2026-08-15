@@ -195,6 +195,26 @@ function validArchiveSecurityInspection(value: unknown): boolean {
     && validStringArray(value.reasons, 16, 1_024);
 }
 
+const STATIC_MALWARE_INDICATORS = new Set([
+  "eicar_test_signature",
+  "encoded_powershell_execution",
+  "powershell_download_execute_chain",
+  "script_host_download_execute_chain",
+  "shell_download_execute_chain",
+  "office_autoexec_execution_chain",
+  "living_off_land_execution_chain",
+]);
+
+function validStaticMalwareInspection(value: unknown): boolean {
+  return isRecord(value)
+    && hasExactFields(value, ["risk", "indicators", "coverage"])
+    && ["none", "suspicious", "high"].includes(String(value.risk))
+    && Array.isArray(value.indicators)
+    && value.indicators.length <= STATIC_MALWARE_INDICATORS.size
+    && value.indicators.every((indicator) => typeof indicator === "string" && STATIC_MALWARE_INDICATORS.has(indicator))
+    && ["full", "sampled"].includes(String(value.coverage));
+}
+
 function validAttachmentSecurityInspection(value: unknown): boolean {
   if (!isRecord(value) || !hasExactFields(value, [
     "magicType",
@@ -202,12 +222,14 @@ function validAttachmentSecurityInspection(value: unknown): boolean {
     "executableOrScript",
     "macroCapable",
     "archive",
+    "staticMalware",
     "incomplete",
     "reasons",
   ])) return false;
   if (!["pe_executable", "elf_executable", "zip", "pdf", "png", "jpeg", "ole_compound", "rtf", "text_or_unknown"].includes(String(value.magicType))) return false;
   if (typeof value.extensionMismatch !== "boolean" || typeof value.executableOrScript !== "boolean" || typeof value.macroCapable !== "boolean" || typeof value.incomplete !== "boolean") return false;
   if (value.archive !== null && !validArchiveSecurityInspection(value.archive)) return false;
+  if (!validStaticMalwareInspection(value.staticMalware)) return false;
   return validStringArray(value.reasons, 16, 1_024);
 }
 
