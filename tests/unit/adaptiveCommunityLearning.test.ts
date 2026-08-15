@@ -9,6 +9,7 @@ import {
   LEGITIMATE_RULE_PREFIX,
   USER_BLOCKED_MESSAGE_CODE,
   USER_CONFIRMED_LEGITIMATE_CODE,
+  USER_REPORTED_SCAM_CODE,
 } from "../../server/src/community/feedback.js";
 import type { CommunityReportSubmission } from "../../server/src/community/types.js";
 
@@ -105,14 +106,14 @@ describe("adaptive community learning", () => {
     }
     expect(aggregate.buildFeedPayload().entries[0]?.ruleId).toMatch(new RegExp(`^${LEGITIMATE_RULE_PREFIX}`));
 
-    // One unresolved threat reporter immediately removes positive consensus.
-    aggregate.accept(report("person-0"));
+    // One unresolved explicit threat reporter immediately removes positive consensus.
+    aggregate.accept(report("person-0", { codes: [USER_REPORTED_SCAM_CODE] }));
     expect(aggregate.stats()).toEqual({ campaigns: 1, warnings: 0, confirmed: 0 });
     expect(aggregate.buildFeedPayload().entries).toEqual([]);
 
-    // Three explicit human threat reports recover the existing warning model.
-    aggregate.accept(report("person-1"));
-    aggregate.accept(report("person-2"));
+    // Three explicit human Report Scam actions recover the warning model.
+    aggregate.accept(report("person-1", { codes: [USER_REPORTED_SCAM_CODE] }));
+    aggregate.accept(report("person-2", { codes: [USER_REPORTED_SCAM_CODE] }));
     expect(aggregate.stats()).toEqual({ campaigns: 1, warnings: 1, confirmed: 0 });
     const entries = aggregate.buildFeedPayload().entries;
     expect(entries.some((entry) => entry.type !== "identity" && entry.ruleId.startsWith(LEGITIMATE_RULE_PREFIX))).toBe(false);
