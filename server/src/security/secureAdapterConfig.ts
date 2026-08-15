@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
 import type { FixtureFolderOverrides } from "../adapters/fixtures/fixtureAdapter.js";
+import {
+  createFixtureFolderState,
+  type FixtureFolderState,
+} from "../adapters/fixtures/fixtureFolderState.js";
 import type { GmailOAuthCredentials } from "../adapters/gmail/gmailAdapter.js";
 import type { ImapCredentials } from "../adapters/imap/imapAdapter.js";
 import type { OutlookOAuthCredentials } from "../adapters/outlook/outlookAdapter.js";
@@ -27,6 +31,7 @@ export type SecureAdapterConfig =
       provider: Provider;
       mode: "fixture";
       fixtureFolderOverrides?: FixtureFolderOverrides;
+      fixtureFolderState?: FixtureFolderState;
     }
   | {
       provider: "gmail";
@@ -167,9 +172,16 @@ export function outlookRefreshTokenCredentialReference(
 export function secureAdapterConfigInMemory(config: AdapterConfig): SecuredAdapterConfigResult {
   if (config.mode === "fixture") {
     const fixtureFolderOverrides = config.fixtureFolderOverrides ?? {};
+    const fixtureFolderState = config.fixtureFolderState ?? createFixtureFolderState();
     config.fixtureFolderOverrides = fixtureFolderOverrides;
+    config.fixtureFolderState = fixtureFolderState;
     return {
-      config: { provider: config.provider, mode: "fixture", fixtureFolderOverrides },
+      config: {
+        provider: config.provider,
+        mode: "fixture",
+        fixtureFolderOverrides,
+        fixtureFolderState,
+      },
       vaultReferences: [],
     };
   }
@@ -372,6 +384,7 @@ export async function materializeAdapterConfig(
       provider: config.provider,
       mode: "fixture",
       fixtureFolderOverrides: config.fixtureFolderOverrides,
+      fixtureFolderState: config.fixtureFolderState,
     };
   }
 
