@@ -1,38 +1,37 @@
+import type {
+  ArchiveSecurityInspection,
+  AttachmentMagicType,
+  AttachmentSecurityInspection,
+  StaticMalwareIndicator,
+  StaticMalwareInspection,
+} from "../canonical/envelope.js";
+
+export type {
+  ArchiveSecurityInspection,
+  AttachmentMagicType,
+  AttachmentSecurityInspection,
+  StaticMalwareIndicator,
+  StaticMalwareInspection,
+} from "../canonical/envelope.js";
+
 export const MAX_ARCHIVE_DIRECTORY_BYTES = 4 * 1024 * 1024;
 export const MAX_ARCHIVE_ENTRIES = 256;
 export const MAX_ARCHIVE_DECLARED_UNCOMPRESSED_BYTES = 128 * 1024 * 1024;
 export const MAX_ARCHIVE_COMPRESSION_RATIO = 100;
-
-export type AttachmentMagicType = "pe_executable" | "elf_executable" | "zip" | "pdf" | "png" | "jpeg" | "ole_compound" | "rtf" | "text_or_unknown";
-
-export interface ArchiveSecurityInspection {
-  format: "zip";
-  entryCount: number;
-  encryptedEntries: number;
-  executableOrScriptEntries: number;
-  macroCapableEntries: number;
-  nestedArchiveEntries: number;
-  declaredCompressedBytes: number;
-  declaredUncompressedBytes: number;
-  maximumCompressionRatio: number;
-  overResourceLimit: boolean;
-  incomplete: boolean;
-  reasons: string[];
-}
-
-export interface AttachmentSecurityInspection {
-  magicType: AttachmentMagicType;
-  extensionMismatch: boolean;
-  executableOrScript: boolean;
-  macroCapable: boolean;
-  archive: ArchiveSecurityInspection | null;
-  incomplete: boolean;
-  reasons: string[];
-}
+/**
+ * Static behavioral matching is deliberately bounded even when a provider has
+ * already supplied a very large attachment. Complete small attachments are
+ * examined in full; larger ones use equal head/tail windows so this layer
+ * cannot duplicate an unbounded attachment in memory merely for text matching.
+ */
+export const MAX_STATIC_MALWARE_TEXT_SCAN_BYTES = 2 * 1024 * 1024;
 
 const EXECUTABLE_EXTENSIONS = new Set(["exe", "dll", "scr", "com", "msi", "msp", "bat", "cmd", "ps1", "psm1", "vbs", "vbe", "js", "jse", "wsf", "wsh", "hta", "jar", "lnk", "apk"]);
 const MACRO_EXTENSIONS = new Set(["docm", "xlsm", "pptm", "dotm", "xltm", "xlam", "ppam"]);
 const ARCHIVE_EXTENSIONS = new Set(["zip", "jar", "apk", "docx", "xlsx", "pptx", "docm", "xlsm", "pptm"]);
+
+/** Harmless industry-standard antivirus test signature; never treated as a verified real-malware identity. */
+const EICAR_TEST_SIGNATURE = "X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*";
 
 function extension(name: string): string {
   const parts = name.normalize("NFKC").trim().toLowerCase().split(".");
@@ -178,6 +177,81 @@ function inspectZip(bytes: Uint8Array): ArchiveSecurityInspection {
   };
 }
 
+function sampledStaticText(bytes: Uint8Array): { text: string; coverage: StaticMalwareInspection["coverage"] } {
+  if (bytes.length <= MAX_STATIC_MALWARE_TEXT_SCAN_BYTES) {
+    return {
+      text: Buffer.from(bytes).toString("latin1").replace(/\0/g, "").toLowerCase(),
+      coverage: "full",
+    };
+  }
+  const half = Math.floor(MAX_STATIC_MALWARE_TEXT_SCAN_BYTES / 2);
+  const sampled = Buffer.concat([
+    Buffer.from(bytes.subarray(0, half)),
+    Buffer.from("\n"),
+    Buffer.from(bytes.subarray(bytes.length - half)),
+  ]);
+  return {
+    text: sampled.toString("latin1").replace(/\0/g, "").toLowerCase(),
+    coverage: "sampled",
+  };
+}
+
+function hasAny(text: string, needles: readonly string[]): boolean {
+  return needles.some((needle) => text.includes(needle));
+}
+
+/**
+ * Conservative deterministic static malware behavior inspection. This never
+ * executes, deobfuscates, phones home, or uploads attachment content. Indicator
+ * codes describe behavior chains only; exact known-malware identity remains the
+ * responsibility of verified SHA-256 threat intelligence.
+ */
+export function inspectStaticMalware(bytes: Uint8Array): StaticMalwareInspection {
+  const indicators = new Set<StaticMalwareIndicator>();
+  const raw = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (raw.indexOf(EICAR_TEST_SIGNATURE, 0, "ascii") >= 0) indicators.add("eicar_test_signature");
+
+  const { text, coverage } = sampledStaticText(bytes);
+  const hasPowerShell = /(?:^|[^a-z0-9_])powershell(?:\.exe)?(?:[^a-z0-9_]|$)/i.test(text);
+  const hasEncodedPowerShell = hasPowerShell && hasAny(text, [
+    " -enc ", " -enc\t", " -encodedcommand ", "frombase64string(", "[convert]::frombase64string",
+  ]);
+  if (hasEncodedPowerShell) indicators.add("encoded_powershell_execution");
+
+  const hasNetworkDownload = hasAny(text, [
+    "downloadstring(", "downloadfile(", "invoke-webrequest", "start-bitstransfer", "net.webclient",
+    "xmlhttp", "winhttp", "bitsadmin", "http://", "https://",
+  ]);
+  const hasExecution = hasAny(text, [
+    "invoke-expression", "iex(", "iex ", "start-process", "wscript.shell", "shell.application",
+    "cmd.exe", "cmd /c", "powershell.exe", " rundll32", " mshta", " regsvr32",
+  ]);
+  if (hasPowerShell && hasNetworkDownload && hasExecution) indicators.add("powershell_download_execute_chain");
+
+  const hasScriptHost = hasAny(text, ["wscript.shell", "shell.application", "createobject(\"wscript.shell\"", "createobject('wscript.shell'"]);
+  const hasScriptStaging = hasAny(text, ["adodb.stream", "xmlhttp", "msxml2.xmlhttp", "winhttp.winhttprequest"]);
+  if (hasScriptHost && hasScriptStaging && hasExecution) indicators.add("script_host_download_execute_chain");
+
+  const hasUnixDownloader = /(?:^|[;&|\s])(curl|wget)(?:\s|$)/m.test(text);
+  const pipesToShell = /\|\s*(?:\/bin\/)?(?:ba|z|k)?sh(?:\s|$)/m.test(text);
+  const stagedExecutable = /chmod\s+\+x\s+[^\r\n;&|]+(?:[;&|]|\n)[^\r\n]*(?:\/tmp\/|\.\/)/m.test(text);
+  if (hasUnixDownloader && (pipesToShell || stagedExecutable)) indicators.add("shell_download_execute_chain");
+
+  const hasOfficeAutoExec = hasAny(text, ["autoopen", "auto_open", "document_open", "workbook_open", "presentation_open"]);
+  const hasOfficeExecution = hasAny(text, ["createobject(", "shell(", "wscript.shell", "powershell", "cmd.exe"]);
+  if (hasOfficeAutoExec && hasOfficeExecution && hasNetworkDownload) indicators.add("office_autoexec_execution_chain");
+
+  const hasLolbin = hasAny(text, ["mshta ", "mshta.exe", "regsvr32 ", "regsvr32.exe", "rundll32 ", "rundll32.exe"]);
+  const hasRemoteOrScriptProtocol = hasAny(text, ["http://", "https://", "javascript:", "vbscript:", "scrobj.dll"]);
+  if (hasLolbin && hasRemoteOrScriptProtocol) indicators.add("living_off_land_execution_chain");
+
+  return {
+    risk: indicators.size > 0 ? "high" : "none",
+    indicators: [...indicators],
+    coverage,
+  };
+}
+
 export function inspectAttachmentSecurity(name: string, mimeType: string, bytes: Uint8Array): AttachmentSecurityInspection {
   const ext = extension(name);
   const magicType = attachmentMagicType(bytes);
@@ -186,18 +260,21 @@ export function inspectAttachmentSecurity(name: string, mimeType: string, bytes:
   const executableOrScript = magicType === "pe_executable" || magicType === "elf_executable" || EXECUTABLE_EXTENSIONS.has(ext);
   const macroCapable = MACRO_EXTENSIONS.has(ext) || magicType === "ole_compound" && /macro|vba/i.test(mimeType);
   const archive = magicType === "zip" ? inspectZip(bytes) : null;
+  const staticMalware = inspectStaticMalware(bytes);
   const reasons: string[] = [];
   if (extensionMismatch) reasons.push("Filename extension does not match the locally observed file signature.");
   if (executableOrScript) reasons.push("Attachment is executable/script-capable by extension or observed magic bytes.");
   if (macroCapable || (archive?.macroCapableEntries ?? 0) > 0) reasons.push("Attachment is macro-capable or contains a macro project indicator.");
   if ((archive?.executableOrScriptEntries ?? 0) > 0) reasons.push("Archive contains executable or script-capable filenames.");
   if (archive?.overResourceLimit) reasons.push("Archive exceeds bounded local extraction safety limits and was not expanded.");
+  if (staticMalware.risk === "high") reasons.push("Attachment content matches one or more deterministic local malware-behavior chains.");
   return {
     magicType,
     extensionMismatch,
     executableOrScript,
     macroCapable: macroCapable || (archive?.macroCapableEntries ?? 0) > 0,
     archive,
+    staticMalware,
     incomplete: archive?.incomplete ?? false,
     reasons: [...new Set([...reasons, ...(archive?.reasons ?? [])])].slice(0, 16),
   };
