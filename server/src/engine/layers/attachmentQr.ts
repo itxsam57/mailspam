@@ -97,6 +97,16 @@ export function attachmentQrLayer(envelope: CanonicalEnvelope): LayerResult {
     const archiveExtension = ARCHIVE_EXTENSIONS.has(ext);
     const security = att.securityInspection;
 
+    if (security?.staticMalware.risk === "high") {
+      evidence.push({
+        layer: "attachment_qr",
+        code: "STATIC_MALWARE_BEHAVIOR",
+        description: `Attachment "${displayName}" contains a deterministic local malware-behavior chain or antivirus test signature. Attachment bytes were inspected locally and were not uploaded.`,
+        scoreContribution: 7,
+        source: "local",
+      });
+    }
+
     if (security?.extensionMismatch) {
       evidence.push({
         layer: "attachment_qr",
