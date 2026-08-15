@@ -25,10 +25,13 @@ import {
   type StoredCommunityCampaignRecord,
   type StoredCommunityDatabase,
   type StoredCommunityReporterRecord,
+  type StoredCommunityReporterReputation,
+  type StoredCommunityReviewRecord,
 } from "./aggregateState.js";
 import { CommunityReportCapacityError, CommunityReportRateLimitError, CommunityReportValidationError } from "./errors.js";
 import {
   hasBlockFeedback,
+  hasExplicitScamFeedback,
   hasLegitimateFeedback,
   LEGITIMATE_CONSENSUS_REPORTERS,
   LEGITIMATE_RULE_PREFIX,
@@ -55,12 +58,17 @@ const MAX_CAMPAIGNS = 100_000;
 const MAX_INDICATORS_PER_REPORT = 32;
 const MAX_REPORT_AGE_MS = 30 * 24 * 60 * 60_000;
 export const COMMUNITY_REPORT_RETENTION_MS = 90 * 24 * 60 * 60_000;
+export const COMMUNITY_REVIEW_MIN_SPAN_MS = 6 * 60 * 60_000;
 const MAX_FUTURE_SKEW_MS = 5 * 60_000;
-const HUMAN_REPORT_BASE_WEIGHT = 5;
+const EXPLICIT_SCAM_BASE_WEIGHT = 5;
 const BLOCK_FEEDBACK_BASE_WEIGHT = 2;
+const UNATTESTED_REPORT_BASE_WEIGHT = 1;
+const REPUTATION_MIN_RESOLVED_CASES = 3;
 const DEFAULT_SNAPSHOT_INTERVAL = 500;
 const REPORT_VERDICTS = new Set(["safe", "unknown", "review", "high_risk", "confirmed_threat"]);
 const REPORT_INDICATOR_TYPES = new Set(["sender", "reply_to_domain", "url_domain", "attachment_hash", "campaign"]);
+const REVIEWER_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:@-]{1,79}$/;
+const MAX_REVIEW_REASON_CHARS = 500;
 const ENVELOPE_WITHOUT_CIPHERTEXT_BYTES = Buffer.byteLength(JSON.stringify({
   version: 1,
   algorithm: ALGORITHM,
@@ -118,8 +126,8 @@ export const DEFAULT_COMMUNITY_THRESHOLDS: CommunityThresholds = {
   warningReporters: 3,
   warningWeight: 15,
   confirmedReporters: 5,
-  confirmedStrongReporters: 3,
-  confirmedWeight: 35,
+  confirmedStrongReporters: 5,
+  confirmedWeight: 25,
 };
 
 export interface CommunityAggregateStoreOptions {
@@ -127,37 +135,62 @@ export interface CommunityAggregateStoreOptions {
   snapshotInterval?: number;
 }
 
+export interface CommunityReviewCandidate {
+  campaignFingerprint: string;
+  independentReporters: number;
+  strongReporters: number;
+  weightedScore: number;
+  distinctUtcDays: number;
+  observedSpanMs: number;
+  firstSeen: string;
+  lastSeen: string;
+  createdAt: string;
+}
+
+export interface CommunityReviewResolution {
+  campaignFingerprint: string;
+  decision: "approved" | "rejected";
+  resolvedAt: string;
+  reporterHistoriesUpdated: number;
+}
+
 function emptyDatabase(): StoredCommunityDatabase {
-  return { version: 2, campaigns: {} };
+  return { version: 3, campaigns: {}, reporterReputation: {} };
 }
 
 function clampScore(value: number): number {
   return Math.max(0, Math.min(20, Number.isFinite(value) ? Math.round(value) : 0));
 }
 
-function verdictBonus(verdict: CommunityReportSubmission["verdict"]): number {
-  switch (verdict) {
-    case "confirmed_threat": return 8;
-    case "high_risk": return 5;
-    case "review": return 2;
-    case "unknown": return 1;
-    case "safe": return 0;
-  }
-}
-
 function isLegitimate(record: Pick<StoredCommunityReporterRecord, "evidenceCodes">): boolean {
   return hasLegitimateFeedback(record.evidenceCodes);
 }
 
-function reporterWeight(record: Pick<StoredCommunityReporterRecord, "evidenceScore" | "verdict" | "evidenceCodes">): number {
+function isExplicitScam(record: Pick<StoredCommunityReporterRecord, "evidenceCodes">): boolean {
+  return !isLegitimate(record) && hasExplicitScamFeedback(record.evidenceCodes);
+}
+
+function reputationMultiplier(record: StoredCommunityReporterReputation | undefined): number {
+  if (!record || record.resolvedCases < REPUTATION_MIN_RESOLVED_CASES) return 1;
+  const accuracy = record.alignedCases / record.resolvedCases;
+  return Math.max(0.5, Math.min(1.5, 0.5 + accuracy));
+}
+
+function reporterWeight(
+  record: Pick<StoredCommunityReporterRecord, "evidenceCodes">,
+  reputation?: StoredCommunityReporterReputation,
+): number {
   if (isLegitimate(record)) return 0;
-  const base = hasBlockFeedback(record.evidenceCodes) ? BLOCK_FEEDBACK_BASE_WEIGHT : HUMAN_REPORT_BASE_WEIGHT;
-  return base + clampScore(record.evidenceScore) + verdictBonus(record.verdict);
+  const base = isExplicitScam(record)
+    ? EXPLICIT_SCAM_BASE_WEIGHT
+    : hasBlockFeedback(record.evidenceCodes)
+      ? BLOCK_FEEDBACK_BASE_WEIGHT
+      : UNATTESTED_REPORT_BASE_WEIGHT;
+  return base * reputationMultiplier(reputation);
 }
 
 function isStrong(record: StoredCommunityReporterRecord): boolean {
-  if (isLegitimate(record)) return false;
-  return record.verdict === "confirmed_threat" || record.verdict === "high_risk" || record.evidenceScore >= 6;
+  return isExplicitScam(record);
 }
 
 interface CampaignMetrics {
@@ -166,20 +199,31 @@ interface CampaignMetrics {
   strong: number;
 }
 
+interface TemporalSpread {
+  spanMs: number;
+  distinctUtcDays: number;
+}
+
 const ZERO_METRICS: CampaignMetrics = { reporters: 0, weight: 0, strong: 0 };
 
-function reporterContribution(record: StoredCommunityReporterRecord | undefined): CampaignMetrics {
+function reporterContribution(
+  record: StoredCommunityReporterRecord | undefined,
+  reputation?: StoredCommunityReporterReputation,
+): CampaignMetrics {
   if (!record || isLegitimate(record)) return ZERO_METRICS;
   return {
     reporters: 1,
-    weight: reporterWeight(record),
+    weight: reporterWeight(record, reputation),
     strong: isStrong(record) ? 1 : 0,
   };
 }
 
-function metricsFor(record: StoredCommunityCampaignRecord): CampaignMetrics {
-  return Object.values(record.reporters).reduce<CampaignMetrics>((metrics, reporter) => {
-    const contribution = reporterContribution(reporter);
+function metricsFor(
+  record: StoredCommunityCampaignRecord,
+  reputation: StoredCommunityDatabase["reporterReputation"],
+): CampaignMetrics {
+  return Object.entries(record.reporters).reduce<CampaignMetrics>((metrics, [proof, reporter]) => {
+    const contribution = reporterContribution(reporter, reputation[proof]);
     metrics.reporters += contribution.reporters;
     metrics.weight += contribution.weight;
     metrics.strong += contribution.strong;
@@ -187,18 +231,63 @@ function metricsFor(record: StoredCommunityCampaignRecord): CampaignMetrics {
   }, { ...ZERO_METRICS });
 }
 
-function statusFromMetrics(metrics: CampaignMetrics, thresholds: CommunityThresholds): CommunityCampaignStatus {
-  if (
-    metrics.reporters >= thresholds.confirmedReporters &&
-    metrics.strong >= thresholds.confirmedStrongReporters &&
-    metrics.weight >= thresholds.confirmedWeight
-  ) return "confirmed";
-  if (metrics.reporters >= thresholds.warningReporters && metrics.weight >= thresholds.warningWeight) return "warning";
-  return "candidate";
+function temporalSpread(record: StoredCommunityCampaignRecord): TemporalSpread {
+  const times = Object.values(record.reporters)
+    .filter(isStrong)
+    .map((reporter) => Date.parse(reporter.reportedAt))
+    .filter(Number.isFinite);
+  if (times.length === 0) return { spanMs: 0, distinctUtcDays: 0 };
+  const days = new Set(times.map((timestamp) => new Date(timestamp).toISOString().slice(0, 10)));
+  return {
+    spanMs: Math.max(...times) - Math.min(...times),
+    distinctUtcDays: days.size,
+  };
 }
 
-function statusFor(record: StoredCommunityCampaignRecord, thresholds: CommunityThresholds): CommunityCampaignStatus {
-  return statusFromMetrics(metricsFor(record), thresholds);
+function temporalSpreadAfterReport(
+  record: StoredCommunityCampaignRecord | undefined,
+  reporterProof: string,
+  candidate: StoredCommunityReporterRecord,
+): TemporalSpread {
+  const times: number[] = [];
+  let replaced = false;
+  for (const [proof, reporter] of Object.entries(record?.reporters ?? {})) {
+    const effective = proof === reporterProof ? candidate : reporter;
+    if (proof === reporterProof) replaced = true;
+    if (isStrong(effective)) times.push(Date.parse(effective.reportedAt));
+  }
+  if (!replaced && isStrong(candidate)) times.push(Date.parse(candidate.reportedAt));
+  const valid = times.filter(Number.isFinite);
+  if (valid.length === 0) return { spanMs: 0, distinctUtcDays: 0 };
+  const days = new Set(valid.map((timestamp) => new Date(timestamp).toISOString().slice(0, 10)));
+  return {
+    spanMs: Math.max(...valid) - Math.min(...valid),
+    distinctUtcDays: days.size,
+  };
+}
+
+function meetsWarningThreshold(metrics: CampaignMetrics, thresholds: CommunityThresholds): boolean {
+  return metrics.reporters >= thresholds.warningReporters && metrics.weight >= thresholds.warningWeight;
+}
+
+function meetsReviewThreshold(metrics: CampaignMetrics, spread: TemporalSpread, thresholds: CommunityThresholds): boolean {
+  return metrics.reporters >= thresholds.confirmedReporters &&
+    metrics.strong >= thresholds.confirmedStrongReporters &&
+    metrics.weight >= thresholds.confirmedWeight &&
+    spread.spanMs >= COMMUNITY_REVIEW_MIN_SPAN_MS &&
+    spread.distinctUtcDays >= 2;
+}
+
+function statusFor(
+  record: StoredCommunityCampaignRecord,
+  database: StoredCommunityDatabase,
+  thresholds: CommunityThresholds,
+): CommunityCampaignStatus {
+  const metrics = metricsFor(record, database.reporterReputation);
+  const spread = temporalSpread(record);
+  if (record.review?.status === "approved" && meetsReviewThreshold(metrics, spread, thresholds)) return "confirmed";
+  if (meetsWarningThreshold(metrics, thresholds)) return "warning";
+  return "candidate";
 }
 
 function legitimateReporterCount(record: StoredCommunityCampaignRecord | undefined): number {
@@ -335,8 +424,10 @@ function mergedReporter(
 
   return {
     reportedAt: acceptedAt,
+    // Client detector severity is retained only as diagnostic evidence. It is
+    // deliberately excluded from central trust/confidence calculations.
     evidenceScore: Math.max(prior.evidenceScore, report.evidenceScore),
-    verdict: reporterWeight(incoming) >= reporterWeight(prior) ? report.verdict : prior.verdict,
+    verdict: prior.verdict === "confirmed_threat" ? prior.verdict : report.verdict,
     evidenceCodes: [...new Set([...prior.evidenceCodes, ...report.evidenceCodes])].sort(),
     indicators: [...new Map(
       [...prior.indicators, ...report.indicators].map((indicator) => [indicatorKey(indicator), indicator]),
@@ -360,6 +451,7 @@ function applyReportToDatabase(
       firstSeen: acceptedAt,
       lastSeen: acceptedAt,
       reporters: { [report.reporterProof]: reporter },
+      review: null,
     };
   }
 }
@@ -370,6 +462,24 @@ function reporterEntryBytes(proof: string, reporter: StoredCommunityReporterReco
 
 function campaignEntryBytes(fingerprint: string, campaign: StoredCommunityCampaignRecord): number {
   return Buffer.byteLength(`${JSON.stringify(fingerprint)}:${JSON.stringify(campaign)}`, "utf8");
+}
+
+function reviewCandidate(createdAt: string): StoredCommunityReviewRecord {
+  return { status: "candidate", createdAt, resolvedAt: null, reviewerId: null, reason: null };
+}
+
+function reviewReplacement(
+  prior: StoredCommunityReviewRecord | null,
+  metrics: CampaignMetrics,
+  spread: TemporalSpread,
+  thresholds: CommunityThresholds,
+  acceptedAt: string,
+  allowReopen: boolean,
+): StoredCommunityReviewRecord | null {
+  if (!meetsReviewThreshold(metrics, spread, thresholds)) return prior;
+  if (prior === null) return reviewCandidate(acceptedAt);
+  if (prior.status === "rejected" && allowReopen) return reviewCandidate(acceptedAt);
+  return prior;
 }
 
 function pruneExpired(database: StoredCommunityDatabase, nowMs: number): boolean {
@@ -388,6 +498,7 @@ function pruneExpired(database: StoredCommunityDatabase, nowMs: number): boolean
       firstSeen: new Date(Math.min(...timestamps)).toISOString(),
       lastSeen: new Date(Math.max(...timestamps)).toISOString(),
       reporters,
+      review: campaign.review,
     };
   }
   return changed;
@@ -438,21 +549,34 @@ export class EncryptedCommunityAggregateStore {
 
     const acceptedAt = now.toISOString();
     const previousMetrics = this.campaignMetrics.get(report.campaignFingerprint) ?? { ...ZERO_METRICS };
-    const previousStatus = statusFromMetrics(previousMetrics, this.thresholds);
+    const previousStatus = existing ? statusFor(existing, database, this.thresholds) : "candidate";
     const previousLegitimate = legitimateReporterCount(existing);
     const previousPositiveConsensus = previousLegitimate >= LEGITIMATE_CONSENSUS_REPORTERS && previousMetrics.reporters === 0;
     const priorReporter = existing?.reporters[report.reporterProof];
     const candidateReporter = mergedReporter(priorReporter, report, acceptedAt);
+    const reputation = database.reporterReputation[report.reporterProof];
+    const priorContribution = reporterContribution(priorReporter, reputation);
+    const nextContribution = reporterContribution(candidateReporter, reputation);
+    const nextMetrics: CampaignMetrics = {
+      reporters: previousMetrics.reporters - priorContribution.reporters + nextContribution.reporters,
+      weight: previousMetrics.weight - priorContribution.weight + nextContribution.weight,
+      strong: previousMetrics.strong - priorContribution.strong + nextContribution.strong,
+    };
+    const nextSpread = temporalSpreadAfterReport(existing, report.reporterProof, candidateReporter);
+    const nextReview = reviewReplacement(existing?.review ?? null, nextMetrics, nextSpread, this.thresholds, acceptedAt, !duplicate);
+
     let candidatePlaintextBytes: number;
     if (existing) {
       const previousEntryBytes = priorReporter ? reporterEntryBytes(report.reporterProof, priorReporter) : 0;
       const nextEntryBytes = reporterEntryBytes(report.reporterProof, candidateReporter);
-      candidatePlaintextBytes = this.snapshotPlaintextBytes + nextEntryBytes - previousEntryBytes + (priorReporter ? 0 : 1);
+      const reviewDelta = Buffer.byteLength(JSON.stringify(nextReview), "utf8") - Buffer.byteLength(JSON.stringify(existing.review), "utf8");
+      candidatePlaintextBytes = this.snapshotPlaintextBytes + nextEntryBytes - previousEntryBytes + (priorReporter ? 0 : 1) + reviewDelta;
     } else {
       const candidateCampaign: StoredCommunityCampaignRecord = {
         firstSeen: acceptedAt,
         lastSeen: acceptedAt,
         reporters: { [report.reporterProof]: candidateReporter },
+        review: nextReview,
       };
       candidatePlaintextBytes = this.snapshotPlaintextBytes + campaignEntryBytes(report.campaignFingerprint, candidateCampaign) +
         (Object.keys(database.campaigns).length > 0 ? 1 : 0);
@@ -467,15 +591,9 @@ export class EncryptedCommunityAggregateStore {
     this.appendJournal(line);
 
     applyReportToDatabase(database, report, acceptedAt);
+    database.campaigns[report.campaignFingerprint]!.review = nextReview;
     this.databaseCache = database;
     this.snapshotPlaintextBytes = candidatePlaintextBytes;
-    const priorContribution = reporterContribution(priorReporter);
-    const nextContribution = reporterContribution(candidateReporter);
-    const nextMetrics: CampaignMetrics = {
-      reporters: previousMetrics.reporters - priorContribution.reporters + nextContribution.reporters,
-      weight: previousMetrics.weight - priorContribution.weight + nextContribution.weight,
-      strong: previousMetrics.strong - priorContribution.strong + nextContribution.strong,
-    };
     this.campaignMetrics.set(report.campaignFingerprint, nextMetrics);
     const nextLegitimate = previousLegitimate - (priorReporter && isLegitimate(priorReporter) ? 1 : 0) + (isLegitimate(candidateReporter) ? 1 : 0);
     const nextPositiveConsensus = nextLegitimate >= LEGITIMATE_CONSENSUS_REPORTERS && nextMetrics.reporters === 0;
@@ -492,7 +610,7 @@ export class EncryptedCommunityAggregateStore {
       try { this.compact(database); } catch { /* the accepted report remains durable in the journal */ }
     }
 
-    const status = statusFromMetrics(nextMetrics, this.thresholds);
+    const status = statusFor(database.campaigns[report.campaignFingerprint]!, database, this.thresholds);
     return {
       accepted: true,
       duplicate,
@@ -501,6 +619,94 @@ export class EncryptedCommunityAggregateStore {
       independentReporters: isLegitimate(candidateReporter) ? nextLegitimate : nextMetrics.reporters,
       status,
       feedUpdated: status !== previousStatus || previousPositiveConsensus !== nextPositiveConsensus,
+    };
+  }
+
+  listReviewCandidates(): CommunityReviewCandidate[] {
+    const database = this.loadDatabase(this.now().getTime());
+    const candidates: CommunityReviewCandidate[] = [];
+    for (const [campaignFingerprint, campaign] of Object.entries(database.campaigns)) {
+      if (campaign.review?.status !== "candidate") continue;
+      const metrics = metricsFor(campaign, database.reporterReputation);
+      const spread = temporalSpread(campaign);
+      if (!meetsReviewThreshold(metrics, spread, this.thresholds)) continue;
+      candidates.push({
+        campaignFingerprint,
+        independentReporters: metrics.reporters,
+        strongReporters: metrics.strong,
+        weightedScore: Math.round(metrics.weight * 100) / 100,
+        distinctUtcDays: spread.distinctUtcDays,
+        observedSpanMs: spread.spanMs,
+        firstSeen: campaign.firstSeen,
+        lastSeen: campaign.lastSeen,
+        createdAt: campaign.review.createdAt,
+      });
+    }
+    return candidates.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  }
+
+  resolveReviewCandidate(input: {
+    campaignFingerprint: string;
+    decision: "approved" | "rejected";
+    reviewerId: string;
+    reason: string;
+  }): CommunityReviewResolution {
+    if (!/^[a-f0-9]{64}$/.test(input.campaignFingerprint)) throw new CommunityReportValidationError("Review campaign fingerprint is invalid.");
+    if (input.decision !== "approved" && input.decision !== "rejected") throw new CommunityReportValidationError("Review decision is invalid.");
+    if (!REVIEWER_ID_RE.test(input.reviewerId)) throw new CommunityReportValidationError("Review operator ID is invalid.");
+    const reason = input.reason.trim();
+    if (!reason || reason.length > MAX_REVIEW_REASON_CHARS || /[\u0000-\u001f\u007f]/.test(reason)) {
+      throw new CommunityReportValidationError("Review reason is invalid.");
+    }
+
+    const now = this.now();
+    const database = this.loadDatabase(now.getTime(), false);
+    const campaign = database.campaigns[input.campaignFingerprint];
+    if (!campaign || campaign.review?.status !== "candidate") throw new CommunityReportValidationError("Campaign is not awaiting human review.");
+    const metrics = metricsFor(campaign, database.reporterReputation);
+    const spread = temporalSpread(campaign);
+    if (!meetsReviewThreshold(metrics, spread, this.thresholds)) throw new CommunityReportValidationError("Campaign no longer meets the corroboration boundary for human review.");
+
+    const previousReview = structuredClone(campaign.review);
+    const previousReputation = new Map<string, StoredCommunityReporterReputation | undefined>();
+    const resolvedAt = now.toISOString();
+    campaign.review = {
+      status: input.decision,
+      createdAt: previousReview.createdAt,
+      resolvedAt,
+      reviewerId: input.reviewerId,
+      reason,
+    };
+    for (const [proof, reporter] of Object.entries(campaign.reporters)) {
+      previousReputation.set(proof, database.reporterReputation[proof] ? { ...database.reporterReputation[proof]! } : undefined);
+      const prior = database.reporterReputation[proof] ?? { resolvedCases: 0, alignedCases: 0 };
+      const threatReporter = !isLegitimate(reporter);
+      const aligned = input.decision === "approved" ? threatReporter : !threatReporter;
+      database.reporterReputation[proof] = {
+        resolvedCases: prior.resolvedCases + 1,
+        alignedCases: prior.alignedCases + (aligned ? 1 : 0),
+      };
+    }
+
+    try {
+      this.assertSnapshotCapacity(database);
+      this.compact(database);
+      this.rebuildIndexes(database);
+    } catch (error) {
+      campaign.review = previousReview;
+      for (const [proof, prior] of previousReputation) {
+        if (prior) database.reporterReputation[proof] = prior;
+        else delete database.reporterReputation[proof];
+      }
+      this.rebuildIndexes(database);
+      throw error;
+    }
+
+    return {
+      campaignFingerprint: input.campaignFingerprint,
+      decision: input.decision,
+      resolvedAt,
+      reporterHistoriesUpdated: previousReputation.size,
     };
   }
 
@@ -514,8 +720,8 @@ export class EncryptedCommunityAggregateStore {
     const database = this.loadDatabase(now.getTime());
     const entries: SignedFeedEntry[] = [];
     for (const [fingerprint, campaign] of Object.entries(database.campaigns)) {
-      const metrics = metricsFor(campaign);
-      const status = statusFromMetrics(metrics, this.thresholds);
+      const metrics = metricsFor(campaign, database.reporterReputation);
+      const status = statusFor(campaign, database, this.thresholds);
       const reporters = Object.entries(campaign.reporters);
       const threatReporters = reporters.filter(([, reporter]) => !isLegitimate(reporter));
       const legitimateReporters = reporters.filter(([, reporter]) => isLegitimate(reporter));
@@ -577,7 +783,7 @@ export class EncryptedCommunityAggregateStore {
     let warnings = 0;
     let confirmed = 0;
     for (const campaign of Object.values(database.campaigns)) {
-      const status = statusFor(campaign, this.thresholds);
+      const status = statusFor(campaign, database, this.thresholds);
       if (status === "warning") warnings++;
       if (status === "confirmed") confirmed++;
     }
@@ -694,7 +900,17 @@ export class EncryptedCommunityAggregateStore {
           const acceptedAtMs = Date.parse(raw.acceptedAt);
           if (!Number.isFinite(acceptedAtMs) || new Date(acceptedAtMs).toISOString() !== raw.acceptedAt) throw new Error("Invalid journal timestamp.");
           const report = validateSubmission(raw.report, acceptedAtMs, false);
+          const priorReporter = database.campaigns[report.campaignFingerprint]?.reporters[report.reporterProof];
           applyReportToDatabase(database, report, raw.acceptedAt);
+          const campaign = database.campaigns[report.campaignFingerprint]!;
+          campaign.review = reviewReplacement(
+            campaign.review,
+            metricsFor(campaign, database.reporterReputation),
+            temporalSpread(campaign),
+            this.thresholds,
+            raw.acceptedAt,
+            !priorReporter,
+          );
           this.journalEvents++;
         } catch (error) {
           throw new Error(`Encrypted community report journal is invalid: ${error instanceof Error ? error.message : String(error)}`);
@@ -712,7 +928,10 @@ export class EncryptedCommunityAggregateStore {
   private rebuildIndexes(database: StoredCommunityDatabase): void {
     this.rebuildReporterActivity(database);
     this.snapshotPlaintextBytes = Buffer.byteLength(JSON.stringify(database), "utf8");
-    this.campaignMetrics = new Map(Object.entries(database.campaigns).map(([fingerprint, campaign]) => [fingerprint, metricsFor(campaign)]));
+    this.campaignMetrics = new Map(Object.entries(database.campaigns).map(([fingerprint, campaign]) => [
+      fingerprint,
+      metricsFor(campaign, database.reporterReputation),
+    ]));
     this.recomputeNextPruneAt(database);
   }
 
