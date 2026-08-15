@@ -2,13 +2,17 @@ import type { CommunityIndicator, CommunityReportSubmission } from "./types.js";
 
 const REPORT_VERDICTS = new Set(["safe", "unknown", "review", "high_risk", "confirmed_threat"]);
 const INDICATOR_TYPES = new Set(["sender", "reply_to_domain", "url_domain", "attachment_hash", "campaign"]);
+const REVIEW_STATUSES = new Set(["candidate", "approved", "rejected"]);
 const REPORTER_PROOF_RE = /^[a-f0-9]{64}$/;
 const CAMPAIGN_FINGERPRINT_RE = /^[a-f0-9]{64}$/;
 const EVIDENCE_CODE_RE = /^[A-Z0-9_]{2,80}$/;
+const REVIEWER_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:@-]{1,79}$/;
 const MAX_INDICATOR_VALUE_CHARS = 512;
 const MAX_TIMESTAMP_CHARS = 64;
 const MAX_EVIDENCE_CODES = 64;
 const MAX_INDICATORS = 32;
+const MAX_REVIEW_REASON_CHARS = 500;
+const MAX_REPUTATION_CASES = 1_000_000_000;
 
 export interface StoredCommunityReporterRecordV1 {
   reportedAt: string;
@@ -37,15 +41,43 @@ export interface StoredCommunityReporterRecord {
   indicators: CommunityIndicator[];
 }
 
-export interface StoredCommunityCampaignRecord {
+interface StoredCommunityCampaignRecordV2 {
   firstSeen: string;
   lastSeen: string;
   reporters: Record<string, StoredCommunityReporterRecord>;
 }
 
-export interface StoredCommunityDatabase {
+interface StoredCommunityDatabaseV2 {
   version: 2;
+  campaigns: Record<string, StoredCommunityCampaignRecordV2>;
+}
+
+export type StoredCommunityReviewStatus = "candidate" | "approved" | "rejected";
+
+export interface StoredCommunityReviewRecord {
+  status: StoredCommunityReviewStatus;
+  createdAt: string;
+  resolvedAt: string | null;
+  reviewerId: string | null;
+  reason: string | null;
+}
+
+export interface StoredCommunityReporterReputation {
+  resolvedCases: number;
+  alignedCases: number;
+}
+
+export interface StoredCommunityCampaignRecord {
+  firstSeen: string;
+  lastSeen: string;
+  reporters: Record<string, StoredCommunityReporterRecord>;
+  review: StoredCommunityReviewRecord | null;
+}
+
+export interface StoredCommunityDatabase {
+  version: 3;
   campaigns: Record<string, StoredCommunityCampaignRecord>;
+  reporterReputation: Record<string, StoredCommunityReporterReputation>;
 }
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -191,7 +223,7 @@ function validateReporterRecord(
   return item as unknown as StoredCommunityReporterRecord;
 }
 
-function validateCampaign(fingerprint: string, value: unknown): StoredCommunityCampaignRecord | null {
+function validateCampaignV2(fingerprint: string, value: unknown): StoredCommunityCampaignRecordV2 | null {
   if (!CAMPAIGN_FINGERPRINT_RE.test(fingerprint)) return null;
   const campaign = record(value);
   if (!campaign || !onlyKeys(campaign, ["firstSeen", "lastSeen", "reporters"])) return null;
@@ -212,7 +244,62 @@ function validateCampaign(fingerprint: string, value: unknown): StoredCommunityC
     observedLast = Math.max(observedLast, timestamp);
   }
   if (new Date(observedFirst).toISOString() !== campaign.firstSeen || new Date(observedLast).toISOString() !== campaign.lastSeen) return null;
-  return campaign as unknown as StoredCommunityCampaignRecord;
+  return campaign as unknown as StoredCommunityCampaignRecordV2;
+}
+
+function validateReview(value: unknown, firstSeen: number): StoredCommunityReviewRecord | null | undefined {
+  if (value === null) return null;
+  const review = record(value);
+  if (!review || !onlyKeys(review, ["status", "createdAt", "resolvedAt", "reviewerId", "reason"])) return undefined;
+  if (typeof review.status !== "string" || !REVIEW_STATUSES.has(review.status)) return undefined;
+  if (!canonicalTimestamp(review.createdAt) || Date.parse(review.createdAt) < firstSeen) return undefined;
+  if (review.status === "candidate") {
+    if (review.resolvedAt !== null || review.reviewerId !== null || review.reason !== null) return undefined;
+  } else {
+    if (!canonicalTimestamp(review.resolvedAt) || Date.parse(review.resolvedAt) < Date.parse(review.createdAt)) return undefined;
+    if (typeof review.reviewerId !== "string" || !REVIEWER_ID_RE.test(review.reviewerId)) return undefined;
+    if (typeof review.reason !== "string" || review.reason !== review.reason.trim() || review.reason.length === 0 || review.reason.length > MAX_REVIEW_REASON_CHARS || /[\u0000-\u001f\u007f]/.test(review.reason)) return undefined;
+  }
+  return review as unknown as StoredCommunityReviewRecord;
+}
+
+function validateCampaign(fingerprint: string, value: unknown): StoredCommunityCampaignRecord | null {
+  if (!CAMPAIGN_FINGERPRINT_RE.test(fingerprint)) return null;
+  const campaign = record(value);
+  if (!campaign || !onlyKeys(campaign, ["firstSeen", "lastSeen", "reporters", "review"])) return null;
+  if (!canonicalTimestamp(campaign.firstSeen) || !canonicalTimestamp(campaign.lastSeen)) return null;
+  const firstSeen = Date.parse(campaign.firstSeen);
+  const lastSeen = Date.parse(campaign.lastSeen);
+  if (firstSeen > lastSeen) return null;
+  const reporters = record(campaign.reporters);
+  if (!reporters || Object.keys(reporters).length === 0) return null;
+  let observedFirst = Number.POSITIVE_INFINITY;
+  let observedLast = 0;
+  for (const [proof, rawReporter] of Object.entries(reporters)) {
+    if (!REPORTER_PROOF_RE.test(proof)) return null;
+    const reporter = validateReporterRecord(fingerprint, rawReporter, firstSeen, lastSeen);
+    if (!reporter) return null;
+    const timestamp = Date.parse(reporter.reportedAt);
+    observedFirst = Math.min(observedFirst, timestamp);
+    observedLast = Math.max(observedLast, timestamp);
+  }
+  if (new Date(observedFirst).toISOString() !== campaign.firstSeen || new Date(observedLast).toISOString() !== campaign.lastSeen) return null;
+  const review = validateReview(campaign.review, firstSeen);
+  if (review === undefined) return null;
+  return { ...campaign, review } as unknown as StoredCommunityCampaignRecord;
+}
+
+function validateReputation(value: unknown): Record<string, StoredCommunityReporterReputation> | null {
+  const reputation = record(value);
+  if (!reputation) return null;
+  for (const [proof, raw] of Object.entries(reputation)) {
+    if (!REPORTER_PROOF_RE.test(proof)) return null;
+    const item = record(raw);
+    if (!item || !onlyKeys(item, ["resolvedCases", "alignedCases"])) return null;
+    if (!Number.isInteger(item.resolvedCases) || (item.resolvedCases as number) < 1 || (item.resolvedCases as number) > MAX_REPUTATION_CASES) return null;
+    if (!Number.isInteger(item.alignedCases) || (item.alignedCases as number) < 0 || (item.alignedCases as number) > (item.resolvedCases as number)) return null;
+  }
+  return reputation as unknown as Record<string, StoredCommunityReporterReputation>;
 }
 
 function validateV1(value: Record<string, unknown>, maxCampaigns: number): StoredCommunityDatabaseV1 {
@@ -224,17 +311,28 @@ function validateV1(value: Record<string, unknown>, maxCampaigns: number): Store
   return value as unknown as StoredCommunityDatabaseV1;
 }
 
-function validateV2(value: Record<string, unknown>, maxCampaigns: number): StoredCommunityDatabase {
+function validateV2(value: Record<string, unknown>, maxCampaigns: number): StoredCommunityDatabaseV2 {
+  const campaigns = record(value.campaigns);
+  if (!campaigns || Object.keys(campaigns).length > maxCampaigns) throw new Error("Community aggregate campaign collection is invalid.");
+  for (const [fingerprint, campaign] of Object.entries(campaigns)) {
+    if (!validateCampaignV2(fingerprint, campaign)) throw new Error("Community aggregate campaign state is invalid.");
+  }
+  return value as unknown as StoredCommunityDatabaseV2;
+}
+
+function validateV3(value: Record<string, unknown>, maxCampaigns: number): StoredCommunityDatabase {
   const campaigns = record(value.campaigns);
   if (!campaigns || Object.keys(campaigns).length > maxCampaigns) throw new Error("Community aggregate campaign collection is invalid.");
   for (const [fingerprint, campaign] of Object.entries(campaigns)) {
     if (!validateCampaign(fingerprint, campaign)) throw new Error("Community aggregate campaign state is invalid.");
   }
-  return value as unknown as StoredCommunityDatabase;
+  const reporterReputation = validateReputation(value.reporterReputation);
+  if (!reporterReputation) throw new Error("Community reporter reputation state is invalid.");
+  return { version: 3, campaigns: campaigns as unknown as Record<string, StoredCommunityCampaignRecord>, reporterReputation };
 }
 
-function migrateV1(database: StoredCommunityDatabaseV1): StoredCommunityDatabase {
-  const campaigns: Record<string, StoredCommunityCampaignRecord> = {};
+function migrateV1(database: StoredCommunityDatabaseV1): StoredCommunityDatabaseV2 {
+  const campaigns: Record<string, StoredCommunityCampaignRecordV2> = {};
   for (const [fingerprint, campaign] of Object.entries(database.campaigns)) {
     const proofs = Object.keys(campaign.reporters).sort();
     const reporters: Record<string, StoredCommunityReporterRecord> = {};
@@ -259,12 +357,31 @@ function migrateV1(database: StoredCommunityDatabaseV1): StoredCommunityDatabase
   return { version: 2, campaigns };
 }
 
+function migrateV2(database: StoredCommunityDatabaseV2): StoredCommunityDatabase {
+  return {
+    version: 3,
+    campaigns: Object.fromEntries(Object.entries(database.campaigns).map(([fingerprint, campaign]) => [
+      fingerprint,
+      { ...campaign, review: null },
+    ])),
+    reporterReputation: {},
+  };
+}
+
 export function validateStoredCommunityDatabase(value: unknown, maxCampaigns: number): StoredCommunityDatabase {
   const database = record(value);
-  if (!database || !onlyKeys(database, ["version", "campaigns"])) {
-    throw new Error("Community aggregate database shape is invalid.");
+  if (!database) throw new Error("Community aggregate database shape is invalid.");
+  if (database.version === 1) {
+    if (!onlyKeys(database, ["version", "campaigns"])) throw new Error("Community aggregate database shape is invalid.");
+    return migrateV2(migrateV1(validateV1(database, maxCampaigns)));
   }
-  if (database.version === 1) return migrateV1(validateV1(database, maxCampaigns));
-  if (database.version === 2) return validateV2(database, maxCampaigns);
+  if (database.version === 2) {
+    if (!onlyKeys(database, ["version", "campaigns"])) throw new Error("Community aggregate database shape is invalid.");
+    return migrateV2(validateV2(database, maxCampaigns));
+  }
+  if (database.version === 3) {
+    if (!onlyKeys(database, ["version", "campaigns", "reporterReputation"])) throw new Error("Community aggregate database shape is invalid.");
+    return validateV3(database, maxCampaigns);
+  }
   throw new Error("Community aggregate database shape is invalid.");
 }
