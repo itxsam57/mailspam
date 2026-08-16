@@ -3,7 +3,7 @@
   if (installedModules.has('runtime-workflow-trace')) return;
   installedModules.add('runtime-workflow-trace');
 
-  const TRACE_WINDOW_MS = 30_000;
+  const TRACE_WINDOW_MS = 10_000;
   const PROVIDERS = new Set(['gmail', 'icloud', 'yahoo', 'imap', 'outlook']);
   const SCAN_TYPES = new Set(['quick', 'full', 'spam']);
   const SAFE_STREAM_PHASE = /^[a-z][a-z0-9_]{0,63}$/;
@@ -219,14 +219,19 @@
         const parsedUrl = new URL(rawPath, window.location.origin);
         if (!context || parsedUrl.origin !== window.location.origin || !parsedUrl.pathname.includes('/scan/')) return;
 
+        let streamProvider = context.provider;
+        let streamScanType = context.scanType;
+        const streamContext = () => ({
+          ...context,
+          provider: streamProvider,
+          scanType: streamScanType,
+        });
+
         this.addEventListener('scan-started', (event) => {
           const value = parseStreamData(event);
-          const provider = validProvider(value.provider);
-          const scanType = validScanType(value.type) || context.scanType;
-          streamTrace(context, 'workflow', 'scan_started', 'started', {
-            ...(provider ? { provider } : {}),
-            ...(scanType ? { scanType } : {}),
-          });
+          streamProvider = validProvider(value.provider) || streamProvider;
+          streamScanType = validScanType(value.type) || streamScanType;
+          streamTrace(streamContext(), 'workflow', 'scan_started', 'started');
         });
         this.addEventListener('scan-status', (event) => {
           const value = parseStreamData(event);
@@ -237,22 +242,22 @@
             ? value.message.match(/bounded batches of (\d{1,5})/i)
             : null;
           const pageSize = batchMatch ? Number(batchMatch[1]) : undefined;
-          streamTrace(context, phase === 'bounded_batches' ? 'worker' : 'workflow', phase, phase === 'complete' ? 'success' : 'started', {
+          streamTrace(streamContext(), phase === 'bounded_batches' ? 'worker' : 'workflow', phase, phase === 'complete' ? 'success' : 'started', {
             ...(Number.isSafeInteger(pageSize) ? { pageSize } : {}),
           });
         });
         this.addEventListener('scan-complete', (event) => {
           const value = parseStreamData(event);
           const examined = Number(value?.counters?.examined);
-          streamTrace(context, 'workflow', 'scan_complete', 'success', {
+          streamTrace(streamContext(), 'workflow', 'scan_complete', 'success', {
             ...(Number.isSafeInteger(examined) && examined >= 0 ? { itemCount: examined } : {}),
           });
         });
         this.addEventListener('scan-error', () => {
-          streamTrace(context, 'workflow', 'scan_error', 'failed', { errorCode: 'server_scan_error' });
+          streamTrace(streamContext(), 'workflow', 'scan_error', 'failed', { errorCode: 'server_scan_error' });
         });
         this.addEventListener('error', () => {
-          streamTrace(context, 'workflow', 'stream_transport_error', 'failed', { errorCode: 'sse_transport_error' });
+          streamTrace(streamContext(), 'workflow', 'stream_transport_error', 'failed', { errorCode: 'sse_transport_error' });
         });
       }
     }
@@ -260,6 +265,7 @@
   }
 
   document.addEventListener('click', (event) => {
+    if (event.isTrusted === false) return;
     const button = event.target instanceof Element ? event.target.closest('button') : null;
     if (!(button instanceof HTMLButtonElement) || button.disabled) return;
     const [actionId, expectedWorkflow] = semanticControl(button);
