@@ -1,9 +1,13 @@
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
+const REPOSITORY_ROOT = basename(process.cwd()) === "server"
+  ? resolve(process.cwd(), "..")
+  : process.cwd();
+
 function source(path: string): string {
-  return readFileSync(resolve(process.cwd(), path), "utf8");
+  return readFileSync(resolve(REPOSITORY_ROOT, path), "utf8");
 }
 
 function methodBody(text: string, signature: string): string {
