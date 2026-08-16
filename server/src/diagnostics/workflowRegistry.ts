@@ -23,6 +23,28 @@ function linearWorkflow(
   };
 }
 
+function uiWorkflow(
+  workflowId: string,
+  actionIds: string[] = [workflowId],
+  internalOnly = false,
+): WorkflowDefinition {
+  const requested = `${workflowId}.requested`;
+  const uiConfirmed = `${workflowId}.ui_confirmed`;
+  return {
+    workflowId,
+    actionIds,
+    requiredCheckpoints: [requested, uiConfirmed],
+    terminalCheckpoints: {
+      success: [uiConfirmed],
+      failed: [],
+      rejected: [],
+      cancelled: [],
+      partial: [],
+    },
+    ...(internalOnly ? { internalOnly: true } : {}),
+  };
+}
+
 function automaticWorkflow(workflowId: string): WorkflowDefinition {
   const started = `${workflowId}.started`;
   const completed = `${workflowId}.completed`;
@@ -82,6 +104,10 @@ const DEFINITIONS: WorkflowDefinition[] = [
   linearWorkflow("provider.connect.outlook", ["provider.connect.outlook"], true),
   linearWorkflow("account.select"),
   linearWorkflow("account.disconnect"),
+  linearWorkflow("account.mailbox.link"),
+  linearWorkflow("account.sign_out"),
+  linearWorkflow("account.profile.snapshot"),
+  uiWorkflow("account.recovery.open"),
   linearWorkflow("workspace.restore"),
 
   scanWorkflow("quick"),
@@ -101,6 +127,7 @@ const DEFINITIONS: WorkflowDefinition[] = [
   linearWorkflow("message.unsubscribe"),
   linearWorkflow("message.analyze_links"),
   linearWorkflow("message.undo"),
+  linearWorkflow("mailbox.cleanup"),
 
   linearWorkflow("protection.background.toggle"),
   linearWorkflow("protection.background.interval"),
@@ -113,11 +140,20 @@ const DEFINITIONS: WorkflowDefinition[] = [
   linearWorkflow("policy.reset"),
   linearWorkflow("policy.import"),
   linearWorkflow("policy.export"),
+  uiWorkflow("policy.selection.toggle"),
   linearWorkflow("activity.load"),
+  linearWorkflow("activity.clear"),
+  linearWorkflow("mailbox.health.run"),
   linearWorkflow("mailbox.health.load"),
   linearWorkflow("account.footprint.load"),
+  linearWorkflow("browser_destination.check"),
+  linearWorkflow("intervention.check"),
+  linearWorkflow("exposure.email.check"),
+  linearWorkflow("support.bundle.export"),
 
   linearWorkflow("scam_check.run"),
+  uiWorkflow("scam_check.mode"),
+  uiWorkflow("scam_check.clear"),
   linearWorkflow("shopping_safety.run"),
   linearWorkflow("media_authenticity.run"),
 
@@ -129,6 +165,7 @@ const DEFINITIONS: WorkflowDefinition[] = [
   linearWorkflow("family.leave"),
   linearWorkflow("family.remove_member"),
   linearWorkflow("family.guardian_preferences"),
+  linearWorkflow("family.transfer"),
 
   linearWorkflow("community.operations.load"),
   linearWorkflow("community.campaign_radar.load"),
@@ -145,18 +182,24 @@ const DEFINITIONS: WorkflowDefinition[] = [
   linearWorkflow("account.delete"),
   linearWorkflow("billing.plan.load"),
   linearWorkflow("billing.subscription.verify"),
+  linearWorkflow("billing.purchase.individual"),
+  linearWorkflow("billing.purchase.family"),
+  linearWorkflow("billing.purchase.restore"),
 
   linearWorkflow("onboarding.start"),
   linearWorkflow("onboarding.complete"),
-  linearWorkflow("navigation.home"),
-  linearWorkflow("navigation.scan"),
-  linearWorkflow("navigation.protection"),
-  linearWorkflow("navigation.family"),
-  linearWorkflow("navigation.community"),
-  linearWorkflow("navigation.history"),
-  linearWorkflow("navigation.account"),
-  linearWorkflow("navigation.settings"),
-  linearWorkflow("navigation.activity"),
+  uiWorkflow("navigation.home"),
+  uiWorkflow("navigation.scan"),
+  uiWorkflow("navigation.protection"),
+  uiWorkflow("navigation.family"),
+  uiWorkflow("navigation.community"),
+  uiWorkflow("navigation.history"),
+  uiWorkflow("navigation.account"),
+  uiWorkflow("navigation.settings"),
+  uiWorkflow("navigation.activity"),
+  uiWorkflow("navigation.check"),
+
+  linearWorkflow("developer.test_suite", ["developer.test_suite"], true),
 ];
 
 export const WORKFLOW_REGISTRY: Readonly<Record<string, WorkflowDefinition>> = Object.freeze(
