@@ -30,12 +30,21 @@ try {
   }
 }
 
+// Source/browser acceptance is diagnostic mode. Enable the privacy-safe local
+// workflow trace automatically unless the owner explicitly disables it in
+// .env.local with EMAIL_SHIELD_RUNTIME_TRACE=0.
+if (process.env.EMAIL_SHIELD_RUNTIME_TRACE === undefined) {
+  process.env.EMAIL_SHIELD_RUNTIME_TRACE = "1";
+}
+
 const googleClientIdLoaded = Boolean(process.env.EMAIL_SHIELD_GOOGLE_CLIENT_ID?.trim());
 const googleClientSecretLoaded = Boolean(process.env.EMAIL_SHIELD_GOOGLE_CLIENT_SECRET?.trim());
+const runtimeTraceEnabled = process.env.EMAIL_SHIELD_RUNTIME_TRACE === "1";
 console.log(
   `Email Shield source configuration: .env.local ${envLocalLoaded ? "loaded" : "not found"}; `
   + `Google client ID ${googleClientIdLoaded ? "loaded" : "missing"}; `
-  + `Google client secret ${googleClientSecretLoaded ? "loaded" : "missing"}.`,
+  + `Google client secret ${googleClientSecretLoaded ? "loaded" : "missing"}; `
+  + `runtime workflow trace ${runtimeTraceEnabled ? "enabled" : "disabled"}.`,
 );
 
 let command;
