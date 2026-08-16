@@ -5,6 +5,8 @@ import {
   InboundProtectionCoordinator,
   InvalidInboundEventError,
   type CanonicalInboundEventV1,
+  type InboundEventStateRepository,
+  type InboundEventStateV1,
 } from "../../server/src/realtime/inboundEvents.js";
 
 function event(overrides: Partial<CanonicalInboundEventV1> = {}): CanonicalInboundEventV1 {
@@ -18,6 +20,14 @@ function event(overrides: Partial<CanonicalInboundEventV1> = {}): CanonicalInbou
     checkpoint: "42",
     providerMessageId: null,
     ...overrides,
+  };
+}
+
+function cloneState(state: InboundEventStateV1): InboundEventStateV1 {
+  return {
+    schemaVersion: 1,
+    rememberedEventKeys: [...state.rememberedEventKeys],
+    checkpoints: { ...state.checkpoints },
   };
 }
 
@@ -102,6 +112,39 @@ describe("InboundProtectionCoordinator", () => {
     expect(coordinator.checkpoint("account-local-key", "gmail", "push")).toBeNull();
     expect((await coordinator.enqueue(event())).status).toBe("processed");
     expect(attempts).toBe(2);
+  });
+
+  it("does not poison in-memory replay or checkpoint state when durable acknowledgement save fails", async () => {
+    let stored: InboundEventStateV1 = { schemaVersion: 1, rememberedEventKeys: [], checkpoints: {} };
+    let failNextSave = true;
+    const repository: InboundEventStateRepository = {
+      persistent: true,
+      load: () => cloneState(stored),
+      save: (state) => {
+        if (failNextSave) {
+          failNextSave = false;
+          throw new Error("protected state unavailable");
+        }
+        stored = cloneState(state);
+      },
+    };
+    let attempts = 0;
+    const coordinator = new InboundProtectionCoordinator({
+      repository,
+      processor: async () => {
+        attempts += 1;
+        return { examined: 1, warnings: 0, highRisk: 0, confirmedThreat: 0 };
+      },
+    });
+
+    await expect(coordinator.enqueue(event())).rejects.toThrow("protected state unavailable");
+    expect(repository.load().rememberedEventKeys).toHaveLength(0);
+    expect(coordinator.checkpoint("account-local-key", "gmail", "push")).toBeNull();
+
+    expect((await coordinator.enqueue(event())).status).toBe("processed");
+    expect(attempts).toBe(2);
+    expect(repository.load().rememberedEventKeys).toHaveLength(1);
+    expect(coordinator.checkpoint("account-local-key", "gmail", "push")).toBe("42");
   });
 
   it("fails closed when the bounded real-time backlog is full", async () => {
