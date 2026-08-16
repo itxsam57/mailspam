@@ -83,6 +83,7 @@ try {
       EMAIL_SHIELD_DATA_DIR: dataDir,
       EMAIL_SHIELD_COMMUNITY_SERVER: "0",
       EMAIL_SHIELD_COMMUNITY_URL: "",
+      EMAIL_SHIELD_ENABLE_DEVELOPMENT_ENTITLEMENTS: "1",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
