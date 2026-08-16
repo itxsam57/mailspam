@@ -69,6 +69,16 @@ function hasValueTransfer(context: StructuralContext): boolean {
   return requestedTransfer && instrument;
 }
 
+function irreversiblePaymentPressureScore(context: StructuralContext): number {
+  const hasDeadline = context.facts.pressure.includes("deadline");
+  const explicitlyIrreversible = context.facts.pressure.includes("irreversible");
+  // A real value-transfer request plus both an explicit deadline and explicit
+  // irreversibility is a stronger single compound fact than either pressure
+  // signal alone. Keep it in one evidence item so the same topology is never
+  // counted again by a legacy phrase rule merely to cross High Risk.
+  return hasDeadline && explicitlyIrreversible ? 6 : 4;
+}
+
 /**
  * One fixed table owns provider-neutral structural scam scores. Provider
  * placement, adapter identity and consumer surface are intentionally absent.
@@ -98,7 +108,7 @@ const STRUCTURAL_RULES: readonly StructuralRule[] = [
   },
   {
     code: "IRREVERSIBLE_PAYMENT_PRESSURE",
-    score: 4,
+    score: irreversiblePaymentPressureScore,
     description: "A high-friction value-transfer request is combined with urgency, a deadline, or explicit irreversibility.",
     matches: (context) => has(context.facts.paymentInstruments, HIGH_FRICTION_INSTRUMENTS)
       && (context.facts.requestedActions.includes("pay") || context.facts.requestedActions.includes("move_money"))
