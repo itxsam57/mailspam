@@ -1,7 +1,9 @@
-// Owner/engineering acceptance only. Normal consumer startup intentionally keeps
-// development entitlements disabled so Fixture mode and developer routes are not
-// exposed to a production-like consumer session.
-process.env.EMAIL_SHIELD_ENABLE_DEVELOPMENT_ENTITLEMENTS = "1";
+// Owner/engineering acceptance only. The dedicated argv signal is consumed by
+// dev.mjs after .env.local is loaded, so project-local configuration cannot
+// accidentally enable this mode during normal startup or disable it here.
+if (!process.argv.includes("--email-shield-fixtures")) {
+  process.argv.push("--email-shield-fixtures");
+}
 if (process.env.EMAIL_SHIELD_RUNTIME_TRACE === undefined) {
   process.env.EMAIL_SHIELD_RUNTIME_TRACE = "1";
 }
