@@ -5,6 +5,12 @@
 
   const developerMode = new URLSearchParams(location.search).get('developer') === '1';
 
+  function checkpoint(workflowId, checkpointId, outcome = 'success', errorCode) {
+    const trace = window.emailShieldRuntimeTrace;
+    if (trace?.currentWorkflowId?.() !== workflowId) return;
+    trace.checkpoint(checkpointId, outcome, errorCode ? { errorCode } : undefined);
+  }
+
   function enforceDeveloperVisibility() {
     const devPlans = document.getElementById('accountDevPlans');
     if (devPlans && !developerMode && !devPlans.hidden) devPlans.hidden = true;
@@ -25,6 +31,7 @@
       if (!response.ok) throw new Error(body.error || `Account snapshot failed (${response.status}).`);
       if (!body.signedIn || !body.account) {
         if (plan) plan.textContent = 'Sign in to manage a plan';
+        checkpoint('billing.plan.load', 'billing.plan.load.ui_confirmed', 'rejected', 'profile_not_signed_in');
         return;
       }
       if (plan) {
@@ -34,16 +41,21 @@
       if (status && body.account.entitlement.source !== 'development') {
         status.textContent = `Verified by ${body.account.entitlement.source}. Email Shield does not trust a local premium toggle.`;
       }
+      checkpoint('billing.plan.load', 'billing.plan.load.ui_confirmed');
     } catch (error) {
       if (status) status.textContent = error.message || String(error);
+      checkpoint('billing.plan.load', 'billing.plan.load.ui_confirmed', 'failed', 'billing_plan_load_failed');
     }
   }
 
   async function purchase(plan) {
     const status = document.getElementById('consumerBillingStatus');
     const bridge = billingBridge();
+    const workflowId = plan === 'family' ? 'billing.purchase.family' : 'billing.purchase.individual';
+    const checkpointId = `${workflowId}.ui_confirmed`;
     if (!bridge || typeof bridge.purchase !== 'function') {
       if (status) status.textContent = 'Paid purchase is not available in this desktop runtime. Production iOS/Android builds use their signed StoreKit/Play Billing bridge; a web checkout must be configured separately.';
+      checkpoint(workflowId, checkpointId, 'rejected', 'store_bridge_unavailable');
       return;
     }
     try {
@@ -53,8 +65,10 @@
       if (status) status.textContent = `${plan.replace(/^./, (letter) => letter.toUpperCase())} plan verified successfully.`;
       await refreshCurrentPlan();
       window.dispatchEvent(new CustomEvent('email-shield-profile-changed'));
+      checkpoint(workflowId, checkpointId);
     } catch (error) {
       if (status) status.textContent = error.message || String(error);
+      checkpoint(workflowId, checkpointId, 'failed', 'purchase_verification_failed');
     }
   }
 
@@ -63,6 +77,7 @@
     const bridge = billingBridge();
     if (!bridge || typeof bridge.restore !== 'function') {
       if (status) status.textContent = 'Purchase restore requires the signed production store bridge on this platform.';
+      checkpoint('billing.purchase.restore', 'billing.purchase.restore.ui_confirmed', 'rejected', 'store_bridge_unavailable');
       return;
     }
     try {
@@ -72,8 +87,10 @@
       if (status) status.textContent = 'Purchase restored and verified.';
       await refreshCurrentPlan();
       window.dispatchEvent(new CustomEvent('email-shield-profile-changed'));
+      checkpoint('billing.purchase.restore', 'billing.purchase.restore.ui_confirmed');
     } catch (error) {
       if (status) status.textContent = error.message || String(error);
+      checkpoint('billing.purchase.restore', 'billing.purchase.restore.ui_confirmed', 'failed', 'purchase_restore_failed');
     }
   }
 
@@ -114,10 +131,6 @@
     if (accountVisible()) mount();
   }
 
-  // Billing visibility is driven by explicit application state changes. Do not
-  // observe the entire document for `hidden` mutations: this module itself owns
-  // `accountDevPlans.hidden`, so a global attribute observer can feed its own
-  // write back into the microtask queue and starve the renderer indefinitely.
   window.addEventListener('email-shield-profile-changed', () => {
     enforceDeveloperVisibility();
     if (accountVisible()) {
