@@ -5,13 +5,27 @@ import { describe, expect, it } from "vitest";
 const root = join(import.meta.dirname, "../..");
 const trace = readFileSync(join(root, "web/runtime-workflow-trace.js"), "utf8");
 
+function functionSection(name: string): string {
+  const start = trace.indexOf(`function ${name}(`);
+  expect(start, `function ${name} should exist`).toBeGreaterThanOrEqual(0);
+  const next = trace.indexOf("\n  function ", start + 10);
+  return trace.slice(start, next >= 0 ? next : trace.length);
+}
+
 describe("browser workflow trace v2 correlation", () => {
   it("puts workflowId on user action, API request, API response, and stream records", () => {
-    expect(trace).toMatch(/function\s+begin\([^)]*workflowId/);
-    expect(trace).toMatch(/stage:\s*['"]ui_action['"][\s\S]{0,500}workflowId/);
-    expect(trace).toMatch(/stage:\s*['"]api_request['"][\s\S]{0,500}workflowId/);
-    expect(trace).toMatch(/stage:\s*['"]api_response['"][\s\S]{0,500}workflowId/);
-    expect(trace).toMatch(/function\s+streamTrace[\s\S]{0,900}workflowId/);
+    const begin = functionSection("begin");
+    const apiRequest = functionSection("apiRequest");
+    const apiResponse = functionSection("apiResponse");
+    const streamTrace = functionSection("streamTrace");
+
+    expect(begin).toContain("workflowId: context.workflowId");
+    expect(begin).toContain("stage: origin === 'automatic' ? 'system' : 'ui_action'");
+    expect(apiRequest).toContain("workflowId: request.workflowId");
+    expect(apiRequest).toContain("stage: 'api_request'");
+    expect(apiResponse).toContain("workflowId: request.workflowId");
+    expect(apiResponse).toContain("stage: 'api_response'");
+    expect(streamTrace).toContain("workflowId: context.workflowId");
   });
 
   it("has one strict checkpoint API that cannot accept arbitrary object keys", () => {
@@ -24,12 +38,14 @@ describe("browser workflow trace v2 correlation", () => {
   });
 
   it("can create an automatic workflow root without synthesizing a user click", () => {
-    expect(trace).toContain("function automaticRoot(");
-    expect(trace).toContain("stage: 'system'");
-    expect(trace).not.toMatch(/automaticRoot[\s\S]{0,1000}\.click\(/);
+    const automaticRoot = functionSection("automaticRoot");
+    const begin = functionSection("begin");
+    expect(automaticRoot).toContain("return begin(actionId, workflowId, expectedWorkflow, provider, 'automatic')");
+    expect(begin).toContain("stage: origin === 'automatic' ? 'system' : 'ui_action'");
+    expect(automaticRoot).not.toContain(".click(");
   });
 
-  it("keeps scan correlation across the stream independently of the short click-to-request window", () => {
+  it("keeps scan correlation across the stream independently of the click-to-request window", () => {
     expect(trace).toContain("const context = current()");
     expect(trace).toContain("const streamContext = () =>");
     expect(trace).toContain("scan-started");
