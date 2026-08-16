@@ -110,6 +110,7 @@ const OTP_SECRET = /\b(?:otp|one[- ]?time(?:\s+(?:verification|security|login|si
 const RECOVERY_SECRET = /\b(?:password|recovery\s+(?:code|key|phrase)|seed\s+phrase|private\s+key|backup\s+code)\b/u;
 const REMOTE_TOOL = /\b(?:anydesk|teamviewer|quick\s+assist|screenconnect|connectwise\s+control|rustdesk|ultraviewer|remote\s+desktop)\b/u;
 const REMOTE_ACTION = /\b(?:install|download|open|launch|run|start|allow|enable|grant|give)\b[^.!?\n]{0,80}\b(?:access|control|remote|anydesk|teamviewer|quick\s+assist|screenconnect|rustdesk|ultraviewer)\b|\b(?:allow|grant|give)\b[^.!?\n]{0,60}\b(?:us|me|support|agent|team)\b[^.!?\n]{0,40}\b(?:access|control)\b/u;
+const NEGATED_VALUE_TRANSFER = /\b(?:do\s+not|don't|dont|never)\s+(?:pay|send|transfer|wire|remit|buy|purchase|move)\b|\bno\b[^.!?\n]{0,90}\b(?:payment|transfer|wallet\s+action|money\s+movement|value\s+transfer)\b[^.!?\n]{0,90}\b(?:is|are|was|were)?\s*(?:requested|required|needed|necessary)\b/u;
 
 const DISPLAY_ROLE_SUFFIX = /\s+(?:billing|payments?|accounts?|support|security|fraud(?:\s+team)?|service(?:s)?|helpdesk|help\s+desk|admin(?:istration)?)$/u;
 const SUBJECT_TRANSACTION = /^(?<claim>[\p{L}\p{N}][\p{L}\p{N} &'._-]{1,70}?)\s+(?:payment|invoice|purchase|order|refund|subscription|billing|security|account)\b/u;
@@ -234,6 +235,18 @@ function hasRecoverySecretExfiltration(segments: readonly string[]): boolean {
   return false;
 }
 
+function segmentHasPositiveValueTransfer(segment: string, paymentFacts: ReadonlySet<PaymentInstrument>): boolean {
+  if (NEGATED_VALUE_TRANSFER.test(segment)) return false;
+  const paymentInstruction = /\b(?:pay|send|transfer|wire|remit)\b[^.!?\n]{0,100}\b(?:money|funds?|payment|amount|usd|eur|gbp|dollars?|euros?|pounds?|bitcoin|btc|crypto|usdt|wallet|gift\s*cards?|vouchers?)\b|\b(?:buy|purchase|obtain|get|pick\s+up)\b[^.!?\n]{0,70}\b(?:gift\s*cards?|vouchers?)\b/u;
+  return paymentInstruction.test(segment)
+    || (paymentFacts.has("crypto") && /\b(?:send|pay|transfer)\b/u.test(segment));
+}
+
+function segmentHasPositiveMoneyMovement(segment: string): boolean {
+  if (NEGATED_VALUE_TRANSFER.test(segment)) return false;
+  return /\b(?:move|transfer|wire|send)\b[^.!?\n]{0,80}\b(?:money|funds?|balance|amount|bank|wallet)\b/u.test(segment);
+}
+
 function addActionFacts(
   text: string,
   segments: readonly string[],
@@ -245,14 +258,13 @@ function addActionFacts(
   if (/\b(?:click|open|visit|follow)\b[^.!?\n]{0,45}\b(?:link|url|website|portal|page)\b/u.test(text)) seen.add("open_link");
   if (/\b(?:scan|open)\b[^.!?\n]{0,35}\bqr\b/u.test(text)) seen.add("scan_qr");
 
-  const paymentInstruction = /\b(?:pay|send|transfer|wire|remit)\b[^.!?\n]{0,100}\b(?:money|funds?|payment|amount|usd|eur|gbp|dollars?|euros?|pounds?|bitcoin|btc|crypto|usdt|wallet|gift\s*cards?|vouchers?)\b|\b(?:buy|purchase|obtain|get|pick\s+up)\b[^.!?\n]{0,70}\b(?:gift\s*cards?|vouchers?)\b/u;
-  if (paymentInstruction.test(text) || (paymentFacts.has("crypto") && /\b(?:send|pay|transfer)\b/u.test(text))) seen.add("pay");
+  if (segments.some((segment) => segmentHasPositiveValueTransfer(segment, paymentFacts))) seen.add("pay");
 
   if (segments.some((segment) => REMOTE_TOOL.test(segment) && REMOTE_ACTION.test(segment))) seen.add("install_remote_access");
   if (hasOtpExfiltration(segments)) seen.add("send_otp");
   if (hasRecoverySecretExfiltration(segments)) seen.add("send_recovery_secret");
   if (hasGiftCardExfiltration(segments)) seen.add("send_gift_card_code");
-  if (/\b(?:move|transfer|wire|send)\b[^.!?\n]{0,80}\b(?:money|funds?|balance|amount|bank|wallet)\b/u.test(text)) seen.add("move_money");
+  if (segments.some(segmentHasPositiveMoneyMovement)) seen.add("move_money");
 }
 
 function addPressureFacts(text: string, seen: Set<PressureSignal>): void {
