@@ -19,6 +19,18 @@
   let loaded = false;
   let dirty = true;
 
+  function checkpoint(workflowId, checkpointId, outcome = 'success', errorCode) {
+    const trace = window.emailShieldRuntimeTrace;
+    if (trace?.currentWorkflowId?.() !== workflowId) return;
+    trace.checkpoint(checkpointId, outcome, errorCode ? { errorCode } : undefined);
+  }
+
+  function registerPreferenceEdit(control) {
+    if (!(control instanceof Element)) return;
+    window.emailShieldRuntimeTrace?.registerControl(control, 'family.guardian_preferences.edit', 'family.guardian_preferences.edit', 'family_guardian_preferences_edit');
+    control.addEventListener('change', () => checkpoint('family.guardian_preferences.edit', 'family.guardian_preferences.edit.ui_confirmed'));
+  }
+
   async function responseJson(response) {
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body.error || `Request failed (${response.status}).`);
@@ -45,6 +57,8 @@
         <div class="consumer-actions"><button id="familyGuardianSave" type="button">Save Guardian preferences</button></div>
         <div id="familyGuardianPreferenceStatus" class="hint" role="status" aria-live="polite"></div>`;
       host.append(panel);
+      registerPreferenceEdit(document.getElementById('familyGuardianPaused'));
+      registerPreferenceEdit(document.getElementById('familyGuardianHighRisk'));
     }
 
     const status = document.getElementById('familyGuardianPreferenceStatus');
@@ -67,6 +81,7 @@
         select.setAttribute('aria-label', `${label} Guardian alerts`);
         select.innerHTML = '<option value="all">All matching alerts</option><option value="high_only">High-risk only</option><option value="off">Off</option>';
         select.value = preferences.categories?.[key] || 'high_only';
+        registerPreferenceEdit(select);
         row.append(labelElement, select);
         categories?.append(row);
       }
@@ -99,9 +114,15 @@
         }),
       }));
       if (status) status.textContent = result.saved ? 'Family Guardian preferences saved.' : 'Preferences were not saved.';
-      if (result.saved) dirty = false;
+      if (result.saved) {
+        dirty = false;
+        checkpoint('family.guardian_preferences', 'family.guardian_preferences.ui_confirmed');
+      } else {
+        checkpoint('family.guardian_preferences', 'family.guardian_preferences.ui_confirmed', 'failed', 'guardian_preferences_not_saved');
+      }
     } catch (error) {
       if (status) status.textContent = error instanceof Error ? error.message : String(error);
+      checkpoint('family.guardian_preferences', 'family.guardian_preferences.ui_confirmed', 'failed', 'guardian_preferences_failed');
     }
   }
 
