@@ -19,7 +19,7 @@ function selection(parts: Array<{ part: string; type: "text/plain" | "text/html"
 
 function boundedClient(sources: Record<string, Buffer>, override?: (request: BodyRequest, source: Buffer) => Buffer) {
   return {
-    fetchOne: vi.fn(async (_uid: number, query: Record<string, unknown>) => {
+    fetchOne: vi.fn(async (_range: string | number, query: Record<string, unknown>, _options?: Record<string, unknown>) => {
       expect(query).not.toHaveProperty("source");
       expect(query).not.toHaveProperty("headers");
       const requests = query.bodyParts as BodyRequest[];
