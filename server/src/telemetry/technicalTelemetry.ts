@@ -140,32 +140,38 @@ function workflowTraceProperties(record: unknown): { timestamp: string; properti
   const maxMessages = optionalInteger(record.maxMessages, 10_000_000);
   const itemCount = optionalInteger(record.itemCount, 10_000_000);
   const retryCount = optionalInteger(record.retryCount, 1_000);
-  if ([httpStatus, durationMs, pageSize, maxMessages, itemCount, retryCount].some((value) => value === null)) return null;
+  if (
+    httpStatus === null
+    || durationMs === null
+    || pageSize === null
+    || maxMessages === null
+    || itemCount === null
+    || retryCount === null
+  ) return null;
 
-  return {
-    timestamp: record.timestamp,
-    properties: {
-      run_id: record.runId,
-      trace_id: record.traceId,
-      stage: record.stage,
-      action_id: record.actionId,
-      expected_workflow: record.expectedWorkflow,
-      outcome: record.outcome,
-      ...(typeof record.provider === "string" ? { provider: record.provider } : {}),
-      ...(typeof record.scanType === "string" ? { scan_type: record.scanType } : {}),
-      ...(component ? { trace_component: component } : {}),
-      ...(step ? { step } : {}),
-      ...(routeTemplate ? { route_template: routeTemplate } : {}),
-      ...(typeof record.httpMethod === "string" ? { http_method: record.httpMethod } : {}),
-      ...(httpStatus !== undefined ? { http_status: httpStatus } : {}),
-      ...(durationMs !== undefined ? { duration_ms: durationMs } : {}),
-      ...(pageSize !== undefined ? { page_size: pageSize } : {}),
-      ...(maxMessages !== undefined ? { max_messages: maxMessages } : {}),
-      ...(itemCount !== undefined ? { item_count: itemCount } : {}),
-      ...(retryCount !== undefined ? { retry_count: retryCount } : {}),
-      ...(errorCode ? { error_code: errorCode } : {}),
-    },
+  const properties: Record<string, string | number | boolean> = {
+    run_id: record.runId,
+    trace_id: record.traceId,
+    stage: record.stage,
+    action_id: record.actionId,
+    expected_workflow: record.expectedWorkflow,
+    outcome: record.outcome,
   };
+  if (typeof record.provider === "string") properties.provider = record.provider;
+  if (typeof record.scanType === "string") properties.scan_type = record.scanType;
+  if (component !== undefined) properties.trace_component = component;
+  if (step !== undefined) properties.step = step;
+  if (routeTemplate !== undefined) properties.route_template = routeTemplate;
+  if (typeof record.httpMethod === "string") properties.http_method = record.httpMethod;
+  if (httpStatus !== undefined) properties.http_status = httpStatus;
+  if (durationMs !== undefined) properties.duration_ms = durationMs;
+  if (pageSize !== undefined) properties.page_size = pageSize;
+  if (maxMessages !== undefined) properties.max_messages = maxMessages;
+  if (itemCount !== undefined) properties.item_count = itemCount;
+  if (retryCount !== undefined) properties.retry_count = retryCount;
+  if (errorCode !== undefined) properties.error_code = errorCode;
+
+  return { timestamp: record.timestamp, properties };
 }
 
 function captureUrlFromHost(rawHost: string): URL | null {
@@ -202,6 +208,7 @@ export function createTechnicalTelemetryFromEnvironment(
     environment.EMAIL_SHIELD_POSTHOG_HOST?.trim() || DEFAULT_POSTHOG_HOST,
   );
   if (!captureUrl) return disabledTelemetry();
+  const telemetryCaptureUrl: URL = captureUrl;
 
   const platform = options.platform ?? process.platform;
   const appVersion = options.appVersion?.trim() || "unknown";
@@ -214,7 +221,7 @@ export function createTechnicalTelemetryFromEnvironment(
     timeout.unref?.();
 
     try {
-      const response = await fetchImpl(captureUrl, {
+      const response = await fetchImpl(telemetryCaptureUrl, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
