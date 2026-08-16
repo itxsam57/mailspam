@@ -33,7 +33,7 @@
     accountPlanRefresh: ['account.profile.snapshot', 'account.profile.snapshot', 'account_profile_snapshot'],
     accountCreate: ['account.profile.register', 'account.profile.register', 'account_register'],
     accountSignIn: ['account.profile.sign_in', 'account.profile.sign_in', 'account_sign_in'],
-    accountRecoverOpen: ['account.recovery.open', 'account.recovery.open', 'account_recovery_open'],
+    accountRecoverOpen: ['account.recovery.use', 'account.recovery.use', 'account_recovery'],
     accountLinkMailbox: ['account.mailbox.link', 'account.mailbox.link', 'account_mailbox_link'],
     accountSignOut: ['account.sign_out', 'account.sign_out', 'account_sign_out'],
     accountRotateRecovery: ['account.recovery.rotate', 'account.recovery.rotate', 'account_recovery_rotate'],
@@ -501,6 +501,15 @@
     const semantic = semanticControl(button);
     if (!semantic) return;
     begin(semantic.actionId, semantic.workflowId, semantic.expectedWorkflow, semantic.provider || providerFor(button));
+  }, true);
+
+  document.addEventListener('change', (event) => {
+    if (event.isTrusted === false) return;
+    const control = event.target instanceof Element ? event.target : null;
+    if (!(control instanceof HTMLInputElement || control instanceof HTMLSelectElement) || control.disabled) return;
+    const bound = registeredElements.get(control) || (control.id ? registeredById.get(control.id) : null);
+    if (!bound) return;
+    begin(bound.actionId, bound.workflowId, bound.expectedWorkflow, bound.provider || providerFor(control));
   }, true);
 
   Object.defineProperty(window, 'emailShieldRuntimeTrace', {
