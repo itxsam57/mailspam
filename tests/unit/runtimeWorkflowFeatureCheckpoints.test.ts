@@ -35,7 +35,7 @@ const expectedCheckpoints: Record<string, string[]> = {
     "account.profile.snapshot.ui_confirmed",
     "account.profile.register.ui_confirmed",
     "account.profile.sign_in.ui_confirmed",
-    "account.recovery.open.ui_confirmed",
+    "account.recovery.use.ui_confirmed",
     "account.mailbox.link.ui_confirmed",
     "account.sign_out.ui_confirmed",
     "account.devices.revoke.ui_confirmed",
