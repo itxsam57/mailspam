@@ -6,10 +6,13 @@ const root = join(import.meta.dirname, "../..");
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 describe("runtime trace semantic ownership", () => {
-  it("does not guess feature meaning from a central static button-id table", () => {
+  it("gives explicit owner registration precedence over legacy fallbacks and never guesses Home Scan Now as a Quick Scan", () => {
     const tracer = read("web/runtime-workflow-trace.js");
-    expect(tracer).not.toContain("const STATIC_CONTROLS");
-    expect(tracer).not.toContain("STATIC_CONTROLS[button.id]");
+    const registeredLookup = tracer.indexOf("registeredElements.get(button)");
+    const fallbackLookup = tracer.indexOf("STATIC_CONTROLS[button.id]");
+    expect(registeredLookup).toBeGreaterThanOrEqual(0);
+    expect(fallbackLookup).toBeGreaterThan(registeredLookup);
+    expect(tracer).not.toContain("homeScanNow: ['mailbox.scan.quick'");
     expect(tracer).toContain("ui.unregistered_button");
   });
 
