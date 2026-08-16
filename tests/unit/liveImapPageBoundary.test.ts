@@ -1,38 +1,42 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ImapAdapter } from "../../server/src/adapters/imap/imapAdapter.js";
-import type { FolderDescriptor } from "../../server/src/canonical/adapter.js";
+import { resolveScanBatchPolicy } from "../../server/src/workers/scanBatchPolicy.js";
 
-describe("live IMAP provider body-fetch boundary", () => {
-  it("never lets a caller turn one provider page into a 20-message body batch", async () => {
-    const adapter = new ImapAdapter("icloud", {
-      host: "imap.mail.me.com",
-      port: 993,
-      secure: true,
-      user: "owner@example.test",
-      appPassword: "test-only",
+describe("authoritative scan execution batch policy", () => {
+  it.each(["icloud", "yahoo", "imap"] as const)(
+    "caps %s to two-message provider pages even when an upstream route asks for 20",
+    (provider) => {
+      expect(resolveScanBatchPolicy(provider, "full", 20)).toEqual({
+        pageSize: 2,
+        maxMessages: undefined,
+      });
+    },
+  );
+
+  it("keeps iCloud Quick Scan at ten total messages while reading only two per provider page", () => {
+    expect(resolveScanBatchPolicy("icloud", "quick", 20)).toEqual({
+      pageSize: 2,
+      maxMessages: 10,
     });
-    const folder: FolderDescriptor = {
-      providerFolderName: "INBOX",
-      normalized: "inbox",
-      includedByDefault: true,
-    };
-    const metadataBatchSizes: number[] = [];
-    const fakeClient = {
-      mailbox: { uidValidity: "1" },
-      getMailboxLock: async () => ({ release: () => undefined }),
-      search: async () => Array.from({ length: 20 }, (_, index) => index + 1),
-      fetchAll: async (uids: number[]) => {
-        metadataBatchSizes.push(uids.length);
-        return [];
-      },
-    };
-    (adapter as unknown as { client: typeof fakeClient }).client = fakeClient;
+    expect(resolveScanBatchPolicy("icloud", "quick", 2, 100)).toEqual({
+      pageSize: 2,
+      maxMessages: 10,
+    });
+  });
 
-    const page = await adapter.fetchPage(folder, null, 20, new AbortController().signal);
+  it("does not reduce the normal Gmail execution batch", () => {
+    expect(resolveScanBatchPolicy("gmail", "quick", 20)).toEqual({
+      pageSize: 20,
+      maxMessages: 20,
+    });
+  });
 
-    expect(metadataBatchSizes).toEqual([2]);
-    expect(page.envelopes).toHaveLength(2);
-    expect(page.done).toBe(false);
-    expect(page.nextCursor).not.toBeNull();
+  it("is enforced by the scan Worker rather than trusted to whichever HTTP route started the scan", () => {
+    const worker = readFileSync(join(process.cwd(), "src/workers/scanWorker.ts"), "utf8");
+    expect(worker).toContain("resolveScanBatchPolicy(");
+    expect(worker).toContain("const { pageSize, maxMessages } = scanBatchPolicy");
+    expect(worker).toContain("bounded batches of ${scanBatchPolicy.pageSize}");
+    expect(worker).not.toContain("const pageSize = data.pageSize ?? 20");
   });
 });

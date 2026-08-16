@@ -17,6 +17,7 @@ import { InMemoryPersonalPolicyStore, type PersonalPolicySnapshot } from "../eng
 import type { SignedFeedEntry } from "../engine/layers/globalIntelligence.js";
 import type { RelationshipHistoryWorkerSnapshot } from "../engine/relationshipHistory.js";
 import { runWithSingleRetry } from "./retryPolicy.js";
+import { resolveScanBatchPolicy } from "./scanBatchPolicy.js";
 
 interface WorkData {
   config: AdapterConfig | SecureAdapterConfig;
@@ -30,6 +31,12 @@ interface WorkData {
 }
 
 const data = workerData as WorkData;
+const scanBatchPolicy = resolveScanBatchPolicy(
+  data.config.provider,
+  data.type,
+  data.pageSize,
+  data.maxMessages,
+);
 const controller = new AbortController();
 parentPort?.on("message", (message) => { if (message?.type === "cancel") controller.abort(); });
 
@@ -79,9 +86,9 @@ async function enforceCollectedProtection(
 async function runScanAttempt(onProgress: () => void): Promise<boolean> {
   const adapter = createAdapter(data.config);
   const deps = buildDependencies();
-  const pageSize = data.pageSize ?? 20;
+  const { pageSize, maxMessages } = scanBatchPolicy;
   const generator = data.type === "quick"
-    ? quickScan(adapter, deps, controller.signal, pageSize, data.maxMessages ?? pageSize, data.resume)
+    ? quickScan(adapter, deps, controller.signal, pageSize, maxMessages ?? pageSize, data.resume)
     : data.type === "spam"
       ? spamJunkScan(adapter, deps, controller.signal, pageSize, data.resume)
       : fullMailboxAudit(adapter, deps, controller.signal, { pageSize, resume: data.resume });
@@ -117,7 +124,7 @@ async function main() {
     type: "status",
     status: {
       phase: "bounded_batches",
-      message: `Reading provider messages in bounded batches of ${data.pageSize ?? 20}…`,
+      message: `Reading provider messages in bounded batches of ${scanBatchPolicy.pageSize}…`,
     },
   });
 

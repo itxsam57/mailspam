@@ -4,22 +4,34 @@ import { InMemoryPersonalPolicyStore } from "../engine/layers/personalRules.js";
 import type { ScanResult } from "../engine/pipeline.js";
 import { sha256Hex } from "./sha256.js";
 import {
-  evaluatePortableCore,
-  PORTABLE_CORE_SCHEMA_VERSION,
-} from "./portableCoreStrict.js";
-
-export {
-  MAX_PORTABLE_CORE_REQUEST_BYTES,
-  PORTABLE_CORE_SCHEMA_VERSION,
+  assertPortableCoreRequest as assertStrictPortableCoreRequest,
+  evaluatePortableCore as evaluateStrictPortableCore,
   PortableCoreContractError,
-  assertPortableCoreRequest,
-  evaluatePortableCore,
 } from "./portableCoreStrict.js";
-export type {
+import type {
   PortableCoreRequestV1,
   PortableCoreResponseV1,
   PortableIntelligenceSnapshot,
 } from "./portableCoreStrict.js";
+
+export { PortableCoreContractError };
+export type { PortableCoreRequestV1, PortableCoreResponseV1, PortableIntelligenceSnapshot };
+
+// The public portable-core boundary owns the schema identity. The strict
+// validator/evaluator remains an implementation detail behind this facade so
+// live canonical data can be safely reduced before crossing the versioned
+// contract without weakening that contract.
+export const PORTABLE_CORE_SCHEMA_VERSION = 1;
+export const MAX_PORTABLE_CORE_REQUEST_BYTES = 4 * 1024 * 1024;
+
+export function assertPortableCoreRequest(input: unknown): asserts input is PortableCoreRequestV1 {
+  assertStrictPortableCoreRequest(input);
+}
+
+export function evaluatePortableCore(input: unknown): PortableCoreResponseV1 {
+  assertPortableCoreRequest(input);
+  return evaluateStrictPortableCore(input);
+}
 
 const PORTABLE_REDUCED_NOTE = "Portable inspection coverage was reduced because provider data exceeded safety limits.";
 const MAX_SUBJECT = 16_384;
@@ -96,6 +108,8 @@ function sanitizePortableEnvelope(input: CanonicalEnvelope): CanonicalEnvelope {
     envelope.messageId = `bounded:${sha256Hex(envelope.messageId)}`;
     reduce();
   }
+  // Provider-native identity authorizes later mailbox mutation. Never truncate
+  // or rewrite it into an identifier that could target a different message.
   if (envelope.providerNativeId.length > MAX_FROM_TEXT) {
     throw new Error("Provider-native message identity exceeded the local safety boundary.");
   }
@@ -115,21 +129,23 @@ function sanitizePortableEnvelope(input: CanonicalEnvelope): CanonicalEnvelope {
     if (envelope.htmlSignals.extractedText !== null) {
       envelope.htmlSignals.extractedText = trimNarrative(envelope.htmlSignals.extractedText, MAX_TEXT, reduce);
     }
+    if (envelope.htmlSignals.hrefs.length > MAX_LINKS) reduce();
     const hrefs = envelope.htmlSignals.hrefs.filter((href) => {
       if (href.length <= MAX_URL) return true;
+      // Actionable destinations are dropped, never truncated into a different URL.
       reduce();
       return false;
     });
-    if (hrefs.length > MAX_LINKS) reduce();
     envelope.htmlSignals.hrefs = hrefs.slice(0, MAX_LINKS);
   }
 
+  if (envelope.links.length > MAX_LINKS) reduce();
   const safeLinks = envelope.links.filter((link) => {
     if (link.rawUrl.length <= MAX_URL && link.normalizedUrl.length <= MAX_URL) return true;
+    // Actionable destinations are dropped, never truncated into a different URL.
     reduce();
     return false;
   });
-  if (safeLinks.length > MAX_LINKS) reduce();
   envelope.links = safeLinks.slice(0, MAX_LINKS).map((link) => ({
     ...link,
     visibleText: trimNullableNarrative(link.visibleText, MAX_LINK_TEXT, reduce),
@@ -172,18 +188,25 @@ function sanitizePortableEnvelope(input: CanonicalEnvelope): CanonicalEnvelope {
   envelope.listHeaders.listUnsubscribe = dropOversized(envelope.listHeaders.listUnsubscribe, MAX_LIST_UNSUBSCRIBE, reduce);
   envelope.listHeaders.listUnsubscribePost = dropOversized(envelope.listHeaders.listUnsubscribePost, MAX_LIST_UNSUBSCRIBE_POST, reduce);
   if (envelope.listHeaders.oneClickDkimSignatures) {
+    if (envelope.listHeaders.oneClickDkimSignatures.length > 64) reduce();
     const signatures = envelope.listHeaders.oneClickDkimSignatures.filter((signature) => {
       if (signature.domain.length <= MAX_DOMAIN && signature.selector.length <= MAX_DOMAIN) return true;
       reduce();
       return false;
     });
-    if (signatures.length > 64) reduce();
     if (signatures.length !== envelope.listHeaders.oneClickDkimSignatures.length) {
       envelope.listHeaders.oneClickHeaderSetUnambiguous = false;
     }
     envelope.listHeaders.oneClickDkimSignatures = signatures.slice(0, 64);
   }
 
+  // Raw thread references are transient provider input and are not part of the
+  // portable contract. Normal scans consume them into local HMAC relationship
+  // state first; this is a final fail-closed guard if a caller skips that step.
+  if (envelope.threadContext.pendingThreadReferences !== undefined) {
+    delete envelope.threadContext.pendingThreadReferences;
+    reduce();
+  }
   for (const key of [
     "relationshipPriorMessages",
     "relationshipPriorAuthenticatedMessages",
@@ -220,7 +243,9 @@ function sanitizePortableEnvelope(input: CanonicalEnvelope): CanonicalEnvelope {
   if (reduced) {
     if (envelope.parseStatus === "complete") envelope.parseStatus = "partial";
     envelope.diagnostics.contentCoverage = "insufficient";
-    envelope.parseNotes = envelope.parseNotes.filter((note) => note !== PORTABLE_REDUCED_NOTE).slice(0, MAX_PARSE_NOTES - 1);
+    envelope.parseNotes = envelope.parseNotes
+      .filter((note) => note !== PORTABLE_REDUCED_NOTE)
+      .slice(0, MAX_PARSE_NOTES - 1);
     envelope.parseNotes.push(PORTABLE_REDUCED_NOTE);
   }
 
