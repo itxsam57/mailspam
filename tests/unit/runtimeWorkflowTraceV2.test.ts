@@ -1,6 +1,6 @@
-import { appendFileSync, mkdtempSync, rmSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createRuntimeWorkflowTraceRecorder } from "../../server/src/diagnostics/runtimeWorkflowTrace.js";
 
@@ -75,6 +75,7 @@ describe("runtime workflow trace schema v2", () => {
       runId: "11111111-1111-4111-8111-111111111111",
     });
 
+    mkdirSync(dirname(recorder.filePath), { recursive: true });
     appendFileSync(recorder.filePath, `${JSON.stringify({
       schemaVersion: 1,
       timestamp: "2026-08-16T00:00:00.000Z",
