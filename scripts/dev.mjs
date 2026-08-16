@@ -2,6 +2,10 @@ import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseEnv } from "node:util";
+import { enforceDevelopmentEntitlementBoundary } from "./development-entitlement-boundary.mjs";
+
+const FIXTURE_LAUNCH_ARG = "--email-shield-fixtures";
+const dedicatedFixtureLaunch = process.argv.includes(FIXTURE_LAUNCH_ARG);
 
 // npm exposes the JavaScript entry point that launched this lifecycle script.
 // Capture it before loading project-local configuration so .env.local can never
@@ -10,12 +14,9 @@ import { parseEnv } from "node:util";
 const npmExecPath = process.env.npm_execpath?.trim();
 
 // Source/owner acceptance deliberately treats the repository-local .env.local
-// as the authoritative configuration layer. Node's built-in --env-file/loadEnvFile
-// behavior gives an already-existing machine environment variable precedence,
-// which can silently retain an old OAuth value and make the browser report that
-// Google is unavailable even though .env.local was corrected. Parse the local
-// file and apply its values explicitly so the file the owner is editing is the
-// configuration the spawned Email Shield server actually receives.
+// as the authoritative configuration layer for ordinary product configuration.
+// Development entitlement is deliberately excluded from that authority below:
+// it is an explicit launcher capability, not a sticky project setting.
 const envFile = resolve(process.cwd(), ".env.local");
 let envLocalLoaded = false;
 try {
@@ -29,6 +30,10 @@ try {
     throw error;
   }
 }
+
+// Apply after .env.local. Normal source startup always strips stale development
+// entitlement; only the dedicated fixture launcher argument can enable it.
+enforceDevelopmentEntitlementBoundary(process.env, dedicatedFixtureLaunch);
 
 // Source/browser acceptance is diagnostic mode. Enable the privacy-safe local
 // workflow trace automatically unless the owner explicitly disables it in
@@ -44,7 +49,8 @@ console.log(
   `Email Shield source configuration: .env.local ${envLocalLoaded ? "loaded" : "not found"}; `
   + `Google client ID ${googleClientIdLoaded ? "loaded" : "missing"}; `
   + `Google client secret ${googleClientSecretLoaded ? "loaded" : "missing"}; `
-  + `runtime workflow trace ${runtimeTraceEnabled ? "enabled" : "disabled"}.`,
+  + `runtime workflow trace ${runtimeTraceEnabled ? "enabled" : "disabled"}; `
+  + `development entitlement ${dedicatedFixtureLaunch ? "dedicated fixture launcher" : "disabled"}.`,
 );
 
 let command;
@@ -53,9 +59,6 @@ if (npmExecPath) {
   command = process.execPath;
   args = [npmExecPath, "run", "dev", "-w", "server"];
 } else if (process.platform === "win32") {
-  // Direct `node scripts/dev.mjs` remains supported on Windows. .cmd files must
-  // be invoked through the Windows command processor rather than spawn()ed as
-  // standalone executables.
   command = process.env.ComSpec?.trim() || "cmd.exe";
   args = ["/d", "/s", "/c", "npm run dev -w server"];
 } else {
