@@ -278,16 +278,20 @@ export class InboundProtectionCoordinator {
   }
 
   #commitSuccess(event: CanonicalInboundEventV1, key: string): void {
+    const next = cloneState(this.#state);
     if (!this.#remembered.has(key)) {
-      this.#remembered.add(key);
-      this.#state.rememberedEventKeys.push(key);
-      while (this.#state.rememberedEventKeys.length > this.#maxRemembered) {
-        const removed = this.#state.rememberedEventKeys.shift();
-        if (removed) this.#remembered.delete(removed);
-      }
+      next.rememberedEventKeys.push(key);
+      while (next.rememberedEventKeys.length > this.#maxRemembered) next.rememberedEventKeys.shift();
     }
-    if (event.checkpoint) this.#state.checkpoints[checkpointKey(event)] = event.checkpoint;
-    this.#repository.save(this.#state);
+    if (event.checkpoint) next.checkpoints[checkpointKey(event)] = event.checkpoint;
+
+    // Durable acknowledgement is the transaction boundary. Never publish a
+    // replay key or checkpoint to the live coordinator until protected state
+    // accepts the complete next snapshot; otherwise a failed save could make a
+    // later retry look like an already-acknowledged duplicate.
+    this.#repository.save(next);
+    this.#state = next;
+    this.#remembered = new Set(next.rememberedEventKeys);
   }
 
   async #drain(): Promise<void> {
