@@ -1,0 +1,42 @@
+name: Flight Recorder Diagnosis Routes
+
+on:
+  push:
+    branches:
+      - design/full-product-flight-recorder-20260816
+
+permissions:
+  contents: write
+
+jobs:
+  wire:
+    if: "${{ github.event.head_commit.message == 'chore: trigger flight recorder diagnosis routes' }}"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: design/full-product-flight-recorder-20260816
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Add protected diagnosis routes
+        run: python scripts/engineering/apply-flight-recorder-diagnosis-routes.py
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Diagnosis tests
+        run: npx vitest run tests/unit/runtimeTraceDiagnosis.test.ts tests/unit/runtimeTraceDiagnosisApi.test.ts tests/unit/runtimeTraceManifest.test.ts tests/unit/workflowDiagnosis.test.ts
+      - name: Commit protected diagnosis routes
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No diagnosis route changes produced."
+            exit 1
+          fi
+          git config user.name "email-shield-engineering"
+          git config user.email "email-shield-engineering@users.noreply.github.com"
+          git add server/src/api/runtimeWorkflowTraceRoutes.ts
+          git commit -m "feat: expose protected runtime trace diagnosis"
+          git push origin HEAD:design/full-product-flight-recorder-20260816
