@@ -24,21 +24,21 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Apply exact-source codemods
-        run: node scripts/engineering/apply-flight-recorder-codemods.mjs
+      - name: Apply exact-source edits
+        run: python scripts/engineering/apply-flight-recorder-exact-edits.py
       - name: Verify changed source parses
         run: |
           node --check web/runtime-workflow-trace.js
           node --check web/consumer-product.js
-      - name: Commit generated source edits
+      - name: Commit exact source edits
         shell: bash
         run: |
           if git diff --quiet; then
-            echo "No codemod changes were produced."
+            echo "No exact-source changes were produced."
             exit 1
           fi
           git config user.name "email-shield-engineering"
           git config user.email "email-shield-engineering@users.noreply.github.com"
-          git add web/runtime-workflow-trace.js web/consumer-product.js server/src/diagnostics/workflowRegistry.ts tests/unit/runtimeWorkflowFeatureCheckpoints.test.ts
-          git commit -m "feat: complete traced consumer control workflows"
+          git add web/runtime-workflow-trace.js web/consumer-product.js
+          git commit -m "feat: trace remaining consumer workflows"
           git push origin HEAD:design/full-product-flight-recorder-20260816
