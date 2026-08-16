@@ -1,0 +1,37 @@
+name: Generate Task 4 Core Vectors
+
+on:
+  push:
+    branches:
+      - repair/universal-detection-wave-01-20260816
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact branch SHA
+        uses: actions/checkout@v4
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Build compiled engine
+        run: npm run build
+      - name: Generate versioned portable-core vectors
+        run: npm run generate:core-vectors
+      - name: Verify generated vectors immediately
+        run: npm run check:core-vectors
+      - name: Upload generated vectors
+        uses: actions/upload-artifact@v4
+        with:
+          name: task4-core-vectors-${{ github.sha }}
+          path: fixtures/core-conformance/v1/vectors.json
+          if-no-files-found: error
+          retention-days: 1
