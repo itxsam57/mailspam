@@ -62,7 +62,7 @@ describe("quota-aware background protection coordinator", () => {
       executor: { execute: async () => { throw new Error("must not run"); } },
       now: () => now,
     });
-    coordinator.configure(accountKey, true, 30, now - 60_000);
+    coordinator.configure(accountKey, true, 30, now - 30 * 60_000);
     expect(await coordinator.runDue(now)).toBe(false);
     expect(repository.get(accountKey)).toMatchObject({
       status: "deferred",
@@ -100,8 +100,8 @@ describe("quota-aware background protection coordinator", () => {
       executor,
       now: () => now,
     });
-    coordinator.configure(first.policyAccountKey, true, 30, now - 60_000);
-    coordinator.configure(second.policyAccountKey, true, 30, now - 60_000);
+    coordinator.configure(first.policyAccountKey, true, 30, now - 30 * 60_000);
+    coordinator.configure(second.policyAccountKey, true, 30, now - 30 * 60_000);
     const firstRun = coordinator.runDue(now);
     expect(await coordinator.runDue(now)).toBe(false);
     release();
@@ -130,7 +130,7 @@ describe("quota-aware background protection coordinator", () => {
     });
     const paused = coordinator.configure(account.policyAccountKey, false, 60, now);
     expect(paused).toMatchObject({ enabled: false, status: "paused", nextRunAt: null });
-    coordinator.configure(account.policyAccountKey, true, 60, now - 60_000);
+    coordinator.configure(account.policyAccountKey, true, 60, now - 60 * 60_000);
     const run = coordinator.runDue(now);
     coordinator.remove(account.policyAccountKey);
     release();
