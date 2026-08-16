@@ -237,7 +237,10 @@ describe("transport architecture regressions", () => {
     expect(imap).toContain("bodyStructure: true");
     expect(imap).toContain("headers: true");
     expect(imap).toContain("bodyParts: requestedParts.map");
-    expect(imap).toContain("maxLength: MAX_ENCODED_TEXT_PART_BYTES");
+    expect(imap).toContain("MAX_COMPLETE_READABLE_PART_BYTES = 256 * 1024");
+    expect(imap).toContain("readablePartFetchLimit(part)");
+    expect(imap).toContain("part.sizeBytes! + 1");
+    expect(imap).toContain(": MAX_ENCODED_TEXT_PART_BYTES");
     expect(imap).toContain("fetchBoundedAttachmentHashes");
     expect(imap).toContain("MAX_ENCODED_ATTACHMENT_HASH_PART_BYTES");
     expect(imap).toContain("MAX_ATTACHMENT_HASHES_PER_MESSAGE");

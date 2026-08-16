@@ -1,8 +1,39 @@
 import { describe, expect, it } from "vitest";
+import type { CanonicalEnvelope } from "../../server/src/canonical/envelope.js";
 import {
   ConsumerScamCheckError,
   evaluateConsumerScamCheck,
 } from "../../server/src/consumer/scamCheck.js";
+import { InMemoryPersonalPolicyStore } from "../../server/src/engine/layers/personalRules.js";
+import type { SignedFeedEntry } from "../../server/src/engine/layers/globalIntelligence.js";
+import { scanMessage } from "../../server/src/engine/pipeline.js";
+
+const giftCardScam = "Your manager needs $500 in Apple gift cards today. Send clear photos of the codes. Do not call; keep this between us.";
+
+function connectedEnvelope(textPreview: string): CanonicalEnvelope {
+  return {
+    provider: "gmail",
+    accountProof: "shared-core-parity-proof",
+    messageId: "shared-core-parity-message",
+    providerNativeId: "shared-core-parity-native",
+    folder: "inbox",
+    providerFolderName: "INBOX",
+    from: { displayName: "Project Manager", address: "manager@work.example", domain: "work.example" },
+    replyTo: null,
+    subject: "Private purchase request",
+    date: new Date(0).toISOString(),
+    authentication: { providerTrust: "trusted", spf: "pass", dkim: "pass", dmarc: "pass", arc: "none" },
+    textPreview,
+    htmlSignals: null,
+    links: [],
+    attachments: [],
+    listHeaders: { listId: null, listUnsubscribe: null, listUnsubscribePost: null },
+    threadContext: { isFirstContact: true, threadContinuityBroken: false, replyToChangedMidThread: false },
+    parseStatus: "complete",
+    parseNotes: [],
+    diagnostics: { fetchedAt: new Date(0).toISOString(), sizeBytes: 1024, encoding: "plain", contentCoverage: "complete" },
+  };
+}
 
 describe("consumer Scam Check", () => {
   it("uses the existing deterministic engine for full-context callback and link risk", () => {
@@ -21,6 +52,36 @@ describe("consumer Scam Check", () => {
     expect(result.explanation.scamCategory).toBe("callback_refund");
     expect(result.explanation.evidenceStrength).toBe("strong");
     expect(result.explanation.safeNextActions.join(" ")).toMatch(/independently/i);
+  });
+
+  it("uses the same structural gift-card evidence for pasted and connected-mailbox content", () => {
+    const pasted = evaluateConsumerScamCheck({
+      schemaVersion: 1,
+      kind: "message",
+      subject: "Private purchase request",
+      text: giftCardScam,
+      sender: { displayName: "Project Manager", address: "manager@work.example" },
+    });
+    const connected = scanMessage(connectedEnvelope(giftCardScam), {
+      personalPolicy: new InMemoryPersonalPolicyStore(),
+      threatFeed: { getVerifiedEntries: () => [] as SignedFeedEntry[] },
+    });
+
+    expect(pasted.evidence.some((item) => item.code === "GIFT_CARD_CODE_EXFILTRATION")).toBe(true);
+    expect(connected.scored.evidence.some((item) => item.code === "GIFT_CARD_CODE_EXFILTRATION")).toBe(true);
+    expect(pasted.verdict).toBe("high_risk");
+    expect(connected.scored.verdict).toBe("high_risk");
+  });
+
+  it("maps shared remote-access structural evidence into an existing consumer scam category", () => {
+    const result = evaluateConsumerScamCheck({
+      schemaVersion: 1,
+      kind: "message",
+      text: "Bank fraud team: install AnyDesk so we can secure the account and process the refund.",
+    });
+
+    expect(result.evidence.some((item) => item.code === "REMOTE_ACCESS_FINANCIAL_PRESSURE")).toBe(true);
+    expect(result.explanation.scamCategory).toBe("callback_refund");
   });
 
   it("detects unsafe URL schemes without navigating to them", () => {

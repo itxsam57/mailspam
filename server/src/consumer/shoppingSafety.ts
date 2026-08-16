@@ -1,5 +1,13 @@
+import { extractStructuralScamFacts, type PaymentInstrument } from "../engine/structuralScamEvidence.js";
 import { evaluateConsumerScamCheck, type ConsumerScamCheckDependencies, type ConsumerScamCheckResponseV1 } from "./scamCheck.js";
 import { assessScamIntervention, type ScamInterventionAssessment } from "./intervention.js";
+
+const HIGH_FRICTION_PAYMENT = new Set<PaymentInstrument>([
+  "bank_transfer",
+  "crypto",
+  "gift_card",
+  "cash_app",
+]);
 
 export interface ShoppingSafetyInputV1 {
   schemaVersion: 1;
@@ -30,6 +38,10 @@ function bounded(value: unknown, max: number): string {
   if (value === undefined || value === null) return "";
   if (typeof value !== "string" || value.length > max) throw new Error("Shopping Safety input exceeds its local bound.");
   return value.trim();
+}
+
+function hasAny<T>(values: readonly T[], candidates: ReadonlySet<T>): boolean {
+  return values.some((value) => candidates.has(value));
 }
 
 export function assertShoppingSafetyInput(input: unknown): asserts input is ShoppingSafetyInputV1 {
@@ -64,22 +76,48 @@ export function analyzeShoppingSafety(
   const advertisedPriceText = bounded(input.advertisedPriceText, 1_024);
   const paymentText = bounded(input.paymentText, 8_000);
   const combined = `${sellerName}\n${pageText}\n${advertisedPriceText}\n${paymentText}`.slice(0, 40_000);
+  const structuralFacts = extractStructuralScamFacts({ text: combined });
+  const paymentFacts = extractStructuralScamFacts({ text: paymentText });
   const destination = evaluateConsumerScamCheck({ schemaVersion: 1, kind: "url", url: parsed.toString() }, dependencies);
   const intervention = assessScamIntervention(combined);
   const signals: ShoppingSafetySignal[] = [];
 
-  if (/\b(bank transfer|wire transfer|crypto|bitcoin|usdt|gift\s*card|friends\s*(?:and|&)\s*family)\b/i.test(paymentText || pageText)) {
+  const paymentRequested = structuralFacts.requestedActions.includes("pay")
+    || structuralFacts.requestedActions.includes("move_money")
+    || structuralFacts.requestedActions.includes("send_gift_card_code");
+  const highFrictionPayment = hasAny(paymentFacts.paymentInstruments, HIGH_FRICTION_PAYMENT)
+    || (paymentRequested && hasAny(structuralFacts.paymentInstruments, HIGH_FRICTION_PAYMENT));
+  const urgencyPressure = structuralFacts.pressure.includes("urgent")
+    || structuralFacts.pressure.includes("deadline");
+  const verificationAvoidance = structuralFacts.pressure.includes("secrecy")
+    || structuralFacts.pressure.includes("no_independent_contact");
+
+  if (highFrictionPayment) {
     signals.push({
       code: "SHOPPING_IRREVERSIBLE_PAYMENT",
       severity: "critical",
       detail: "The seller requests a payment method with weak buyer protection or difficult recovery. Prefer a payment method with independent dispute protection.",
     });
   }
-  if (/\b(only today|act now|last chance|few minutes|order immediately|before it is gone)\b/i.test(combined)) {
+  if (structuralFacts.requestedActions.includes("send_gift_card_code")) {
+    signals.push({
+      code: "SHOPPING_GIFT_CARD_CODE_EXFILTRATION",
+      severity: "critical",
+      detail: "The seller asks you to transmit gift-card or voucher codes, numbers, or photos. Treat those codes like cash and do not send them to an unfamiliar seller or unexpected contact.",
+    });
+  }
+  if (urgencyPressure) {
     signals.push({
       code: "SHOPPING_URGENCY_PRESSURE",
       severity: "warning",
-      detail: "The storefront uses strong urgency pressure. Time pressure should not replace independent verification of the seller and payment destination.",
+      detail: "The storefront uses strong urgency or deadline pressure. Time pressure should not replace independent verification of the seller and payment destination.",
+    });
+  }
+  if (verificationAvoidance) {
+    signals.push({
+      code: "SHOPPING_VERIFICATION_AVOIDANCE",
+      severity: "warning",
+      detail: "The seller asks you to keep the transaction secret or avoid independent contact or verification. Verify the seller through an independently obtained channel before paying or sending codes.",
     });
   }
   if (/\b(contact us|support)\b/i.test(pageText) && /\b(?:gmail|yahoo|outlook|hotmail)\.com\b/i.test(pageText)) {

@@ -5,6 +5,7 @@ import {
   authenticationPassed,
   authenticationResultsTrusted,
   authenticatedSenderIdentityDomains,
+  verifiedRelayOriginDomains,
 } from "../../server/src/engine/identitySignals.js";
 import { transportAuthLayer } from "../../server/src/engine/layers/transportAuth.js";
 import { InMemoryPersonalPolicyStore } from "../../server/src/engine/layers/personalRules.js";
@@ -94,6 +95,27 @@ describe("Authentication-Results provenance", () => {
 
     expect(authenticationResultsTrusted(message)).toBe(false);
     expect(authenticationPassed(message)).toBe(false);
+    expect(authenticatedSenderIdentityDomains(message)).toEqual([]);
+  });
+
+  it("does not let a forged relay-shaped local part create a verified origin from untrusted results", () => {
+    const message = envelope({
+      spf: "pass",
+      dkim: "pass",
+      dmarc: "pass",
+      arc: "pass",
+      providerTrust: "unknown",
+      rawHeader: "forged.example; dmarc=pass header.from=privaterelay.appleid.com; dkim=pass header.d=privaterelay.appleid.com",
+    });
+    message.from = {
+      displayName: "Cobalt Bank Security",
+      address: "notice_at_alerts_cobalt-bank_example_random9@privaterelay.appleid.com",
+      domain: "privaterelay.appleid.com",
+    };
+
+    expect(authenticationResultsTrusted(message)).toBe(false);
+    expect(authenticationPassed(message)).toBe(false);
+    expect(verifiedRelayOriginDomains(message)).toEqual([]);
     expect(authenticatedSenderIdentityDomains(message)).toEqual([]);
   });
 

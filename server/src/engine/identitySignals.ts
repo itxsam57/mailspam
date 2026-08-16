@@ -102,8 +102,8 @@ export function alignedAuthenticationDomains(envelope: CanonicalEnvelope): strin
   return [...aligned];
 }
 
-/** True only when trusted authentication proves an identity aligned to RFC5322.From. */
-export function authenticationPassed(envelope: CanonicalEnvelope): boolean {
+/** Trusted transport authentication of the visible RFC5322.From path. */
+function trustedTransportAuthenticationPassed(envelope: CanonicalEnvelope): boolean {
   return alignedAuthenticationDomains(envelope).length > 0;
 }
 
@@ -214,7 +214,7 @@ export function relayAliasDomainCandidates(address: string): string[] {
 
 export function verifiedRelayOriginDomains(envelope: CanonicalEnvelope): string[] {
   if (!envelope.from.address || !envelope.from.domain || !isKnownSenderRelay(envelope.from.domain)) return [];
-  if (!authenticationPassed(envelope)) return [];
+  if (!trustedTransportAuthenticationPassed(envelope)) return [];
 
   const candidates = new Set([
     ...messageIdentityCandidateDomains(envelope),
@@ -229,12 +229,27 @@ export function verifiedRelayOriginDomains(envelope: CanonicalEnvelope): string[
   return [...origins];
 }
 
+/**
+ * True only when trusted authentication yields an attributable sender identity.
+ * A known relay/forwarder can authenticate its transport path while still
+ * hiding the original organization; that outer-path pass is not itself an
+ * authenticated business identity. A relay becomes attributable only after
+ * the existing verified-origin correlation succeeds.
+ */
+export function authenticationPassed(envelope: CanonicalEnvelope): boolean {
+  if (!envelope.from.domain || !trustedTransportAuthenticationPassed(envelope)) return false;
+  const fromDomain = normalizeDomainName(envelope.from.domain);
+  if (!isKnownSenderRelay(fromDomain)) return true;
+  return verifiedRelayOriginDomains(envelope).length > 0;
+}
+
 /** Returns authenticated organizational domains for previously unseen senders. */
 export function authenticatedSenderIdentityDomains(envelope: CanonicalEnvelope): string[] {
-  if (!authenticationPassed(envelope) || !envelope.from.domain) return [];
+  if (!envelope.from.domain) return [];
   const fromDomain = normalizeDomainName(envelope.from.domain);
 
   if (isKnownSenderRelay(fromDomain)) return verifiedRelayOriginDomains(envelope);
+  if (!trustedTransportAuthenticationPassed(envelope)) return [];
   if (isSharedMailboxDomain(fromDomain)) return [];
   if (envelope.replyTo?.domain && !sameOrganizationalDomain(fromDomain, envelope.replyTo.domain)) return [];
 

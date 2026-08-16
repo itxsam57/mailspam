@@ -117,6 +117,21 @@ describe("authentication + impersonation + intent behavioral certification", () 
     expect(codes.has("CREDENTIAL_PHISH_INTENT")).toBe(true);
   });
 
+  it("does not double-count gift-card code exfiltration through legacy BEC phrase scoring", () => {
+    const candidate = envelope({
+      subject: "Quick request",
+      textPreview: "Your manager needs $500 in Apple gift cards today. Send clear photos of the codes. Do not call; keep this between us.",
+      links: [],
+    });
+    const result = scan(candidate);
+    const codes = new Set(result.scored.evidence.map((item) => item.code));
+
+    expect(codes.has("GIFT_CARD_CODE_EXFILTRATION")).toBe(true);
+    expect(codes.has("SECRECY_PAYMENT_DIVERSION")).toBe(true);
+    expect(codes.has("BEC_INTENT")).toBe(false);
+    expect(result.scored.verdict).toBe("high_risk");
+  });
+
   it("does not let account-local Trust + exact-message Safe turn a multi-signal phishing message into Safe", () => {
     const candidate = envelope({
       from: { displayName: "Acme Security", address: "security@evil.example", domain: "evil.example" },

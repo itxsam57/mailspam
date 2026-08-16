@@ -105,6 +105,77 @@ describe("Shopping Safety end-to-end consumer integration", () => {
     expect(body.limitations.join(" ")).toMatch(/does not invent merchant age/i);
   });
 
+  it("surfaces gift-card code exfiltration and verification avoidance in Shopping Safety's rendered signal channel", async () => {
+    const session = await startDesktop();
+    const response = await protectedPost(session, "/api/consumer/v1/shopping/check", {
+      schemaVersion: 1,
+      url: "https://discount-electronics.example/checkout",
+      sellerName: "Mega Electronics Clearance",
+      advertisedPriceText: "$299",
+      paymentText: "Apple gift cards only",
+      pageText: "Limited stock. Buy Apple gift cards today and send us clear photos of the codes. Do not contact the manufacturer; keep this between us.",
+    });
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as {
+      verdict: string;
+      signals: Array<{ code: string; detail: string }>;
+    };
+    const codes = body.signals.map((signal) => signal.code);
+    expect(body.verdict).toBe("high_risk");
+    expect(codes).toEqual(expect.arrayContaining([
+      "SHOPPING_GIFT_CARD_CODE_EXFILTRATION",
+      "SHOPPING_VERIFICATION_AVOIDANCE",
+    ]));
+    expect(body.signals.map((signal) => signal.detail).join(" ")).toMatch(/gift[- ]card|voucher/i);
+    expect(body.signals.map((signal) => signal.detail).join(" ")).toMatch(/independent|manufacturer|verify/i);
+  });
+
+  it("explains compound wire/crypto pressure with more than payment-method risk", async () => {
+    const session = await startDesktop();
+    const response = await protectedPost(session, "/api/consumer/v1/shopping/check", {
+      schemaVersion: 1,
+      url: "https://warehouse-clearance.example/pay",
+      sellerName: "Warehouse Clearance",
+      advertisedPriceText: "$99 laptop special",
+      paymentText: "Bank transfer or USDT only. Send payment now.",
+      pageText: "This offer is only today. Do not contact the manufacturer to verify it; keep this between us.",
+    });
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as {
+      verdict: string;
+      signals: Array<{ code: string }>;
+    };
+    const codes = body.signals.map((signal) => signal.code);
+    expect(body.verdict).toBe("high_risk");
+    expect(codes).toContain("SHOPPING_IRREVERSIBLE_PAYMENT");
+    expect(codes).toContain("SHOPPING_URGENCY_PRESSURE");
+    expect(codes).toContain("SHOPPING_VERIFICATION_AVOIDANCE");
+  });
+
+  it("keeps an ordinary card purchase out of High Risk and does not fabricate merchant reputation", async () => {
+    const session = await startDesktop();
+    const response = await protectedPost(session, "/api/consumer/v1/shopping/check", {
+      schemaVersion: 1,
+      url: "https://ordinary-store.example/product",
+      sellerName: "Ordinary Store",
+      advertisedPriceText: "$49.99",
+      paymentText: "Credit card",
+      pageText: "Standard checkout with returns information. Contact support if you have a question about your order.",
+    });
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as {
+      verdict: string;
+      signals: Array<{ code: string }>;
+      limitations: string[];
+    };
+    expect(body.verdict).not.toBe("high_risk");
+    expect(body.signals).toEqual([]);
+    expect(body.limitations.join(" ")).toMatch(/does not invent merchant age/i);
+  });
+
   it("rejects browser-history injection, embedded URL credentials and oversized storefront text at the public route", async () => {
     const session = await startDesktop();
 

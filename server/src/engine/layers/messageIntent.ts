@@ -5,6 +5,7 @@ import {
   isSharedMailboxDomain,
 } from "../identitySignals.js";
 import { organizationClaimAligned } from "./identityImpersonation.js";
+import { structuralConsistencyEvidenceCodes } from "./structuralConsistency.js";
 import type { LayerResult } from "../verdict.js";
 import { normalizeSecurityText } from "../securityText.js";
 
@@ -21,8 +22,22 @@ const RULES: IntentRule[] = [
   {
     code: "CREDENTIAL_PHISH_INTENT",
     category: "credential_phishing",
-    intentPhrases: [/password/i, /verify your account/i, /confirm your identity/i, /one[- ]time (code|passcode)/i, /recovery code/i, /seed phrase/i],
-    pressurePhrases: [/within 24 hours/i, /account (will be|has been) (suspended|locked|disabled)/i, /unusual (sign-?in|activity)/i, /click (here|below) to/i],
+    intentPhrases: [
+      /password/i,
+      /verify your account/i,
+      /confirm your identity/i,
+      /one[- ]time (code|passcode)/i,
+      /one[- ]time (?:verification|security|login|sign[- ]?in) (?:code|passcode)/i,
+      /recovery code/i,
+      /seed phrase/i,
+    ],
+    pressurePhrases: [
+      /within 24 hours/i,
+      /account (will be|has been) (suspended|locked|disabled)/i,
+      /account (?:lock|suspension|restriction)/i,
+      /unusual (sign-?in|activity)/i,
+      /click (here|below) to/i,
+    ],
     score: 3,
     description: "Message asks for credentials/OTP under time or suspension pressure.",
   },
@@ -46,7 +61,15 @@ const RULES: IntentRule[] = [
     code: "CRYPTO_SCAM_INTENT",
     category: "cryptocurrency",
     intentPhrases: [/bitcoin/i, /\bBTC\b/, /wallet/i, /crypto(currency)?/i, /seed phrase/i, /investment platform/i],
-    pressurePhrases: [/guaranteed returns?/i, /double your/i, /act (now|fast)/i, /limited (time|spots)/i, /validate your wallet/i],
+    pressurePhrases: [
+      /guaranteed returns?/i,
+      /double your/i,
+      /act (now|fast)/i,
+      /limited (time|spots)/i,
+      /validate your wallet/i,
+      /within \d+ (?:minutes?|hours?)/i,
+      /(?:cannot|can't|cant) be reversed/i,
+    ],
     score: 4,
     description: "Cryptocurrency investment/wallet-validation pressure pattern.",
   },
@@ -180,14 +203,23 @@ function hasAuthenticatedBulkMailContext(envelope: CanonicalEnvelope): boolean {
   );
 }
 
+function structuralOwnsLegacyBec(envelope: CanonicalEnvelope): boolean {
+  const codes = new Set(structuralConsistencyEvidenceCodes(envelope));
+  return codes.has("GIFT_CARD_CODE_EXFILTRATION")
+    || codes.has("IRREVERSIBLE_PAYMENT_PRESSURE")
+    || codes.has("SECRECY_PAYMENT_DIVERSION");
+}
+
 export function messageIntentLayer(envelope: CanonicalEnvelope): LayerResult {
   const linkText = envelope.links.map((link) => `${link.visibleText ?? ""}\n${link.rawUrl}`).join("\n");
   const haystack = normalizeSecurityText(`${envelope.subject}\n${envelope.textPreview ?? ""}\n${envelope.htmlSignals?.extractedText ?? ""}\n${linkText}`);
   const subject = normalizeSecurityText(envelope.subject);
   const evidence: LayerResult["evidence"] = [];
   const incomplete = envelope.textPreview === null && envelope.htmlSignals === null;
+  const structuralBecOwnership = structuralOwnsLegacyBec(envelope);
 
   for (const rule of RULES) {
+    if (rule.code === "BEC_INTENT" && structuralBecOwnership) continue;
     const hasIntent = rule.intentPhrases.some((pattern) => pattern.test(haystack));
     const hasPressure = rule.pressurePhrases.some((pattern) => pattern.test(haystack));
     if (hasIntent && hasPressure) {

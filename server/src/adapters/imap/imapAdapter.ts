@@ -44,6 +44,7 @@ export interface ImapCredentials {
 
 const MAX_ENCODED_TEXT_PART_BYTES = 48 * 1024;
 const MAX_DECODED_TEXT_CHARS = 24 * 1024;
+export const MAX_COMPLETE_READABLE_PART_BYTES = 256 * 1024;
 const MIN_BOUNDED_VISIBLE_CHARS = 500;
 const MAX_ENCODED_QR_PART_BYTES = Math.ceil(MAX_QR_IMAGE_BYTES * 1.5) + 4096;
 const CONNECT_TIMEOUT_MS = 25_000;
@@ -137,10 +138,28 @@ function bodyPartBuffer(parts: unknown, key: string): Buffer | null {
   return null;
 }
 
+function completeReadablePartIsEligible(part: ReadableTextPart): boolean {
+  return part.sizeBytes !== null && part.sizeBytes <= MAX_COMPLETE_READABLE_PART_BYTES;
+}
+
+function readablePartFetchLimit(part: ReadableTextPart): number {
+  return completeReadablePartIsEligible(part)
+    ? part.sizeBytes! + 1
+    : MAX_ENCODED_TEXT_PART_BYTES;
+}
+
+function readablePartDecodedLimit(part: ReadableTextPart): number {
+  return completeReadablePartIsEligible(part)
+    ? MAX_COMPLETE_READABLE_PART_BYTES
+    : MAX_DECODED_TEXT_CHARS;
+}
+
 /**
  * Fetches all selected readable alternatives for one message in one bounded
- * IMAP command. This avoids serial plain-then-HTML downloads and ensures HTML
- * link destinations are available even when the plain alternative is long.
+ * IMAP command. Declared parts that fit the complete-readable budget receive
+ * a one-byte sentinel beyond their declared size so completeness can be
+ * distinguished from a provider-side prefix. Larger/unknown parts keep the
+ * original small bounded prefix path; no whole-message fallback is allowed.
  */
 export async function fetchBoundedReadableBodies(
   client: ImapTextFetchClient,
@@ -165,7 +184,7 @@ export async function fetchBoundedReadableBodies(
         bodyParts: requestedParts.map((part) => ({
           key: part.part,
           start: 0,
-          maxLength: MAX_ENCODED_TEXT_PART_BYTES,
+          maxLength: readablePartFetchLimit(part),
         })),
       },
       { uid: true, binary: false },
@@ -195,13 +214,15 @@ export async function fetchBoundedReadableBodies(
     }
 
     try {
-      const decoded = await decodeFetchedTextPart(rawPart, part, MAX_DECODED_TEXT_CHARS);
+      const rawByteLimit = readablePartFetchLimit(part);
+      const decodedCharLimit = readablePartDecodedLimit(part);
+      const decoded = await decodeFetchedTextPart(rawPart, part, decodedCharLimit);
       const truncated = boundedTextPartWasTruncated({
         declaredPartBytes: part.sizeBytes,
         fetchedRawBytes: rawPart.length,
         decodedChars: decoded.decodedLength,
-        rawByteLimit: MAX_ENCODED_TEXT_PART_BYTES,
-        decodedCharLimit: MAX_DECODED_TEXT_CHARS,
+        rawByteLimit,
+        decodedCharLimit,
       }) || decoded.truncated;
       result.truncated ||= truncated;
 
