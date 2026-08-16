@@ -1,4 +1,5 @@
 const SHARED_DASHBOARD_SCRIPTS = [
+  "/runtime-workflow-trace.js",
   "/account-selection-state.js",
   "/scan-monitor.js",
   "/unsubscribe-monitor.js",
@@ -39,19 +40,22 @@ function scriptTags(paths: readonly string[]): string {
 }
 
 /**
- * The API server is the sole owner of browser module composition. The account
- * selection state boundary runs before scan-monitor so a consumer selection is
- * reflected synchronously before async account-list refresh/persistence. Card
- * enhancers are then ordered from the base scan renderer outwards: canonical
- * review actions publish opaque capabilities first, Analyze Links adds only its
- * explicit token-bound destination action, and consumer projections load after
- * those card owners. Every external dashboard module is deferred so the browser
- * can fetch them in parallel without blocking HTML parsing/first paint;
- * execution order remains deterministic. Developer controls fail closed before
- * the visual shell can expose the base HTML button; app-shell then constructs
- * the visual route containers. ui-router becomes the authoritative navigation/
- * mount contract before consumer feature modules declare route-owned panels.
- * consumer-product constructs the consumer provider cards and settings tools;
+ * The API server is the sole owner of browser module composition. Runtime
+ * workflow tracing runs first so every later feature controller can correlate
+ * a semantic user action with its protected API and Worker path without
+ * inspecting mailbox content. The account selection state boundary then runs
+ * before scan-monitor so a consumer selection is reflected synchronously before
+ * async account-list refresh/persistence. Card enhancers are ordered from the
+ * base scan renderer outwards: canonical review actions publish opaque
+ * capabilities first, Analyze Links adds only its explicit token-bound
+ * destination action, and consumer projections load after those card owners.
+ * Every external dashboard module is deferred so the browser can fetch them in
+ * parallel without blocking HTML parsing/first paint; execution order remains
+ * deterministic. Developer controls fail closed before the visual shell can
+ * expose the base HTML button; app-shell then constructs the visual route
+ * containers. ui-router becomes the authoritative navigation/mount contract
+ * before consumer feature modules declare route-owned panels. consumer-product
+ * constructs the consumer provider cards and settings tools;
  * consumer-provider-onboarding then becomes the authoritative normal-consumer
  * provider interaction boundary while keeping the legacy engineering connector
  * hidden. Shopping Safety and capability-gated Media Authenticity mount after
