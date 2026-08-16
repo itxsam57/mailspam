@@ -26,6 +26,13 @@
     }));
   }
 
+  function confirmSelectionTrace() {
+    const trace = window.emailShieldRuntimeTrace;
+    if (trace?.currentWorkflowId?.() === 'account.select') {
+      trace.checkpoint('account.select.ui_confirmed');
+    }
+  }
+
   function reflectSelection(id) {
     const normalized = typeof id === 'string' && id.trim() ? id : null;
     const previousId = selectedId;
@@ -45,6 +52,7 @@
     });
 
     if (changed) publishSelectionChange(previousId, normalized);
+    confirmSelectionTrace();
     return changed;
   }
 
@@ -60,20 +68,11 @@
     );
   }
 
-  // The legacy shell still owns account list construction/persistence. This
-  // wrapper establishes one synchronous selection boundary before those async
-  // effects run, so scan/action modules never have to infer selection from a
-  // DOM refresh that may still be in flight. A monotonically increasing
-  // generation also rejects A -> B -> A stale async responses that an ID-only
-  // comparison would incorrectly accept.
   window.selectAccount = function emailShieldSelectAccountState(id, options = {}) {
     reflectSelection(id);
     return originalSelect.call(this, id, options);
   };
 
-  // refreshAccounts() rebuilds the account-chip DOM after connect/disconnect.
-  // Reconcile that authoritative list after each rebuild so removing the
-  // selected mailbox cannot leave a ghost account ID in account-scoped modules.
   new MutationObserver(() => {
     const activeId = accountsList.querySelector('.account-chip.active')?.dataset.id || null;
     if (activeId !== selectedId) reflectSelection(activeId);
