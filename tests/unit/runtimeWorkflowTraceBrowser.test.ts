@@ -33,12 +33,13 @@ describe("browser runtime workflow tracing", () => {
     expect(trace).not.toContain("subject");
   });
 
-  it("correlates protected fetches and scan EventSource creation with the active opaque trace id", () => {
+  it("correlates protected fetches and every same-origin scan EventSource centrally", () => {
     const localSecurity = source("web/local-security.js");
-    const scanMonitor = source("web/scan-monitor.js");
+    const trace = source("web/runtime-workflow-trace.js");
     expect(localSecurity).toContain("X-Email-Shield-Trace-Id");
     expect(localSecurity).toContain("apiRequest");
     expect(localSecurity).toContain("apiResponse");
-    expect(scanMonitor).toContain("withTraceQuery");
+    expect(trace).toContain("withTraceQuery");
+    expect(trace).toContain("class TracedEventSource");
   });
 });
