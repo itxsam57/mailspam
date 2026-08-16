@@ -93,6 +93,12 @@
   const countsElement = document.getElementById('policyCounts');
   const listElement = document.getElementById('policyList');
 
+  function checkpoint(workflowId, checkpointId, outcome = 'success', errorCode) {
+    const trace = window.emailShieldRuntimeTrace;
+    if (trace?.currentWorkflowId?.() !== workflowId) return;
+    trace.checkpoint(checkpointId, outcome, errorCode ? { errorCode } : undefined);
+  }
+
   function selectionSnapshot() {
     const owner = window.emailShieldAccountSelection;
     if (owner?.capture) return owner.capture();
@@ -103,10 +109,6 @@
     const owner = window.emailShieldAccountSelection;
     if (owner?.matches && ownerSnapshot?.generation !== null) return owner.matches(ownerSnapshot);
     return ownerSnapshot?.id === (document.querySelector('#accountsList .account-chip.active')?.getAttribute('data-id') || null);
-  }
-
-  function selectedAccountId() {
-    return selectionSnapshot().id;
   }
 
   function loadedPolicyMatchesSelection(ownerSnapshot = selectionSnapshot()) {
@@ -201,11 +203,13 @@
       const key = selectionKey(item.category, item.value);
       checkbox.checked = selection.has(key);
       checkbox.setAttribute('aria-label', `Select ${CATEGORY_LABELS[item.category]} entry`);
+      window.emailShieldRuntimeTrace?.registerControl(checkbox, 'policy.selection.toggle', 'policy.selection.toggle', 'policy_selection');
       checkbox.addEventListener('change', () => {
         if (!loadedPolicyMatchesSelection()) return;
         if (checkbox.checked) selection.set(key, { category: item.category, value: item.value });
         else selection.delete(key);
         revokeSelectedButton.disabled = selection.size === 0;
+        checkpoint('policy.selection.toggle', 'policy.selection.toggle.ui_confirmed');
       });
 
       const label = document.createElement('div');
@@ -221,10 +225,11 @@
 
       const revoke = document.createElement('button');
       revoke.textContent = 'Revoke';
+      window.emailShieldRuntimeTrace?.registerControl(revoke, 'policy.revoke', 'policy.revoke', 'policy_revoke');
       revoke.addEventListener('click', async () => {
-        if (!loadedPolicyMatchesSelection()) { void loadPolicy(true); return; }
+        if (!loadedPolicyMatchesSelection()) { void loadPolicy(true); checkpoint('policy.revoke', 'policy.revoke.ui_confirmed', 'rejected', 'stale_selection'); return; }
         if (!window.confirm(`Revoke this ${CATEGORY_LABELS[item.category].toLowerCase()} entry?`)) return;
-        await mutate('/revoke', { category: item.category, value: item.value }, 'Policy entry revoked.');
+        await mutate('/revoke', { category: item.category, value: item.value }, 'Policy entry revoked.', 'policy.revoke', 'policy.revoke.ui_confirmed');
       });
 
       row.append(checkbox, label, value, revoke);
@@ -255,9 +260,13 @@
       controlsEnabled(false);
       setStatus('Select a connected account to manage its personal policy.');
       render();
+      checkpoint('policy.load', 'policy.load.ui_confirmed', 'rejected', 'account_not_selected');
       return;
     }
-    if (!force && loadedPolicyMatchesSelection(ownerSnapshot) && snapshot) return;
+    if (!force && loadedPolicyMatchesSelection(ownerSnapshot) && snapshot) {
+      checkpoint('policy.load', 'policy.load.ui_confirmed');
+      return;
+    }
 
     const requestSequence = ++loadSequence;
     controlsEnabled(false);
@@ -275,6 +284,7 @@
       controlsEnabled(true);
       setStatus(body.persistent ? 'Personal policy is encrypted and persistent for this account.' : 'Personal policy is memory-only on this platform/session.', body.persistent ? 'ok' : '');
       render();
+      checkpoint('policy.load', 'policy.load.ui_confirmed');
     } catch (error) {
       if (requestSequence !== loadSequence || !selectionMatches(ownerSnapshot)) return;
       loadedAccountId = accountId;
@@ -284,15 +294,17 @@
       controlsEnabled(true);
       setStatus(error.message || String(error), 'error');
       render();
+      checkpoint('policy.load', 'policy.load.ui_confirmed', 'failed', 'policy_load_failed');
     }
   }
 
-  async function mutate(suffix, body, successMessage) {
+  async function mutate(suffix, body, successMessage, workflowId, checkpointId) {
     const ownerSnapshot = selectionSnapshot();
     if (!loadedPolicyMatchesSelection(ownerSnapshot)) {
       selection.clear();
       controlsEnabled(false);
       setStatus('Account selection changed. No personal policy was modified; loading the selected account policy now.', 'error');
+      checkpoint(workflowId, checkpointId, 'rejected', 'stale_selection');
       void loadPolicy(true);
       return;
     }
@@ -310,10 +322,12 @@
       selection.clear();
       setStatus(successMessage, 'ok');
       await loadPolicy(true);
+      checkpoint(workflowId, checkpointId);
     } catch (error) {
       if (!selectionMatches(ownerSnapshot)) return;
       controlsEnabled(true);
       setStatus(error.message || String(error), 'error');
+      checkpoint(workflowId, checkpointId, 'failed', 'policy_mutation_failed');
     }
   }
 
@@ -325,39 +339,45 @@
   refreshButton.addEventListener('click', () => { void loadPolicy(true); });
 
   selectVisibleButton.addEventListener('click', () => {
-    if (!loadedPolicyMatchesSelection()) { void loadPolicy(true); return; }
+    if (!loadedPolicyMatchesSelection()) {
+      checkpoint('policy.selection.toggle', 'policy.selection.toggle.ui_confirmed', 'rejected', 'stale_selection');
+      void loadPolicy(true);
+      return;
+    }
     for (const item of visibleItems()) selection.set(selectionKey(item.category, item.value), item);
     renderList();
+    checkpoint('policy.selection.toggle', 'policy.selection.toggle.ui_confirmed');
   });
 
   revokeSelectedButton.addEventListener('click', async () => {
     if (!selection.size) return;
-    if (!loadedPolicyMatchesSelection()) { void loadPolicy(true); return; }
+    if (!loadedPolicyMatchesSelection()) { checkpoint('policy.bulk_revoke', 'policy.bulk_revoke.ui_confirmed', 'rejected', 'stale_selection'); void loadPolicy(true); return; }
     if (!window.confirm(`Revoke ${selection.size} selected personal policy entries?`)) return;
-    await mutate('/bulk-revoke', { items: [...selection.values()] }, `${selection.size} policy entries revoked.`);
+    await mutate('/bulk-revoke', { items: [...selection.values()] }, `${selection.size} policy entries revoked.`, 'policy.bulk_revoke', 'policy.bulk_revoke.ui_confirmed');
   });
 
   clearCategoryButton.addEventListener('click', async () => {
     const category = categorySelect.value;
     if (!CATEGORIES.includes(category)) return;
-    if (!loadedPolicyMatchesSelection()) { void loadPolicy(true); return; }
+    if (!loadedPolicyMatchesSelection()) { checkpoint('policy.clear', 'policy.clear.ui_confirmed', 'rejected', 'stale_selection'); void loadPolicy(true); return; }
     if (!window.confirm(`Clear every entry in ${CATEGORY_LABELS[category]} for the selected account?`)) return;
-    await mutate('/clear-category', { category, confirmation: category }, `${CATEGORY_LABELS[category]} cleared.`);
+    await mutate('/clear-category', { category, confirmation: category }, `${CATEGORY_LABELS[category]} cleared.`, 'policy.clear', 'policy.clear.ui_confirmed');
   });
 
   resetButton.addEventListener('click', async () => {
-    if (!loadedPolicyMatchesSelection()) { void loadPolicy(true); return; }
+    if (!loadedPolicyMatchesSelection()) { checkpoint('policy.reset', 'policy.reset.ui_confirmed', 'rejected', 'stale_selection'); void loadPolicy(true); return; }
     const phrase = window.prompt('Type RESET PERSONAL POLICY to remove every personal rule for the selected account.');
     if (phrase !== 'RESET PERSONAL POLICY') {
       if (phrase !== null) setStatus('Reset cancelled because the confirmation phrase did not match.', 'error');
+      if (phrase !== null) checkpoint('policy.reset', 'policy.reset.ui_confirmed', 'rejected', 'confirmation_mismatch');
       return;
     }
-    await mutate('/reset', { confirmation: phrase }, 'All personal policy entries were reset.');
+    await mutate('/reset', { confirmation: phrase }, 'All personal policy entries were reset.', 'policy.reset', 'policy.reset.ui_confirmed');
   });
 
   exportButton.addEventListener('click', async () => {
     const ownerSnapshot = selectionSnapshot();
-    if (!loadedPolicyMatchesSelection(ownerSnapshot)) { void loadPolicy(true); return; }
+    if (!loadedPolicyMatchesSelection(ownerSnapshot)) { checkpoint('policy.export', 'policy.export.ui_confirmed', 'rejected', 'stale_selection'); void loadPolicy(true); return; }
     const exportAccountId = loadedAccountId;
     controlsEnabled(false);
     setStatus('Preparing policy-only backup…');
@@ -379,23 +399,26 @@
       URL.revokeObjectURL(href);
       controlsEnabled(true);
       setStatus('Policy-only backup exported. It contains no mailbox credentials or OAuth tokens.', 'ok');
+      checkpoint('policy.export', 'policy.export.ui_confirmed');
     } catch (error) {
       if (!selectionMatches(ownerSnapshot)) return;
       controlsEnabled(true);
       setStatus(error.message || String(error), 'error');
+      checkpoint('policy.export', 'policy.export.ui_confirmed', 'failed', 'policy_export_failed');
     }
   });
 
   importButton.addEventListener('click', () => {
-    if (!loadedPolicyMatchesSelection()) { void loadPolicy(true); return; }
+    if (!loadedPolicyMatchesSelection()) { checkpoint('policy.import', 'policy.import.ui_confirmed', 'rejected', 'stale_selection'); void loadPolicy(true); return; }
     importFile.click();
   });
   importFile.addEventListener('change', async () => {
     const file = importFile.files?.[0];
     importFile.value = '';
-    if (!file || !loadedPolicyMatchesSelection()) { void loadPolicy(true); return; }
+    if (!file || !loadedPolicyMatchesSelection()) { if (file) checkpoint('policy.import', 'policy.import.ui_confirmed', 'rejected', 'stale_selection'); void loadPolicy(true); return; }
     if (file.size > MAX_IMPORT_BYTES) {
       setStatus('Policy backup is too large for the protected local import boundary.', 'error');
+      checkpoint('policy.import', 'policy.import.ui_confirmed', 'rejected', 'policy_import_too_large');
       return;
     }
     try {
@@ -406,9 +429,10 @@
         ? 'Replace every current personal rule for this selected account with the backup?'
         : 'Merge this backup into the selected account personal policy?';
       if (!window.confirm(warning)) return;
-      await mutate('/import', { mode, document }, `Policy backup ${mode === 'replace' ? 'replaced' : 'merged into'} the selected account.`);
+      await mutate('/import', { mode, document }, `Policy backup ${mode === 'replace' ? 'replaced' : 'merged into'} the selected account.`, 'policy.import', 'policy.import.ui_confirmed');
     } catch (error) {
       setStatus(`Policy import could not be read: ${error.message || String(error)}`, 'error');
+      checkpoint('policy.import', 'policy.import.ui_confirmed', 'failed', 'policy_import_failed');
     }
   });
 
