@@ -108,8 +108,8 @@ const GIFT_CARD_SECRET = /\b(?:codes?|card\s+numbers?|numbers?|pins?|serials?)\b
 const IMAGE_OF_SECRET = /\b(?:photo|photos|picture|pictures|image|images|screenshot|snap)\b/u;
 const OTP_SECRET = /\b(?:otp|one[- ]?time(?:\s+(?:verification|security|login|sign[- ]?in))?\s+(?:code|passcode)|verification\s+code|security\s+code|login\s+code|sign[- ]?in\s+code|passcode)\b/u;
 const RECOVERY_SECRET = /\b(?:password|recovery\s+(?:code|key|phrase)|seed\s+phrase|private\s+key|backup\s+code)\b/u;
-const REMOTE_TOOL = /\b(?:anydesk|teamviewer|quick\s+assist|screenconnect|connectwise\s+control|rustdesk|ultraviewer|remote\s+desktop)\b/u;
-const REMOTE_ACTION = /\b(?:install|download|open|launch|run|start|allow|enable|grant|give)\b[^.!?\n]{0,80}\b(?:access|control|remote|anydesk|teamviewer|quick\s+assist|screenconnect|rustdesk|ultraviewer)\b|\b(?:allow|grant|give)\b[^.!?\n]{0,60}\b(?:us|me|support|agent|team)\b[^.!?\n]{0,40}\b(?:access|control)\b/u;
+const REMOTE_TOOL = /\b(?:anydesk|teamviewer|quick\s+assist|screenconnect|connectwise\s+control|rustdesk|ultraviewer|zoho\s+assist|remote\s+desktop)\b/u;
+const REMOTE_ACTION = /\b(?:install|download|open|launch|run|start|allow|enable|grant|give)\b[^.!?\n]{0,80}\b(?:access|control|remote|anydesk|teamviewer|quick\s+assist|screenconnect|rustdesk|ultraviewer|zoho\s+assist)\b|\b(?:allow|grant|give)\b[^.!?\n]{0,60}\b(?:us|me|support|agent|team)\b[^.!?\n]{0,40}\b(?:access|control)\b/u;
 const NEGATED_VALUE_TRANSFER = /\b(?:do\s+not|don't|dont|never)\s+(?:pay|send|transfer|wire|remit|buy|purchase|move)\b|\bno\b[^.!?\n]{0,90}\b(?:payment|transfer|wallet\s+action|money\s+movement|value\s+transfer)\b[^.!?\n]{0,90}\b(?:is|are|was|were)?\s*(?:requested|required|needed|necessary)\b/u;
 
 const DISPLAY_ROLE_SUFFIX = /\s+(?:billing|payments?|accounts?|support|security|fraud(?:\s+team)?|service(?:s)?|helpdesk|help\s+desk|admin(?:istration)?)$/u;
