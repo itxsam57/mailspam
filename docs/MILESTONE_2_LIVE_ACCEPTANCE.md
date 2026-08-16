@@ -4,156 +4,165 @@ This is the owner-controlled acceptance plan for Email Shield Milestone 2. Autom
 
 ## Evidence rules
 
-Before testing, record the exact `main` commit SHA and the latest successful post-merge Engineering Gate run. For each owner item record only `PASS` or `FAIL`, the test identifier, browser/OS when relevant and a short visible failure description.
+Before testing, record the exact `main` commit SHA and latest successful post-merge Engineering Gate. Record only PASS/FAIL, test identifier, browser/OS when relevant and a short visible failure description.
 
-Never record or share mailbox passwords, app passwords, OAuth authorization codes, access tokens, refresh tokens, local session values, private message bodies, private URL query strings, private provider message IDs or private signing keys.
+Never record mailbox/app passwords, OAuth codes, access/refresh tokens, local-session values, private message bodies, private URL query strings, provider-native message IDs or signing keys. Use dedicated test accounts/messages for destructive actions.
 
-Use dedicated test accounts/messages wherever an action moves mail, reports spam, unsubscribes or exercises public infrastructure.
+Fixture mode is intentionally unavailable from normal consumer startup. `npm run dev:fixtures` is an engineering/owner test launcher that explicitly enables development entitlements. `npm run dev` is the production-like consumer launcher and must keep fixture/developer surfaces inaccessible. Do not set the development-entitlement environment variable manually for live consumer/provider acceptance.
 
-## Phase A — Exact build and fixture browser acceptance
+## Phase A — Exact build and explicit fixture browser acceptance
 
-- **LIVE-A01 Exact build** — clean checkout of the exact final `main`; `npm ci`; `npm run gate`; continue only when the report is PASSED.
-- **LIVE-A02 Initial render** — run `npm run dev`, open `http://127.0.0.1:4173`, verify a stable non-blank render and no permanent loading/error state.
-- **LIVE-A03 Responsive UI** — verify desktop and narrow viewport readability and reachable controls.
-- **LIVE-A04 Five fixture providers** — connect Gmail, Outlook, iCloud, Yahoo and Generic IMAP in Fixture mode and complete visible Quick scans.
-- **LIVE-A05 Scan types** — run Quick, Full Mailbox and Spam/Junk fixture scans; verify counters/progress/results do not duplicate or stay stale.
-- **LIVE-A06 Stop/restart** — stop a Full scan while active and immediately start another scan without refreshing.
-- **LIVE-A07 Action separation** — confirm Report Scam, Move to Spam/Junk, Trash where offered, Mark Safe, Trust sender and unsubscribe remain distinct actions.
-- **LIVE-A08 Replay feedback** — after one successful controlled fixture action, repeated/rapid reuse must require a rescan or visibly reject the stale action rather than executing twice.
-- **LIVE-A09 Session refresh** — refresh the dashboard and continue ordinary fixture operations without being asked for any local session secret.
-- **LIVE-A10 Process restart** — leave a tab open, restart `npm run dev`, try a harmless action in the stale tab, verify clear reload/session-expired behavior, then reload and continue normally.
-- **LIVE-A11 Account isolation** — connect at least two fixture accounts and verify results, policies and message actions do not cross between them.
+1. Clean checkout the exact final `main`; run `npm ci` and `npm run gate`. Continue only when the report is PASSED.
+2. Run `npm run dev:fixtures` and open `http://127.0.0.1:4173`.
+3. **LIVE-A01 render/responsive** — stable non-blank render; desktop and narrow viewport readable; no permanent loading/error state.
+4. **LIVE-A02 five providers** — connect Gmail, Outlook, iCloud, Yahoo and Generic IMAP in Fixture mode and complete visible Quick scans.
+5. **LIVE-A03 scan modes** — run Quick, Full Mailbox Audit and Spam/Junk; counters/progress/results reset correctly and do not duplicate.
+6. **LIVE-A04 stop/restart** — stop a Full scan while active and immediately start another scan without refreshing.
+7. **LIVE-A05 action separation** — Report Scam, Move to Spam/Junk, Trash where offered, Mark Safe, Trust sender and Unsubscribe remain distinct actions with one visible owner each.
+8. **LIVE-A06 replay rejection** — a completed action cannot execute again from rapid/repeated stale clicks; require rescan or a visible rejection.
+9. **LIVE-A07 account isolation** — connect at least two fixture accounts and repeatedly switch; results, policy state, counters and actions never cross accounts.
+10. **LIVE-A08 refresh/resume** — refresh during an eligible scan; active/resumable state reattaches without inventing a second worker.
+11. **LIVE-A09 process restart** — leave a tab open, stop/restart the fixture process, attempt a harmless action in the old tab, verify clear reload/session-expired behavior, then reload and continue.
 
-## Phase B — Personal policy, report and resume behavior
+Stop the fixture process before Phase B. Fixture PASS proves the consumer workflow using controlled data; it does not prove any live provider.
 
-- **LIVE-B01 Block/unblock sender** — block a controlled fixture sender, rescan, verify block evidence, unblock, rescan and verify it disappears.
-- **LIVE-B02 Block/unblock domain** — repeat with a controlled direct domain.
-- **LIVE-B03 Mark Safe** — approve one controlled exact message and verify only that exception changes.
-- **LIVE-B04 Trust sender** — trust one controlled sender and verify the account-scoped policy entry.
-- **LIVE-B05 Report Scam** — on a controlled message, verify the dialog explains privacy-reduced sharing, local protection and the separate optional sender-block choice.
-- **LIVE-B06 Immediate campaign memory** — report a controlled campaign without moving it, rescan and verify local campaign protection while the provider folder remains unchanged.
-- **LIVE-B07 Move to Spam/Junk** — use a different controlled message; verify exactly that message moves and no shared-report success is implied.
-- **LIVE-B08 Policy centre** — verify search/filter, single revoke, bulk revoke, category clear and reset on a disposable fixture policy state.
-- **LIVE-B09 Policy export/import** — export policy-only JSON, inspect that it contains no credentials/session/token/vault material, then test merge and replace import on a controlled account.
-- **LIVE-B10 Scan refresh/resume** — start a longer Full scan, refresh the dashboard and verify the scan continues; stop an eligible scan and resume it from scan history.
-- **LIVE-B11 Process interruption** — interrupt/restart the app during a resumable scan and verify the stale running record becomes resumable/interrupted rather than falsely completed.
+## Phase B — Normal consumer boundary and Gmail live acceptance
 
-## Phase C — Live iCloud, Yahoo and Generic IMAP
+Start a fresh process with `npm run dev`. Do not use `npm run dev:fixtures` in this phase.
 
-Use provider-approved app passwords only; never the normal account password.
+- **LIVE-B01 consumer boundary** — the dashboard renders normally but Fixture mode/developer routes are not exposed or usable.
+- **LIVE-B02 Gmail guided connect** — use Continue with Google, complete the approved desktop OAuth + PKCE flow and return through the one-time loopback callback. No client secret is required or shown.
+- **LIVE-B03 account identity** — the Gmail account appears once with stable identity/label; no authorization code/access/refresh token is rendered.
+- **LIVE-D03 Gmail Quick scan** — run a real Quick scan on a controlled populated Gmail mailbox. It should complete with bounded visible progress and normal result rows; credentials/tokens/provider-native IDs remain absent from UI/errors.
+- **LIVE-D04 Gmail Full Mailbox Audit** — run a real Full Mailbox Audit on the same controlled mailbox. The default audit scope is Inbox + Spam + Archive and excludes Sent, Drafts and Trash. A populated mailbox must make visible forward progress and complete without the former quota-collapse behavior. Transient rate/quota responses may cause bounded retry/backoff but must not silently reset progress, create duplicate workers or turn incomplete inspection into Safe. A definitively vanished message may be skipped without collapsing the page; authorization/policy failures remain explicit failures.
+- **LIVE-B05 Gmail Spam/Junk scan** — run the dedicated Spam/Junk scan; an empty Spam folder is a valid completed result rather than an error.
+- **LIVE-B06 exact provider action** — on a dedicated message, exercise one Trash or Spam/Junk action and verify exactly that message changes after provider confirmation.
+- **LIVE-B07 disconnect** — disconnect; UI must not claim success if provider revocation/local cleanup fails.
+- **LIVE-B08 reconnect** — reconnect the same Gmail account and complete another Quick scan; account-scoped policy/history remains associated with the stable account identity.
+- **LIVE-B09 GAP-001 publication** — complete Google’s required production consent/publication/verification for the intended public app and repeat external-user connect/scan/reconnect as required. GAP-001 remains open until the public application is actually accepted.
 
-- **LIVE-C01 iCloud connect** — connect a controlled iCloud mailbox and confirm credentials are not displayed after connection.
-- **LIVE-C02 iCloud Quick scan** — verify bounded progress, readable ordinary messages and HTML/multipart evidence where applicable.
-- **LIVE-C03 iCloud Stop** — stop an active longer scan and verify controls recover promptly.
-- **LIVE-C04 iCloud exact action** — on a dedicated test message, perform one provider action such as Spam/Junk or Trash and verify exactly one intended message changes after provider confirmation.
-- **LIVE-C05 iCloud reconnect** — disconnect/reconnect using the protected credential flow and verify normal scanning returns.
-- **LIVE-C06 Yahoo** — repeat connect, Quick scan, one controlled provider action and reconnect when a controlled Yahoo account/app password is available.
-- **LIVE-C07 Generic IMAP** — repeat against a controlled TLS IMAP account; verify configured host/port/user behavior, bounded scans and exact provider action support available for that server.
+Any Gmail Full Mailbox Audit failure should be captured by visible symptom and timing only, without mailbox content. Reproduce it before changing code; do not compensate by reducing scan scope or loosening Safe/coverage rules.
 
-## Phase D — Live Gmail regression and production publication
+## Phase C — Personal policy, report and resume behavior
 
-Configure the Google desktop OAuth client expected by Email Shield. Keep the client ID/installed-app client configuration local and never paste OAuth codes/tokens into test evidence.
+Use fixture mode for non-destructive deterministic checks or a dedicated live mailbox when a provider mutation is specifically required.
 
-- **LIVE-D01 Gmail guided connect** — launch guided Gmail connect, complete Google consent and return through the one-time loopback callback.
-- **LIVE-D02 Gmail account identity** — verify the account appears once with a stable identity/label and no authorization code/access/refresh token is shown.
-- **LIVE-D03 Gmail Quick scan** — complete a real Quick scan.
-- **LIVE-D04 Gmail exact provider action** — on a dedicated message, exercise one exact Trash or Spam/Junk action and verify provider confirmation.
-- **LIVE-D05 Gmail disconnect** — disconnect and verify the UI does not claim success if provider revocation/local cleanup fails.
-- **LIVE-D06 Gmail reconnect** — reconnect the same account and complete another Quick scan; personal-policy identity must remain associated with the same account.
-- **LIVE-D07 GAP-001 production publication** — complete the required Google production OAuth consent/publication/verification process for the intended public application, then repeat an external-user connect/scan/reconnect acceptance as applicable. GAP-001 stays open until this is actually accepted.
+- **LIVE-C01 Block/unblock sender** — block a controlled sender, rescan, verify block evidence, unblock and verify removal.
+- **LIVE-C02 Block/unblock domain** — same for a controlled direct domain.
+- **LIVE-C03 Mark Safe** — approve one controlled exact message; only that exception changes and incomplete/unreadable content cannot become Safe.
+- **LIVE-C04 Trust sender** — trust a controlled sender and verify account-scoped policy state; hard threat evidence must still win.
+- **LIVE-C05 Report Scam** — dialog explains local protection, privacy-reduced sharing and separate optional sender-block choice.
+- **LIVE-C06 campaign memory** — report without moving, rescan and verify local campaign protection while provider folder remains unchanged.
+- **LIVE-C07 Move to Spam/Junk** — use a different message; exactly that message moves and no community-report success is implied.
+- **LIVE-C08 policy centre** — search/filter, single revoke, bulk revoke, category clear and reset on disposable state.
+- **LIVE-C09 policy export/import** — exported JSON contains policy only, no credential/session/token/vault material; exercise merge and replace import.
+- **LIVE-C10 scan refresh/resume** — active scan reattaches after refresh; eligible interrupted scan resumes from history without double-counting.
+- **LIVE-C11 process interruption** — restart during resumable work; stale running record becomes interrupted/resumable rather than falsely complete.
+
+## Phase D — Live iCloud, Yahoo and Generic IMAP
+
+Use provider-approved app passwords only, never the normal account password.
+
+- **LIVE-D01 iCloud** — connect, Quick scan, stop a longer scan, one exact controlled provider action, disconnect/reconnect; credentials never reappear after connection.
+- **LIVE-D02 Yahoo** — repeat connect, Quick scan, one controlled provider action and reconnect when a controlled Yahoo account/app password is available.
+- **LIVE-D05 Generic IMAP** — repeat against a controlled TLS IMAP account; verify configured host/port/user behavior, certificate validation, bounded scan and only capabilities actually supported by that server.
+
+The Gmail identifiers LIVE-D03 and LIVE-D04 are intentionally reserved above because those two live regressions are the current highest-priority provider checks.
 
 ## Phase E — Live Outlook acceptance (GAP-002)
 
-Create/configure a Microsoft Entra app registration as a **public client / mobile and desktop application**. Email Shield's guided flow uses Authorization Code + PKCE S256, dynamic `http://localhost:<port>` loopback callbacks and the scopes `offline_access`, `User.Read` and `Mail.ReadWrite`. Configure the mobile/desktop redirect as `http://localhost`. Do not create or enter a client secret for the guided Outlook flow.
+Outlook remains isolated from normal consumer onboarding until this controlled acceptance passes. Use the available Microsoft developer access to configure an Entra **public client / mobile and desktop application**. The guided flow uses Authorization Code + PKCE S256, dynamic `http://localhost:<port>` loopback callbacks and `offline_access`, `User.Read`, `Mail.ReadWrite`. Configure the mobile/desktop redirect as `http://localhost`; do not create/use a client secret for this public-client flow.
 
-Set the Email Shield Microsoft client ID locally through the expected environment/configuration path before starting the desktop app.
+- **LIVE-E01 config** — controlled Outlook entry reports public desktop PKCE and expected permissions.
+- **LIVE-E02 consent** — sign in to the controlled Microsoft account and approve only expected scopes.
+- **LIVE-E03 callback** — localhost one-time callback returns to Email Shield without exposing code/token.
+- **LIVE-E04 establishment** — account is added only after Graph profile + Inbox validation and protected credential custody succeed.
+- **LIVE-E05 Quick scan** — real Outlook Quick scan completes with bounded progress.
+- **LIVE-E06 provider action** — one dedicated message is moved to Spam/Junk or Trash and provider confirmation matches exactly that message.
+- **LIVE-E07 disconnect/reconnect** — protected local credential is removed according to the Outlook contract, then the same account reconnects and scans normally.
+- **LIVE-E08 stable identity** — policy/history remains tied to Graph account identity across refresh-token rotation/reconnect.
+- **LIVE-E09 secret visibility** — client secret, auth code, access token and refresh token never render in dashboard/errors.
 
-- **LIVE-E01 Outlook config visible** — the Outlook connect UI reports the public desktop PKCE flow and required permissions.
-- **LIVE-E02 Consent** — start Outlook connect, sign in to the controlled Microsoft account and approve only the expected scopes.
-- **LIVE-E03 Callback** — consent returns to Email Shield through the localhost one-time callback without showing the authorization code/token in the dashboard.
-- **LIVE-E04 Account establishment** — Outlook account is added only after Graph profile + Inbox validation and protected local credential custody succeed.
-- **LIVE-E05 Quick scan** — complete a real Outlook Quick scan with bounded progress.
-- **LIVE-E06 Provider action** — on a dedicated message, exercise Spam/Junk or Trash and verify exactly the selected message changes after Graph/provider confirmation.
-- **LIVE-E07 Disconnect** — disconnect; local protected credential is removed according to the Outlook disconnect contract without broad account-session revocation.
-- **LIVE-E08 Reconnect** — reconnect the same Microsoft account and complete another Quick scan.
-- **LIVE-E09 Stable identity** — after reconnect/refresh-token replacement, personal policy/history remains tied to the stable Graph account identity rather than the rotating token.
-- **LIVE-E10 Secret visibility** — throughout the flow, client secret, auth code, access token and refresh token are never rendered in dashboard/errors.
+GAP-002 closes only after this real sequence passes. Developer access or fixture parity alone is not acceptance.
 
-Passing LIVE-E01 through LIVE-E10 closes the owner-acceptance portion of GAP-002. Any failure remains a real gap and must be fixed before Milestone 2 closure.
+## Phase F — Controlled message-content corroboration
 
-## Phase F — Relationship and thread behavior with controlled real mail
+Use messages and infrastructure you control.
 
-These are optional live corroboration of automated behavior when suitable controlled mailboxes are available.
+- **LIVE-F01 relationship history** — repeated benign sender history remains context, never automatic trust.
+- **LIVE-F02 auth downgrade** — when provider Authentication-Results provenance has actually been proven, a controlled downgrade is surfaced rather than trusted.
+- **LIVE-F03 Reply-To change** — stable historical Reply-To changing unexpectedly is surfaced as relationship evidence.
+- **LIVE-F04 thread continuity** — real RFC references establish continuity; `Re:` text alone does not.
+- **LIVE-F05 HTML destinations** — anchors/form actions/meta refresh are evidence without executing message HTML.
+- **LIVE-F06 QR** — bounded PNG/JPEG QR URL extracts locally; malformed/oversized supported images do not freeze/crash or become Safe due to failed inspection.
+- **LIVE-F07 attachment metadata/hash** — harmless controlled MIME mismatch warns appropriately; exact signed threat hash may activate without exposing filename/content to community state.
+- **LIVE-F08 unsubscribe** — normal manual paths work; RFC 8058 automatic POST remains fail-closed unless trusted DKIM/provenance/signature-coverage proof exists and user confirmation is presented.
 
-- **LIVE-F01 Repeated benign sender** — receive multiple controlled benign messages from the same authenticated sender and verify history does not itself create a positive trust score/allowlist.
-- **LIVE-F02 Authentication downgrade** — after established benign authenticated history, send a controlled message with a real authentication downgrade if your mail infrastructure can produce it; verify the downgrade is surfaced rather than silently trusted.
-- **LIVE-F03 Reply-To change** — use a controlled sender whose previously stable Reply-To changes and verify the relationship anomaly is surfaced.
-- **LIVE-F04 Thread continuity** — reply within a known controlled thread and verify normal continuity; a subject beginning `Re:` without actual RFC references must not alone create continuity.
+Do not mark Authentication-Results provenance trusted merely to make a scenario available.
 
-If the provider's trusted Authentication-Results producer boundary has not been explicitly proven in Email Shield, authentication-derived live history remains conservative/unknown by design. Do not force production `providerTrust` merely to make this test pass.
+## Phase G — Controlled Analyze Links validation (GAP-005)
 
-## Phase G — HTML, QR, attachment and unsubscribe live corroboration
+Use deliberately managed public infrastructure only.
 
-Use messages you control.
+- **LIVE-G01 direct HTTPS** — bounded inspection succeeds on controlled public HTTPS.
+- **LIVE-G02 public redirect** — redirect to another controlled public HTTPS endpoint re-resolves/re-pins.
+- **LIVE-G03 private redirect** — loopback/RFC1918/link-local/non-public target is rejected.
+- **LIVE-G04 mixed DNS** — public + non-public answer set is rejected rather than choosing a convenient public address.
+- **LIVE-G05 content bounds** — unsupported/oversized/compressed content remains incomplete/uninspectable rather than benign.
+- **LIVE-G06 transport privacy** — no mailbox cookies/provider Authorization headers are sent to analyzed destinations.
 
-- **LIVE-G01 HTML destinations** — test ordinary anchors plus a controlled form/formaction or META refresh message; verify discovered destinations are visible as evidence without executing message HTML.
-- **LIVE-G02 QR** — send a bounded PNG/JPEG containing an HTTP(S) QR URL and verify local URL extraction; malformed/oversized images must not freeze/crash or become automatically Safe because inspection failed.
-- **LIVE-G03 Attachment MIME mismatch** — use controlled harmless files whose declared MIME/filename combination models a risky mismatch; verify the warning is based on metadata without uploading content.
-- **LIVE-G04 Exact attachment hash** — if a controlled signed threat-feed hash is available, verify an exact matching bounded attachment activates that intelligence without exposing filename/content to community state.
-- **LIVE-G05 Manual unsubscribe** — test a controlled `mailto:` and/or normal web List-Unsubscribe action.
-- **LIVE-G06 RFC 8058 fail-closed** — a One-Click declaration without all trusted DKIM/provenance/signature-coverage proof must remain manual and must not POST automatically.
-- **LIVE-G07 RFC 8058 compliant one-click** — only when a controlled provider path also has explicitly proven trusted Authentication-Results provenance, test a fully compliant one-click message; verify user confirmation appears before any POST. Do not mark live provider provenance trusted merely to make this scenario available.
+GAP-005 closes only after these controlled network cases pass on the production transport.
 
-## Phase H — Controlled real Analyze Links validation (GAP-005)
+## Phase H — Public Community Shield deployment (GAP-004)
 
-Use deliberately managed public infrastructure. Never point the test at private third-party destinations you do not control.
+This is infrastructure acceptance, not a desktop browser test.
 
-- **LIVE-H01 Direct public HTTPS** — analyze a controlled public HTTPS page and verify successful bounded inspection.
-- **LIVE-H02 Public redirect** — use a controlled public redirect to another controlled public HTTPS endpoint and verify re-resolution/re-pinning.
-- **LIVE-H03 Redirect to private address** — controlled redirect toward loopback/RFC1918/link-local/non-public target must be rejected.
-- **LIVE-H04 Mixed DNS answers** — if your controlled DNS can return public + non-public answers, verify the destination is rejected rather than selecting a convenient public answer.
-- **LIVE-H05 Unsupported/oversized/compressed content** — verify uninspectable content does not become benign.
-- **LIVE-H06 Transport privacy** — confirm no mailbox cookies/provider Authorization headers are sent to the analyzed destination.
+- deploy only the dedicated community entrypoint behind intended DNS/TLS/reverse proxy;
+- prove dashboard/account/scan routes are absent;
+- readiness is healthy only when aggregate build + sign + self-verification succeeds;
+- encrypted report/feed state survives restart on persistent storage;
+- monitoring covers health/error/capacity/storage/availability without report secrets or private key material;
+- execute encrypted backup and restore into a fresh path, verify aggregate/signing state before cutover;
+- execute real signing-key overlap, active-signer switch and retirement ceremony;
+- restart after recovery/rotation and prove readiness/feed/report behavior remains correct.
 
-GAP-005 closes only after these controlled public-network cases pass on the production Analyze Links transport.
+GAP-004 remains open until that operational ceremony succeeds.
 
-## Phase I — Public community deployment and operations (GAP-004)
+## Phase I — Gateway/reporter abuse controls (GAP-008)
 
-This is deployment acceptance, not a desktop browser test.
-
-- **LIVE-I01 Dedicated service** — deploy the community-only entry point; verify mailbox/dashboard/account/scan routes are not exposed.
-- **LIVE-I02 DNS/TLS** — place it behind the intended public DNS/TLS/reverse-proxy boundary.
-- **LIVE-I03 Health/readiness** — `/health` is healthy only when aggregate build + sign + self-verification succeeds; corrupt/unavailable state yields generic not-ready behavior.
-- **LIVE-I04 Persistent encrypted state** — reports/feed state survives a controlled service restart from the intended persistent volume.
-- **LIVE-I05 Monitoring** — configure health, error-rate, capacity/storage and availability monitoring without logging report secrets/private key material.
-- **LIVE-I06 Encrypted backup** — run the reviewed backup operation using passphrase-file custody; verify the portable recovery bundle is produced.
-- **LIVE-I07 Restore drill** — restore into a new path, validate aggregate/signing state and prove the service can read/sign/verify from the restored state before cutover.
-- **LIVE-I08 Signing rotation ceremony** — prepare next key, publish overlap, switch active signer, verify clients trust the overlap as intended, then retire the old key according to the reviewed process.
-- **LIVE-I09 Restart/recovery** — restart the deployed service after the above and verify readiness/feed/report behavior remains correct.
-
-GAP-004 remains open until this operational ceremony is actually executed successfully.
-
-## Phase J — Gateway/reporter abuse controls (GAP-008)
-
-- **LIVE-J01 Edge rate limiting** — enforce gateway request/volume limits independently of application reporter dedupe.
-- **LIVE-J02 Reputation/enrollment boundary** — implement and validate the chosen IP/device/reporter-reputation or enrollment controls without exposing mailbox identity to advertisers/other reporters.
-- **LIVE-J03 Volumetric/DDoS protection** — verify the service remains protected under controlled load and upstream limits activate before application exhaustion.
-- **LIVE-J04 Abuse threshold integrity** — prove one reporter/device/source cannot manufacture warning/confirmed community state by request volume alone.
-- **LIVE-J05 Error privacy under load** — public errors remain generic and do not expose storage paths, stack traces, cryptographic state or attacker-controlled diagnostics.
+- enforce gateway request/volume limits independently of application reporter dedupe;
+- validate chosen reputation/enrollment controls without exposing mailbox identity;
+- prove upstream volumetric/DDoS controls activate before application exhaustion;
+- prove one reporter/device/source cannot manufacture warning/confirmed community state by volume alone;
+- public errors under load remain generic and expose no paths, stacks, cryptographic state or attacker-controlled diagnostics.
 
 GAP-008 closes only after the production gateway passes these controls.
 
+## Phase J — Privacy-safe technical telemetry acceptance
+
+Telemetry is optional and off until informed consent. The acceptance target is reliability measurement without surveillance.
+
+1. Start the normal consumer build with `npm run dev` and confirm telemetry is disabled by default.
+2. With a dedicated controlled installation, enable the product’s explicit technical telemetry consent.
+3. Perform a small controlled lifecycle: app start, one provider connection outcome, one scan completion/failure classification, then consent disable/reset as supported.
+4. Inspect the configured Email Shield analytics project and verify only closed allowlisted lifecycle/timing/error-classification properties appear.
+5. Confirm there is no autocapture, session replay, page contents, message metadata, subject/body/recipient, mailbox/account identity, raw URL/query, provider token, device identity or raw exception text.
+6. Disable consent and verify further product events stop. Resettable anonymous installation identity must not become an account identity.
+
+At the 2026-08-16 reconciliation check, the connected Email Shield analytics project showed no application events in the recent project window. That is consistent with opt-in/off-by-default behavior, but it means live telemetry acceptance is still unproven and must not be recorded as PASS until the controlled consent test above is observed.
+
 ## Final Milestone 2 closure decision
 
-Milestone 2 may be marked formally CLOSED only when all of the following are true:
+Milestone 2 may be marked formally CLOSED only when all required conditions are true:
 
-1. the exact final `main` has a successful post-merge Windows/macOS/Ubuntu Engineering Gate;
-2. required manual visible items in `.engineering/REGRESSION_REGISTER.md` are PASS;
-3. GAP-001 is accepted or explicitly re-scoped by an approved product decision;
-4. GAP-002 Outlook live owner acceptance is PASS;
-5. GAP-004 production community deployment/operations is PASS;
-6. GAP-005 controlled live Analyze Links acceptance is PASS;
-7. GAP-008 gateway/reporter volumetric protection is PASS;
-8. no new reproducible code defect discovered during owner testing remains unresolved.
+1. exact final `main` has a successful independent Windows/macOS/Ubuntu post-merge Engineering Gate;
+2. required owner-visible register items pass;
+3. Gmail Quick and Gmail Full Mailbox Audit live acceptance pass on the intended Google application/account boundary;
+4. GAP-001 Google production publication is accepted or formally re-scoped by an approved product decision;
+5. GAP-002 Outlook live owner acceptance passes;
+6. GAP-004 deployed community operations passes;
+7. GAP-005 controlled live Analyze Links acceptance passes;
+8. GAP-008 gateway/reporter volumetric protection passes;
+9. no reproducible code defect found during owner testing remains unresolved.
 
-Until then the correct status is **Milestone 2 code-complete and ready for live/deployment acceptance**, not formally closed.
+Until then the correct state is **Milestone 2 code-complete and ready for live/deployment acceptance**, not formally closed. Android/iOS shells remain deferred until this desktop/live boundary is stable.
