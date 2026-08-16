@@ -123,7 +123,7 @@ export class BackgroundProtectionCoordinator {
           intervalMinutes,
           nextRunAt: previous?.enabled
             ? Math.min(previous.nextRunAt ?? now, nextBackgroundRunAt(now, intervalMinutes))
-            : now + 60_000,
+            : nextBackgroundRunAt(now, intervalMinutes),
           lastAttemptAt: previous?.lastAttemptAt ?? null,
           lastCompletedAt: previous?.lastCompletedAt ?? null,
           status: "scheduled",
