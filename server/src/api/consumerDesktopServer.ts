@@ -54,6 +54,7 @@ export function createConsumerDesktopServer(options: ConsumerDesktopServerOption
     security,
     community,
     visualTextExtractor,
+    destinationAnalyzer: localOptions.destinationAnalyzer,
   });
 
   registerLinkAnalysisActionRoutes(app, {
