@@ -30,7 +30,9 @@ The newest repository-buildable Gmail repairs are already merged and regression 
 - Gmail message reads are paced below the known per-user quota pressure point, transient quota/rate failures use bounded backoff, definitively vanished messages do not collapse the whole page, and authorization/policy failures still fail closed.
 - The automated full-audit regression exercises populated pages, empty Spam, Archive, a vanished message and transient quota response. This repository proof does not replace a controlled real-mailbox owner test.
 
-Privacy-safe technical telemetry is also repository-complete as an informed opt-in path with a closed event/property allowlist. It must not use autocapture, session replay, mailbox/account identity, message metadata, raw URLs or raw errors. External telemetry acceptance remains open until an opted-in controlled run actually produces only approved events in the configured analytics project. At reconciliation time the connected Email Shield analytics project had no application events observed in the recent project window, so no live telemetry PASS is claimed.
+## Privacy-safe technical telemetry
+
+Privacy-safe technical telemetry is repository-complete as an informed opt-in path with a closed event/property allowlist. It must not use autocapture, session replay, mailbox/account identity, message metadata, raw URLs or raw errors. External telemetry acceptance remains open until an opted-in controlled run actually produces only approved events in the configured analytics project. At reconciliation time the connected Email Shield analytics project had no application events observed in the recent project window, so no live telemetry PASS is claimed.
 
 No new implementation work should be invented merely because external gates are still open. The next valid sequence is: exact fixture/browser acceptance using the explicit engineering fixture launcher, normal consumer Gmail live acceptance including Quick and Full Mailbox Audit, then the remaining provider/deployment gates. A reproducible failure discovered there becomes the next TDD/root-cause engineering unit.
 
