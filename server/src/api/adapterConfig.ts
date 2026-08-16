@@ -86,6 +86,9 @@ class OperationalAdapter implements EmailAdapter {
 
   connect(signal: AbortSignal): Promise<void> { return observe(this.provider, "connect", () => this.delegate.connect(signal)); }
   listFolders(signal: AbortSignal): Promise<FolderDescriptor[]> { return observe(this.provider, "list_folders", () => this.delegate.listFolders(signal)); }
+  mailboxCheckpoint(signal: AbortSignal): Promise<string | null> {
+    return this.delegate.mailboxCheckpoint ? this.delegate.mailboxCheckpoint(signal) : Promise.resolve(null);
+  }
   fetchPage(folder: FolderDescriptor, cursor: string | null, pageSize: number, signal: AbortSignal): Promise<FetchPage> {
     return observe(this.provider, "fetch_page", () => this.delegate.fetchPage(folder, cursor, pageSize, signal));
   }
@@ -141,6 +144,11 @@ class SecureConfigAdapter implements EmailAdapter {
 
   async listFolders(signal: AbortSignal): Promise<FolderDescriptor[]> {
     return this.connected().listFolders(signal);
+  }
+
+  async mailboxCheckpoint(signal: AbortSignal): Promise<string | null> {
+    const delegate = this.connected();
+    return delegate.mailboxCheckpoint ? delegate.mailboxCheckpoint(signal) : null;
   }
 
   async fetchPage(

@@ -23,6 +23,7 @@ import {
   initializeDefaultAccountPlatform,
 } from "./platform/defaultAccountPlatform.js";
 import { createDefaultInboundEventStateRepository } from "./realtime/inboundEventPersistence.js";
+import { AdapterMailboxCheckpointProbe } from "./realtime/mailboxCheckpointProbe.js";
 import { RealtimeProtectionProcessor } from "./realtime/realtimeProtectionProcessor.js";
 import { RealtimeProtectionService } from "./realtime/realtimeProtectionService.js";
 import { SerialProtectionExecutor } from "./realtime/serialProtectionExecutor.js";
@@ -140,6 +141,7 @@ const realtimeProtection = new RealtimeProtectionService({
   sessions: sessionStore,
   repository: inboundEventRepository,
   processor: realtimeProcessor,
+  pollProbe: new AdapterMailboxCheckpointProbe(credentialVault),
 });
 realtimeProtection.start();
 

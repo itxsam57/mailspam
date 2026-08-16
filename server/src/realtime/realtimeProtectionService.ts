@@ -1,11 +1,13 @@
-import type { SessionStore } from "../api/sessionStore.js";
+import type { AccountSession, SessionStore } from "../api/sessionStore.js";
 import type { Provider } from "../canonical/envelope.js";
+import { sha256Hex } from "../core/sha256.js";
 import {
   InboundProtectionCoordinator,
   type CanonicalInboundEventV1,
   type InboundEventOutcome,
   type InboundEventStateRepository,
 } from "./inboundEvents.js";
+import type { MailboxCheckpointProbe } from "./mailboxCheckpointProbe.js";
 import type { ProviderInboundBatch } from "./providerSources.js";
 import type { RealtimeProtectionProcessor } from "./realtimeProtectionProcessor.js";
 
@@ -39,19 +41,38 @@ function boundedInterval(value: number): number {
   return value;
 }
 
+function pollingEvent(accountKey: string, provider: Provider, checkpoint: string): CanonicalInboundEventV1 {
+  return {
+    schemaVersion: 1,
+    accountKey,
+    provider,
+    source: "poll",
+    kind: "mailbox_changed",
+    eventId: sha256Hex([
+      "email-shield-poll-checkpoint-v1",
+      accountKey,
+      provider,
+      checkpoint,
+    ].join("\0")),
+    checkpoint,
+    providerMessageId: null,
+  };
+}
+
 /**
  * Local near-realtime event coordinator.
  *
  * Provider push/IDLE adapters may enqueue normalized metadata-only events
- * immediately. The local timer is housekeeping only: without a trusted provider
- * change signal it must never invent a mailbox change or launch a Quick scan.
- * Scheduled Background Protection remains the provider-neutral fallback when a
- * live source is not wired or available.
+ * immediately. The polling fallback first compares a provider-native opaque
+ * metadata checkpoint. It establishes a protected baseline without scanning,
+ * ignores unchanged mailboxes, and enters the shared replay-safe Quick scan
+ * path only after the checkpoint genuinely changes.
  */
 export class RealtimeProtectionService {
   readonly #sessions: Pick<SessionStore, "list">;
   readonly #coordinator: InboundProtectionCoordinator;
   readonly #pollIntervalMs: number;
+  readonly #pollProbe: MailboxCheckpointProbe | null;
   #timer: NodeJS.Timeout | null = null;
   #pollRunning = false;
   #lastPollAt: number | null = null;
@@ -63,9 +84,11 @@ export class RealtimeProtectionService {
     sessions: Pick<SessionStore, "list">;
     repository: InboundEventStateRepository;
     processor: Pick<RealtimeProtectionProcessor, "process">;
+    pollProbe?: MailboxCheckpointProbe;
     pollIntervalMs?: number;
   }) {
     this.#sessions = options.sessions;
+    this.#pollProbe = options.pollProbe ?? null;
     this.#pollIntervalMs = boundedInterval(options.pollIntervalMs ?? DEFAULT_REALTIME_POLL_INTERVAL_MS);
     this.#coordinator = new InboundProtectionCoordinator({
       repository: options.repository,
@@ -77,8 +100,8 @@ export class RealtimeProtectionService {
     if (this.#timer) return;
     this.#timer = setInterval(() => { void this.pollNow(); }, this.#pollIntervalMs);
     this.#timer.unref();
-    // Record startup housekeeping immediately. Actual protection work requires
-    // either a trusted provider event or a due Background Protection schedule.
+    // Establish provider baselines immediately, but never turn startup itself
+    // into a scan or Activity entry.
     void this.pollNow();
   }
 
@@ -126,17 +149,59 @@ export class RealtimeProtectionService {
     return outcomes;
   }
 
+  async #pollAccount(session: AccountSession): Promise<void> {
+    const provider = providerOf(session.provider);
+    if (!provider || session.closing || !this.#pollProbe) return;
+
+    let checkpoint: string | null;
+    try {
+      checkpoint = await this.#pollProbe.checkpoint(session);
+    } catch {
+      this.#lastErrorAt = Date.now();
+      this.#lastErrorCode = "provider_unavailable";
+      return;
+    }
+    if (!checkpoint) return;
+
+    const current = this.#coordinator.checkpoint(session.policyAccountKey, provider, "poll");
+    if (current === null) {
+      try {
+        this.#coordinator.establishCheckpoint(session.policyAccountKey, provider, "poll", checkpoint);
+      } catch (error) {
+        this.#recordError(error);
+      }
+      return;
+    }
+    if (current === checkpoint) return;
+
+    try {
+      await this.enqueue(pollingEvent(session.policyAccountKey, provider, checkpoint));
+    } catch {
+      // Failed processing must remain unacknowledged so the same checkpoint and
+      // event identity are retried on the next poll.
+    }
+  }
+
   /**
-   * Lightweight housekeeping tick. This intentionally does not synthesize a
-   * `mailbox_changed` event: an idle clock tick is not evidence that mail
-   * changed. Provider-specific source owners must enqueue a trusted normalized
-   * event when they observe a real change.
+   * Metadata-only fallback tick. Connected accounts are probed concurrently so
+   * a slow or unavailable provider cannot prevent another account from being
+   * protected. The shared inbound coordinator still serializes actual scans.
    */
   async pollNow(now = Date.now()): Promise<void> {
     if (this.#pollRunning) return;
     this.#pollRunning = true;
     try {
       this.#lastPollAt = now;
+      if (!this.#pollProbe) return;
+
+      const unique = new Map<string, AccountSession>();
+      for (const session of this.#sessions.list()) {
+        const provider = providerOf(session.provider);
+        if (!provider || session.closing) continue;
+        const key = `${provider}\0${session.policyAccountKey}`;
+        if (!unique.has(key)) unique.set(key, session);
+      }
+      await Promise.all([...unique.values()].map((session) => this.#pollAccount(session)));
     } finally {
       this.#pollRunning = false;
     }

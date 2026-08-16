@@ -228,6 +228,26 @@ export class InboundProtectionCoordinator {
     return this.#state.checkpoints[checkpointKey(normalized)] ?? null;
   }
 
+  establishCheckpoint(accountKey: string, provider: Provider, source: InboundEventSource, checkpoint: string): string {
+    const normalized = normalizeInboundEvent({
+      schemaVersion: 1,
+      accountKey,
+      provider,
+      source,
+      kind: "mailbox_changed",
+      eventId: "checkpoint-baseline",
+      checkpoint,
+    });
+    const key = checkpointKey(normalized);
+    const existing = this.#state.checkpoints[key];
+    if (existing) return existing;
+    const next = cloneState(this.#state);
+    next.checkpoints[key] = normalized.checkpoint!;
+    this.#repository.save(next);
+    this.#state = next;
+    return normalized.checkpoint!;
+  }
+
   async enqueue(input: unknown): Promise<InboundEventOutcome> {
     const event = normalizeInboundEvent(input);
     const key = replayKey(event);

@@ -245,6 +245,22 @@ export class GmailAdapter implements EmailAdapter {
     );
   }
 
+  async mailboxCheckpoint(signal: AbortSignal): Promise<string> {
+    if (!this.gmail) throw new Error("Not connected");
+    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+    const profile = await runGmailReadWithBackoff(
+      () => this.gmail!.users.getProfile({ userId: "me" }),
+      signal,
+    );
+    const historyId = profile.data.historyId;
+    if (typeof historyId !== "string" || !/^\d+$/.test(historyId)) {
+      throw new Error("Gmail profile did not provide a valid history checkpoint.");
+    }
+    return createHash("sha256")
+      .update(`email-shield-gmail-checkpoint-v1\0${historyId}`, "utf8")
+      .digest("hex");
+  }
+
   async fetchPage(
     folder: FolderDescriptor,
     cursor: string | null,
