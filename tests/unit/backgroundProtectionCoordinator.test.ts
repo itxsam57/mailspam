@@ -25,7 +25,7 @@ function session(accountKey: string, activeScanWorker: AccountSession["activeSca
 }
 
 describe("quota-aware background protection coordinator", () => {
-  it("schedules, executes and resets a successful per-account run", async () => {
+  it("honors the configured interval from first enable, then executes and resets a successful run", async () => {
     let now = 1_800_000_000_000;
     const repository = new InMemoryBackgroundProtectionRepository();
     const account = session("1".repeat(64));
@@ -39,9 +39,10 @@ describe("quota-aware background protection coordinator", () => {
     });
 
     const configured = coordinator.configure(account.policyAccountKey, true, 60, now);
-    expect(configured.nextRunAt).toBe(now + 60_000);
-    expect(await coordinator.runDue(now)).toBe(false);
-    expect(await coordinator.runDue(now + 60_000)).toBe(true);
+    expect(configured.nextRunAt).toBe(now + 60 * 60_000);
+    expect(await coordinator.runDue(now + 60_000)).toBe(false);
+    expect(executions).toBe(0);
+    expect(await coordinator.runDue(now + 60 * 60_000)).toBe(true);
     expect(executions).toBe(1);
     expect(coordinator.status(account.policyAccountKey)).toMatchObject({
       status: "completed",
