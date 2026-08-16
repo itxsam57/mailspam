@@ -12,7 +12,7 @@
     .scam-check-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0 10px}.scam-check-tabs button[aria-pressed="true"]{background:#222a36;border-color:#3a4658;color:var(--text)}
     .scam-check-field{display:flex;flex-direction:column;gap:6px}.scam-check-field label{font-size:10px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.04em}.scam-check-field textarea{min-height:150px;resize:vertical}.scam-check-field textarea,.scam-check-field input[type="url"],.scam-check-field input[type="file"]{width:100%;box-sizing:border-box}.scam-check-field[hidden]{display:none!important}
     .scam-check-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}.scam-check-status{font-size:11px;color:var(--text-muted)}.scam-check-status.error{color:var(--danger)}
-    .scam-check-result{margin-top:14px;border:1px solid var(--border);border-radius:9px;background:var(--panel-raised);padding:14px}.scam-check-result[hidden]{display:none!important}.scam-check-result-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.scam-check-result h4{margin:0;font-size:16px}.scam-check-badge{font-size:10px;text-transform:uppercase;letter-spacing:.04em;padding:4px 7px;border-radius:999px;border:1px solid var(--border)}.scam-check-result p{font-size:11px;color:var(--text-muted);line-height:1.55}.scam-check-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.scam-check-list h5{font-size:10px;text-transform:uppercase;color:var(--text-faint);letter-spacing:.04em;margin:0 0 7px}.scam-check-list ul{margin:0;padding-left:18px}.scam-check-list li{font-size:11px;color:var(--text-muted);line-height:1.5;margin:4px 0}.scam-check-note{margin-top:10px;font-size:10px;color:var(--text-faint);line-height:1.5}
+    .scam-check-result{margin-top:14px;border:1px solid var(--border);border-radius:9px;background:var(--panel-raised);padding:14px}.scam-check-result[hidden]{display:none!important}.scam-check-result-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.scam-check-result h4{margin:0;font-size:16px}.scam-check-badge{font-size:10px;text-transform:uppercase;letter-spacing:.04em;padding:4px 7px;border-radius:999px;border:1px solid var(--border)}.scam-check-result p{font-size:11px;color:var(--text-muted);line-height:1.55}.scam-check-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.scam-check-list h5{font-size:10px;text-transform:uppercase;color:var(--text-faint);letter-spacing:.04em;margin:0 0 7px}.scam-check-list ul{margin:0;padding-left:18px}.scam-check-list li{font-size:11px;color:var(--text-muted);line-height:1.5;margin:4px 0}.scam-check-note{margin-top:10px;font-size:10px;color:var(--text-faint);line-height:1.5}.scam-check-destination{margin-top:12px;padding:10px;border:1px solid var(--border);border-radius:7px}.scam-check-destination strong{display:block;font-size:11px;color:var(--text);margin-bottom:4px}.scam-check-destination span{display:block;font-size:10px;color:var(--text-muted);line-height:1.5}
     @media(max-width:700px){.scam-check-intro,.scam-check-result-head{flex-direction:column}.scam-check-grid{grid-template-columns:1fr}.scam-check-local{white-space:normal}}
   `;
   document.head.append(style);
@@ -69,7 +69,9 @@
     result.hidden = true;
     status.textContent = next === 'file'
       ? 'Images are checked locally for QR codes. Visible image text requires a supported local OCR bridge.'
-      : 'Nothing is sent to a remote AI service.';
+      : next === 'url'
+        ? 'The link is checked locally first, then the destination is fetched only because you explicitly asked to inspect it. Nothing is sent to a remote AI service.'
+        : 'Nothing is sent to a remote AI service.';
     status.className = 'scam-check-status';
   }
 
@@ -92,6 +94,42 @@
     }
     section.append(list);
     container.append(section);
+  }
+
+  function destinationPresentation(data) {
+    const destinationAnalysis = data?.destinationAnalysis;
+    const inspected = Array.isArray(destinationAnalysis?.results) ? destinationAnalysis.results[0] : null;
+    if (!inspected) return null;
+
+    if (inspected.classification === 'benign') {
+      return {
+        heading: 'Destination inspected',
+        detail: 'No credential trap or malware was found in the inspected destination content. This does not prove the site or message is safe.',
+      };
+    }
+    if (inspected.classification === 'credential_trap') {
+      return { heading: 'Credential trap detected', detail: 'The inspected destination contains a password-entry pattern. Do not enter credentials there.' };
+    }
+    if (inspected.classification === 'malware') {
+      return { heading: 'Malware destination detected', detail: inspected.detail || 'The inspected destination matched a deterministic malware-behavior signature.' };
+    }
+    if (inspected.classification === 'blocked_unsafe_target') {
+      return { heading: 'Destination blocked before connection', detail: inspected.detail || 'The destination was blocked by local network-safety policy before any connection was made.' };
+    }
+    if (inspected.classification === 'error') {
+      return { heading: 'Destination inspection unavailable', detail: inspected.detail || 'The destination could not be inspected safely and was not treated as benign.' };
+    }
+
+    const labels = {
+      adult_dating: 'Adult or dating destination signal detected',
+      fake_support: 'Fake-support destination signal detected',
+      crypto_payment: 'Crypto-payment destination signal detected',
+      notification_trap: 'Notification-trap destination signal detected',
+    };
+    return {
+      heading: labels[inspected.classification] || 'Destination risk signal detected',
+      detail: inspected.detail || `Destination classification: ${String(inspected.classification || 'unknown').replaceAll('_', ' ')}.`,
+    };
   }
 
   function showResult(data) {
@@ -118,6 +156,18 @@
     appendList(grid, 'What to do', Array.isArray(data?.explanation?.safeNextActions) ? data.explanation.safeNextActions : []);
     result.append(grid);
 
+    const destination = destinationPresentation(data);
+    if (destination) {
+      const destinationBox = document.createElement('div');
+      destinationBox.className = 'scam-check-destination';
+      const destinationHeading = document.createElement('strong');
+      destinationHeading.textContent = destination.heading;
+      const destinationDetail = document.createElement('span');
+      destinationDetail.textContent = destination.detail;
+      destinationBox.append(destinationHeading, destinationDetail);
+      result.append(destinationBox);
+    }
+
     const limitations = Array.isArray(data?.explanation?.limitations) ? data.explanation.limitations : [];
     if (limitations.length) {
       const note = document.createElement('div');
@@ -131,7 +181,7 @@
   async function analyze() {
     run.disabled = true;
     result.hidden = true;
-    status.textContent = 'Checking locally…';
+    status.textContent = mode === 'url' ? 'Checking locally and inspecting the destination…' : 'Checking locally…';
     status.className = 'scam-check-status';
     try {
       let response;
@@ -170,7 +220,7 @@
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || `Scam Check failed with HTTP ${response.status}.`);
       showResult(data);
-      status.textContent = 'Local analysis complete.';
+      status.textContent = mode === 'url' ? 'Local analysis and explicit destination inspection complete.' : 'Local analysis complete.';
     } catch (error) {
       status.textContent = error instanceof Error ? error.message : String(error);
       status.className = 'scam-check-status error';
