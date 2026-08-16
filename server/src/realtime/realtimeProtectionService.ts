@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { SessionStore } from "../api/sessionStore.js";
 import type { Provider } from "../canonical/envelope.js";
 import {
@@ -7,7 +6,7 @@ import {
   type InboundEventOutcome,
   type InboundEventStateRepository,
 } from "./inboundEvents.js";
-import { createPollingFallbackEvent, type ProviderInboundBatch } from "./providerSources.js";
+import type { ProviderInboundBatch } from "./providerSources.js";
 import type { RealtimeProtectionProcessor } from "./realtimeProtectionProcessor.js";
 
 export const DEFAULT_REALTIME_POLL_INTERVAL_MS = 2 * 60_000;
@@ -27,11 +26,6 @@ export interface RealtimeProtectionStatus {
   lastErrorCode: "scan_conflict" | "provider_unavailable" | "provider_mismatch" | "processing_failure" | null;
 }
 
-interface PollCursor {
-  generation: string;
-  sequence: number;
-}
-
 function providerOf(value: string): Provider | null {
   return value === "gmail" || value === "outlook" || value === "icloud" || value === "yahoo" || value === "imap"
     ? value
@@ -46,18 +40,18 @@ function boundedInterval(value: number): number {
 }
 
 /**
- * Local near-realtime runtime.
+ * Local near-realtime event coordinator.
  *
- * Push/IDLE adapters may enqueue normalized events immediately. Polling remains
- * the provider-neutral safety net when push delivery is unavailable, delayed,
- * dropped, or requires public infrastructure. One coordinator serializes all
- * processing so realtime work does not create unbounded Worker concurrency.
+ * Provider push/IDLE adapters may enqueue normalized metadata-only events
+ * immediately. The local timer is housekeeping only: without a trusted provider
+ * change signal it must never invent a mailbox change or launch a Quick scan.
+ * Scheduled Background Protection remains the provider-neutral fallback when a
+ * live source is not wired or available.
  */
 export class RealtimeProtectionService {
   readonly #sessions: Pick<SessionStore, "list">;
   readonly #coordinator: InboundProtectionCoordinator;
   readonly #pollIntervalMs: number;
-  readonly #pollCursors = new Map<string, PollCursor>();
   #timer: NodeJS.Timeout | null = null;
   #pollRunning = false;
   #lastPollAt: number | null = null;
@@ -83,8 +77,8 @@ export class RealtimeProtectionService {
     if (this.#timer) return;
     this.#timer = setInterval(() => { void this.pollNow(); }, this.#pollIntervalMs);
     this.#timer.unref();
-    // Initial protection check is intentionally immediate so app restart does
-    // not create a full polling interval of unprotected time.
+    // Record startup housekeeping immediately. Actual protection work requires
+    // either a trusted provider event or a due Background Protection schedule.
     void this.pollNow();
   }
 
@@ -133,55 +127,16 @@ export class RealtimeProtectionService {
   }
 
   /**
-   * Poll every connected account serially. A cursor advances only after the
-   * corresponding protection scan succeeds; failures retry the same opaque
-   * event identity on the next poll instead of pretending it was handled.
+   * Lightweight housekeeping tick. This intentionally does not synthesize a
+   * `mailbox_changed` event: an idle clock tick is not evidence that mail
+   * changed. Provider-specific source owners must enqueue a trusted normalized
+   * event when they observe a real change.
    */
   async pollNow(now = Date.now()): Promise<void> {
     if (this.#pollRunning) return;
     this.#pollRunning = true;
-    this.#lastPollAt = now;
     try {
-      const seen = new Set<string>();
-      const sessions = this.#sessions.list()
-        .filter((session) => !session.closing)
-        .filter((session) => providerOf(session.provider) !== null)
-        .sort((left, right) => left.policyAccountKey.localeCompare(right.policyAccountKey));
-
-      for (const session of sessions) {
-        const provider = providerOf(session.provider)!;
-        const key = `${session.policyAccountKey}\0${provider}`;
-        if (seen.has(key)) {
-          // Duplicate active identity is deliberately left to the processor's
-          // ambiguity check if an external trigger arrives. Polling itself does
-          // not amplify the duplicate into multiple scans.
-          continue;
-        }
-        seen.add(key);
-        let cursor = this.#pollCursors.get(key);
-        if (!cursor) {
-          cursor = { generation: randomUUID(), sequence: 0 };
-          this.#pollCursors.set(key, cursor);
-        }
-        const batch = createPollingFallbackEvent({
-          accountKey: session.policyAccountKey,
-          provider,
-          pollGeneration: cursor.generation,
-          sequence: cursor.sequence,
-        });
-        try {
-          await this.enqueueBatch(batch);
-          cursor.sequence += 1;
-        } catch {
-          // Keep the same sequence so the failed trigger is retried next time.
-          // Continue to other accounts: one unavailable mailbox must not starve
-          // protection for unrelated connected accounts.
-        }
-      }
-
-      for (const key of [...this.#pollCursors.keys()]) {
-        if (!seen.has(key)) this.#pollCursors.delete(key);
-      }
+      this.#lastPollAt = now;
     } finally {
       this.#pollRunning = false;
     }
