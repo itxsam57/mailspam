@@ -21,7 +21,10 @@ afterEach(async () => {
 });
 
 async function start(): Promise<BrowserContext> {
-  const app = createLocalDesktopServer({ security: new LocalSecurityManager() });
+  const app = createLocalDesktopServer({
+    security: new LocalSecurityManager(),
+    developmentEntitlementsEnabled: true,
+  });
   const server = app.listen(0, "127.0.0.1");
   servers.push(server);
   await new Promise<void>((resolve) => server.once("listening", () => resolve()));
