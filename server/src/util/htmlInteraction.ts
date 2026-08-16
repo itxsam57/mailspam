@@ -196,6 +196,7 @@ function trustedBaseHref(raw: string | undefined): string | null {
 
 function decodeWholeEncodedAbsoluteWebUrl(candidate: string): string {
   if (!/^https?%3a%2f%2f/i.test(candidate)) return candidate;
+  if (!/^(?:[A-Za-z0-9_.!~*'()-]|%[0-9A-Fa-f]{2})+$/.test(candidate)) return candidate;
   try {
     const decoded = decodeURIComponent(candidate);
     const parsed = new URL(decoded);
