@@ -1,5 +1,5 @@
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
-import type { CanonicalEnvelope, LinkInfo } from "../canonical/envelope.js";
+import type { LinkInfo } from "../canonical/envelope.js";
 import {
   analyzeLinks,
   destinationAnalysisCoordinator,
@@ -155,7 +155,7 @@ export function registerLinkAnalysisActionRoutes(
       }
 
       try {
-        const result = await analyzeLinks({ links: action.links } as CanonicalEnvelope, analyzer);
+        const result = await analyzeLinks({ links: action.links }, analyzer);
         noStore(res);
         return res.json({
           ...result,
