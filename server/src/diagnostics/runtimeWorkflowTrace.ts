@@ -112,7 +112,7 @@ const OUTCOMES = new Set<RuntimeWorkflowTraceOutcome>([
 ]);
 const PROVIDERS = new Set<Provider>(["gmail", "icloud", "outlook", "yahoo", "imap"]);
 const SCAN_TYPES = new Set(["quick", "full", "spam"] as const);
-const HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] as const);
+const HTTP_METHODS = new Set<string>(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]);
 const SAFE_LABEL = /^[a-z0-9][a-z0-9_.:/-]{0,159}$/i;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
@@ -140,7 +140,8 @@ function isTraceEvent(value: unknown): value is RuntimeWorkflowTraceEvent {
   if (record.scanType !== undefined && (typeof record.scanType !== "string" || !SCAN_TYPES.has(record.scanType as "quick" | "full" | "spam"))) return false;
   if (!validOptionalLabel(record.component) || !validOptionalLabel(record.step) || !validOptionalLabel(record.errorCode)) return false;
   if (!validOptionalLabel(record.routeTemplate)) return false;
-  if (record.httpMethod !== undefined && (typeof record.httpMethod !== "string" || !HTTP_METHODS.has(record.httpMethod as RuntimeWorkflowTraceEvent["httpMethod"]))) return false;
+  const httpMethod = record.httpMethod;
+  if (httpMethod !== undefined && (typeof httpMethod !== "string" || !HTTP_METHODS.has(httpMethod))) return false;
   if (record.httpStatus !== undefined && !safePositiveInteger(record.httpStatus, 599)) return false;
   if (record.durationMs !== undefined && !safePositiveInteger(record.durationMs, 24 * 60 * 60 * 1_000)) return false;
   if (record.pageSize !== undefined && !safePositiveInteger(record.pageSize, 10_000)) return false;
