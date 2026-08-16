@@ -15,21 +15,22 @@ describe("runtime workflow trace propagation", () => {
 
   it("mounts the developer trace API behind the protected local-session boundary", () => {
     const consumer = source("server/src/api/consumerDesktopServer.ts");
+    const routes = source("server/src/api/runtimeWorkflowTraceRoutes.ts");
     expect(consumer).toContain("registerRuntimeWorkflowTraceRoutes");
-    expect(consumer).toContain("security.requireProtectedRead()");
-    expect(consumer).toContain("/api/dev/runtime-trace");
+    expect(routes).toContain("security.requireProtectedRead()");
+    expect(routes).toContain("/api/dev/runtime-trace");
   });
 
-  it("propagates only an opaque trace id into the real scan stream and Worker", () => {
+  it("records the real scan provider, Worker batch boundary and terminal stream outcome", () => {
+    const trace = source("web/runtime-workflow-trace.js");
     const stream = source("server/src/api/scanStream.ts");
     const worker = source("server/src/workers/scanWorker.ts");
-    expect(stream).toContain("trace_id");
-    expect(stream).toContain("isRuntimeWorkflowTraceId");
-    expect(stream).toContain("traceId,");
-    expect(stream).toContain('message.type === "trace"');
-    expect(worker).toContain("traceId?: string");
-    expect(worker).toContain("batch_policy_resolved");
-    expect(worker).toContain('type: "trace"');
-    expect(worker).not.toContain("traceAccountId");
+    expect(trace).toContain("scan-started");
+    expect(trace).toContain("scan-status");
+    expect(trace).toContain("scan-complete");
+    expect(trace).toContain("scan-error");
+    expect(trace).toContain("bounded_batches");
+    expect(stream).toContain("provider: session.provider");
+    expect(worker).toContain("bounded batches of ${scanBatchPolicy.pageSize}");
   });
 });
