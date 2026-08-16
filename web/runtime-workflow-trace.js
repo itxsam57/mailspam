@@ -6,6 +6,7 @@
   const TRACE_WINDOW_MS = 30_000;
   const PROVIDERS = new Set(['gmail', 'icloud', 'yahoo', 'imap', 'outlook']);
   const SCAN_TYPES = new Set(['quick', 'full', 'spam']);
+  const SAFE_STREAM_PHASE = /^[a-z][a-z0-9_]{0,63}$/;
   const STATIC_CONTROLS = Object.freeze({
     connectBtn: ['account.connect', 'provider_connection'],
     quickScanBtn: ['mailbox.scan.quick', 'quick_mailbox_scan'],
@@ -40,9 +41,12 @@
     return typeof value === 'string' && PROVIDERS.has(value) ? value : undefined;
   }
 
+  function validScanType(value) {
+    return typeof value === 'string' && SCAN_TYPES.has(value) ? value : undefined;
+  }
+
   function scanTypeFor(actionId) {
-    const candidate = actionId.split('.').at(-1);
-    return SCAN_TYPES.has(candidate) ? candidate : undefined;
+    return validScanType(actionId.split('.').at(-1));
   }
 
   function current() {
@@ -179,11 +183,77 @@
     return `${url.pathname}${url.search}`;
   }
 
+  function streamTrace(context, stage, step, outcome, extra = {}) {
+    if (!context) return;
+    transport({
+      traceId: context.traceId,
+      stage,
+      actionId: context.actionId,
+      expectedWorkflow: context.expectedWorkflow,
+      ...(context.provider ? { provider: context.provider } : {}),
+      ...(context.scanType ? { scanType: context.scanType } : {}),
+      component: 'scan_stream',
+      step,
+      outcome,
+      ...extra,
+    });
+  }
+
+  function parseStreamData(event) {
+    if (!(event instanceof MessageEvent) || typeof event.data !== 'string') return {};
+    try {
+      const value = JSON.parse(event.data);
+      return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    } catch {
+      return {};
+    }
+  }
+
   const NativeEventSource = window.EventSource;
   if (typeof NativeEventSource === 'function') {
     class TracedEventSource extends NativeEventSource {
       constructor(url, options) {
-        super(withTraceQuery(String(url)), options);
+        const rawPath = String(url);
+        const context = current();
+        super(withTraceQuery(rawPath), options);
+        const parsedUrl = new URL(rawPath, window.location.origin);
+        if (!context || parsedUrl.origin !== window.location.origin || !parsedUrl.pathname.includes('/scan/')) return;
+
+        this.addEventListener('scan-started', (event) => {
+          const value = parseStreamData(event);
+          const provider = validProvider(value.provider);
+          const scanType = validScanType(value.type) || context.scanType;
+          streamTrace(context, 'workflow', 'scan_started', 'started', {
+            ...(provider ? { provider } : {}),
+            ...(scanType ? { scanType } : {}),
+          });
+        });
+        this.addEventListener('scan-status', (event) => {
+          const value = parseStreamData(event);
+          const phase = typeof value.phase === 'string' && SAFE_STREAM_PHASE.test(value.phase)
+            ? value.phase
+            : 'status_update';
+          const batchMatch = phase === 'bounded_batches' && typeof value.message === 'string'
+            ? value.message.match(/bounded batches of (\d{1,5})/i)
+            : null;
+          const pageSize = batchMatch ? Number(batchMatch[1]) : undefined;
+          streamTrace(context, phase === 'bounded_batches' ? 'worker' : 'workflow', phase, phase === 'complete' ? 'success' : 'started', {
+            ...(Number.isSafeInteger(pageSize) ? { pageSize } : {}),
+          });
+        });
+        this.addEventListener('scan-complete', (event) => {
+          const value = parseStreamData(event);
+          const examined = Number(value?.counters?.examined);
+          streamTrace(context, 'workflow', 'scan_complete', 'success', {
+            ...(Number.isSafeInteger(examined) && examined >= 0 ? { itemCount: examined } : {}),
+          });
+        });
+        this.addEventListener('scan-error', () => {
+          streamTrace(context, 'workflow', 'scan_error', 'failed', { errorCode: 'server_scan_error' });
+        });
+        this.addEventListener('error', () => {
+          streamTrace(context, 'workflow', 'stream_transport_error', 'failed', { errorCode: 'sse_transport_error' });
+        });
       }
     }
     window.EventSource = TracedEventSource;
