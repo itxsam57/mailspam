@@ -8,7 +8,23 @@ const required = {
   "THREAT_MODEL.md": ["## Trust boundaries", "## Threats and controls", "## Out of scope / external controls", "Android/iOS full mailbox shells are not implemented"],
   "INCIDENT_RESPONSE.md": ["## Severity", "## Response sequence", "### Release signing key or distribution compromise", "### Privacy leak in logs/metrics/report schema"],
   "docs/DEPLOYMENT_CAPACITY_COST.md": ["## Proven application boundaries", "npm run capacity:plan", "npm run test:capacity", "planning triggers", "not a throughput, latency, availability or cloud-price SLA"],
-  "docs/THREE_MILESTONE_FINAL_RECONCILIATION.md": ["1 — cross-adapter protection core", "CODE-COMPLETE / EXTERNAL ACCEPTANCE OPEN", "Android/iOS mailbox application shells are not implemented", "The project must not be described as all three milestones formally closed"],
+  "docs/THREE_MILESTONE_FINAL_RECONCILIATION.md": [
+    "1 — cross-adapter protection core",
+    "CODE-COMPLETE / EXTERNAL ACCEPTANCE OPEN",
+    "Android/iOS mailbox application shells are not implemented",
+    "The project must not be described as all three milestones formally closed",
+    "## Current continuation point",
+    "Gmail Full Mailbox Audit",
+    "privacy-safe technical telemetry",
+    "Do not resume from a historical PR number or commit SHA",
+  ],
+  "docs/MILESTONE_2_LIVE_ACCEPTANCE.md": [
+    "npm run dev:fixtures",
+    "npm run dev",
+    "Fixture mode is intentionally unavailable from normal consumer startup",
+    "LIVE-D03 Gmail Quick scan",
+    "LIVE-D04 Gmail Full Mailbox Audit",
+  ],
 };
 
 for (const [path, markers] of Object.entries(required)) {
@@ -20,6 +36,19 @@ for (const [path, markers] of Object.entries(required)) {
   if (/\b(?:TODO|TBD|coming soon|placeholder)\b/i.test(content)) throw new Error(`${path} contains an unfinished placeholder.`);
 }
 
+const reconciliation = readFileSync(resolve("docs/THREE_MILESTONE_FINAL_RECONCILIATION.md"), "utf8");
+if (/PR #\d+ remains unmerged/i.test(reconciliation)) {
+  throw new Error("Final reconciliation contains a stale active-PR handoff. Continuation must be derived from current main, not a historical PR.");
+}
+
+const packageJson = JSON.parse(readFileSync(resolve("package.json"), "utf8"));
+if (packageJson.scripts?.["dev:fixtures"] !== "node scripts/dev-fixtures.mjs") {
+  throw new Error("Owner fixture acceptance must use the explicit cross-platform dev:fixtures launcher.");
+}
+if (!existsSync(resolve("scripts/dev-fixtures.mjs"))) {
+  throw new Error("The explicit fixture acceptance launcher is missing.");
+}
+
 if (COMMUNITY_REPORT_RETENTION_MS !== 90 * 24 * 60 * 60_000) throw new Error("Privacy notice retention no longer matches the runtime 90-day contract.");
 const audit = readFileSync(resolve(".engineering/CANONICAL_ROADMAP_GAP_AUDIT.md"), "utf8");
 for (const former of [
@@ -29,4 +58,4 @@ for (const former of [
   "| Long-term provider compatibility tests and release gates | PARTIAL |",
 ]) if (audit.includes(former)) throw new Error(`Canonical roadmap still contains stale status: ${former}`);
 
-console.log(`Public privacy/security/threat/incident/capacity/reconciliation documentation passed (${Object.keys(required).length} documents).`);
+console.log(`Public privacy/security/threat/incident/capacity/reconciliation/live-acceptance documentation passed (${Object.keys(required).length} documents).`);
