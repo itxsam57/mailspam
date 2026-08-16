@@ -107,6 +107,29 @@
     status.className = `scan-monitor-status ${state}`.trim();
   }
 
+  function confirmScanTrace(type, outcome = 'success', errorCode) {
+    const trace = window.emailShieldRuntimeTrace;
+    const workflow = trace?.currentWorkflowId?.();
+    const extra = errorCode ? { errorCode } : undefined;
+    if (type === 'quick' && workflow === 'mailbox.scan.quick') trace.checkpoint('mailbox.scan.quick.ui_confirmed', outcome, extra);
+    else if (type === 'full' && workflow === 'mailbox.scan.full') trace.checkpoint('mailbox.scan.full.ui_confirmed', outcome, extra);
+    else if (type === 'spam' && workflow === 'mailbox.scan.spam') trace.checkpoint('mailbox.scan.spam.ui_confirmed', outcome, extra);
+  }
+
+  function confirmBlockTrace(scope, outcome = 'success', errorCode) {
+    const trace = window.emailShieldRuntimeTrace;
+    const extra = errorCode ? { errorCode } : undefined;
+    if (scope === 'sender' && trace?.currentWorkflowId?.() === 'message.block_sender') trace.checkpoint('message.block_sender.ui_confirmed', outcome, extra);
+    else if (scope === 'domain' && trace?.currentWorkflowId?.() === 'message.block_domain') trace.checkpoint('message.block_domain.ui_confirmed', outcome, extra);
+  }
+
+  function confirmTrashTrace(outcome = 'success', errorCode) {
+    const trace = window.emailShieldRuntimeTrace;
+    if (trace?.currentWorkflowId?.() === 'message.trash') {
+      trace.checkpoint('message.trash.ui_confirmed', outcome, errorCode ? { errorCode } : undefined);
+    }
+  }
+
   function selectionSnapshot() {
     const owner = window.emailShieldAccountSelection;
     if (owner?.capture) return owner.capture();
@@ -239,6 +262,7 @@
     const requestedAccountId = requestedSelection.id;
     if (!requestedAccountId) {
       setStatus('Select a connected account first.', 'error');
+      confirmScanTrace(type, 'rejected', 'account_not_selected');
       return;
     }
 
@@ -248,6 +272,7 @@
       } else {
         setStatus('A scan is already active for this mailbox. Stop or finish it before starting another scan.', 'error');
       }
+      confirmScanTrace(type, 'rejected', 'scan_already_active');
       return;
     }
 
@@ -267,12 +292,14 @@
         ? 'The protected local session expired after the Email Shield process restarted. Reload the dashboard before scanning.'
         : error instanceof Error ? error.message : String(error);
       setStatus(message, 'error');
+      confirmScanTrace(type, 'failed', sessionExpired ? 'session_expired' : 'scan_session_validation_failed');
       return;
     }
 
     if (!selectionMatches(requestedSelection)) {
       finish();
       setStatus('The selected account changed before the scan started. Start the scan again.', 'error');
+      confirmScanTrace(type, 'rejected', 'stale_selection');
       return;
     }
 
@@ -318,6 +345,7 @@
     es.addEventListener('scan-complete', () => {
       if (presentationIsCurrent()) {
         setStatus(counters.textContent.trim() ? 'Scan complete. Results remain available in the optional lists below and the privacy-reduced history record is saved.' : 'Scan complete. No additional readable messages were returned.', 'complete');
+        if (!resumeScanId) confirmScanTrace(type);
       }
       finish(es);
       historyChanged();
@@ -328,6 +356,7 @@
       if (presentationIsCurrent()) {
         const stopped = value.status === 'stopped';
         setStatus(value.message || (stopped ? 'Scan stopped.' : 'The scan failed.'), stopped ? 'complete' : 'error');
+        if (!resumeScanId) confirmScanTrace(type, stopped ? 'cancelled' : 'failed', stopped ? 'scan_stopped' : 'scan_failed');
       }
       finish(es);
       historyChanged();
@@ -344,6 +373,7 @@
               : 'Could not open the scan stream. Check Scan history for an existing running or resumable scan.',
           'error',
         );
+        if (!resumeScanId) confirmScanTrace(type, 'failed', sessionExpired ? 'session_expired' : 'scan_stream_lost');
       }
       finish(es);
       historyChanged();
@@ -366,7 +396,7 @@
     const subject = card?.querySelector('.card-subject')?.textContent?.trim() || '(no subject)';
     const sender = card?.querySelector('.card-from')?.textContent?.trim() || 'unknown sender';
 
-    if (!id || !token) { setStatus(`Block ${scope} failed: the selected account or protected message action is missing.`, 'error'); return; }
+    if (!id || !token) { setStatus(`Block ${scope} failed: the selected account or protected message action is missing.`, 'error'); confirmBlockTrace(scope, 'failed', 'protected_action_missing'); return; }
     const consequence = isSender
       ? 'Email Shield will save an account-local block for the exact sender and attempt to move this current message to Trash. Future messages from this exact address will be Confirmed Threat.'
       : 'Email Shield will save an account-local domain block and attempt to move this current message to Trash. Future messages from this domain will be Confirmed Threat. Shared consumer-mail domains are rejected server-side.';
@@ -375,6 +405,7 @@
     const shareWithFamily = await chooseFamilyBlockSharing(scope);
     if (!selectionMatches(ownerSnapshot)) {
       window.alert('The selected account changed. The block was not sent; rescan the selected mailbox before acting.');
+      confirmBlockTrace(scope, 'rejected', 'stale_selection');
       return;
     }
     const previousText = button.textContent;
@@ -417,6 +448,7 @@
         result.movedCurrent === true && !result.family?.error ? 'complete' : 'error');
       if (result.family?.shared) window.dispatchEvent(new CustomEvent('email-shield-family-changed'));
       await policyChanged();
+      confirmBlockTrace(scope, result.movedCurrent === true && !result.family?.error ? 'success' : 'partial');
     } catch (error) {
       if (!selectionMatches(ownerSnapshot)) return;
       button.disabled = false;
@@ -424,6 +456,7 @@
       const message = error instanceof Error ? error.message : String(error);
       if (actionStatus) { actionStatus.className = 'policy-action-status error'; actionStatus.textContent = `Block failed: ${message}`; }
       setStatus(`Block ${scope} failed: ${message}`, 'error');
+      confirmBlockTrace(scope, 'failed', 'block_failed');
     }
   }
 
@@ -439,9 +472,9 @@
     const card = button.closest('.card');
     const subject = card?.querySelector('.card-subject')?.textContent?.trim() || '(no subject)';
     const sender = card?.querySelector('.card-from')?.textContent?.trim() || 'unknown sender';
-    if (!id || !token) { setStatus('Move failed: the account or protected action token is missing.', 'error'); return; }
+    if (!id || !token) { setStatus('Move failed: the account or protected action token is missing.', 'error'); confirmTrashTrace('failed', 'protected_action_missing'); return; }
     if (!window.confirm(`Move exactly this message to the provider Trash folder?\n\n${subject}\n${sender}\n\nThis is reversible from Trash.`)) return;
-    if (!selectionMatches(ownerSnapshot)) { window.alert('The selected account changed. The Trash action was not sent.'); return; }
+    if (!selectionMatches(ownerSnapshot)) { window.alert('The selected account changed. The Trash action was not sent.'); confirmTrashTrace('rejected', 'stale_selection'); return; }
 
     const previousText = button.textContent;
     button.disabled = true;
@@ -467,6 +500,7 @@
       card?.classList.add('trash-moved');
       if (actionStatus) { actionStatus.className = 'trash-action-status success'; actionStatus.textContent = 'Provider confirmed that exactly one message was moved to Trash.'; }
       setStatus('Exactly one message was moved to the provider Trash folder.', 'complete');
+      confirmTrashTrace();
     } catch (error) {
       if (!selectionMatches(ownerSnapshot)) return;
       button.disabled = false;
@@ -474,6 +508,7 @@
       const message = error instanceof Error ? error.message : String(error);
       if (actionStatus) { actionStatus.className = 'trash-action-status error'; actionStatus.textContent = `Move failed: ${message}`; }
       setStatus(`Move failed: ${message}`, 'error');
+      confirmTrashTrace('failed', 'trash_failed');
     }
   }
 
@@ -498,6 +533,7 @@
     const activeSource = source;
     if (!id || !activeSource) {
       setStatus('Stop failed: no active scan is owned by this dashboard.', 'error');
+      window.emailShieldRuntimeTrace?.checkpoint('mailbox.scan.stop.ui_confirmed', 'rejected', { errorCode: 'no_active_scan' });
       return;
     }
     if (ownerSnapshot && !selectionMatches(ownerSnapshot)) {
@@ -518,9 +554,13 @@
           setStatus(`Scan stopped after ${examined} examined message(s). Resume will continue from the last confirmed provider page.`, 'complete');
         } else if (result.status === 'idle') setStatus('No scan is currently running.', 'complete');
         else throw new Error('Email Shield stopped the worker but did not confirm a resumable protected checkpoint.');
+        window.emailShieldRuntimeTrace?.checkpoint('mailbox.scan.stop.ui_confirmed');
       }
     } catch (error) {
-      if (!ownerSnapshot || selectionMatches(ownerSnapshot)) setStatus(`Stop failed: ${error instanceof Error ? error.message : String(error)}`, 'error');
+      if (!ownerSnapshot || selectionMatches(ownerSnapshot)) {
+        setStatus(`Stop failed: ${error instanceof Error ? error.message : String(error)}`, 'error');
+        window.emailShieldRuntimeTrace?.checkpoint('mailbox.scan.stop.ui_confirmed', 'failed', { errorCode: 'scan_stop_failed' });
+      }
     } finally {
       if (serverFinal) finish(activeSource);
       historyChanged();

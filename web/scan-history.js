@@ -53,6 +53,8 @@
   resumeScanButton.type = 'button';
   resumeScanButton.textContent = 'Resume Scan';
   resumeScanButton.disabled = true;
+  window.emailShieldRuntimeTrace?.registerControl(resumeScanButton, 'mailbox.scan.resume', 'mailbox.scan.resume', 'scan_resume');
+  window.emailShieldRuntimeTrace?.registerControl(refreshButton, 'mailbox.scan.history', 'mailbox.scan.history', 'scan_history');
   stopScanButton?.insertAdjacentElement('afterend', resumeScanButton);
   let refreshTimer = null;
   let refreshSequence = 0;
@@ -107,7 +109,6 @@
     for (const record of records) {
       const row = document.createElement('div');
       row.className = 'scan-history-row';
-
       const identity = document.createElement('div');
       const type = document.createElement('div');
       type.className = 'scan-history-type';
@@ -116,15 +117,12 @@
       state.className = `scan-history-status ${String(record.status || '')}`;
       state.textContent = String(record.status || 'unknown');
       identity.append(type, state);
-
       const time = document.createElement('div');
       time.innerHTML = `<div>${formatTime(record.startedAt)}</div><div class="scan-history-state">Updated ${formatTime(record.updatedAt)}</div>`;
-
       const counters = record.counters || {};
       const counts = document.createElement('div');
       counts.className = 'scan-history-counts';
       counts.textContent = `Examined ${Number(counters.examined || 0)} · Safe ${Number(counters.safe || 0)} · Review ${Number(counters.review || 0)} · High ${Number(counters.highRisk || 0)} · Confirmed ${Number(counters.confirmedThreat || 0)} · Unknown ${Number(counters.unknown || 0)}`;
-
       row.append(identity, time, counts);
       list.append(row);
     }
@@ -163,6 +161,7 @@
       if (!response.ok) throw new Error(body.error || `Server returned HTTP ${response.status}`);
       render(body.history, body.persistent === true, ownerSnapshot);
       scheduleRunningRefresh(body.history);
+      window.emailShieldRuntimeTrace?.checkpoint('mailbox.scan.history.ui_confirmed');
     } catch (error) {
       if (request !== refreshSequence || !selectionMatches(ownerSnapshot)) return;
       resetResume();
@@ -171,6 +170,7 @@
       message.className = 'scan-history-empty';
       message.textContent = `Scan history unavailable: ${error instanceof Error ? error.message : String(error)}`;
       list.append(message);
+      window.emailShieldRuntimeTrace?.checkpoint('mailbox.scan.history.ui_confirmed', 'failed', { errorCode: 'scan_history_failed' });
     } finally {
       if (request === refreshSequence && selectionMatches(ownerSnapshot)) refreshButton.disabled = false;
     }
@@ -186,17 +186,20 @@
     if (!ownerId || current.id !== ownerId || String(current.generation ?? '') !== ownerGeneration) {
       resetResume();
       window.alert('The selected account changed. Refresh Scan history before resuming.');
+      window.emailShieldRuntimeTrace?.checkpoint('mailbox.scan.resume.ui_confirmed', 'rejected', { errorCode: 'stale_selection' });
       void refresh();
       return;
     }
     const starter = window.emailShieldStartScan;
     if (typeof starter !== 'function') {
       window.alert('The scan monitor is not ready. Reload Email Shield and try again.');
+      window.emailShieldRuntimeTrace?.checkpoint('mailbox.scan.resume.ui_confirmed', 'failed', { errorCode: 'scan_monitor_unavailable' });
       return;
     }
     button.disabled = true;
     try {
       await starter(scanType || 'full', { resumeScanId: scanId });
+      window.emailShieldRuntimeTrace?.checkpoint('mailbox.scan.resume.ui_confirmed');
     } finally {
       setTimeout(() => { void refresh(); }, 250);
     }

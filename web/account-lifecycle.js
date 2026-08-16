@@ -54,6 +54,12 @@
     status.className = `account-lifecycle-status${kind ? ` ${kind}` : ''}`;
   }
 
+  function checkpoint(workflowId, checkpointId, outcome = 'success', errorCode) {
+    const trace = window.emailShieldRuntimeTrace;
+    if (trace?.currentWorkflowId?.() !== workflowId) return;
+    trace.checkpoint(checkpointId, outcome, errorCode ? { errorCode } : undefined);
+  }
+
   async function json(response) {
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body.error || `Account lifecycle request failed (${response.status}).`);
@@ -108,14 +114,26 @@
     const copy = document.createElement('button');
     copy.type = 'button';
     copy.textContent = 'Copy recovery code';
+    window.emailShieldRuntimeTrace?.registerControl(copy, 'account.recovery.copy', 'account.recovery.copy', 'account_recovery_copy');
     copy.addEventListener('click', async () => {
-      try { await navigator.clipboard.writeText(code); copy.textContent = 'Copied ✓'; }
-      catch { copy.textContent = 'Copy manually from the code above'; }
+      try {
+        await navigator.clipboard.writeText(code);
+        copy.textContent = 'Copied ✓';
+        checkpoint('account.recovery.copy', 'account.recovery.copy.ui_confirmed');
+      } catch {
+        copy.textContent = 'Copy manually from the code above';
+        checkpoint('account.recovery.copy', 'account.recovery.copy.ui_confirmed', 'failed', 'clipboard_failed');
+      }
     });
     const saved = document.createElement('button');
     saved.type = 'button';
     saved.textContent = 'I saved it';
-    saved.addEventListener('click', () => { recovery.hidden = true; recovery.replaceChildren(); });
+    window.emailShieldRuntimeTrace?.registerControl(saved, 'account.recovery.acknowledge', 'account.recovery.acknowledge', 'account_recovery_acknowledge');
+    saved.addEventListener('click', () => {
+      recovery.hidden = true;
+      recovery.replaceChildren();
+      checkpoint('account.recovery.acknowledge', 'account.recovery.acknowledge.ui_confirmed');
+    });
     recovery.append(strong, text, value, copy, saved);
   }
 
@@ -142,8 +160,11 @@
       const result = await post('/api/profile/v1/recovery/rotate');
       showRecovery(result.recoveryCode, result.recoveryCodeNotice);
       setStatus('Recovery code rotated. Save the replacement before closing it.', 'ok');
-    } catch (error) { setStatus(error.message || String(error), 'error'); }
-    finally { rotateRecovery.disabled = false; }
+      checkpoint('account.recovery.rotate', 'account.recovery.rotate.ui_confirmed');
+    } catch (error) {
+      setStatus(error.message || String(error), 'error');
+      checkpoint('account.recovery.rotate', 'account.recovery.rotate.ui_confirmed', 'failed', 'recovery_rotate_failed');
+    } finally { rotateRecovery.disabled = false; }
   });
 
   revokeOthers.addEventListener('click', async () => {
@@ -153,8 +174,11 @@
       const result = await post('/api/profile/v1/devices/revoke-others');
       setStatus(`${result.revoked || 0} other device${result.revoked === 1 ? '' : 's'} revoked.`, 'ok');
       refreshAccountPanel();
-    } catch (error) { setStatus(error.message || String(error), 'error'); }
-    finally { revokeOthers.disabled = false; }
+      checkpoint('account.devices.revoke_others', 'account.devices.revoke_others.ui_confirmed');
+    } catch (error) {
+      setStatus(error.message || String(error), 'error');
+      checkpoint('account.devices.revoke_others', 'account.devices.revoke_others.ui_confirmed', 'failed', 'device_revoke_others_failed');
+    } finally { revokeOthers.disabled = false; }
   });
 
   exportMetadata.addEventListener('click', async () => {
@@ -172,8 +196,11 @@
       anchor.remove();
       URL.revokeObjectURL(href);
       setStatus('Privacy-safe account metadata exported locally.', 'ok');
-    } catch (error) { setStatus(error.message || String(error), 'error'); }
-    finally { exportMetadata.disabled = false; }
+      checkpoint('account.metadata.export', 'account.metadata.export.ui_confirmed');
+    } catch (error) {
+      setStatus(error.message || String(error), 'error');
+      checkpoint('account.metadata.export', 'account.metadata.export.ui_confirmed', 'failed', 'account_export_failed');
+    } finally { exportMetadata.disabled = false; }
   });
 
   signOutEverywhere.addEventListener('click', async () => {
@@ -182,51 +209,83 @@
     try {
       const result = await post('/api/profile/v1/sign-out-everywhere');
       setStatus(`${result.revoked || 0} device${result.revoked === 1 ? '' : 's'} signed out. Reloading…`, 'ok');
+      checkpoint('account.sign_out_everywhere', 'account.sign_out_everywhere.ui_confirmed');
       window.setTimeout(() => window.location.reload(), 250);
-    } catch (error) { setStatus(error.message || String(error), 'error'); signOutEverywhere.disabled = false; }
+    } catch (error) {
+      setStatus(error.message || String(error), 'error');
+      checkpoint('account.sign_out_everywhere', 'account.sign_out_everywhere.ui_confirmed', 'failed', 'sign_out_everywhere_failed');
+      signOutEverywhere.disabled = false;
+    }
   });
 
   transferFamily.addEventListener('click', async () => {
     const targetAccountId = transferTarget.value;
     const targetName = transferTarget.options[transferTarget.selectedIndex]?.textContent || 'the selected member';
-    if (!targetAccountId) return setStatus('Choose a Family Shield member first.', 'error');
+    if (!targetAccountId) {
+      setStatus('Choose a Family Shield member first.', 'error');
+      checkpoint('family.transfer', 'family.transfer.ui_confirmed', 'rejected', 'transfer_target_missing');
+      return;
+    }
     const typed = prompt(`Transfer Family Shield ownership to ${targetName}?\n\nThe member must already have an active Family plan with enough seats. Your store subscription is not transferred.\n\nType TRANSFER FAMILY to continue.`);
     if (typed === null) return;
-    if (typed !== 'TRANSFER FAMILY') return setStatus('Family Shield ownership was not transferred because the confirmation text did not match.', 'error');
+    if (typed !== 'TRANSFER FAMILY') {
+      setStatus('Family Shield ownership was not transferred because the confirmation text did not match.', 'error');
+      checkpoint('family.transfer', 'family.transfer.ui_confirmed', 'rejected', 'confirmation_mismatch');
+      return;
+    }
     transferFamily.disabled = true;
     try {
       const result = await post('/api/profile/v1/family/transfer', { targetAccountId, confirmation: typed });
       setStatus(`Family Shield ownership transferred to ${targetName}. Seat limit: ${result.seatLimit}.`, 'ok');
       refreshAccountPanel();
       window.dispatchEvent(new CustomEvent('email-shield-family-changed'));
-    } catch (error) { setStatus(error.message || String(error), 'error'); }
-    finally { transferFamily.disabled = false; }
+      checkpoint('family.transfer', 'family.transfer.ui_confirmed');
+    } catch (error) {
+      setStatus(error.message || String(error), 'error');
+      checkpoint('family.transfer', 'family.transfer.ui_confirmed', 'failed', 'family_transfer_failed');
+    } finally { transferFamily.disabled = false; }
   });
 
   deleteFamily.addEventListener('click', async () => {
     const typed = prompt('Deleting Family Shield releases every member and removes the private family threat history.\n\nType DELETE FAMILY to continue.');
     if (typed === null) return;
-    if (typed !== 'DELETE FAMILY') return setStatus('Family Shield was not deleted because the confirmation text did not match.', 'error');
+    if (typed !== 'DELETE FAMILY') {
+      setStatus('Family Shield was not deleted because the confirmation text did not match.', 'error');
+      checkpoint('account.family.delete', 'account.family.delete.ui_confirmed', 'rejected', 'confirmation_mismatch');
+      return;
+    }
     deleteFamily.disabled = true;
     try {
       const result = await destroy('/api/profile/v1/family', typed);
       setStatus(`Family Shield deleted. ${result.releasedMembers || 0} member record${result.releasedMembers === 1 ? '' : 's'} released.`, 'ok');
       refreshAccountPanel();
       window.dispatchEvent(new CustomEvent('email-shield-family-changed'));
-    } catch (error) { setStatus(error.message || String(error), 'error'); }
-    finally { deleteFamily.disabled = false; }
+      checkpoint('account.family.delete', 'account.family.delete.ui_confirmed');
+    } catch (error) {
+      setStatus(error.message || String(error), 'error');
+      checkpoint('account.family.delete', 'account.family.delete.ui_confirmed', 'failed', 'family_delete_failed');
+    } finally { deleteFamily.disabled = false; }
   });
 
   deleteProfile.addEventListener('click', async () => {
     const typed = prompt('Delete your Email Shield account profile?\n\nThis does NOT delete your Gmail/Outlook/iCloud/Yahoo/IMAP mailbox. If you own Family Shield, delete or transfer it first.\n\nType DELETE ACCOUNT to continue.');
     if (typed === null) return;
-    if (typed !== 'DELETE ACCOUNT') return setStatus('Email Shield account was not deleted because the confirmation text did not match.', 'error');
+    if (typed !== 'DELETE ACCOUNT') {
+      setStatus('Email Shield account was not deleted because the confirmation text did not match.', 'error');
+      checkpoint('account.delete', 'account.delete.ui_confirmed', 'rejected', 'confirmation_mismatch');
+      return;
+    }
     deleteProfile.disabled = true;
     try {
       const result = await destroy('/api/profile/v1/account', typed);
       setStatus(result.notice || 'Email Shield account deleted. Your provider mailbox remains connected separately.', 'ok');
+      checkpoint('account.delete', 'account.delete.ui_confirmed');
       window.setTimeout(() => window.location.reload(), 350);
-    } catch (error) { setStatus(error.message || String(error), 'error'); deleteProfile.disabled = false; }
+    } catch (error) {
+      setStatus(error.message || String(error), 'error');
+      checkpoint('account.delete', 'account.delete.ui_confirmed', 'failed', 'account_delete_failed');
+      deleteProfile.disabled = false;
+    }
   });
 
   window.addEventListener('email-shield-profile-changed', (event) => {
@@ -234,6 +293,5 @@
     render();
   });
 
-  // account-plan.js loads asynchronously, so hide until its first profile event.
   card.hidden = true;
 })();

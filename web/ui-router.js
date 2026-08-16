@@ -48,6 +48,19 @@
     backdrop?.classList.remove('open');
   }
 
+  function confirmNavigationTrace(route) {
+    const trace = window.emailShieldRuntimeTrace;
+    const workflow = trace?.currentWorkflowId?.();
+    if (route === 'home' && workflow === 'navigation.home') trace.checkpoint('navigation.home.ui_confirmed');
+    else if (route === 'scan' && workflow === 'navigation.scan') trace.checkpoint('navigation.scan.ui_confirmed');
+    else if (route === 'protection' && workflow === 'navigation.protection') trace.checkpoint('navigation.protection.ui_confirmed');
+    else if (route === 'family' && workflow === 'navigation.family') trace.checkpoint('navigation.family.ui_confirmed');
+    else if (route === 'community' && workflow === 'navigation.community') trace.checkpoint('navigation.community.ui_confirmed');
+    else if (route === 'history' && workflow === 'navigation.history') trace.checkpoint('navigation.history.ui_confirmed');
+    else if (route === 'account' && workflow === 'navigation.account') trace.checkpoint('navigation.account.ui_confirmed');
+    else if (route === 'settings' && workflow === 'navigation.settings') trace.checkpoint('navigation.settings.ui_confirmed');
+  }
+
   function navigate(route, options = {}) {
     if (!routeSet.has(route)) return false;
     const target = routeSection(route);
@@ -80,6 +93,7 @@
       history.replaceState(null, '', `#${route}`);
     }
     window.dispatchEvent(new CustomEvent('email-shield-route-changed', { detail: { route } }));
+    confirmNavigationTrace(route);
     return true;
   }
 

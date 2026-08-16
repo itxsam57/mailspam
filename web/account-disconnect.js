@@ -18,6 +18,7 @@
       button.dataset.disconnect = accountId;
       button.textContent = 'Disconnect';
       button.title = 'Remove this account from Email Shield';
+      window.emailShieldRuntimeTrace?.registerControl(button, 'account.disconnect', 'account.disconnect', 'account_disconnect');
       button.addEventListener('click', async () => {
         if (!window.confirm('Disconnect this account from Email Shield? OAuth providers may also have their Email Shield authorization revoked.')) return;
         button.disabled = true;
@@ -29,10 +30,12 @@
             const body = await response.json().catch(() => ({}));
             throw new Error(body.error || 'Account disconnect was not confirmed.');
           }
+          window.emailShieldRuntimeTrace?.checkpoint('account.disconnect.ui_confirmed');
           // Reload the protected local dashboard so no stale scan/action token or
           // selected-account state survives a successful credential teardown.
           window.location.reload();
         } catch (error) {
+          window.emailShieldRuntimeTrace?.checkpoint('account.disconnect.ui_confirmed', 'failed', { errorCode: 'disconnect_failed' });
           button.disabled = false;
           button.textContent = original;
           window.alert(error instanceof Error ? error.message : String(error));

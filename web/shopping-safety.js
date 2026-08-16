@@ -89,6 +89,13 @@
 
   card.append(heading, intro, urlLabel, sellerLabel, priceLabel, paymentLabel, pageLabel, actions, output);
   tools.append(card);
+  window.emailShieldRuntimeTrace?.registerControl(check, 'shopping_safety.run', 'shopping_safety.run', 'shopping_safety');
+
+  function checkpoint(outcome = 'success', errorCode) {
+    const trace = window.emailShieldRuntimeTrace;
+    if (trace?.currentWorkflowId?.() !== 'shopping_safety.run') return;
+    trace.checkpoint('shopping_safety.run.ui_confirmed', outcome, errorCode ? { errorCode } : undefined);
+  }
 
   function verdictLabel(verdict) {
     if (verdict === 'high_risk') return 'HIGH RISK';
@@ -122,8 +129,10 @@
         ? String(result.limitations[0])
         : 'A check cannot prove an unfamiliar seller is legitimate.';
       output.textContent = `${verdictLabel(result.verdict)}: ${signals.length ? signals.join(' ') : limitation}`;
+      checkpoint();
     } catch (error) {
       output.textContent = error instanceof Error ? error.message : String(error);
+      checkpoint('failed', 'shopping_safety_failed');
     } finally {
       check.disabled = false;
     }

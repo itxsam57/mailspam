@@ -102,6 +102,12 @@
     status.className = `family-status${kind ? ` ${kind}` : ''}`;
   }
 
+  function checkpoint(workflowId, checkpointId, outcome = 'success', errorCode) {
+    const trace = window.emailShieldRuntimeTrace;
+    if (trace?.currentWorkflowId?.() !== workflowId) return;
+    trace.checkpoint(checkpointId, outcome, errorCode ? { errorCode } : undefined);
+  }
+
   async function json(response) {
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body.error || `Family Shield request failed (${response.status}).`);
@@ -153,6 +159,7 @@
         const remove = document.createElement('button');
         remove.type = 'button';
         remove.textContent = 'Remove member';
+        window.emailShieldRuntimeTrace?.registerControl(remove, 'family.remove_member', 'family.remove_member', 'family_remove_member');
         remove.addEventListener('click', async () => {
           if (!confirm(`Remove ${member.username} from Family Shield? Their future family protection will stop immediately.`)) return;
           try {
@@ -160,7 +167,11 @@
             setStatus(`${member.username} removed from Family Shield.`, 'ok');
             render();
             window.dispatchEvent(new CustomEvent('email-shield-family-changed'));
-          } catch (error) { setStatus(error.message || String(error), 'error'); }
+            checkpoint('family.remove_member', 'family.remove_member.ui_confirmed');
+          } catch (error) {
+            setStatus(error.message || String(error), 'error');
+            checkpoint('family.remove_member', 'family.remove_member.ui_confirmed', 'failed', 'family_remove_member_failed');
+          }
         });
         row.append(remove);
       }
@@ -177,7 +188,11 @@
         : 'Family Shield requires a Family plan to create a circle. You can still join an active family owner’s invitation.', '');
       else setStatus('Family Shield active. Only privacy-reduced campaign protection is shared.', 'ok');
       render();
-    } catch (error) { setStatus(error.message || String(error), 'error'); }
+      checkpoint('family.load', 'family.load.ui_confirmed');
+    } catch (error) {
+      setStatus(error.message || String(error), 'error');
+      checkpoint('family.load', 'family.load.ui_confirmed', 'failed', 'family_load_failed');
+    }
   }
 
   create.addEventListener('click', async () => {
@@ -187,8 +202,11 @@
       setStatus('Family Shield circle created.', 'ok');
       render();
       window.dispatchEvent(new CustomEvent('email-shield-family-changed'));
-    } catch (error) { setStatus(error.message || String(error), 'error'); }
-    finally { create.disabled = false; }
+      checkpoint('family.create', 'family.create.ui_confirmed');
+    } catch (error) {
+      setStatus(error.message || String(error), 'error');
+      checkpoint('family.create', 'family.create.ui_confirmed', 'failed', 'family_create_failed');
+    } finally { create.disabled = false; }
   });
 
   join.addEventListener('click', async () => {
@@ -199,8 +217,11 @@
       setStatus('Joined Family Shield. Link a mailbox from Account & Plan to receive family protection.', 'ok');
       render();
       window.dispatchEvent(new CustomEvent('email-shield-family-changed'));
-    } catch (error) { setStatus(error.message || String(error), 'error'); }
-    finally { join.disabled = false; }
+      checkpoint('family.join', 'family.join.ui_confirmed');
+    } catch (error) {
+      setStatus(error.message || String(error), 'error');
+      checkpoint('family.join', 'family.join.ui_confirmed', 'failed', 'family_join_failed');
+    } finally { join.disabled = false; }
   });
 
   invite.addEventListener('click', async () => {
@@ -218,15 +239,25 @@
       const copy = document.createElement('button');
       copy.type = 'button';
       copy.textContent = 'Copy invitation code';
+      window.emailShieldRuntimeTrace?.registerControl(copy, 'family.invite.copy', 'family.invite.copy', 'family_invite_copy');
       copy.addEventListener('click', async () => {
-        try { await navigator.clipboard.writeText(result.inviteCode); copy.textContent = 'Copied ✓'; }
-        catch { copy.textContent = 'Copy manually from the code above'; }
+        try {
+          await navigator.clipboard.writeText(result.inviteCode);
+          copy.textContent = 'Copied ✓';
+          checkpoint('family.invite.copy', 'family.invite.copy.ui_confirmed');
+        } catch {
+          copy.textContent = 'Copy manually from the code above';
+          checkpoint('family.invite.copy', 'family.invite.copy.ui_confirmed', 'failed', 'clipboard_failed');
+        }
       });
       inviteResult.append(title, code, expiry, copy);
       setStatus('Invitation created. Share it directly with the intended family member.', 'ok');
       await load();
-    } catch (error) { setStatus(error.message || String(error), 'error'); }
-    finally { invite.disabled = false; }
+      checkpoint('family.invite', 'family.invite.ui_confirmed');
+    } catch (error) {
+      setStatus(error.message || String(error), 'error');
+      checkpoint('family.invite', 'family.invite.ui_confirmed', 'failed', 'family_invite_failed');
+    } finally { invite.disabled = false; }
   });
 
   strict.addEventListener('click', async () => {
@@ -240,7 +271,11 @@
       setStatus(`Strict Family Protection ${enabled ? 'enabled' : 'disabled'}.`, 'ok');
       render();
       window.dispatchEvent(new CustomEvent('email-shield-family-changed'));
-    } catch (error) { setStatus(error.message || String(error), 'error'); }
+      checkpoint('family.strict', 'family.strict.ui_confirmed');
+    } catch (error) {
+      setStatus(error.message || String(error), 'error');
+      checkpoint('family.strict', 'family.strict.ui_confirmed', 'failed', 'family_strict_failed');
+    }
   });
 
   leave.addEventListener('click', async () => {
@@ -250,7 +285,11 @@
       setStatus('Left Family Shield.', 'ok');
       render();
       window.dispatchEvent(new CustomEvent('email-shield-family-changed'));
-    } catch (error) { setStatus(error.message || String(error), 'error'); }
+      checkpoint('family.leave', 'family.leave.ui_confirmed');
+    } catch (error) {
+      setStatus(error.message || String(error), 'error');
+      checkpoint('family.leave', 'family.leave.ui_confirmed', 'failed', 'family_leave_failed');
+    }
   });
 
   refresh.addEventListener('click', load);

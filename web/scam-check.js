@@ -62,6 +62,12 @@
   const result = panel.querySelector('#scamCheckResult');
   let mode = 'message';
 
+  function checkpoint(workflowId, checkpointId, outcome = 'success', errorCode) {
+    const trace = window.emailShieldRuntimeTrace;
+    if (trace?.currentWorkflowId?.() !== workflowId) return;
+    trace.checkpoint(checkpointId, outcome, errorCode ? { errorCode } : undefined);
+  }
+
   function setMode(next) {
     mode = next;
     for (const button of modeButtons) button.setAttribute('aria-pressed', String(button.dataset.scamCheckMode === next));
@@ -71,6 +77,7 @@
       ? 'Images are checked locally for QR codes. Visible image text requires a supported local OCR bridge.'
       : 'Nothing is sent to a remote AI service.';
     status.className = 'scam-check-status';
+    checkpoint('scam_check.mode', 'scam_check.mode.ui_confirmed');
   }
 
   function appendList(container, heading, values) {
@@ -171,9 +178,11 @@
       if (!response.ok) throw new Error(data.error || `Scam Check failed with HTTP ${response.status}.`);
       showResult(data);
       status.textContent = 'Local analysis complete.';
+      checkpoint('scam_check.run', 'scam_check.run.ui_confirmed');
     } catch (error) {
       status.textContent = error instanceof Error ? error.message : String(error);
       status.className = 'scam-check-status error';
+      checkpoint('scam_check.run', 'scam_check.run.ui_confirmed', 'failed', 'scam_check_failed');
     } finally {
       run.disabled = false;
     }
@@ -188,5 +197,6 @@
     result.hidden = true;
     status.textContent = 'Nothing is sent to a remote AI service.';
     status.className = 'scam-check-status';
+    checkpoint('scam_check.clear', 'scam_check.clear.ui_confirmed');
   });
 })();
