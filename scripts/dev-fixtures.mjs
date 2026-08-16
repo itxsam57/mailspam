@@ -2,4 +2,7 @@
 // development entitlements disabled so Fixture mode and developer routes are not
 // exposed to a production-like consumer session.
 process.env.EMAIL_SHIELD_ENABLE_DEVELOPMENT_ENTITLEMENTS = "1";
+if (process.env.EMAIL_SHIELD_RUNTIME_TRACE === undefined) {
+  process.env.EMAIL_SHIELD_RUNTIME_TRACE = "1";
+}
 await import("./dev.mjs");
