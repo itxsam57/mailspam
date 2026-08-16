@@ -19,6 +19,11 @@ describe("link destination canonicalization", () => {
     expect(canonicalizeWebDestination(raw, null)).toBe(raw);
   });
 
+  it("does not decode a mixed partially encoded URL where decoding could change query semantics", () => {
+    const raw = "https%3A%2F%2Fshop.example/path?next=https%3A%2F%2Fsupport.example";
+    expect(canonicalizeWebDestination(raw, null)).toBe(raw);
+  });
+
   it.each([
     "javascript%3Aalert%281%29",
     "data%3Atext%2Fhtml%2Ctest",
