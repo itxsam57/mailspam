@@ -1,0 +1,57 @@
+name: Gmail OAuth Trace Finalizer
+
+on:
+  push:
+    branches:
+      - design/full-product-flight-recorder-20260816
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: "${{ github.event.head_commit.message == 'chore: trigger Gmail OAuth trace finalizer' }}"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: design/full-product-flight-recorder-20260816
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Complete Gmail OAuth trace milestones
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path=Path('web/consumer-provider-onboarding.js')
+          source=path.read_text(encoding='utf-8')
+          old="if (workflowId === 'provider.connect.gmail') trace.checkpoint('provider.connect.gmail.ui_confirmed');"
+          new="""if (workflowId === 'provider.connect.gmail') {
+        trace.checkpoint('provider.connect.gmail.provider_authenticated', 'success', { stage: 'provider', component: 'gmail_oauth_status' });
+        trace.checkpoint('provider.connect.gmail.connection_persisted', 'success', { stage: 'storage', component: 'gmail_oauth_status' });
+        trace.checkpoint('provider.connect.gmail.ui_confirmed');
+      }"""
+          if 'provider.connect.gmail.provider_authenticated' not in source:
+              if source.count(old) != 1:
+                  raise SystemExit('expected Gmail visible confirmation statement not found exactly once')
+              source=source.replace(old,new,1)
+              path.write_text(source,encoding='utf-8')
+          PY
+      - name: Verify Gmail OAuth trace owner
+        run: |
+          node --check web/consumer-provider-onboarding.js
+          npx vitest run tests/unit/runtimeGmailOAuthTrace.test.ts tests/unit/runtimeProviderOnboardingTrace.test.ts tests/unit/runtimeWorkflowTraceBrowserV2.test.ts
+          npm run typecheck
+      - name: Self-clean and commit
+        shell: bash
+        run: |
+          git rm -f .github/workflows/gmail-oauth-trace-finalize.yml docs/superpowers/plans/.gmail-oauth-trace-trigger
+          git config user.name "email-shield-engineering"
+          git config user.email "email-shield-engineering@users.noreply.github.com"
+          git add web/consumer-provider-onboarding.js
+          git commit -m "feat: complete Gmail OAuth runtime trace milestones"
+          git push origin HEAD:design/full-product-flight-recorder-20260816
