@@ -15,7 +15,7 @@ const required = {
     "The project must not be described as all three milestones formally closed",
     "## Current continuation point",
     "Gmail Full Mailbox Audit",
-    "privacy-safe technical telemetry",
+    "## Privacy-safe technical telemetry",
     "Do not resume from a historical PR number or commit SHA",
   ],
   "docs/MILESTONE_2_LIVE_ACCEPTANCE.md": [
