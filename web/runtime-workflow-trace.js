@@ -179,6 +179,16 @@
     return `${url.pathname}${url.search}`;
   }
 
+  const NativeEventSource = window.EventSource;
+  if (typeof NativeEventSource === 'function') {
+    class TracedEventSource extends NativeEventSource {
+      constructor(url, options) {
+        super(withTraceQuery(String(url)), options);
+      }
+    }
+    window.EventSource = TracedEventSource;
+  }
+
   document.addEventListener('click', (event) => {
     const button = event.target instanceof Element ? event.target.closest('button') : null;
     if (!(button instanceof HTMLButtonElement) || button.disabled) return;
