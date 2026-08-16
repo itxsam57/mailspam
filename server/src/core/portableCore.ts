@@ -1,379 +1,255 @@
-import type { CanonicalEnvelope } from "../canonical/envelope.js";
-import {
-  MAX_COMMUNITY_FEED_ENTRIES,
-  MAX_COMMUNITY_FEED_ENTRY_VALUE_CHARS,
-  MAX_COMMUNITY_FEED_RULE_ID_CHARS,
-  MAX_COMMUNITY_IDENTITY_ALIASES,
-  MAX_COMMUNITY_IDENTITY_DOMAINS,
-  MAX_COMMUNITY_IDENTITY_TEXT_CHARS,
-  MAX_COMMUNITY_DOMAIN_CHARS,
-} from "../community/resourceLimits.js";
-import { scanMessage, type ResponseAction, type ScanResult } from "../engine/pipeline.js";
-import {
-  InMemoryPersonalPolicyStore,
-  type PersonalPolicySnapshot,
-} from "../engine/layers/personalRules.js";
+import type { CanonicalEnvelope, FromField } from "../canonical/envelope.js";
 import type { SignedFeedEntry } from "../engine/layers/globalIntelligence.js";
-import type { LayerResult, ScoredMessage, Verdict } from "../engine/verdict.js";
+import { InMemoryPersonalPolicyStore } from "../engine/layers/personalRules.js";
+import type { ScanResult } from "../engine/pipeline.js";
+import { sha256Hex } from "./sha256.js";
+import {
+  assertPortableCoreRequest as assertStrictPortableCoreRequest,
+  evaluatePortableCore as evaluateStrictPortableCore,
+  PortableCoreContractError,
+} from "./portableCoreStrict.js";
+import type {
+  PortableCoreRequestV1,
+  PortableCoreResponseV1,
+  PortableIntelligenceSnapshot,
+} from "./portableCoreStrict.js";
 
+export { PortableCoreContractError };
+export type { PortableCoreRequestV1, PortableCoreResponseV1, PortableIntelligenceSnapshot };
+
+// The public portable-core boundary owns the schema identity. The strict
+// validator/evaluator remains an implementation detail behind this facade so
+// live canonical data can be safely reduced before crossing the versioned
+// contract without weakening that contract.
 export const PORTABLE_CORE_SCHEMA_VERSION = 1;
 export const MAX_PORTABLE_CORE_REQUEST_BYTES = 4 * 1024 * 1024;
-const MAX_POLICY_VALUES_PER_CLASS = 10_000;
-const MAX_POLICY_VALUE_CHARS = 2_048;
-const MAX_ENVELOPE_LINKS = 256;
-const MAX_ENVELOPE_ATTACHMENTS = 64;
-const MAX_ENVELOPE_NOTES = 256;
-const MAX_ENVELOPE_TEXT_CHARS = 512 * 1024;
-
-export type PortableIntelligenceSnapshot =
-  | { state: "verified"; entries: SignedFeedEntry[] }
-  | { state: "unavailable"; entries: null };
-
-export interface PortableCoreRequestV1 {
-  schemaVersion: 1;
-  envelope: CanonicalEnvelope;
-  personalPolicy: PersonalPolicySnapshot;
-  intelligence: PortableIntelligenceSnapshot;
-}
-
-export interface PortableCoreResponseV1 {
-  schemaVersion: 1;
-  verdict: Verdict;
-  score: number;
-  confirmedByRule: boolean;
-  action: ResponseAction;
-  evidence: ScoredMessage["evidence"];
-  layerResults: LayerResult[];
-}
-
-export class PortableCoreContractError extends Error {
-  constructor(readonly code: "invalid_request" | "request_too_large") {
-    super(code === "request_too_large"
-      ? "Portable core request exceeds the accepted resource limit."
-      : "Portable core request is invalid.");
-    this.name = "PortableCoreContractError";
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
-
-function hasExactFields(value: Record<string, unknown>, required: string[], optional: string[] = []): boolean {
-  const allowed = new Set([...required, ...optional]);
-  return required.every((field) => Object.hasOwn(value, field)) && Object.keys(value).every((field) => allowed.has(field));
-}
-
-function boundedString(value: unknown, maxChars: number, nullable = false): boolean {
-  return (nullable && value === null) || (typeof value === "string" && value.length <= maxChars);
-}
-
-function validStringArray(value: unknown, maxItems: number, maxChars: number): value is string[] {
-  return Array.isArray(value) && value.length <= maxItems && value.every((item) => boundedString(item, maxChars));
-}
-
-function validPersonalPolicy(value: unknown): value is PersonalPolicySnapshot {
-  if (!isRecord(value)) return false;
-  const legacyFields = [
-    "blockedSenders",
-    "blockedDomains",
-    "trustedSenders",
-    "approvedExceptions",
-    "unsubscribedActions",
-    "reportedCampaigns",
-  ];
-  const extendedFields = [
-    ...legacyFields,
-    "catchTrashSenders",
-    "catchTrashDomains",
-  ];
-  if (!hasExactFields(value, legacyFields) && !hasExactFields(value, extendedFields)) return false;
-  for (const field of legacyFields) {
-    if (!validStringArray(value[field], MAX_POLICY_VALUES_PER_CLASS, MAX_POLICY_VALUE_CHARS)) return false;
-  }
-  if (value.catchTrashSenders !== undefined && !validStringArray(value.catchTrashSenders, MAX_POLICY_VALUES_PER_CLASS, MAX_POLICY_VALUE_CHARS)) return false;
-  if (value.catchTrashDomains !== undefined && !validStringArray(value.catchTrashDomains, MAX_POLICY_VALUES_PER_CLASS, MAX_POLICY_VALUE_CHARS)) return false;
-  return true;
-}
-
-function validFeedEntry(value: unknown): value is SignedFeedEntry {
-  if (!isRecord(value) || !boundedString(value.type, 32) || !boundedString(value.value, MAX_COMMUNITY_FEED_ENTRY_VALUE_CHARS) || !boundedString(value.ruleId, MAX_COMMUNITY_FEED_RULE_ID_CHARS)) return false;
-  if (value.type === "identity") {
-    return hasExactFields(value, ["type", "value", "aliases", "domains", "confirmedThreat", "ruleId"])
-      && value.confirmedThreat === false
-      && boundedString(value.value, MAX_COMMUNITY_IDENTITY_TEXT_CHARS)
-      && validStringArray(value.aliases, MAX_COMMUNITY_IDENTITY_ALIASES, MAX_COMMUNITY_IDENTITY_TEXT_CHARS)
-      && validStringArray(value.domains, MAX_COMMUNITY_IDENTITY_DOMAINS, MAX_COMMUNITY_DOMAIN_CHARS);
-  }
-  if (!["sender", "domain", "url", "reply_to_domain", "url_domain", "attachment_hash", "campaign"].includes(String(value.type))) return false;
-  if (!hasExactFields(value, ["type", "value", "confirmedThreat", "ruleId"], ["independentReports", "firstSeen", "lastSeen"])) return false;
-  if (typeof value.confirmedThreat !== "boolean") return false;
-  if (value.independentReports !== undefined && (!Number.isSafeInteger(value.independentReports) || Number(value.independentReports) < 1)) return false;
-  if (value.firstSeen !== undefined && !boundedString(value.firstSeen, 64)) return false;
-  if (value.lastSeen !== undefined && !boundedString(value.lastSeen, 64)) return false;
-  return true;
-}
-
-function validIntelligence(value: unknown): value is PortableIntelligenceSnapshot {
-  if (!isRecord(value) || !hasExactFields(value, ["state", "entries"])) return false;
-  if (value.state === "unavailable") return value.entries === null;
-  return value.state === "verified"
-    && Array.isArray(value.entries)
-    && value.entries.length <= MAX_COMMUNITY_FEED_ENTRIES
-    && value.entries.every(validFeedEntry);
-}
-
-const ENVELOPE_FIELDS = [
-  "provider", "accountProof", "messageId", "providerNativeId", "folder", "providerFolderName",
-  "from", "replyTo", "subject", "date", "authentication", "textPreview", "htmlSignals", "links",
-  "attachments", "listHeaders", "threadContext", "parseStatus", "parseNotes", "diagnostics",
-];
-
-function validFromField(value: unknown): boolean {
-  return isRecord(value)
-    && hasExactFields(value, ["displayName", "address", "domain"])
-    && boundedString(value.displayName, 4_096, true)
-    && boundedString(value.address, 4_096, true)
-    && boundedString(value.domain, 253, true);
-}
-
-function validAuthentication(value: unknown): boolean {
-  if (!isRecord(value) || !hasExactFields(value, ["spf", "dkim", "dmarc", "arc"], ["providerTrust", "rawHeader"])) return false;
-  if (!["pass", "fail", "softfail", "neutral", "none", "unknown"].includes(String(value.spf))) return false;
-  if (!["pass", "fail", "none", "unknown"].includes(String(value.dkim))) return false;
-  if (!["pass", "fail", "none", "unknown"].includes(String(value.dmarc))) return false;
-  if (!["pass", "fail", "none", "unknown"].includes(String(value.arc))) return false;
-  if (value.providerTrust !== undefined && !["trusted", "suspicious", "unknown"].includes(String(value.providerTrust))) return false;
-  return value.rawHeader === undefined || boundedString(value.rawHeader, 16_384);
-}
-
-function validLink(value: unknown): boolean {
-  return isRecord(value)
-    && hasExactFields(value, ["visibleText", "rawUrl", "normalizedUrl", "claimedBrand", "brandDomainMismatch"], ["source", "interaction"])
-    && boundedString(value.visibleText, 4_096, true)
-    && boundedString(value.rawUrl, 8_192)
-    && boundedString(value.normalizedUrl, 8_192)
-    && boundedString(value.claimedBrand, 1_024, true)
-    && (value.brandDomainMismatch === null || typeof value.brandDomainMismatch === "boolean")
-    && (value.source === undefined || value.source === "body" || value.source === "qr")
-    && (value.interaction === undefined || ["navigation", "form_action", "automatic_redirect"].includes(String(value.interaction)));
-}
-
-function validNonNegativeInteger(value: unknown, maximum: number): boolean {
-  return Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= maximum;
-}
-
-function validArchiveSecurityInspection(value: unknown): boolean {
-  if (!isRecord(value) || !hasExactFields(value, [
-    "format",
-    "entryCount",
-    "encryptedEntries",
-    "executableOrScriptEntries",
-    "macroCapableEntries",
-    "nestedArchiveEntries",
-    "declaredCompressedBytes",
-    "declaredUncompressedBytes",
-    "maximumCompressionRatio",
-    "overResourceLimit",
-    "incomplete",
-    "reasons",
-  ])) return false;
-  return value.format === "zip"
-    && validNonNegativeInteger(value.entryCount, 10_000)
-    && validNonNegativeInteger(value.encryptedEntries, 10_000)
-    && validNonNegativeInteger(value.executableOrScriptEntries, 10_000)
-    && validNonNegativeInteger(value.macroCapableEntries, 10_000)
-    && validNonNegativeInteger(value.nestedArchiveEntries, 10_000)
-    && validNonNegativeInteger(value.declaredCompressedBytes, Number.MAX_SAFE_INTEGER)
-    && validNonNegativeInteger(value.declaredUncompressedBytes, Number.MAX_SAFE_INTEGER)
-    && typeof value.maximumCompressionRatio === "number"
-    && Number.isFinite(value.maximumCompressionRatio)
-    && value.maximumCompressionRatio >= 0
-    && value.maximumCompressionRatio <= Number.MAX_SAFE_INTEGER
-    && typeof value.overResourceLimit === "boolean"
-    && typeof value.incomplete === "boolean"
-    && validStringArray(value.reasons, 16, 1_024);
-}
-
-const STATIC_MALWARE_INDICATORS = new Set([
-  "eicar_test_signature",
-  "encoded_powershell_execution",
-  "powershell_download_execute_chain",
-  "script_host_download_execute_chain",
-  "shell_download_execute_chain",
-  "office_autoexec_execution_chain",
-  "living_off_land_execution_chain",
-]);
-
-function validStaticMalwareInspection(value: unknown): boolean {
-  return isRecord(value)
-    && hasExactFields(value, ["risk", "indicators", "coverage"])
-    && ["none", "suspicious", "high"].includes(String(value.risk))
-    && Array.isArray(value.indicators)
-    && value.indicators.length <= STATIC_MALWARE_INDICATORS.size
-    && value.indicators.every((indicator) => typeof indicator === "string" && STATIC_MALWARE_INDICATORS.has(indicator))
-    && ["full", "sampled"].includes(String(value.coverage));
-}
-
-function validAttachmentSecurityInspection(value: unknown): boolean {
-  if (!isRecord(value) || !hasExactFields(value, [
-    "magicType",
-    "extensionMismatch",
-    "executableOrScript",
-    "macroCapable",
-    "archive",
-    "staticMalware",
-    "incomplete",
-    "reasons",
-  ])) return false;
-  if (!["pe_executable", "elf_executable", "zip", "pdf", "png", "jpeg", "ole_compound", "rtf", "text_or_unknown"].includes(String(value.magicType))) return false;
-  if (typeof value.extensionMismatch !== "boolean" || typeof value.executableOrScript !== "boolean" || typeof value.macroCapable !== "boolean" || typeof value.incomplete !== "boolean") return false;
-  if (value.archive !== null && !validArchiveSecurityInspection(value.archive)) return false;
-  if (!validStaticMalwareInspection(value.staticMalware)) return false;
-  return validStringArray(value.reasons, 16, 1_024);
-}
-
-function validAttachment(value: unknown): boolean {
-  return isRecord(value)
-    && hasExactFields(value, ["name", "mimeType", "sizeBytes", "extension", "sha256", "suspiciousNamePattern"], ["securityInspection"])
-    && boundedString(value.name, 4_096)
-    && boundedString(value.mimeType, 256)
-    && Number.isSafeInteger(value.sizeBytes)
-    && Number(value.sizeBytes) >= 0
-    && Number(value.sizeBytes) <= 2 * 1024 * 1024 * 1024
-    && boundedString(value.extension, 256, true)
-    && (value.sha256 === null || (typeof value.sha256 === "string" && /^[a-f0-9]{64}$/i.test(value.sha256)))
-    && typeof value.suspiciousNamePattern === "boolean"
-    && (value.securityInspection === undefined || validAttachmentSecurityInspection(value.securityInspection));
-}
-
-function validListHeaders(value: unknown): boolean {
-  if (!isRecord(value) || !hasExactFields(value, ["listId", "listUnsubscribe", "listUnsubscribePost"], ["oneClickHeaderSetUnambiguous", "oneClickDkimSignatures"])) return false;
-  if (!boundedString(value.listId, 8_192, true) || !boundedString(value.listUnsubscribe, 16_384, true) || !boundedString(value.listUnsubscribePost, 4_096, true)) return false;
-  if (value.oneClickHeaderSetUnambiguous !== undefined && typeof value.oneClickHeaderSetUnambiguous !== "boolean") return false;
-  if (value.oneClickDkimSignatures === undefined) return true;
-  return Array.isArray(value.oneClickDkimSignatures)
-    && value.oneClickDkimSignatures.length <= 64
-    && value.oneClickDkimSignatures.every((item) => isRecord(item)
-      && hasExactFields(item, ["domain", "selector", "coversRequiredHeaders"])
-      && boundedString(item.domain, 253)
-      && boundedString(item.selector, 253)
-      && typeof item.coversRequiredHeaders === "boolean");
-}
-
-function validThreadContext(value: unknown): boolean {
-  if (!isRecord(value) || !hasExactFields(value, ["isFirstContact", "threadContinuityBroken", "replyToChangedMidThread"], [
-    "senderPreviouslySeenInScan",
-    "relationshipPriorMessages",
-    "relationshipPriorAuthenticatedMessages",
-    "relationshipPriorSafeMessages",
-    "relationshipPriorSuspiciousMessages",
-    "hasEstablishedSenderHistory",
-    "relationshipAuthenticationDowngrade",
-    "replyToChangedFromRelationshipHistory",
-  ])) return false;
-  for (const field of [
-    "isFirstContact", "threadContinuityBroken", "replyToChangedMidThread", "senderPreviouslySeenInScan",
-    "hasEstablishedSenderHistory", "relationshipAuthenticationDowngrade", "replyToChangedFromRelationshipHistory",
-  ]) if (value[field] !== undefined && typeof value[field] !== "boolean") return false;
-  for (const field of [
-    "relationshipPriorMessages", "relationshipPriorAuthenticatedMessages", "relationshipPriorSafeMessages", "relationshipPriorSuspiciousMessages",
-  ]) if (value[field] !== undefined && (!Number.isSafeInteger(value[field]) || Number(value[field]) < 0 || Number(value[field]) > 1_000_000)) return false;
-  return true;
-}
-
-function validCountDiagnostic(value: unknown, fields: string[]): boolean {
-  if (!isRecord(value) || !hasExactFields(value, fields)) return false;
-  for (const [key, item] of Object.entries(value)) {
-    if (key === "incomplete") {
-      if (typeof item !== "boolean") return false;
-    } else if (key === "incompleteReasons") {
-      if (!validStringArray(item, 64, 1_024)) return false;
-    } else if (!Number.isSafeInteger(item) || Number(item) < 0 || Number(item) > 10_000) return false;
-  }
-  return true;
-}
-
-function validAttachmentSecurityDiagnostic(value: unknown): boolean {
-  return isRecord(value)
-    && hasExactFields(value, ["inspected", "incomplete", "encryptedArchives", "resourceLimitedArchives"])
-    && validNonNegativeInteger(value.inspected, 10_000)
-    && validNonNegativeInteger(value.incomplete, 10_000)
-    && validNonNegativeInteger(value.encryptedArchives, 10_000)
-    && validNonNegativeInteger(value.resourceLimitedArchives, 10_000);
-}
-
-function validDiagnostics(value: unknown): boolean {
-  return isRecord(value)
-    && hasExactFields(value, ["fetchedAt", "sizeBytes", "encoding", "contentCoverage"], ["qrInspection", "attachmentHashInspection", "attachmentSecurityInspection"])
-    && boundedString(value.fetchedAt, 64)
-    && Number.isSafeInteger(value.sizeBytes)
-    && Number(value.sizeBytes) >= 0
-    && Number(value.sizeBytes) <= 128 * 1024 * 1024
-    && ["plain", "base64", "quoted-printable", "multipart", "mixed", "unknown"].includes(String(value.encoding))
-    && ["complete", "bounded_sufficient", "insufficient"].includes(String(value.contentCoverage))
-    && (value.qrInspection === undefined || validCountDiagnostic(value.qrInspection, ["supportedImages", "decodedUrlCount", "incomplete", "incompleteReasons"]))
-    && (value.attachmentHashInspection === undefined || validCountDiagnostic(value.attachmentHashInspection, ["attachments", "hashed", "incomplete", "incompleteReasons"]))
-    && (value.attachmentSecurityInspection === undefined || validAttachmentSecurityDiagnostic(value.attachmentSecurityInspection));
-}
-
-function validEnvelope(value: unknown): value is CanonicalEnvelope {
-  if (!isRecord(value) || !hasExactFields(value, ENVELOPE_FIELDS)) return false;
-  if (!["gmail", "icloud", "outlook", "yahoo", "imap"].includes(String(value.provider))) return false;
-  if (!["inbox", "spam", "sent", "drafts", "trash", "archive", "other"].includes(String(value.folder))) return false;
-  if (!boundedString(value.accountProof, 4_096) || !boundedString(value.messageId, 4_096) || !boundedString(value.providerNativeId, 4_096)) return false;
-  if (!boundedString(value.providerFolderName, 4_096) || !boundedString(value.subject, 16_384) || !boundedString(value.date, 256)) return false;
-  if (!boundedString(value.textPreview, MAX_ENVELOPE_TEXT_CHARS, true)) return false;
-  if (!Array.isArray(value.links) || value.links.length > MAX_ENVELOPE_LINKS || !value.links.every(validLink)) return false;
-  if (!Array.isArray(value.attachments) || value.attachments.length > MAX_ENVELOPE_ATTACHMENTS || !value.attachments.every(validAttachment)) return false;
-  if (!validStringArray(value.parseNotes, MAX_ENVELOPE_NOTES, 4_096)) return false;
-  if (!validFromField(value.from) || !validAuthentication(value.authentication) || !validListHeaders(value.listHeaders) || !validThreadContext(value.threadContext) || !validDiagnostics(value.diagnostics)) return false;
-  if (value.replyTo !== null && !validFromField(value.replyTo)) return false;
-  if (value.htmlSignals !== null) {
-    if (!isRecord(value.htmlSignals) || !hasExactFields(value.htmlSignals, ["extractedText", "hrefs", "hasForm", "hasPasswordField"]) || !boundedString(value.htmlSignals.extractedText, MAX_ENVELOPE_TEXT_CHARS, true)) return false;
-    if (!validStringArray(value.htmlSignals.hrefs, MAX_ENVELOPE_LINKS, 8_192)) return false;
-    if (typeof value.htmlSignals.hasForm !== "boolean" || typeof value.htmlSignals.hasPasswordField !== "boolean") return false;
-  }
-  if (!["complete", "partial", "malformed", "inaccessible", "skipped"].includes(String(value.parseStatus))) return false;
-  return true;
-}
 
 export function assertPortableCoreRequest(input: unknown): asserts input is PortableCoreRequestV1 {
-  let serialized: string;
-  try { serialized = JSON.stringify(input); }
-  catch { throw new PortableCoreContractError("invalid_request"); }
-  if (new TextEncoder().encode(serialized).length > MAX_PORTABLE_CORE_REQUEST_BYTES) {
-    throw new PortableCoreContractError("request_too_large");
-  }
-  if (
-    !isRecord(input)
-    || !hasExactFields(input, ["schemaVersion", "envelope", "personalPolicy", "intelligence"])
-    || input.schemaVersion !== PORTABLE_CORE_SCHEMA_VERSION
-    || !validEnvelope(input.envelope)
-    || !validPersonalPolicy(input.personalPolicy)
-    || !validIntelligence(input.intelligence)
-  ) throw new PortableCoreContractError("invalid_request");
+  assertStrictPortableCoreRequest(input);
 }
 
 export function evaluatePortableCore(input: unknown): PortableCoreResponseV1 {
   assertPortableCoreRequest(input);
-  const envelope = structuredClone(input.envelope);
-  const personalPolicy = new InMemoryPersonalPolicyStore();
-  personalPolicy.restore(structuredClone(input.personalPolicy));
-  const entries = input.intelligence.state === "verified" ? structuredClone(input.intelligence.entries) : null;
-  const result = scanMessage(envelope, {
-    personalPolicy,
-    threatFeed: { getVerifiedEntries: () => entries },
-  });
+  return evaluateStrictPortableCore(input);
+}
+
+const PORTABLE_REDUCED_NOTE = "Portable inspection coverage was reduced because provider data exceeded safety limits.";
+const MAX_SUBJECT = 16_384;
+const MAX_FROM_TEXT = 4_096;
+const MAX_DOMAIN = 253;
+const MAX_RAW_AUTH = 16_384;
+const MAX_TEXT = 512 * 1024;
+const MAX_LINKS = 256;
+const MAX_URL = 8_192;
+const MAX_LINK_TEXT = 4_096;
+const MAX_BRAND = 1_024;
+const MAX_ATTACHMENTS = 64;
+const MAX_ATTACHMENT_NAME = 4_096;
+const MAX_ATTACHMENT_MIME = 256;
+const MAX_ATTACHMENT_EXTENSION = 256;
+const MAX_ATTACHMENT_BYTES = 2 * 1024 * 1024 * 1024;
+const MAX_LIST_ID = 8_192;
+const MAX_LIST_UNSUBSCRIBE = 16_384;
+const MAX_LIST_UNSUBSCRIBE_POST = 4_096;
+const MAX_PARSE_NOTES = 256;
+const MAX_NOTE = 4_096;
+const MAX_DIAGNOSTIC_REASONS = 64;
+const MAX_DIAGNOSTIC_REASON = 1_024;
+const MAX_DIAGNOSTIC_COUNT = 10_000;
+const MAX_DIAGNOSTIC_BYTES = 128 * 1024 * 1024;
+
+function trimNarrative(value: string, max: number, reduce: () => void): string {
+  if (value.length <= max) return value;
+  reduce();
+  return value.slice(0, max);
+}
+
+function trimNullableNarrative(value: string | null, max: number, reduce: () => void): string | null {
+  if (value === null) return null;
+  return trimNarrative(value, max, reduce);
+}
+
+function dropOversized(value: string | null, max: number, reduce: () => void): string | null {
+  if (value === null || value.length <= max) return value;
+  reduce();
+  return null;
+}
+
+function sanitizeAddress(field: FromField, reduce: () => void): FromField {
   return {
-    schemaVersion: PORTABLE_CORE_SCHEMA_VERSION,
-    verdict: result.scored.verdict,
-    score: result.scored.score,
-    confirmedByRule: result.scored.confirmedByRule,
-    action: result.action,
-    evidence: structuredClone(result.scored.evidence),
-    layerResults: structuredClone(result.scored.layerResults),
+    displayName: trimNullableNarrative(field.displayName, MAX_FROM_TEXT, reduce),
+    address: dropOversized(field.address, MAX_FROM_TEXT, reduce),
+    domain: dropOversized(field.domain, MAX_DOMAIN, reduce),
   };
+}
+
+function boundedInteger(value: number, max: number, reduce: () => void): number {
+  if (Number.isSafeInteger(value) && value >= 0 && value <= max) return value;
+  reduce();
+  if (!Number.isFinite(value) || value < 0) return 0;
+  return Math.min(max, Math.trunc(value));
+}
+
+function sanitizeNarrativeArray(values: string[], maxItems: number, maxChars: number, reduce: () => void): string[] {
+  if (values.length > maxItems) reduce();
+  return values.slice(0, maxItems).map((value) => trimNarrative(value, maxChars, reduce));
+}
+
+function sanitizePortableEnvelope(input: CanonicalEnvelope): CanonicalEnvelope {
+  const envelope = structuredClone(input);
+  let reduced = false;
+  const reduce = () => { reduced = true; };
+
+  if (envelope.accountProof.length > MAX_FROM_TEXT) {
+    envelope.accountProof = `bounded:${sha256Hex(envelope.accountProof)}`;
+    reduce();
+  }
+  if (envelope.messageId.length > MAX_FROM_TEXT) {
+    envelope.messageId = `bounded:${sha256Hex(envelope.messageId)}`;
+    reduce();
+  }
+  // Provider-native identity authorizes later mailbox mutation. Never truncate
+  // or rewrite it into an identifier that could target a different message.
+  if (envelope.providerNativeId.length > MAX_FROM_TEXT) {
+    throw new Error("Provider-native message identity exceeded the local safety boundary.");
+  }
+  envelope.providerFolderName = trimNarrative(envelope.providerFolderName, MAX_FROM_TEXT, reduce);
+  envelope.subject = trimNarrative(envelope.subject, MAX_SUBJECT, reduce);
+  envelope.date = trimNarrative(envelope.date, 256, reduce);
+  envelope.from = sanitizeAddress(envelope.from, reduce);
+  if (envelope.replyTo) envelope.replyTo = sanitizeAddress(envelope.replyTo, reduce);
+
+  if (envelope.authentication.rawHeader && envelope.authentication.rawHeader.length > MAX_RAW_AUTH) {
+    delete envelope.authentication.rawHeader;
+    reduce();
+  }
+
+  if (envelope.textPreview !== null) envelope.textPreview = trimNarrative(envelope.textPreview, MAX_TEXT, reduce);
+  if (envelope.htmlSignals) {
+    if (envelope.htmlSignals.extractedText !== null) {
+      envelope.htmlSignals.extractedText = trimNarrative(envelope.htmlSignals.extractedText, MAX_TEXT, reduce);
+    }
+    if (envelope.htmlSignals.hrefs.length > MAX_LINKS) reduce();
+    const hrefs = envelope.htmlSignals.hrefs.filter((href) => {
+      if (href.length <= MAX_URL) return true;
+      // Actionable destinations are dropped, never truncated into a different URL.
+      reduce();
+      return false;
+    });
+    envelope.htmlSignals.hrefs = hrefs.slice(0, MAX_LINKS);
+  }
+
+  if (envelope.links.length > MAX_LINKS) reduce();
+  const safeLinks = envelope.links.filter((link) => {
+    if (link.rawUrl.length <= MAX_URL && link.normalizedUrl.length <= MAX_URL) return true;
+    // Actionable destinations are dropped, never truncated into a different URL.
+    reduce();
+    return false;
+  });
+  envelope.links = safeLinks.slice(0, MAX_LINKS).map((link) => ({
+    ...link,
+    visibleText: trimNullableNarrative(link.visibleText, MAX_LINK_TEXT, reduce),
+    claimedBrand: trimNullableNarrative(link.claimedBrand, MAX_BRAND, reduce),
+  }));
+
+  if (envelope.attachments.length > MAX_ATTACHMENTS) reduce();
+  envelope.attachments = envelope.attachments.slice(0, MAX_ATTACHMENTS).map((attachment) => {
+    const copy = structuredClone(attachment);
+    copy.name = trimNarrative(copy.name, MAX_ATTACHMENT_NAME, reduce);
+    copy.mimeType = trimNarrative(copy.mimeType, MAX_ATTACHMENT_MIME, reduce);
+    copy.extension = dropOversized(copy.extension, MAX_ATTACHMENT_EXTENSION, reduce);
+    copy.sizeBytes = boundedInteger(copy.sizeBytes, MAX_ATTACHMENT_BYTES, reduce);
+    if (copy.sha256 !== null && !/^[a-f0-9]{64}$/i.test(copy.sha256)) {
+      copy.sha256 = null;
+      reduce();
+    }
+    if (copy.securityInspection) {
+      copy.securityInspection.reasons = sanitizeNarrativeArray(copy.securityInspection.reasons, 16, MAX_DIAGNOSTIC_REASON, reduce);
+      if (copy.securityInspection.archive) {
+        const archive = copy.securityInspection.archive;
+        archive.entryCount = boundedInteger(archive.entryCount, MAX_DIAGNOSTIC_COUNT, reduce);
+        archive.encryptedEntries = boundedInteger(archive.encryptedEntries, MAX_DIAGNOSTIC_COUNT, reduce);
+        archive.executableOrScriptEntries = boundedInteger(archive.executableOrScriptEntries, MAX_DIAGNOSTIC_COUNT, reduce);
+        archive.macroCapableEntries = boundedInteger(archive.macroCapableEntries, MAX_DIAGNOSTIC_COUNT, reduce);
+        archive.nestedArchiveEntries = boundedInteger(archive.nestedArchiveEntries, MAX_DIAGNOSTIC_COUNT, reduce);
+        archive.declaredCompressedBytes = boundedInteger(archive.declaredCompressedBytes, Number.MAX_SAFE_INTEGER, reduce);
+        archive.declaredUncompressedBytes = boundedInteger(archive.declaredUncompressedBytes, Number.MAX_SAFE_INTEGER, reduce);
+        if (!Number.isFinite(archive.maximumCompressionRatio) || archive.maximumCompressionRatio < 0 || archive.maximumCompressionRatio > Number.MAX_SAFE_INTEGER) {
+          archive.maximumCompressionRatio = 0;
+          reduce();
+        }
+        archive.reasons = sanitizeNarrativeArray(archive.reasons, 16, MAX_DIAGNOSTIC_REASON, reduce);
+      }
+    }
+    return copy;
+  });
+
+  envelope.listHeaders.listId = dropOversized(envelope.listHeaders.listId, MAX_LIST_ID, reduce);
+  envelope.listHeaders.listUnsubscribe = dropOversized(envelope.listHeaders.listUnsubscribe, MAX_LIST_UNSUBSCRIBE, reduce);
+  envelope.listHeaders.listUnsubscribePost = dropOversized(envelope.listHeaders.listUnsubscribePost, MAX_LIST_UNSUBSCRIBE_POST, reduce);
+  if (envelope.listHeaders.oneClickDkimSignatures) {
+    if (envelope.listHeaders.oneClickDkimSignatures.length > 64) reduce();
+    const signatures = envelope.listHeaders.oneClickDkimSignatures.filter((signature) => {
+      if (signature.domain.length <= MAX_DOMAIN && signature.selector.length <= MAX_DOMAIN) return true;
+      reduce();
+      return false;
+    });
+    if (signatures.length !== envelope.listHeaders.oneClickDkimSignatures.length) {
+      envelope.listHeaders.oneClickHeaderSetUnambiguous = false;
+    }
+    envelope.listHeaders.oneClickDkimSignatures = signatures.slice(0, 64);
+  }
+
+  // Raw thread references are transient provider input and are not part of the
+  // portable contract. Normal scans consume them into local HMAC relationship
+  // state first; this is a final fail-closed guard if a caller skips that step.
+  if (envelope.threadContext.pendingThreadReferences !== undefined) {
+    delete envelope.threadContext.pendingThreadReferences;
+    reduce();
+  }
+  for (const key of [
+    "relationshipPriorMessages",
+    "relationshipPriorAuthenticatedMessages",
+    "relationshipPriorSafeMessages",
+    "relationshipPriorSuspiciousMessages",
+  ] as const) {
+    const value = envelope.threadContext[key];
+    if (value !== undefined) envelope.threadContext[key] = boundedInteger(value, 1_000_000, reduce);
+  }
+
+  envelope.diagnostics.fetchedAt = trimNarrative(envelope.diagnostics.fetchedAt, 64, reduce);
+  envelope.diagnostics.sizeBytes = boundedInteger(envelope.diagnostics.sizeBytes, MAX_DIAGNOSTIC_BYTES, reduce);
+  if (envelope.diagnostics.qrInspection) {
+    const diagnostic = envelope.diagnostics.qrInspection;
+    diagnostic.supportedImages = boundedInteger(diagnostic.supportedImages, MAX_DIAGNOSTIC_COUNT, reduce);
+    diagnostic.decodedUrlCount = boundedInteger(diagnostic.decodedUrlCount, MAX_DIAGNOSTIC_COUNT, reduce);
+    diagnostic.incompleteReasons = sanitizeNarrativeArray(diagnostic.incompleteReasons, MAX_DIAGNOSTIC_REASONS, MAX_DIAGNOSTIC_REASON, reduce);
+  }
+  if (envelope.diagnostics.attachmentHashInspection) {
+    const diagnostic = envelope.diagnostics.attachmentHashInspection;
+    diagnostic.attachments = boundedInteger(diagnostic.attachments, MAX_DIAGNOSTIC_COUNT, reduce);
+    diagnostic.hashed = boundedInteger(diagnostic.hashed, MAX_DIAGNOSTIC_COUNT, reduce);
+    diagnostic.incompleteReasons = sanitizeNarrativeArray(diagnostic.incompleteReasons, MAX_DIAGNOSTIC_REASONS, MAX_DIAGNOSTIC_REASON, reduce);
+  }
+  if (envelope.diagnostics.attachmentSecurityInspection) {
+    const diagnostic = envelope.diagnostics.attachmentSecurityInspection;
+    diagnostic.inspected = boundedInteger(diagnostic.inspected, MAX_DIAGNOSTIC_COUNT, reduce);
+    diagnostic.incomplete = boundedInteger(diagnostic.incomplete, MAX_DIAGNOSTIC_COUNT, reduce);
+    diagnostic.encryptedArchives = boundedInteger(diagnostic.encryptedArchives, MAX_DIAGNOSTIC_COUNT, reduce);
+    diagnostic.resourceLimitedArchives = boundedInteger(diagnostic.resourceLimitedArchives, MAX_DIAGNOSTIC_COUNT, reduce);
+  }
+
+  envelope.parseNotes = sanitizeNarrativeArray(envelope.parseNotes, MAX_PARSE_NOTES, MAX_NOTE, reduce);
+  if (reduced) {
+    if (envelope.parseStatus === "complete") envelope.parseStatus = "partial";
+    envelope.diagnostics.contentCoverage = "insufficient";
+    envelope.parseNotes = envelope.parseNotes
+      .filter((note) => note !== PORTABLE_REDUCED_NOTE)
+      .slice(0, MAX_PARSE_NOTES - 1);
+    envelope.parseNotes.push(PORTABLE_REDUCED_NOTE);
+  }
+
+  return envelope;
 }
 
 export function scanMessageThroughPortableCore(
@@ -381,16 +257,17 @@ export function scanMessageThroughPortableCore(
   personalPolicy: InMemoryPersonalPolicyStore,
   intelligenceEntries: SignedFeedEntry[] | null,
 ): ScanResult {
+  const portableEnvelope = sanitizePortableEnvelope(envelope);
   const response = evaluatePortableCore({
     schemaVersion: PORTABLE_CORE_SCHEMA_VERSION,
-    envelope,
+    envelope: portableEnvelope,
     personalPolicy: personalPolicy.snapshot(),
     intelligence: intelligenceEntries === null
       ? { state: "unavailable", entries: null }
       : { state: "verified", entries: intelligenceEntries },
   });
   return {
-    envelope,
+    envelope: portableEnvelope,
     action: response.action,
     scored: {
       score: response.score,

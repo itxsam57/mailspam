@@ -101,6 +101,25 @@ describe("versioned portable protection core contract", () => {
     });
   });
 
+  it("degrades oversized live-provider metadata to partial coverage instead of crashing the portable core", async () => {
+    const value = await envelope("icloud");
+    value.subject = "s".repeat(16_385);
+    value.from.displayName = "d".repeat(4_097);
+    value.authentication.rawHeader = "a".repeat(16_385);
+    value.listHeaders.listUnsubscribe = `<https://example.test/${"u".repeat(16_385)}>`;
+    const policy = new InMemoryPersonalPolicyStore();
+
+    const result = scanMessageThroughPortableCore(value, policy, []);
+
+    expect(result.envelope.parseStatus).toBe("partial");
+    expect(result.envelope.parseNotes).toContain("Portable inspection coverage was reduced because provider data exceeded safety limits.");
+    expect(result.envelope.subject.length).toBeLessThanOrEqual(16_384);
+    expect(result.envelope.from.displayName?.length ?? 0).toBeLessThanOrEqual(4_096);
+    expect(result.envelope.authentication.rawHeader).toBeUndefined();
+    expect(result.envelope.listHeaders.listUnsubscribe).toBeNull();
+    expect(result.scored.verdict).not.toBe("safe");
+  });
+
   it("rejects version drift, unknown fields, raw thread references and oversized input before evaluation", async () => {
     const valid = request(await envelope("imap"));
     expect(() => evaluatePortableCore({ ...valid, schemaVersion: 2 })).toThrow(PortableCoreContractError);
