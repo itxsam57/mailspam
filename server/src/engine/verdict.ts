@@ -1,10 +1,10 @@
 /**
  * Verdict model (spec Section 7).
  *
- * Unavailable content is never machine-labelled Safe by default. An explicit
- * account-scoped approval for that exact message may override ordinary Review
- * or uncertainty, but it cannot override High Risk evidence, personal blocks,
- * or verified confirmed-threat rules.
+ * Unavailable or incomplete content is never machine-labelled Safe. An exact
+ * account-scoped approval may resolve ordinary fully-inspected Review evidence,
+ * but it cannot override incomplete coverage, High Risk evidence, personal
+ * blocks, or verified confirmed-threat rules.
  */
 
 export type Verdict = "safe" | "review" | "high_risk" | "confirmed_threat" | "unknown";
@@ -45,7 +45,8 @@ export function computeVerdict(params: {
   boundedContentAllowsSafe?: boolean;
   /**
    * Explicit approval of this exact message, never a sender/domain allowlist.
-   * It may resolve ordinary Review/uncertainty but never High Risk/Confirmed.
+   * It may resolve ordinary fully-inspected Review evidence but never
+   * unavailable content, High Risk, or Confirmed Threat.
    */
   exactMessageApprovedByUser?: boolean;
   /**
@@ -82,7 +83,7 @@ export function computeVerdict(params: {
   if (score >= HIGH_RISK_THRESHOLD) {
     return { score, evidence, verdict: "high_risk", confirmedByRule: false, layerResults };
   }
-  if (exactMessageApprovedByUser) {
+  if (exactMessageApprovedByUser && !hasUnavailableContent) {
     return { score, evidence, verdict: "safe", confirmedByRule: false, layerResults };
   }
   if (adaptiveLegitimateAllowsSafe && !hasUnavailableContent) {
