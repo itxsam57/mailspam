@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   actions: read
 
 concurrency:
@@ -132,66 +132,6 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
-
-  sync_task4_portable_contract:
-    name: Sync Task 4 portable contract
-    if: github.event_name == 'pull_request' && github.head_ref == 'repair/universal-detection-wave-01-20260816'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout exact PR head with history
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 0
-      - name: Use Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - name: Install locked dependencies
-        run: npm ci
-      - name: Generate canonical vectors and clean temporary helpers
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm run build
-          npm run generate:core-vectors
-          node --input-type=module <<'NODE'
-          import { readFileSync, writeFileSync } from 'node:fs';
-          const path = 'tests/unit/portableCoreContract.test.ts';
-          const before = readFileSync(path, 'utf8');
-          const after = before.replace('expect(response.layerResults).toHaveLength(11);', 'expect(response.layerResults).toHaveLength(12);');
-          if (after === before) {
-            if (!before.includes('expect(response.layerResults).toHaveLength(12);')) {
-              throw new Error('Portable-core layer-count contract was not found in the expected form.');
-            }
-          } else {
-            writeFileSync(path, after, 'utf8');
-          }
-          NODE
-          git fetch origin main
-          git checkout origin/main -- scripts/engineering/core-conformance-vectors.mjs .github/workflows/verify.yml
-          rm -f .github/workflows/generate-core-vectors-task4.yml
-          npm run build
-          npm run check:core-vectors
-          git diff --check
-      - name: Commit exact generated contract to PR branch
-        shell: bash
-        env:
-          TARGET_BRANCH: ${{ github.head_ref }}
-        run: |
-          set -euo pipefail
-          git add fixtures/core-conformance/v1/vectors.json tests/unit/portableCoreContract.test.ts scripts/engineering/core-conformance-vectors.mjs .github/workflows/verify.yml
-          git add -u .github/workflows/generate-core-vectors-task4.yml
-          if git diff --cached --quiet; then
-            echo 'Portable contract already synchronized.'
-            exit 0
-          fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'test: sync Task 4 portable core contract'
-          git push origin "HEAD:${TARGET_BRANCH}"
 
   summarize:
     name: Gate Result Summary

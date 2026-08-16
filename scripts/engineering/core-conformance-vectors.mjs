@@ -6,7 +6,6 @@ import { evaluatePortableCore } from "../../server/dist/core/portableCore.js";
 
 const root = process.cwd();
 const outputPath = resolve(root, "fixtures/core-conformance/v1/vectors.json");
-const diagnosticOutputPath = resolve(root, "artifacts/engineering/generated-core-vectors.json");
 const corpusRoot = resolve(root, "fixtures/scam-corpus");
 const providers = ["gmail", "icloud", "outlook", "yahoo", "imap"];
 const fixedFetchedAt = "2026-08-11T00:00:00.000Z";
@@ -88,9 +87,7 @@ export async function buildCoreConformanceBundle() {
 const serialized = `${JSON.stringify(await buildCoreConformanceBundle(), null, 2)}\n`;
 if (process.argv.includes("--check")) {
   if (!existsSync(outputPath) || readFileSync(outputPath, "utf8") !== serialized) {
-    mkdirSync(dirname(diagnosticOutputPath), { recursive: true });
-    writeFileSync(diagnosticOutputPath, serialized, "utf8");
-    console.error(`Portable core conformance vectors are missing or stale. Generated candidate written to ${diagnosticOutputPath}. Run npm run generate:core-vectors and commit the result.`);
+    console.error("Portable core conformance vectors are missing or stale. Run npm run generate:core-vectors and commit the result.");
     process.exit(1);
   }
   console.log("Portable core conformance vectors match the compiled engine for all five providers and adversarial cases.");

@@ -176,6 +176,12 @@
             "blocksSafeVerdict": false
           },
           {
+            "layer": "structural_consistency",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
             "layer": "link_structure",
             "applicable": true,
             "evidence": [],
@@ -402,6 +408,12 @@
             ],
             "incomplete": false,
             "blocksSafeVerdict": false
+          },
+          {
+            "layer": "structural_consistency",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
           },
           {
             "layer": "link_structure",
@@ -632,6 +644,12 @@
             "blocksSafeVerdict": false
           },
           {
+            "layer": "structural_consistency",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
             "layer": "link_structure",
             "applicable": true,
             "evidence": [],
@@ -858,6 +876,12 @@
             ],
             "incomplete": false,
             "blocksSafeVerdict": false
+          },
+          {
+            "layer": "structural_consistency",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
           },
           {
             "layer": "link_structure",
@@ -1088,6 +1112,12 @@
             "blocksSafeVerdict": false
           },
           {
+            "layer": "structural_consistency",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
+          },
+          {
             "layer": "link_structure",
             "applicable": true,
             "evidence": [],
@@ -1270,6 +1300,12 @@
             "evidence": [],
             "incomplete": false,
             "blocksSafeVerdict": false
+          },
+          {
+            "layer": "structural_consistency",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
           },
           {
             "layer": "link_structure",
@@ -1464,6 +1500,12 @@
             "evidence": [],
             "incomplete": false,
             "blocksSafeVerdict": false
+          },
+          {
+            "layer": "structural_consistency",
+            "applicable": true,
+            "evidence": [],
+            "incomplete": false
           },
           {
             "layer": "link_structure",
