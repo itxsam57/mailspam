@@ -26,6 +26,8 @@
     const headers = new Headers(input instanceof Request ? input.headers : undefined);
     new Headers(init?.headers || undefined).forEach((value, name) => headers.set(name, value));
     headers.set('X-Email-Shield-CSRF', csrfToken);
+    const traceId = window.emailShieldRuntimeTrace?.currentTraceId?.();
+    if (traceId) headers.set('X-Email-Shield-Trace-Id', traceId);
     return headers;
   }
 
@@ -83,6 +85,29 @@
     return body.nonce;
   }
 
+  // This fixed transport can only append an already-sanitized diagnostic event
+  // to the loopback developer trace route. It bypasses the product mutation
+  // nonce because the route cannot mutate mailbox/account state, while still
+  // carrying the protected local session, CSRF token and same-origin provenance.
+  Object.defineProperty(window, 'emailShieldRuntimeTraceTransport', {
+    value: async (event) => {
+      try {
+        await originalFetch('/api/dev/runtime-trace/events', {
+          ...dashboardProvenance(),
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Email-Shield-CSRF': csrfToken,
+          },
+          body: JSON.stringify(event),
+        });
+      } catch {}
+    },
+    writable: false,
+    configurable: false,
+    enumerable: false,
+  });
+
   window.fetch = async function emailShieldProtectedFetch(input, init = {}) {
     const rawUrl = typeof input === 'string' || input instanceof URL ? String(input) : input.url;
     const url = new URL(rawUrl, window.location.href);
@@ -100,12 +125,20 @@
     };
     const isNonceRequest = url.pathname === '/api/security/mutation-token';
     const token = requestActionToken(init);
+    const traceRequest = window.emailShieldRuntimeTrace?.apiRequest?.(method, url.pathname) || null;
 
     if (unsafeMethod(method) && !isNonceRequest && !analysisOnlyPath(url.pathname)) {
       headers.set('X-Email-Shield-Nonce', await mutationNonce());
     }
 
-    const response = await originalFetch(input, options);
+    let response;
+    try {
+      response = await originalFetch(input, options);
+      window.emailShieldRuntimeTrace?.apiResponse?.(traceRequest, response.status);
+    } catch (error) {
+      window.emailShieldRuntimeTrace?.apiResponse?.(traceRequest, 599);
+      throw error;
+    }
     if (response.status === 401) {
       window.dispatchEvent(new CustomEvent('email-shield-session-expired'));
     }
