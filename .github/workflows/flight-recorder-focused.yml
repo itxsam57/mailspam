@@ -1,0 +1,35 @@
+name: Flight Recorder Focused Gate
+
+on:
+  push:
+    branches:
+      - design/full-product-flight-recorder-20260816
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flight-recorder-focused
+  cancel-in-progress: true
+
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: design/full-product-flight-recorder-20260816
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Flight recorder unit contracts
+        run: npx vitest run tests/unit/runtimeWorkflowTraceV2.test.ts tests/unit/runtimeTraceCheckpoint.test.ts tests/unit/runtimeTraceManifest.test.ts tests/unit/workflowDiagnosis.test.ts tests/unit/runtimeTraceCoverage.test.ts tests/unit/runtimeWorkflowTraceBrowserV2.test.ts tests/unit/runtimeWorkflowFeatureCheckpoints.test.ts
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Generate exact-build checkpoint manifest
+        env:
+          EMAIL_SHIELD_BUILD_COMMIT: ${{ github.sha }}
+        run: node scripts/engineering/generate-runtime-trace-manifest.mjs --output artifacts/engineering/runtime-trace-manifest.json
