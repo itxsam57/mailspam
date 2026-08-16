@@ -36,6 +36,19 @@ describe("Scam Check binary input convergence", () => {
     expect(result.verdict).toBe("high_risk");
   });
 
+  it("uses the same structural gift-card evidence for a submitted EML artifact", async () => {
+    const result = await evaluateSubmittedEml(eml(
+      "Your manager needs $500 in Apple gift cards today. Send clear photos of the codes. Do not call; keep this between us.",
+      "Authentication-Results: attacker.example; spf=pass smtp.mailfrom=example.net; dkim=pass header.d=example.net header.s=x; dmarc=pass header.from=example.net",
+    ), { intelligenceEntries: [] });
+
+    expect(result.evidence.some((item) => item.code === "GIFT_CARD_CODE_EXFILTRATION")).toBe(true);
+    expect(result.verdict).toBe("high_risk");
+    const transport = result.layerResults.find((layer) => layer.layer === "transport_auth");
+    expect(transport?.incomplete).toBe(true);
+    expect(transport?.evidence).toEqual([]);
+  });
+
   it("never trusts Authentication-Results embedded inside a user-controlled EML", async () => {
     const result = await evaluateSubmittedEml(eml(
       "Normal meeting reminder for tomorrow morning.",
