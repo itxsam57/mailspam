@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   apply:
-    if: github.event.head_commit.message == 'chore: trigger flight recorder codemod'
+    if: "${{ github.event.head_commit.message == 'chore: trigger flight recorder codemod' }}"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
