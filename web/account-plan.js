@@ -111,6 +111,12 @@
     status.className = `account-plan-status${kind ? ` ${kind}` : ''}`;
   }
 
+  function checkpoint(workflowId, checkpointId, outcome = 'success', errorCode) {
+    const trace = window.emailShieldRuntimeTrace;
+    if (trace?.currentWorkflowId?.() !== workflowId) return;
+    trace.checkpoint(checkpointId, outcome, errorCode ? { errorCode } : undefined);
+  }
+
   async function json(response) {
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body.error || `Account request failed (${response.status}).`);
@@ -143,14 +149,16 @@
     const copied = document.createElement('button');
     copied.type = 'button';
     copied.textContent = 'Copy recovery code';
+    window.emailShieldRuntimeTrace?.registerControl(copied, 'account.recovery.copy', 'account.recovery.copy', 'account_recovery_copy');
     copied.addEventListener('click', async () => {
-      try { await navigator.clipboard.writeText(code); copied.textContent = 'Copied ✓'; }
-      catch { copied.textContent = 'Copy manually from the code above'; }
+      try { await navigator.clipboard.writeText(code); copied.textContent = 'Copied ✓'; window.emailShieldRuntimeTrace?.checkpoint('account.recovery.copy.ui_confirmed'); }
+      catch { copied.textContent = 'Copy manually from the code above'; window.emailShieldRuntimeTrace?.checkpoint('account.recovery.copy.ui_confirmed', 'failed', { errorCode: 'clipboard_failed' }); }
     });
     const acknowledge = document.createElement('button');
     acknowledge.type = 'button';
     acknowledge.textContent = 'I saved it';
-    acknowledge.addEventListener('click', () => { recovery.hidden = true; recovery.replaceChildren(); });
+    window.emailShieldRuntimeTrace?.registerControl(acknowledge, 'account.recovery.acknowledge', 'account.recovery.acknowledge', 'account_recovery_acknowledge');
+    acknowledge.addEventListener('click', () => { recovery.hidden = true; recovery.replaceChildren(); window.emailShieldRuntimeTrace?.checkpoint('account.recovery.acknowledge.ui_confirmed'); });
     recovery.append(strong, text, value, copied, acknowledge);
   }
 
@@ -182,17 +190,23 @@
         const revoke = document.createElement('button');
         revoke.type = 'button';
         revoke.textContent = 'Revoke device';
+        window.emailShieldRuntimeTrace?.registerControl(revoke, 'account.devices.revoke', 'account.devices.revoke', 'account_device_revoke');
         revoke.addEventListener('click', async () => {
           if (!confirm(`Revoke ${item.label}?`)) return;
           try {
             snapshot = await json(await fetch(`/api/profile/v1/devices/${encodeURIComponent(item.deviceId)}`, { method: 'DELETE' }));
             setStatus('Device revoked.', 'ok');
             render();
-          } catch (error) { setStatus(error.message || String(error), 'error'); }
+            checkpoint('account.devices.revoke', 'account.devices.revoke.ui_confirmed');
+          } catch (error) { setStatus(error.message || String(error), 'error'); checkpoint('account.devices.revoke', 'account.devices.revoke.ui_confirmed', 'failed', 'device_revoke_failed'); }
         });
         row.append(revoke);
       }
       devices.append(row);
+    }
+
+    for (const button of devPlans.querySelectorAll('[data-dev-plan]')) {
+      window.emailShieldRuntimeTrace?.registerControl(button, 'developer.plan.switch', 'developer.plan.switch', 'developer_plan_switch');
     }
   }
 
@@ -205,7 +219,8 @@
         : 'Create or sign in to an Email Shield profile. Mail provider accounts remain separate.', body.signedIn ? 'ok' : '');
       render();
       window.dispatchEvent(new CustomEvent('email-shield-profile-changed', { detail: structuredClone(body) }));
-    } catch (error) { setStatus(error.message || String(error), 'error'); }
+      checkpoint('account.profile.snapshot', 'account.profile.snapshot.ui_confirmed');
+    } catch (error) { setStatus(error.message || String(error), 'error'); checkpoint('account.profile.snapshot', 'account.profile.snapshot.ui_confirmed', 'failed', 'profile_snapshot_failed'); }
   }
 
   create.addEventListener('click', async () => {
@@ -220,7 +235,8 @@
       showRecovery(result.recoveryCode, result.recoveryCodeNotice);
       setStatus('Account created. Save the recovery code before continuing.', 'ok');
       await load();
-    } catch (error) { setStatus(error.message || String(error), 'error'); }
+      checkpoint('account.profile.register', 'account.profile.register.ui_confirmed');
+    } catch (error) { setStatus(error.message || String(error), 'error'); checkpoint('account.profile.register', 'account.profile.register.ui_confirmed', 'failed', 'account_register_failed'); }
     finally { create.disabled = false; }
   });
 
@@ -230,7 +246,8 @@
       snapshot = await post('/api/profile/v1/sign-in', { username: signInUsername.value });
       setStatus('Signed in on this registered device.', 'ok');
       await load();
-    } catch (error) { setStatus(error.message || String(error), 'error'); }
+      checkpoint('account.profile.sign_in', 'account.profile.sign_in.ui_confirmed');
+    } catch (error) { setStatus(error.message || String(error), 'error'); checkpoint('account.profile.sign_in', 'account.profile.sign_in.ui_confirmed', 'failed', 'account_sign_in_failed'); }
     finally { signIn.disabled = false; }
   });
 
@@ -246,7 +263,8 @@
       showRecovery(result.recoveryCode, result.recoveryCodeNotice);
       setStatus('Account recovered and recovery code rotated.', 'ok');
       await load();
-    } catch (error) { setStatus(error.message || String(error), 'error'); }
+      checkpoint('account.recovery.use', 'account.recovery.use.ui_confirmed');
+    } catch (error) { setStatus(error.message || String(error), 'error'); checkpoint('account.recovery.use', 'account.recovery.use.ui_confirmed', 'failed', 'account_recovery_failed'); }
   });
 
   signOut.addEventListener('click', async () => {
@@ -255,17 +273,19 @@
       if (!response.ok) throw new Error('Sign out failed.');
       showRecovery(null);
       await load();
-    } catch (error) { setStatus(error.message || String(error), 'error'); }
+      checkpoint('account.sign_out', 'account.sign_out.ui_confirmed');
+    } catch (error) { setStatus(error.message || String(error), 'error'); checkpoint('account.sign_out', 'account.sign_out.ui_confirmed', 'failed', 'account_sign_out_failed'); }
   });
 
   linkMailbox.addEventListener('click', async () => {
     const selected = document.querySelector('#accountsList .account-chip.active')?.dataset.id;
-    if (!selected) return setStatus('Select a connected mailbox first.', 'error');
+    if (!selected) { setStatus('Select a connected mailbox first.', 'error'); checkpoint('account.mailbox.link', 'account.mailbox.link.ui_confirmed', 'rejected', 'account_not_selected'); return; }
     try {
       await post(`/api/profile/v1/mailboxes/${encodeURIComponent(selected)}/link`);
       setStatus('Selected mailbox linked to this Email Shield profile. Family threat rules can now protect it.', 'ok');
       window.dispatchEvent(new CustomEvent('email-shield-mailbox-profile-linked', { detail: { sessionId: selected } }));
-    } catch (error) { setStatus(error.message || String(error), 'error'); }
+      checkpoint('account.mailbox.link', 'account.mailbox.link.ui_confirmed');
+    } catch (error) { setStatus(error.message || String(error), 'error'); checkpoint('account.mailbox.link', 'account.mailbox.link.ui_confirmed', 'failed', 'mailbox_link_failed'); }
   });
 
   devPlans.addEventListener('click', async (event) => {
@@ -277,7 +297,8 @@
       await post('/api/profile/v1/entitlement/development', { plan: targetPlan });
       setStatus(`Development preview entitlement switched to ${targetPlan}.`, 'ok');
       await load();
-    } catch (error) { setStatus(error.message || String(error), 'error'); }
+      checkpoint('developer.plan.switch', 'developer.plan.switch.ui_confirmed');
+    } catch (error) { setStatus(error.message || String(error), 'error'); checkpoint('developer.plan.switch', 'developer.plan.switch.ui_confirmed', 'failed', 'development_plan_failed'); }
   });
 
   refresh.addEventListener('click', load);
