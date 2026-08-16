@@ -75,6 +75,7 @@ describe("versioned portable protection core contract", () => {
     const serialized = JSON.stringify(response);
     expect(response.schemaVersion).toBe(1);
     expect(response.verdict).not.toBe("safe");
+    // The version-1 response remains extensible by layer; structural consistency is now the twelfth provider-neutral decision layer.
     expect(response.layerResults).toHaveLength(12);
     expect(serialized).not.toContain(value.accountProof);
     expect(serialized).not.toContain(value.providerNativeId);
