@@ -85,6 +85,7 @@
     if (!id) return;
     if (loadedAccountId !== id) {
       status.textContent = 'Mailbox selection changed. Background protection was not modified; reload its current state first.';
+      window.emailShieldRuntimeTrace?.checkpoint('protection.background.toggle.ui_confirmed', 'rejected', { errorCode: 'stale_selection' });
       await refresh();
       return;
     }
@@ -101,8 +102,12 @@
       if (!selectionMatches(snapshot)) return;
       if (!response.ok) throw new Error(body.error || 'Background protection update failed.');
       render(body, id);
+      window.emailShieldRuntimeTrace?.checkpoint('protection.background.toggle.ui_confirmed');
     } catch (error) {
-      if (selectionMatches(snapshot)) status.textContent = error instanceof Error ? error.message : String(error);
+      if (selectionMatches(snapshot)) {
+        status.textContent = error instanceof Error ? error.message : String(error);
+        window.emailShieldRuntimeTrace?.checkpoint('protection.background.toggle.ui_confirmed', 'failed', { errorCode: 'background_update_failed' });
+      }
     } finally {
       if (selectionMatches(snapshot) && loadedAccountId === id) toggle.disabled = false;
     }
@@ -111,6 +116,7 @@
   interval.addEventListener('change', () => {
     const id = selectionSnapshot().id;
     if (id && loadedAccountId === id && enabled) status.textContent = 'Pause and enable again to apply the new interval.';
+    window.emailShieldRuntimeTrace?.checkpoint('protection.background.interval.ui_confirmed');
   });
 
   new MutationObserver(() => { void refresh(); }).observe(accounts, {
