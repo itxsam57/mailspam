@@ -42,6 +42,10 @@ function scan(overrides: Partial<CanonicalEnvelope>) {
   return scanMessage(envelope(overrides), scanDeps());
 }
 
+function evidenceCodes(items: ReadonlyArray<{ code: string }>): string[] {
+  return items.map((item) => item.code);
+}
+
 const giftCardCodeScam = "Your manager needs $500 in Apple gift cards today. Send clear photos of the codes. Do not call; keep this between us.";
 const otpScam = "Security department here. Read back the one-time verification code so we can stop the account lock.";
 const cryptoPressureScam = "Send 800 USDT to the wallet within 30 minutes to release the payment review. This transfer cannot be reversed.";
@@ -72,21 +76,37 @@ describe("universal owner-regression corpus", () => {
       textPreview: text,
     }));
 
+    for (const result of results) {
+      expect(evidenceCodes(result.scored.evidence)).toContain("IMPERSONATED_TRANSACTION_ORIGIN");
+    }
     expect(results.map((result) => result.scored.verdict)).toEqual(["high_risk", "high_risk"]);
   });
 
   it.each([
-    ["gift-card code exfiltration", giftCardCodeScam],
-    ["OTP/account-secret exfiltration", otpScam],
-    ["crypto payment time pressure", cryptoPressureScam],
-  ])("classifies %s as high risk in Check Anything", (_name, text) => {
+    ["gift-card code exfiltration", giftCardCodeScam, ["GIFT_CARD_CODE_EXFILTRATION", "SECRECY_PAYMENT_DIVERSION"]],
+    ["OTP/account-secret exfiltration", otpScam, ["ACCOUNT_SECRET_EXFILTRATION"]],
+    ["crypto payment time pressure", cryptoPressureScam, ["IRREVERSIBLE_PAYMENT_PRESSURE"]],
+  ])("classifies %s as high risk in Check Anything", (_name, text, expectedStructuralCodes) => {
     const result = evaluateConsumerScamCheck({
       schemaVersion: 1,
       kind: "message",
       text,
     });
 
+    for (const code of expectedStructuralCodes) {
+      expect(evidenceCodes(result.evidence)).toContain(code);
+    }
     expect(result.verdict).toBe("high_risk");
+  });
+
+  it("emits remote-access financial pressure in the shared core without relying on an intervention-only phrase rule", () => {
+    const result = evaluateConsumerScamCheck({
+      schemaVersion: 1,
+      kind: "message",
+      text: remoteAccessScam,
+    });
+
+    expect(evidenceCodes(result.evidence)).toContain("REMOTE_ACCESS_FINANCIAL_PRESSURE");
   });
 
   it("emits a critical intervention signal specifically for gift-card code exfiltration", () => {
@@ -172,6 +192,7 @@ describe("universal owner-regression corpus", () => {
       textPreview: "Thanks for your purchase. Your receipt is available in the official account dashboard. No action is required.",
     });
 
+    expect(evidenceCodes(result.scored.evidence)).not.toContain("IMPERSONATED_TRANSACTION_ORIGIN");
     expect(result.scored.verdict).not.toBe("high_risk");
   });
 
@@ -187,6 +208,7 @@ describe("universal owner-regression corpus", () => {
       textPreview: "We noticed a sign-in to your account. If this was you, no action is required. You can verify recent activity by opening the official app yourself.",
     });
 
+    expect(evidenceCodes(result.scored.evidence)).not.toContain("ACCOUNT_SECRET_EXFILTRATION");
     expect(result.scored.verdict).not.toBe("high_risk");
   });
 
@@ -202,7 +224,7 @@ describe("universal owner-regression corpus", () => {
     expect(result.scored.verdict).not.toBe("high_risk");
   });
 
-  it("does not let forged Authentication-Results provenance authenticate or suppress scam evidence", () => {
+  it("does not let forged Authentication-Results provenance authenticate or suppress structural scam evidence", () => {
     const result = scan({
       authentication: {
         providerTrust: "unknown",
@@ -219,7 +241,8 @@ describe("universal owner-regression corpus", () => {
     const transport = result.scored.layerResults.find((layer) => layer.layer === "transport_auth");
     expect(transport?.incomplete).toBe(true);
     expect(transport?.evidence).toEqual([]);
-    expect(result.scored.evidence.some((item) => item.code === "BEC_INTENT")).toBe(true);
+    expect(evidenceCodes(result.scored.evidence)).toContain("GIFT_CARD_CODE_EXFILTRATION");
+    expect(evidenceCodes(result.scored.evidence)).toContain("SECRECY_PAYMENT_DIVERSION");
   });
 
   it("does not let established authenticated relationship history suppress a new hard payment contradiction", () => {
@@ -244,6 +267,8 @@ describe("universal owner-regression corpus", () => {
       },
     });
 
+    expect(evidenceCodes(result.scored.evidence)).toContain("GIFT_CARD_CODE_EXFILTRATION");
+    expect(evidenceCodes(result.scored.evidence)).toContain("SECRECY_PAYMENT_DIVERSION");
     expect(result.scored.verdict).toBe("high_risk");
   });
 
@@ -273,6 +298,8 @@ describe("universal owner-regression corpus", () => {
     expect(transport?.incomplete).toBe(true);
     expect(transport?.evidence).toEqual([]);
     expect(eml.explanation.limitations.join(" ")).toMatch(/user-controlled artifacts/i);
+    expect(evidenceCodes(pasted.evidence)).toContain("GIFT_CARD_CODE_EXFILTRATION");
+    expect(evidenceCodes(eml.evidence)).toContain("GIFT_CARD_CODE_EXFILTRATION");
     expect(pasted.verdict).toBe("high_risk");
     expect(eml.verdict).toBe("high_risk");
   });
