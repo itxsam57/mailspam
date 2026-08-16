@@ -129,6 +129,24 @@ describe("adaptive legitimate learning safety", () => {
     expect(result.scored.verdict).not.toBe("safe");
   });
 
+  it("never lets local trust or signed legitimate consensus suppress gift-card code exfiltration", () => {
+    const input = envelope({
+      subject: "Quick request",
+      textPreview: "Buy $500 in Apple gift cards today. Send clear photos of the codes. Do not call; keep this between us.",
+      links: [],
+    });
+    const policy = new InMemoryPersonalPolicyStore();
+    policy.trustSender(input.from.address!);
+    const result = scan(input, policy, [legitimateEntry(input)]);
+    const codes = new Set(result.scored.evidence.map((item) => item.code));
+
+    expect(codes.has("TRUSTED_SENDER")).toBe(true);
+    expect(codes.has("GLOBAL_LEGITIMATE_CONSENSUS")).toBe(true);
+    expect(codes.has("GIFT_CARD_CODE_EXFILTRATION")).toBe(true);
+    expect(codes.has("SECRECY_PAYMENT_DIVERSION")).toBe(true);
+    expect(result.scored.verdict).toBe("high_risk");
+  });
+
   it("never lets positive consensus override a signed threat warning for the same campaign", () => {
     const input = envelope();
     const entries: SignedFeedEntry[] = [
