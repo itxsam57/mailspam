@@ -44,6 +44,16 @@ describe("payment/callback intervention structural convergence", () => {
     }));
   });
 
+  it("preserves Zoho Assist as a remote-access tool after convergence onto shared facts", () => {
+    const result = assessScamIntervention("Bank support: install Zoho Assist so we can control the device and process the refund.");
+
+    expect(result.remoteAccessTools).toContain("zoho assist");
+    expect(result.signals).toContainEqual(expect.objectContaining({
+      code: "REMOTE_ACCESS_REQUEST",
+      severity: "critical",
+    }));
+  });
+
   it("uses shared payment pressure for an irreversible crypto deadline", () => {
     const result = assessScamIntervention("Send 800 USDT to the wallet within 30 minutes to release the payment review. This transfer cannot be reversed.");
 
