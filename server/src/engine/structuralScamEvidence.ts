@@ -102,6 +102,7 @@ const PRESSURE_ORDER: readonly PressureSignal[] = [
 
 const TRANSMISSION = /\b(?:send|share|provide|tell|give|reply\s+with|read\s+back|forward|message|text)\b/u;
 const NEGATED_TRANSMISSION = /\b(?:never|do\s+not|don't|dont)\s+(?:send|share|provide|tell|give|reply\s+with|read\s+back|forward)\b/u;
+const REFERENTIAL_TRANSMISSION = /\b(?:send|share|provide|tell|give|forward|message|text)\b[^.!?]{0,45}\b(?:it|that|this|them|those|the\s+(?:code|codes|number|numbers|password|key|phrase))\b|\bread\s+(?:it|that|this|the\s+code)\s+back\b|\breply\s+with\s+(?:it|that|this|the\s+(?:code|codes|number|numbers))\b/u;
 const GIFT_CARD = /\b(?:gift\s*cards?|giftcards?|store\s+cards?|vouchers?)\b/u;
 const GIFT_CARD_SECRET = /\b(?:codes?|card\s+numbers?|numbers?|pins?|serials?)\b/u;
 const IMAGE_OF_SECRET = /\b(?:photo|photos|picture|pictures|image|images|screenshot|snap)\b/u;
@@ -129,21 +130,32 @@ const CLAIM_STOP_WORDS = new Set([
   "account",
 ]);
 
+function splitNormalizedSegments(value: string | null | undefined): string[] {
+  if (!value) return [];
+  return value
+    .split(/(?:[.!?]+\s+|[\r\n]+|;\s+)/u)
+    .map((part) => normalizeSecurityText(part))
+    .filter(Boolean)
+    .slice(0, 256);
+}
+
 function normalizedParts(input: StructuralScamInput): {
   subject: string;
   displayName: string;
   full: string;
+  segments: string[];
 } {
   const subject = normalizeSecurityText(input.subject ?? "");
   const displayName = normalizeSecurityText(input.displayName ?? "");
-  const pieces = [
-    displayName,
-    subject,
-    normalizeSecurityText(input.text ?? ""),
-    normalizeSecurityText(input.htmlText ?? ""),
-    ...(input.links ?? []).map((link) => normalizeSecurityText(link.visibleText ?? "")),
-  ].filter(Boolean);
-  return { subject, displayName, full: pieces.join(" ") };
+  const contentPieces = [
+    input.subject ?? "",
+    input.text ?? "",
+    input.htmlText ?? "",
+    ...(input.links ?? []).map((link) => link.visibleText ?? ""),
+  ];
+  const segments = contentPieces.flatMap(splitNormalizedSegments).slice(0, 256);
+  const pieces = [displayName, ...segments].filter(Boolean);
+  return { subject, displayName, full: pieces.join(" "), segments };
 }
 
 function ordered<T extends string>(seen: ReadonlySet<T>, order: readonly T[]): T[] {
@@ -171,27 +183,63 @@ function addPaymentFacts(text: string, seen: Set<PaymentInstrument>): void {
   if (/\b(?:credit|debit)\s+cards?\b|\bcard\s+payment\b/u.test(text)) seen.add("card");
   if (/\b(?:bitcoin|btc|crypto(?:currency)?|usdt|tether|ethereum|eth|stablecoin|digital\s+currency)\b/u.test(text)) seen.add("crypto");
   if (GIFT_CARD.test(text)) seen.add("gift_card");
-  if (/\b(?:cash\s*app|venmo|zelle|paypal|friends?\s+and\s+family)\b/u.test(text)) seen.add("cash_app");
+  if (/\b(?:cash\s*app|venmo|zelle|paypal\s+(?:friends?\s*(?:and|&)\s*family|family\s*(?:and|&)\s*friends?))\b/u.test(text)) seen.add("cash_app");
   if (/\b(?:money|funds?|amount|dollars?|euros?|pounds?|usd|eur|gbp)\b/u.test(text)) seen.add("unknown_money");
 }
 
-function hasGiftCardExfiltration(text: string): boolean {
-  if (!GIFT_CARD.test(text) || NEGATED_TRANSMISSION.test(text)) return false;
-  const hasSecretArtifact = GIFT_CARD_SECRET.test(text) || (IMAGE_OF_SECRET.test(text) && /\b(?:card|voucher|code|number)\b/u.test(text));
-  return hasSecretArtifact && (TRANSMISSION.test(text) || /\b(?:photo|photos|picture|pictures|image|images|screenshot)\b[^.!?\n]{0,50}\b(?:to\s+me|to\s+us|back|after|once)\b/u.test(text));
+function secretTransmissionInSegment(segment: string, secret: RegExp): boolean {
+  return !NEGATED_TRANSMISSION.test(segment) && secret.test(segment) && TRANSMISSION.test(segment);
 }
 
-function hasOtpExfiltration(text: string): boolean {
-  if (!OTP_SECRET.test(text) || NEGATED_TRANSMISSION.test(text)) return false;
-  return TRANSMISSION.test(text);
+function secretFollowedByReferentialTransmission(segments: readonly string[], index: number, secret: RegExp): boolean {
+  const current = segments[index] ?? "";
+  const next = segments[index + 1] ?? "";
+  return Boolean(
+    current && next &&
+    secret.test(current) &&
+    !NEGATED_TRANSMISSION.test(next) &&
+    REFERENTIAL_TRANSMISSION.test(next),
+  );
 }
 
-function hasRecoverySecretExfiltration(text: string): boolean {
-  if (!RECOVERY_SECRET.test(text) || NEGATED_TRANSMISSION.test(text)) return false;
-  return TRANSMISSION.test(text);
+function hasGiftCardExfiltration(segments: readonly string[]): boolean {
+  for (let index = 0; index < segments.length; index++) {
+    const segment = segments[index] ?? "";
+    const previous = segments[index - 1] ?? "";
+    const giftCardContext = GIFT_CARD.test(segment) || GIFT_CARD.test(previous);
+    if (!giftCardContext || NEGATED_TRANSMISSION.test(segment)) continue;
+
+    const hasSecretArtifact = GIFT_CARD_SECRET.test(segment) ||
+      (IMAGE_OF_SECRET.test(segment) && /\b(?:card|voucher|code|number)\b/u.test(segment));
+    if (hasSecretArtifact && TRANSMISSION.test(segment)) return true;
+
+    if (GIFT_CARD.test(segment) && secretFollowedByReferentialTransmission(segments, index, GIFT_CARD_SECRET)) return true;
+  }
+  return false;
 }
 
-function addActionFacts(text: string, seen: Set<RequestedAction>, paymentFacts: ReadonlySet<PaymentInstrument>): void {
+function hasOtpExfiltration(segments: readonly string[]): boolean {
+  for (let index = 0; index < segments.length; index++) {
+    const segment = segments[index] ?? "";
+    if (secretTransmissionInSegment(segment, OTP_SECRET) || secretFollowedByReferentialTransmission(segments, index, OTP_SECRET)) return true;
+  }
+  return false;
+}
+
+function hasRecoverySecretExfiltration(segments: readonly string[]): boolean {
+  for (let index = 0; index < segments.length; index++) {
+    const segment = segments[index] ?? "";
+    if (secretTransmissionInSegment(segment, RECOVERY_SECRET) || secretFollowedByReferentialTransmission(segments, index, RECOVERY_SECRET)) return true;
+  }
+  return false;
+}
+
+function addActionFacts(
+  text: string,
+  segments: readonly string[],
+  seen: Set<RequestedAction>,
+  paymentFacts: ReadonlySet<PaymentInstrument>,
+): void {
   if (/\b(?:call|phone|dial)\b/u.test(text)) seen.add("call");
   if (/\b(?:reply|respond)\b/u.test(text)) seen.add("reply");
   if (/\b(?:click|open|visit|follow)\b[^.!?\n]{0,45}\b(?:link|url|website|portal|page)\b/u.test(text)) seen.add("open_link");
@@ -200,10 +248,10 @@ function addActionFacts(text: string, seen: Set<RequestedAction>, paymentFacts: 
   const paymentInstruction = /\b(?:pay|send|transfer|wire|remit)\b[^.!?\n]{0,100}\b(?:money|funds?|payment|amount|usd|eur|gbp|dollars?|euros?|pounds?|bitcoin|btc|crypto|usdt|wallet|gift\s*cards?|vouchers?)\b|\b(?:buy|purchase|obtain|get|pick\s+up)\b[^.!?\n]{0,70}\b(?:gift\s*cards?|vouchers?)\b/u;
   if (paymentInstruction.test(text) || (paymentFacts.has("crypto") && /\b(?:send|pay|transfer)\b/u.test(text))) seen.add("pay");
 
-  if (REMOTE_TOOL.test(text) && REMOTE_ACTION.test(text)) seen.add("install_remote_access");
-  if (hasOtpExfiltration(text)) seen.add("send_otp");
-  if (hasRecoverySecretExfiltration(text)) seen.add("send_recovery_secret");
-  if (hasGiftCardExfiltration(text)) seen.add("send_gift_card_code");
+  if (segments.some((segment) => REMOTE_TOOL.test(segment) && REMOTE_ACTION.test(segment))) seen.add("install_remote_access");
+  if (hasOtpExfiltration(segments)) seen.add("send_otp");
+  if (hasRecoverySecretExfiltration(segments)) seen.add("send_recovery_secret");
+  if (hasGiftCardExfiltration(segments)) seen.add("send_gift_card_code");
   if (/\b(?:move|transfer|wire|send)\b[^.!?\n]{0,80}\b(?:money|funds?|balance|amount|bank|wallet)\b/u.test(text)) seen.add("move_money");
 }
 
@@ -251,7 +299,7 @@ export function extractStructuralScamFacts(input: StructuralScamInput): Structur
 
   addEventFacts(normalized.full, events);
   addPaymentFacts(normalized.full, payments);
-  addActionFacts(normalized.full, actions, payments);
+  addActionFacts(normalized.full, normalized.segments, actions, payments);
   addPressureFacts(normalized.full, pressure);
 
   return {
