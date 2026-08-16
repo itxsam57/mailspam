@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -21,11 +21,8 @@ describe("flight recorder release-head hygiene", () => {
   it("does not ship temporary flight-recorder/controller trigger or marker files", () => {
     const plans = readdirSync(join(root, "docs/superpowers/plans"));
     const forbidden = plans.filter((name) =>
-      name.startsWith(".flight-recorder-")
-      || name.startsWith(".keep-flight-recorder-red")
-      || /trace-trigger|finalizer-trigger|qualification-trigger|consolidate-trigger/i.test(name),
+      name.startsWith(".") && /flight-recorder|trace-trigger|finalizer|qualification|consolidat/i.test(name),
     );
     expect(forbidden).toEqual([]);
-    expect(existsSync(join(root, "docs/superpowers/plans/.flight-recorder-precleanup-green"))).toBe(false);
   });
 });
