@@ -1,0 +1,183 @@
+name: Email Shield Final Qualification Controller
+
+on:
+  push:
+    branches:
+      - design/full-product-flight-recorder-20260816
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: email-shield-final-flight-recorder-qualification
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: "${{ github.event.head_commit.message == 'chore: trigger final qualification controller' }}"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: design/full-product-flight-recorder-20260816
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Remove construction-only scaffolding before freeze
+        shell: bash
+        run: |
+          find .github/workflows -maxdepth 1 -type f \( -name 'flight-recorder-*.yml' -o -name '*trace-finalize.yml' -o -name 'release-flight-recorder-consolidate.yml' \) -print0 | xargs -0 -r git rm -f --ignore-unmatch
+          find scripts/engineering -maxdepth 1 -type f \( -name 'apply-flight-recorder-*' -o -name 'reconcile-flight-recorder-*' \) -print0 | xargs -0 -r git rm -f --ignore-unmatch
+          find docs/superpowers/plans -maxdepth 1 -type f \( -name '.flight-recorder-*' -o -name '.keep-flight-recorder-red*' -o -name '*trace-trigger*' \) -print0 | xargs -0 -r git rm -f --ignore-unmatch
+      - name: Required final-testing architecture
+        shell: bash
+        run: |
+          grep -q 'X-Email-Shield-Trace-Id' web/local-security.js
+          grep -q 'X-Email-Shield-Workflow-Id' web/local-security.js
+          grep -q 'X-Email-Shield-Action-Id' web/local-security.js
+          grep -q 'backend_completed' server/src/diagnostics/runtimeTraceResponseBoundary.ts
+          grep -R -q 'provider_page_read' server/src
+          grep -R -q 'checkpoint_persisted' server/src
+          grep -R -q 'provider.restore_sessions' server/src
+          grep -R -q 'protection.background.run' server/src
+          grep -R -q 'protection.realtime.run' server/src
+          grep -q '/api/dev/runtime-trace/diagnosis' server/src/api/runtimeWorkflowTraceRoutes.ts
+          grep -q 'workflow_id' server/src/telemetry/technicalTelemetry.ts
+          grep -q '"predev"' package.json
+          grep -q 'check:runtime-trace' package.json
+          grep -q 'provider.connect.gmail.provider_authenticated' web/consumer-provider-onboarding.js
+          grep -q 'provider.connect.gmail.connection_persisted' web/consumer-provider-onboarding.js
+          grep -q 'provider.connect.gmail.ui_confirmed' web/consumer-provider-onboarding.js
+          grep -q 'provider.connect.icloud.ui_confirmed' web/consumer-provider-onboarding.js
+          grep -q 'provider.connect.yahoo.ui_confirmed' web/consumer-provider-onboarding.js
+          grep -q 'provider.connect.imap.ui_confirmed' web/consumer-provider-onboarding.js
+          grep -q 'uncaught_browser_error' web/runtime-workflow-trace.js
+          grep -q 'unhandled_promise_rejection' web/runtime-workflow-trace.js
+          grep -q 'browserRuntimeSource' server/src/diagnostics/runtimeTraceDiagnosis.ts
+      - name: Parse browser and engineering sources
+        run: |
+          node --check web/runtime-workflow-trace.js
+          node --check web/local-security.js
+          node --check web/consumer-provider-onboarding.js
+          node --check web/scan-monitor.js
+          node --check web/review-actions.js
+          node --check web/consumer-product.js
+          node --check web/family-shield.js
+          node --check web/account-plan.js
+          node --check web/account-lifecycle.js
+          node --check scripts/engineering/check-runtime-trace-coverage.mjs
+          node --check scripts/engineering/generate-runtime-trace-manifest.mjs
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Permanent trace coverage
+        run: npm run check:runtime-trace
+      - name: Full Flight Recorder contract suite
+        run: npx vitest run tests/unit/runtimeWorkflowTraceV2.test.ts tests/unit/runtimeTraceCheckpoint.test.ts tests/unit/runtimeTraceManifest.test.ts tests/unit/workflowDiagnosis.test.ts tests/unit/runtimeTraceCoverage.test.ts tests/unit/runtimeWorkflowTraceBrowserV2.test.ts tests/unit/runtimeWorkflowFeatureCheckpoints.test.ts tests/unit/runtimeTraceRequestContext.test.ts tests/unit/runtimeTraceServerCoverage.test.ts tests/unit/runtimeTraceDiagnosis.test.ts tests/unit/runtimeTraceDiagnosisApi.test.ts tests/unit/runtimeWorkflowTraceTelemetry.test.ts tests/unit/runtimeWorkflowTraceTelemetryV2.test.ts tests/unit/runtimeTraceScaffoldingCleanup.test.ts tests/unit/runtimeProviderOnboardingTrace.test.ts tests/unit/runtimeGmailOAuthTrace.test.ts tests/unit/runtimeBrowserErrorTrace.test.ts
+      - name: Generate exact-build source manifest
+        env:
+          EMAIL_SHIELD_BUILD_COMMIT: ${{ github.sha }}
+        run: node scripts/engineering/generate-runtime-trace-manifest.mjs --output artifacts/engineering/runtime-trace-manifest.json
+      - name: Freeze exact qualification candidate
+        shell: bash
+        run: |
+          git config user.name "email-shield-engineering"
+          git config user.email "email-shield-engineering@users.noreply.github.com"
+          git add -A
+          git commit --allow-empty -m "chore: freeze final flight recorder qualification candidate"
+          git push origin HEAD:design/full-product-flight-recorder-20260816
+
+  qualify-merge-and-requalify-main:
+    if: "${{ github.event.head_commit.message == 'chore: freeze final flight recorder qualification candidate' }}"
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: "102"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: design/full-product-flight-recorder-20260816
+          fetch-depth: 0
+      - name: Require exact-head canonical Engineering Gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          qualified_sha="$GITHUB_SHA"
+          run_id=""
+          for attempt in $(seq 1 180); do
+            payload="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${qualified_sha}&per_page=100")"
+            run_id="$(printf '%s' "$payload" | jq -r --arg sha "$qualified_sha" '[.workflow_runs[] | select(.name == "Engineering Gate" and .head_sha == $sha)] | sort_by(.run_number) | last | .id // empty')"
+            if [ -n "$run_id" ]; then
+              status="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '.status')"
+              if [ "$status" = "completed" ]; then break; fi
+            fi
+            sleep 10
+          done
+          test -n "$run_id"
+          conclusion="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '.conclusion')"
+          test "$conclusion" = "success"
+          jobs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100")"
+          printf '%s' "$jobs" | jq -e '[.jobs[] | select((.name|ascii_downcase|contains("windows")) and .conclusion=="success")] | length > 0'
+          printf '%s' "$jobs" | jq -e '[.jobs[] | select((.name|ascii_downcase|contains("macos")) and .conclusion=="success")] | length > 0'
+          printf '%s' "$jobs" | jq -e '[.jobs[] | select((.name|ascii_downcase|contains("ubuntu")) and .conclusion=="success")] | length > 0'
+          printf '%s' "$jobs" | jq -e '[.jobs[] | select((.name|ascii_downcase|contains("summary")) and .conclusion=="success")] | length > 0'
+          printf 'QUALIFIED_SHA=%s\nQUALIFIED_RUN_ID=%s\n' "$qualified_sha" "$run_id" >> "$GITHUB_ENV"
+      - name: Require PR head to still equal qualified SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr_head="$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq '.headRefOid')"
+          test "$pr_head" = "$QUALIFIED_SHA"
+      - name: Mark ready and merge only qualified head
+        shell: bash
+        run: |
+          set -euo pipefail
+          is_draft="$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft')"
+          if [ "$is_draft" = "true" ]; then gh pr ready "$PR_NUMBER" --repo "$GITHUB_REPOSITORY"; fi
+          gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --squash --match-head-commit "$QUALIFIED_SHA"
+          merged="$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json mergedAt --jq '.mergedAt // empty')"
+          test -n "$merged"
+      - name: Remove qualification controller from merged main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git checkout -B main origin/main
+          git rm -f .github/workflows/email-shield-final-qualification.yml docs/superpowers/plans/.email-shield-final-qualification-trigger
+          git config user.name "email-shield-engineering"
+          git config user.email "email-shield-engineering@users.noreply.github.com"
+          git commit -m "chore: remove final qualification controller"
+          git push origin main
+          printf 'FINAL_MAIN_SHA=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: Require independent canonical Engineering Gate on final main
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_id=""
+          for attempt in $(seq 1 180); do
+            payload="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${FINAL_MAIN_SHA}&per_page=100")"
+            run_id="$(printf '%s' "$payload" | jq -r --arg sha "$FINAL_MAIN_SHA" '[.workflow_runs[] | select(.name == "Engineering Gate" and .head_sha == $sha)] | sort_by(.run_number) | last | .id // empty')"
+            if [ -n "$run_id" ]; then
+              status="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '.status')"
+              if [ "$status" = "completed" ]; then break; fi
+            fi
+            sleep 10
+          done
+          test -n "$run_id"
+          conclusion="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '.conclusion')"
+          test "$conclusion" = "success"
+          jobs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100")"
+          printf '%s' "$jobs" | jq -e '[.jobs[] | select((.name|ascii_downcase|contains("windows")) and .conclusion=="success")] | length > 0'
+          printf '%s' "$jobs" | jq -e '[.jobs[] | select((.name|ascii_downcase|contains("macos")) and .conclusion=="success")] | length > 0'
+          printf '%s' "$jobs" | jq -e '[.jobs[] | select((.name|ascii_downcase|contains("ubuntu")) and .conclusion=="success")] | length > 0'
+          printf '%s' "$jobs" | jq -e '[.jobs[] | select((.name|ascii_downcase|contains("summary")) and .conclusion=="success")] | length > 0'
+          printf 'FINAL_MAIN_RUN_ID=%s\n' "$run_id" >> "$GITHUB_ENV"
+      - name: Record qualification evidence on merged PR
+        shell: bash
+        run: |
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Final Flight Recorder qualification passed. Exact PR head: \`${QUALIFIED_SHA}\` (Engineering Gate run ${QUALIFIED_RUN_ID}, Windows/macOS/Ubuntu/Summary green). Final cleaned main: \`${FINAL_MAIN_SHA}\` (independent Engineering Gate run ${FINAL_MAIN_RUN_ID}, Windows/macOS/Ubuntu/Summary green). Owner final live testing may start from this exact main."
