@@ -107,7 +107,6 @@ const DEFINITIONS: WorkflowDefinition[] = [
   linearWorkflow("account.mailbox.link"),
   linearWorkflow("account.sign_out"),
   linearWorkflow("account.profile.snapshot"),
-  uiWorkflow("account.recovery.open"),
   linearWorkflow("workspace.restore"),
 
   scanWorkflow("quick"),
@@ -130,7 +129,7 @@ const DEFINITIONS: WorkflowDefinition[] = [
   linearWorkflow("mailbox.cleanup"),
 
   linearWorkflow("protection.background.toggle"),
-  linearWorkflow("protection.background.interval"),
+  uiWorkflow("protection.background.interval"),
   linearWorkflow("protection.sensitivity.save"),
   linearWorkflow("settings.save"),
   linearWorkflow("policy.load"),
@@ -174,6 +173,8 @@ const DEFINITIONS: WorkflowDefinition[] = [
   linearWorkflow("account.profile.sign_in"),
   linearWorkflow("account.recovery.use"),
   linearWorkflow("account.recovery.rotate"),
+  uiWorkflow("account.recovery.copy"),
+  uiWorkflow("account.recovery.acknowledge"),
   linearWorkflow("account.devices.revoke"),
   linearWorkflow("account.devices.revoke_others"),
   linearWorkflow("account.sign_out_everywhere"),
@@ -200,6 +201,9 @@ const DEFINITIONS: WorkflowDefinition[] = [
   uiWorkflow("navigation.check"),
 
   linearWorkflow("developer.test_suite", ["developer.test_suite"], true),
+  linearWorkflow("developer.plan.switch", ["developer.plan.switch"], true),
+  uiWorkflow("developer.provider.select", ["developer.provider.select"], true),
+  uiWorkflow("developer.mode.select", ["developer.mode.select"], true),
 ];
 
 export const WORKFLOW_REGISTRY: Readonly<Record<string, WorkflowDefinition>> = Object.freeze(
