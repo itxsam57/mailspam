@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { CanonicalEnvelope } from "../../server/src/canonical/envelope.js";
 import {
+  authenticationPassed,
   authenticatedSenderIdentityDomains,
   hasAuthenticatedOrganizationalIdentity,
   verifiedRelayOriginDomains,
@@ -117,6 +118,115 @@ describe("generic identity-claim mismatch", () => {
   });
 });
 
+describe("identity contradiction integrity", () => {
+  it("never calls an explicit same-organizational-domain claim a mismatch when authentication provenance is unknown", () => {
+    const result = identityImpersonationLayer(envelope({
+      from: {
+        displayName: "Billing at free-ethereum.example",
+        address: "billing@mailer.free-ethereum.example",
+        domain: "mailer.free-ethereum.example",
+      },
+      subject: "Payment portal at free-ethereum.example",
+      authentication: {
+        providerTrust: "unknown",
+        spf: "unknown",
+        dkim: "unknown",
+        dmarc: "unknown",
+        arc: "none",
+      },
+    }));
+
+    expect(result.evidence.some((item) => item.code === "EXPLICIT_DOMAIN_CLAIM_MISMATCH")).toBe(false);
+  });
+
+  it("still flags an unrelated explicit domain when the visible sender is a non-relay", () => {
+    const result = identityImpersonationLayer(envelope({
+      from: {
+        displayName: "Billing at cobalt-bank.example",
+        address: "notice@unrelated-sender.example",
+        domain: "unrelated-sender.example",
+      },
+      subject: "Payment portal at cobalt-bank.example",
+      authentication: {
+        providerTrust: "unknown",
+        spf: "unknown",
+        dkim: "unknown",
+        dmarc: "unknown",
+        arc: "none",
+      },
+    }));
+
+    expect(result.evidence.some((item) => item.code === "EXPLICIT_DOMAIN_CLAIM_MISMATCH")).toBe(true);
+  });
+
+  it("treats a known relay with no proven origin as uncertain instead of contradictory", () => {
+    const result = identityImpersonationLayer(envelope({
+      from: {
+        displayName: "Cobalt Bank Security",
+        address: "opaque-random-token@privaterelay.appleid.com",
+        domain: "privaterelay.appleid.com",
+      },
+      subject: "Cobalt Bank payment verification required",
+      authentication: {
+        providerTrust: "trusted",
+        spf: "pass",
+        dkim: "pass",
+        dmarc: "pass",
+        arc: "none",
+      },
+    }));
+
+    expect(result.evidence.some((item) => item.code === "BRAND_DOMAIN_MISMATCH")).toBe(false);
+    expect(result.incomplete).toBe(true);
+    expect(result.incompleteReason).toMatch(/relay|forwarder/i);
+    expect(result.blocksSafeVerdict).not.toBe(true);
+  });
+
+  it("does not authenticate an unproven relay as an organizational identity", () => {
+    const message = envelope({
+      from: {
+        displayName: "Cobalt Bank Security",
+        address: "opaque-random-token@privaterelay.appleid.com",
+        domain: "privaterelay.appleid.com",
+      },
+      authentication: {
+        providerTrust: "trusted",
+        spf: "pass",
+        dkim: "pass",
+        dmarc: "pass",
+        arc: "none",
+      },
+    });
+
+    expect(authenticationPassed(message)).toBe(false);
+    expect(verifiedRelayOriginDomains(message)).toEqual([]);
+    expect(authenticatedSenderIdentityDomains(message)).toEqual([]);
+  });
+
+  it("retains verified-origin identity for an authenticated relay whose alias proves the origin", () => {
+    const message = envelope({
+      from: {
+        displayName: "Lumen Market Billing",
+        address: "newsletter_at_updates_lumen-market_example_random9@privaterelay.appleid.com",
+        domain: "privaterelay.appleid.com",
+      },
+      subject: "Lumen Market payment receipt",
+      authentication: {
+        providerTrust: "trusted",
+        spf: "pass",
+        dkim: "pass",
+        dmarc: "pass",
+        arc: "none",
+      },
+    });
+
+    expect(authenticationPassed(message)).toBe(true);
+    expect(verifiedRelayOriginDomains(message)).toContain("lumen-market.example");
+    expect(authenticatedSenderIdentityDomains(message)).toContain("lumen-market.example");
+    expect(identityImpersonationLayer(message).evidence.some((item) => item.code === "BRAND_DOMAIN_MISMATCH")).toBe(false);
+  });
+});
+
 describe("updateable signed identity knowledge", () => {
   const identityEntry: SignedFeedEntry = {
     type: "identity",
@@ -151,7 +261,7 @@ describe("updateable signed identity knowledge", () => {
 
 describe("architecture boundary", () => {
   it("keeps brand mappings out of MIME and local identity code", () => {
-const root = join(import.meta.dirname, "../..");
+    const root = join(import.meta.dirname, "../..");
     const mime = readFileSync(join(root, "server/src/util/mimeNormalize.ts"), "utf8");
     const htmlInteractions = readFileSync(join(root, "server/src/util/htmlInteraction.ts"), "utf8");
     const identity = readFileSync(join(root, "server/src/engine/layers/identityImpersonation.ts"), "utf8");
