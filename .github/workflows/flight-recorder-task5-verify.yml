@@ -1,0 +1,50 @@
+name: Flight Recorder Task 5 Verify
+
+on:
+  push:
+    branches:
+      - design/full-product-flight-recorder-20260816
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    if: "${{ github.event.head_commit.message == 'chore: trigger flight recorder Task 5 verify' }}"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: design/full-product-flight-recorder-20260816
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Correlation ownership assertions
+        shell: bash
+        run: |
+          grep -q "X-Email-Shield-Workflow-Id" web/local-security.js
+          grep -q "X-Email-Shield-Action-Id" web/local-security.js
+          grep -q "currentActionId" web/runtime-workflow-trace.js
+          grep -q "\.requested" web/runtime-workflow-trace.js
+          grep -q "bindRuntimeTraceRequest" server/src/diagnostics/runtimeTraceRequestContext.ts
+          grep -q "isRuntimeTraceRequestValidated" server/src/diagnostics/runtimeTraceResponseBoundary.ts
+      - name: Browser parse
+        run: |
+          node --check web/runtime-workflow-trace.js
+          node --check web/local-security.js
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Focused runtime trace tests
+        run: npx vitest run tests/unit/runtimeTraceRequestContext.test.ts tests/unit/runtimeTraceServerCoverage.test.ts tests/unit/runtimeWorkflowTraceV2.test.ts tests/unit/runtimeTraceCheckpoint.test.ts tests/unit/runtimeTraceManifest.test.ts tests/unit/workflowDiagnosis.test.ts tests/unit/runtimeTraceCoverage.test.ts tests/unit/runtimeWorkflowTraceBrowserV2.test.ts tests/unit/runtimeWorkflowFeatureCheckpoints.test.ts
+      - name: Commit green marker
+        shell: bash
+        run: |
+          printf 'Task 5 protected-request correlation verified at %s\n' "${GITHUB_SHA}" > docs/superpowers/plans/.flight-recorder-task5-green
+          git config user.name "email-shield-engineering"
+          git config user.email "email-shield-engineering@users.noreply.github.com"
+          git add docs/superpowers/plans/.flight-recorder-task5-green
+          git commit -m "test: verify Task 5 protected request tracing"
+          git push origin HEAD:design/full-product-flight-recorder-20260816
