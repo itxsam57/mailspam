@@ -44,8 +44,15 @@
 
   card.append(heading, intro, fileLabel, actions, status);
   tools.append(card);
+  window.emailShieldRuntimeTrace?.registerControl(check, 'media_authenticity.run', 'media_authenticity.run', 'media_authenticity');
 
   let capability = null;
+
+  function checkpoint(outcome = 'success', errorCode) {
+    const trace = window.emailShieldRuntimeTrace;
+    if (trace?.currentWorkflowId?.() !== 'media_authenticity.run') return;
+    trace.checkpoint('media_authenticity.run.ui_confirmed', outcome, errorCode ? { errorCode } : undefined);
+  }
 
   function mediaKind(file) {
     if (file.type.startsWith('image/')) return 'image';
@@ -96,16 +103,19 @@
     const file = fileInput.files?.[0];
     if (!file) {
       status.textContent = 'Choose one image, audio clip or video first.';
+      checkpoint('rejected', 'media_file_missing');
       return;
     }
     const kind = mediaKind(file);
     if (!kind) {
       status.textContent = 'Unsupported media type. Choose an image, audio clip or video.';
+      checkpoint('rejected', 'media_type_unsupported');
       return;
     }
     const limit = limitFor(kind);
     if (!Number.isFinite(limit) || limit < 1 || file.size > limit) {
       status.textContent = `Selected ${kind} exceeds the configured bounded input limit.`;
+      checkpoint('rejected', 'media_input_limit');
       return;
     }
 
@@ -124,8 +134,10 @@
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || `Media Authenticity failed (${response.status}).`);
       status.textContent = resultText(result);
+      checkpoint(result.state === 'unavailable' || result.state === 'inconclusive' ? 'partial' : 'success');
     } catch (error) {
       status.textContent = `UNAVAILABLE: ${error instanceof Error ? error.message : String(error)} No authenticity claim was made.`;
+      checkpoint('failed', 'media_authenticity_failed');
     } finally {
       check.disabled = capability?.available !== true;
     }
