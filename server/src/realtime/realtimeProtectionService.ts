@@ -41,7 +41,12 @@ function boundedInterval(value: number): number {
   return value;
 }
 
-function pollingEvent(accountKey: string, provider: Provider, checkpoint: string): CanonicalInboundEventV1 {
+function pollingEvent(
+  accountKey: string,
+  provider: Provider,
+  previousCheckpoint: string,
+  checkpoint: string,
+): CanonicalInboundEventV1 {
   return {
     schemaVersion: 1,
     accountKey,
@@ -49,9 +54,10 @@ function pollingEvent(accountKey: string, provider: Provider, checkpoint: string
     source: "poll",
     kind: "mailbox_changed",
     eventId: sha256Hex([
-      "email-shield-poll-checkpoint-v1",
+      "email-shield-poll-checkpoint-transition-v1",
       accountKey,
       provider,
+      previousCheckpoint,
       checkpoint,
     ].join("\0")),
     checkpoint,
@@ -175,7 +181,7 @@ export class RealtimeProtectionService {
     if (current === checkpoint) return;
 
     try {
-      await this.enqueue(pollingEvent(session.policyAccountKey, provider, checkpoint));
+      await this.enqueue(pollingEvent(session.policyAccountKey, provider, current, checkpoint));
     } catch {
       // Failed processing must remain unacknowledged so the same checkpoint and
       // event identity are retried on the next poll.
