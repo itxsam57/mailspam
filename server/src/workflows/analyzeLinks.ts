@@ -11,6 +11,7 @@ export const DESTINATION_CACHE_TTL_MS = 5 * 60 * 1000;
 export const DESTINATION_ERROR_CACHE_TTL_MS = 15 * 1000;
 
 export type DestinationFetch = (url: string) => Promise<HardenedFetchResult | null>;
+export type DestinationAnalysisInput = Pick<CanonicalEnvelope, "links">;
 type CachedDestinationResult = Omit<DestinationResult, "url">;
 
 export interface AnalyzeLinksResult {
@@ -141,9 +142,9 @@ export class DestinationAnalysisCoordinator {
     this.networkEnabled = options.networkEnabled ?? incidentNetworkControlsFromEnvironment().linkAnalysisNetworkEnabled;
   }
 
-  async analyze(envelope: CanonicalEnvelope): Promise<AnalyzeLinksResult> {
+  async analyze(input: DestinationAnalysisInput): Promise<AnalyzeLinksResult> {
     const results = await Promise.all(
-      envelope.links.map((link) => this.analyzeDestination(link.normalizedUrl)),
+      input.links.map((link) => this.analyzeDestination(link.normalizedUrl)),
     );
     const escalatedToHighRisk = results.some(
       (result) => result.classification === "credential_trap" || result.classification === "malware",
@@ -285,8 +286,8 @@ export const destinationAnalysisCoordinator = createDestinationAnalysisCoordinat
 
 /** Explicit per-message action only; never called automatically during any scan. */
 export async function analyzeLinks(
-  envelope: CanonicalEnvelope,
+  input: DestinationAnalysisInput,
   coordinator: DestinationAnalysisCoordinator = destinationAnalysisCoordinator,
 ): Promise<AnalyzeLinksResult> {
-  return coordinator.analyze(envelope);
+  return coordinator.analyze(input);
 }

@@ -1,6 +1,11 @@
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
+import type { LinkInfo } from "../canonical/envelope.js";
 import type { CommunityNetwork } from "../community/network.js";
-import { ConsumerScamCheckError, evaluateConsumerScamCheck } from "../consumer/scamCheck.js";
+import {
+  assertConsumerScamCheckRequest,
+  ConsumerScamCheckError,
+  evaluateConsumerScamCheck,
+} from "../consumer/scamCheck.js";
 import {
   ConsumerScamInputError,
   evaluateSubmittedEml,
@@ -8,7 +13,14 @@ import {
   MAX_SUBMITTED_EML_BYTES,
   type VisualTextExtractor,
 } from "../consumer/scamCheckInputs.js";
+import { canonicalizeWebDestination } from "../util/htmlInteraction.js";
 import { MAX_QR_IMAGE_BYTES } from "../util/qrDecode.js";
+import {
+  analyzeLinks,
+  destinationAnalysisCoordinator,
+  type DestinationAnalysisCoordinator,
+  type DestinationAnalysisInput,
+} from "../workflows/analyzeLinks.js";
 import type { LocalSecurityManager } from "./localSecurity.js";
 
 const JSON_LIMIT = "1mb";
@@ -18,6 +30,7 @@ export interface ScamCheckRouteDependencies {
   security: LocalSecurityManager;
   community: Pick<CommunityNetwork, "getVerifiedEntries">;
   visualTextExtractor?: VisualTextExtractor;
+  destinationAnalyzer?: DestinationAnalysisCoordinator;
 }
 
 function noStore(res: Response): void {
@@ -79,10 +92,26 @@ function imageContentType(req: Request, _res: Response, next: NextFunction): voi
   next();
 }
 
+function submittedUrlEnvelope(rawUrl: string): DestinationAnalysisInput {
+  const normalizedUrl = canonicalizeWebDestination(rawUrl, null);
+  const link: LinkInfo = {
+    visibleText: rawUrl,
+    rawUrl,
+    normalizedUrl,
+    claimedBrand: null,
+    brandDomainMismatch: null,
+    source: "body",
+    interaction: "navigation",
+  };
+  return { links: [link] };
+}
+
 /**
  * Register before the desktop server's global 64 KiB JSON parser. Each Scam
  * Check input type owns its own narrow parser/size boundary instead of raising
- * limits for unrelated APIs.
+ * limits for unrelated APIs. URL mode is an explicit user action, so it also
+ * uses the same bounded destination-analysis coordinator as Analyze Links;
+ * message/EML/image modes remain local content analysis only.
  */
 export function registerScamCheckRoutes(app: Express, deps: ScamCheckRouteDependencies): void {
   app.post(
@@ -90,13 +119,20 @@ export function registerScamCheckRoutes(app: Express, deps: ScamCheckRouteDepend
     ...protectedRead(deps),
     routeLimit(deps, "scam-check-json"),
     express.json({ limit: JSON_LIMIT, strict: true, type: "application/json" }),
-    (req: Request, res: Response) => {
+    async (req: Request, res: Response) => {
       try {
+        assertConsumerScamCheckRequest(req.body);
         const result = evaluateConsumerScamCheck(req.body, {
           intelligenceEntries: deps.community.getVerifiedEntries(),
         });
+        const destinationAnalysis = req.body.kind === "url"
+          ? await analyzeLinks(
+              submittedUrlEnvelope(req.body.url!.trim()),
+              deps.destinationAnalyzer ?? destinationAnalysisCoordinator,
+            )
+          : undefined;
         noStore(res);
-        res.json(result);
+        res.json(destinationAnalysis ? { ...result, destinationAnalysis } : result);
       } catch (error) {
         errorHandler(error, req, res, () => undefined);
       }

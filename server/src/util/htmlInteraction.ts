@@ -194,8 +194,22 @@ function trustedBaseHref(raw: string | undefined): string | null {
   }
 }
 
-function normalizedDestination(raw: string, baseHref: string | null): string {
-  const candidate = urlCandidate(decodeHtmlEntities(raw));
+function decodeWholeEncodedAbsoluteWebUrl(candidate: string): string {
+  if (!/^https?%3a%2f%2f/i.test(candidate)) return candidate;
+  if (!/^(?:[A-Za-z0-9_.!~*'()-]|%[0-9A-Fa-f]{2})+$/.test(candidate)) return candidate;
+  try {
+    const decoded = decodeURIComponent(candidate);
+    const parsed = new URL(decoded);
+    if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) return candidate;
+    return parsed.toString();
+  } catch {
+    return candidate;
+  }
+}
+
+export function canonicalizeWebDestination(raw: string, baseHref: string | null): string {
+  const entityDecoded = decodeHtmlEntities(raw);
+  const candidate = urlCandidate(decodeWholeEncodedAbsoluteWebUrl(entityDecoded));
   if (!candidate) return "";
   try {
     return baseHref ? new URL(candidate, baseHref).toString() : new URL(candidate).toString();
@@ -290,7 +304,7 @@ function appendPlainTextLinks(
   let match: RegExpExecArray | null;
   while ((match = bareRe.exec(boundedText))) {
     const rawUrl = match[0]!.replace(/[),.;!?]+$/, "");
-    const normalizedUrl = normalizedDestination(rawUrl, null);
+    const normalizedUrl = canonicalizeWebDestination(rawUrl, null);
     appendLink(
       links,
       seen,
@@ -343,7 +357,7 @@ export function analyzeHtmlInteractions(
     if (tag.name === "a" || tag.name === "area") {
       const href = tag.attrs.get("href");
       if (href?.trim()) {
-        const normalizedUrl = normalizedDestination(href, baseHref);
+        const normalizedUrl = canonicalizeWebDestination(href, baseHref);
         if (!seenHrefs.has(href) && htmlHrefs.length < MAX_HTML_INTERACTION_LINKS) {
           seenHrefs.add(href);
           htmlHrefs.push(href);
@@ -373,7 +387,7 @@ export function analyzeHtmlInteractions(
       appendLink(
         links,
         seen,
-        makeBodyLink(action, normalizedDestination(action, baseHref), null, "form_action"),
+        makeBodyLink(action, canonicalizeWebDestination(action, baseHref), null, "form_action"),
         incompleteReasons,
       );
     }
@@ -383,7 +397,7 @@ export function analyzeHtmlInteractions(
       appendLink(
         links,
         seen,
-        makeBodyLink(refresh, normalizedDestination(refresh, baseHref), null, "automatic_redirect"),
+        makeBodyLink(refresh, canonicalizeWebDestination(refresh, baseHref), null, "automatic_redirect"),
         incompleteReasons,
       );
     }
