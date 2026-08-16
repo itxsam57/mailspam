@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { createLocalDesktopServer } from "../../server/src/api/localDesktopServer.js";
 import { LocalSecurityManager } from "../../server/src/api/localSecurity.js";
 
@@ -86,8 +85,8 @@ describe("production consumer release surface", () => {
   });
 
   it("keeps developer affordances behind the authoritative server flag and shell boundary", () => {
-    const localSecurity = readFileSync(resolve(process.cwd(), "web/local-security.js"), "utf8");
-    const consumer = readFileSync(resolve(process.cwd(), "web/consumer-product.js"), "utf8");
+    const localSecurity = readFileSync(new URL("../../web/local-security.js", import.meta.url), "utf8");
+    const consumer = readFileSync(new URL("../../web/consumer-product.js", import.meta.url), "utf8");
     expect(localSecurity).toContain("email-shield-development-entitlements");
     expect(localSecurity).toContain("emailShieldDevelopmentEntitlementsEnabled");
     expect(localSecurity).toContain("body.email-shield-shell > header { display: none !important; }");
@@ -96,14 +95,14 @@ describe("production consumer release surface", () => {
   });
 
   it("uses the canonical High Protection profile value in the browser", () => {
-    const consumer = readFileSync(resolve(process.cwd(), "web/consumer-product.js"), "utf8");
+    const consumer = readFileSync(new URL("../../web/consumer-product.js", import.meta.url), "utf8");
     expect(consumer).toContain('data-consumer-sensitivity="high"');
     expect(consumer).not.toContain('data-consumer-sensitivity="high_protection"');
   });
 
   it("never tells consumers to configure OAuth client IDs themselves", () => {
-    const gmail = readFileSync(resolve(process.cwd(), "web/gmail-oauth.js"), "utf8");
-    const outlook = readFileSync(resolve(process.cwd(), "web/outlook-oauth.js"), "utf8");
+    const gmail = readFileSync(new URL("../../web/gmail-oauth.js", import.meta.url), "utf8");
+    const outlook = readFileSync(new URL("../../web/outlook-oauth.js", import.meta.url), "utf8");
     const copy = `${gmail}\n${outlook}`.toLowerCase();
     expect(copy).not.toContain("set the email shield desktop oauth client id");
     expect(copy).not.toContain("configure the desktop client id");
