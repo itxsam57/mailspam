@@ -60,6 +60,36 @@ describe("RealtimeProtectionService", () => {
     expect(service.status().lastSuccessAt).not.toBeNull();
   });
 
+  it("persists the poll baseline across service restart and scans only after a later checkpoint changes", async () => {
+    const account = session("h".repeat(64));
+    const repository = new InMemoryInboundEventStateRepository();
+    let checkpoint = "checkpoint-1";
+    let processed = 0;
+    const dependencies = () => ({
+      sessions: { list: () => [account] },
+      repository,
+      pollProbe: { checkpoint: async () => checkpoint },
+      processor: {
+        process: async () => {
+          processed += 1;
+          return { examined: 1, warnings: 0, highRisk: 0, confirmedThreat: 0 };
+        },
+      },
+    });
+
+    const first = createService(dependencies());
+    await first.pollNow(1_000);
+    expect(processed).toBe(0);
+
+    const restarted = createService(dependencies());
+    await restarted.pollNow(2_000);
+    expect(processed).toBe(0);
+
+    checkpoint = "checkpoint-2";
+    await restarted.pollNow(3_000);
+    expect(processed).toBe(1);
+  });
+
   it("retries the exact changed checkpoint after processing failure and advances only after success", async () => {
     const account = session("b".repeat(64));
     let checkpoint = "checkpoint-1";
