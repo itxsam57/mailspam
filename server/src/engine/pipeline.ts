@@ -4,6 +4,7 @@ import {
   authenticationPassed,
   hasAuthenticatedOrganizationalIdentity,
 } from "./identitySignals.js";
+import { normalizeSecurityText } from "./securityText.js";
 import { transportAuthLayer } from "./layers/transportAuth.js";
 import { providerContextLayer } from "./layers/providerContext.js";
 import { identityImpersonationLayer } from "./layers/identityImpersonation.js";
@@ -83,6 +84,27 @@ function adaptiveLegitimateAllowsSafe(
     positiveRisk.every((item) => item.scoreContribution <= 1);
 }
 
+function distinctLegacyCryptoPressure(envelope: CanonicalEnvelope): boolean {
+  const linkText = envelope.links.map((link) => `${link.visibleText ?? ""}\n${link.rawUrl}`).join("\n");
+  const text = normalizeSecurityText(
+    `${envelope.subject}\n${envelope.textPreview ?? ""}\n${envelope.htmlSignals?.extractedText ?? ""}\n${linkText}`,
+  );
+  return /guaranteed returns?|double your|act (?:now|fast)|limited (?:time|spots)|validate your wallet/i.test(text);
+}
+
+function enforceIntentEvidenceOwnership(
+  envelope: CanonicalEnvelope,
+  intentResult: LayerResult,
+): LayerResult {
+  if (!intentResult.evidence.some((item) => item.code === "CRYPTO_SCAM_INTENT")) return intentResult;
+  if (distinctLegacyCryptoPressure(envelope)) return intentResult;
+
+  return {
+    ...intentResult,
+    evidence: intentResult.evidence.filter((item) => item.code !== "CRYPTO_SCAM_INTENT"),
+  };
+}
+
 export function scanMessage(
   envelope: CanonicalEnvelope,
   deps: { personalPolicy: PersonalPolicyStore; threatFeed: ThreatFeedCache },
@@ -90,14 +112,15 @@ export function scanMessage(
   const { result: personalResult, confirmedByPersonalBlock } = personalRulesLayer(envelope, deps.personalPolicy);
   const { result: globalResult, confirmedByGlobalRule } = globalIntelligenceLayer(envelope, deps.threatFeed);
   const identityResult = identityImpersonationLayer(envelope);
-  const intentResult = messageIntentLayer(envelope);
+  const intentResult = enforceIntentEvidenceOwnership(envelope, messageIntentLayer(envelope));
+  const structuralResult = structuralConsistencyLayer(envelope, identityResult);
 
   const layerResults = [
     providerContextLayer(envelope),
     transportAuthLayer(envelope),
     identityResult,
     intentResult,
-    structuralConsistencyLayer(envelope, identityResult),
+    structuralResult,
     linkStructureLayer(envelope),
     destinationLayerNotRun(),
     attachmentQrLayer(envelope),
