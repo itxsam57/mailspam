@@ -1,10 +1,15 @@
 import express, { Router, type Express } from "express";
 import type { RuntimeWorkflowTraceRecorder } from "../diagnostics/runtimeWorkflowTrace.js";
 import { runtimeWorkflowTrace } from "../diagnostics/runtimeWorkflowTrace.js";
+import {
+  createTechnicalTelemetryFromEnvironment,
+  type TechnicalTelemetry,
+} from "../telemetry/technicalTelemetry.js";
 import type { LocalSecurityManager } from "./localSecurity.js";
 
 export function createRuntimeWorkflowTraceRouter(options: {
   recorder: RuntimeWorkflowTraceRecorder;
+  telemetry?: Pick<TechnicalTelemetry, "captureWorkflowTrace">;
 }): Router {
   const router = Router();
   const recorder = options.recorder;
@@ -30,6 +35,10 @@ export function createRuntimeWorkflowTraceRouter(options: {
       res.status(400).json({ accepted: false, error: "Trace event did not match the privacy-safe diagnostic contract." });
       return;
     }
+    const latest = recorder.readCurrent(1)[0];
+    if (latest && options.telemetry) {
+      void options.telemetry.captureWorkflowTrace(latest);
+    }
     res.status(202).json({ accepted: true });
   });
 
@@ -54,14 +63,18 @@ export function createRuntimeWorkflowTraceRouter(options: {
  * The browser trace sink is developer diagnostics, not a mailbox mutation.
  * It therefore uses the protected-read boundary (session + same-origin + CSRF)
  * instead of consuming a one-time mutation nonce. The recorder itself performs
- * the second strict allowlist validation before anything reaches disk.
+ * the second strict allowlist validation before anything reaches disk. The
+ * optional remote mirror revalidates the record independently and remains
+ * controlled by the existing EMAIL_SHIELD_TELEMETRY opt-in.
  */
 export function registerRuntimeWorkflowTraceRoutes(app: Express, options: {
   security: LocalSecurityManager;
   recorder?: RuntimeWorkflowTraceRecorder | null;
+  telemetry?: Pick<TechnicalTelemetry, "captureWorkflowTrace">;
 }): void {
   const recorder = options.recorder ?? runtimeWorkflowTrace();
   if (!recorder?.enabled) return;
+  const telemetry = options.telemetry ?? createTechnicalTelemetryFromEnvironment();
   app.use(
     "/api/dev/runtime-trace",
     options.security.validateLoopbackRequest,
@@ -69,6 +82,6 @@ export function registerRuntimeWorkflowTraceRoutes(app: Express, options: {
     options.security.redactResponses(),
     express.json({ limit: "16kb", strict: true }),
     options.security.requireProtectedRead(),
-    createRuntimeWorkflowTraceRouter({ recorder }),
+    createRuntimeWorkflowTraceRouter({ recorder, telemetry }),
   );
 }
