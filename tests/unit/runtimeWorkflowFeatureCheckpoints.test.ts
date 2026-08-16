@@ -27,6 +27,9 @@ const expectedCheckpoints: Record<string, string[]> = {
     "mailbox.scan.full.ui_confirmed",
     "mailbox.scan.spam.ui_confirmed",
     "mailbox.scan.stop.ui_confirmed",
+    "message.block_sender.ui_confirmed",
+    "message.block_domain.ui_confirmed",
+    "message.trash.ui_confirmed",
   ],
   "web/account-plan.js": [
     "account.profile.snapshot.ui_confirmed",
@@ -91,9 +94,6 @@ const expectedCheckpoints: Record<string, string[]> = {
   "web/unsubscribe-monitor.js": ["message.unsubscribe.ui_confirmed"],
   "web/analyze-links-actions.js": ["message.analyze_links.ui_confirmed"],
   "web/review-actions.js": [
-    "message.block_sender.ui_confirmed",
-    "message.block_domain.ui_confirmed",
-    "message.trash.ui_confirmed",
     "message.report_scam.ui_confirmed",
     "message.move_spam.ui_confirmed",
     "message.mark_safe.ui_confirmed",
@@ -119,10 +119,14 @@ describe("feature-owner runtime workflow checkpoints", () => {
     const accountPlan = read("web/account-plan.js");
     const family = read("web/family-shield.js");
     const consumer = read("web/consumer-product.js");
+    const history = read("web/scan-history.js");
+    const disconnect = read("web/account-disconnect.js");
 
     expect(accountPlan).toContain("registerControl(revoke, 'account.devices.revoke'");
     expect(family).toContain("registerControl(remove, 'family.remove_member'");
     expect(consumer).toContain("registerControl(cleanup, 'mailbox.cleanup'");
     expect(consumer).toContain("registerControl(undo, 'message.undo'");
+    expect(history).toContain("registerControl(resumeScanButton, 'mailbox.scan.resume'");
+    expect(disconnect).toContain("registerControl(button, 'account.disconnect'");
   });
 });
