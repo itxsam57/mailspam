@@ -137,10 +137,13 @@ function repeatedOrganizationClaim(envelope: CanonicalEnvelope): string[] {
   if (!shared.length) return [];
   if (resemblesPersonNotification(displayName, shared)) return [];
 
-  // The structural extractor identifies organization-like transaction claims
-  // without a brand database. Keep this layer's stricter repeated-word grammar
-  // and use those extracted claims only as corroboration so identity matching
-  // does not broaden into arbitrary display-name/subject overlap.
+  // Structural organization claims are corroborating evidence, not a new
+  // prerequisite for this established identity detector. Some valid generic
+  // organization phrases appear later in subjects (for example "Your X
+  // account...") and intentionally fall outside the extractor's stricter
+  // leading-claim grammar. When structural claims do exist, use their overlap
+  // to narrow the candidate words; otherwise preserve the prior repeated-word
+  // grammar so existing spoof/QR identity evidence cannot silently disappear.
   const structuralFacts = extractStructuralScamFacts({
     subject: envelope.subject,
     text: envelope.textPreview,
@@ -150,7 +153,7 @@ function repeatedOrganizationClaim(envelope: CanonicalEnvelope): string[] {
   });
   const structuralClaimWords = new Set(structuralFacts.organizationClaims.flatMap((claim) => words(claim)));
   const structurallySupported = shared.filter((word) => structuralClaimWords.has(word));
-  if (!structurallySupported.length) return [];
+  const candidateShared = structurallySupported.length ? structurallySupported : shared;
 
   // Repeated personal names are common in social/contact notifications. A
   // local generic brand rule must therefore also see transactional/security
@@ -163,9 +166,9 @@ function repeatedOrganizationClaim(envelope: CanonicalEnvelope): string[] {
   // A single short word is often a product feature or ordinary verb (for
   // example "Find My"), not a reliable organization claim. Require either a
   // multi-word identity or one distinctive word of at least five characters.
-  const distinctive = structurallySupported.length >= 2
-    ? structurallySupported
-    : structurallySupported.filter((word) => word.length >= 5);
+  const distinctive = candidateShared.length >= 2
+    ? candidateShared
+    : candidateShared.filter((word) => word.length >= 5);
   if (!distinctive.length) return [];
   if (!riskyContext && distinctive.length < 2) return [];
   return distinctive;
