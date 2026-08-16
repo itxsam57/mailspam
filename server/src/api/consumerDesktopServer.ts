@@ -13,6 +13,7 @@ import { registerLinkAnalysisActionRoutes } from "./linkAnalysisActions.js";
 import { registerMediaAuthenticityRoute } from "./mediaAuthenticityRoute.js";
 import { createLocalDesktopServer } from "./localDesktopServer.js";
 import { localSecurity } from "./localSecurity.js";
+import { registerRuntimeWorkflowTraceRoutes } from "./runtimeWorkflowTraceRoutes.js";
 import { registerScamCheckRoutes } from "./scamCheckRoutes.js";
 import { registerShoppingSafetyRoute } from "./shoppingSafetyRoute.js";
 
@@ -46,6 +47,8 @@ export function createConsumerDesktopServer(options: ConsumerDesktopServerOption
   const security = localOptions.security ?? localSecurity;
   const community = localOptions.community ?? communityNetwork;
   const app = express();
+
+  registerRuntimeWorkflowTraceRoutes(app, { security });
 
   registerScamCheckRoutes(app, {
     security,

@@ -10,6 +10,7 @@ import {
 import { createConsumerDesktopServer } from "./api/consumerDesktopServer.js";
 import { createDefaultLiveConnectionPersistence } from "./api/liveConnectionPersistence.js";
 import { communityNetwork } from "./community/network.js";
+import { initializeRuntimeWorkflowTrace } from "./diagnostics/runtimeWorkflowTrace.js";
 import { ensureManagedDataDirectory } from "./security/managedDataDirectory.js";
 import { getRuntimeCredentialVault } from "./security/credentialVaultFactory.js";
 import { defaultEmailShieldDataDirectory } from "./security/dataDirectory.js";
@@ -44,6 +45,25 @@ void telemetry.capture("email_shield_app_started");
 
 const dataDirectory = defaultEmailShieldDataDirectory();
 ensureManagedDataDirectory(dataDirectory);
+
+// Source/live owner acceptance gets a separate local diagnostic trace. It is
+// automatically enabled by the source development launchers, bounded on disk,
+// and accepts only the fixed privacy-safe workflow schema. Normal packaged
+// consumer startup remains unaffected unless the diagnostic environment flag is
+// explicitly enabled.
+const workflowTrace = initializeRuntimeWorkflowTrace({ dataDirectory });
+if (workflowTrace.enabled) {
+  workflowTrace.record({
+    traceId: workflowTrace.runId,
+    stage: "app",
+    actionId: "application.start",
+    expectedWorkflow: "desktop_runtime",
+    component: "desktop_server",
+    step: "started",
+    outcome: "started",
+  });
+  console.log(`Email Shield runtime workflow trace active for run ${workflowTrace.runId}.`);
+}
 
 // Resolve or migrate protected local encryption keys before the desktop API
 // becomes reachable. One native runtime vault is shared across every protected
@@ -134,4 +154,15 @@ const app = createConsumerDesktopServer({
 app.listen(PORT, HOST, () => {
   console.log(`Email Shield listening on http://${HOST}:${PORT}`);
   void telemetry.capture("email_shield_server_listening");
+  if (workflowTrace.enabled) {
+    workflowTrace.record({
+      traceId: workflowTrace.runId,
+      stage: "app",
+      actionId: "application.listen",
+      expectedWorkflow: "desktop_runtime",
+      component: "desktop_server",
+      step: "listening",
+      outcome: "success",
+    });
+  }
 });

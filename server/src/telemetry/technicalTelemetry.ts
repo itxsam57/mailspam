@@ -13,6 +13,7 @@ type TechnicalTelemetryProperties = Readonly<{
 
 export interface TechnicalTelemetry {
   capture(event: TechnicalTelemetryEvent, properties?: TechnicalTelemetryProperties): Promise<boolean>;
+  captureWorkflowTrace(record: unknown): Promise<boolean>;
 }
 
 interface TechnicalTelemetryOptions {
@@ -25,6 +26,37 @@ interface TechnicalTelemetryOptions {
 const DEFAULT_POSTHOG_HOST = "https://us.i.posthog.com";
 const CAPTURE_TIMEOUT_MS = 1_500;
 const ANONYMOUS_DISTINCT_ID = "email-shield-desktop-runtime";
+const SAFE_LABEL = /^[a-z0-9][a-z0-9_.:/-]{0,159}$/i;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const WORKFLOW_TRACE_KEYS = new Set([
+  "schemaVersion",
+  "timestamp",
+  "runId",
+  "traceId",
+  "stage",
+  "actionId",
+  "expectedWorkflow",
+  "provider",
+  "scanType",
+  "component",
+  "step",
+  "outcome",
+  "routeTemplate",
+  "httpMethod",
+  "httpStatus",
+  "durationMs",
+  "pageSize",
+  "maxMessages",
+  "itemCount",
+  "retryCount",
+  "errorCode",
+]);
+const WORKFLOW_STAGES = new Set(["app", "ui_action", "api_request", "api_response", "workflow", "worker", "provider"]);
+const WORKFLOW_OUTCOMES = new Set(["started", "success", "failed", "partial", "cancelled", "rejected"]);
+const WORKFLOW_PROVIDERS = new Set(["gmail", "icloud", "outlook", "yahoo", "imap"]);
+const WORKFLOW_SCAN_TYPES = new Set(["quick", "full", "spam"]);
+const WORKFLOW_HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]);
 
 const ALLOWED_EVENTS = new Set<TechnicalTelemetryEvent>([
   "email_shield_app_started",
@@ -70,6 +102,78 @@ function validateProperties(
   return keys.length === 0 ? {} : null;
 }
 
+function optionalLabel(value: unknown): string | undefined | null {
+  if (value === undefined) return undefined;
+  return typeof value === "string" && SAFE_LABEL.test(value) ? value : null;
+}
+
+function optionalInteger(value: unknown, maximum: number): number | undefined | null {
+  if (value === undefined) return undefined;
+  return Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= maximum
+    ? Number(value)
+    : null;
+}
+
+function workflowTraceProperties(record: unknown): { timestamp: string; properties: Record<string, string | number | boolean> } | null {
+  if (!isRecord(record) || Object.keys(record).some((key) => !WORKFLOW_TRACE_KEYS.has(key))) return null;
+  if (record.schemaVersion !== 1) return null;
+  if (typeof record.timestamp !== "string" || !ISO_TIMESTAMP.test(record.timestamp)) return null;
+  if (typeof record.runId !== "string" || !UUID.test(record.runId)) return null;
+  if (typeof record.traceId !== "string" || !UUID.test(record.traceId)) return null;
+  if (typeof record.stage !== "string" || !WORKFLOW_STAGES.has(record.stage)) return null;
+  if (typeof record.actionId !== "string" || !SAFE_LABEL.test(record.actionId)) return null;
+  if (typeof record.expectedWorkflow !== "string" || !SAFE_LABEL.test(record.expectedWorkflow)) return null;
+  if (typeof record.outcome !== "string" || !WORKFLOW_OUTCOMES.has(record.outcome)) return null;
+  if (record.provider !== undefined && (typeof record.provider !== "string" || !WORKFLOW_PROVIDERS.has(record.provider))) return null;
+  if (record.scanType !== undefined && (typeof record.scanType !== "string" || !WORKFLOW_SCAN_TYPES.has(record.scanType))) return null;
+  if (record.httpMethod !== undefined && (typeof record.httpMethod !== "string" || !WORKFLOW_HTTP_METHODS.has(record.httpMethod))) return null;
+
+  const component = optionalLabel(record.component);
+  const step = optionalLabel(record.step);
+  const routeTemplate = optionalLabel(record.routeTemplate);
+  const errorCode = optionalLabel(record.errorCode);
+  if (component === null || step === null || routeTemplate === null || errorCode === null) return null;
+
+  const httpStatus = optionalInteger(record.httpStatus, 599);
+  const durationMs = optionalInteger(record.durationMs, 86_400_000);
+  const pageSize = optionalInteger(record.pageSize, 10_000);
+  const maxMessages = optionalInteger(record.maxMessages, 10_000_000);
+  const itemCount = optionalInteger(record.itemCount, 10_000_000);
+  const retryCount = optionalInteger(record.retryCount, 1_000);
+  if (
+    httpStatus === null
+    || durationMs === null
+    || pageSize === null
+    || maxMessages === null
+    || itemCount === null
+    || retryCount === null
+  ) return null;
+
+  const properties: Record<string, string | number | boolean> = {
+    run_id: record.runId,
+    trace_id: record.traceId,
+    stage: record.stage,
+    action_id: record.actionId,
+    expected_workflow: record.expectedWorkflow,
+    outcome: record.outcome,
+  };
+  if (typeof record.provider === "string") properties.provider = record.provider;
+  if (typeof record.scanType === "string") properties.scan_type = record.scanType;
+  if (component !== undefined) properties.trace_component = component;
+  if (step !== undefined) properties.step = step;
+  if (routeTemplate !== undefined) properties.route_template = routeTemplate;
+  if (typeof record.httpMethod === "string") properties.http_method = record.httpMethod;
+  if (httpStatus !== undefined) properties.http_status = httpStatus;
+  if (durationMs !== undefined) properties.duration_ms = durationMs;
+  if (pageSize !== undefined) properties.page_size = pageSize;
+  if (maxMessages !== undefined) properties.max_messages = maxMessages;
+  if (itemCount !== undefined) properties.item_count = itemCount;
+  if (retryCount !== undefined) properties.retry_count = retryCount;
+  if (errorCode !== undefined) properties.error_code = errorCode;
+
+  return { timestamp: record.timestamp, properties };
+}
+
 function captureUrlFromHost(rawHost: string): URL | null {
   try {
     const host = new URL(rawHost);
@@ -83,6 +187,9 @@ function captureUrlFromHost(rawHost: string): URL | null {
 function disabledTelemetry(): TechnicalTelemetry {
   return {
     async capture() {
+      return false;
+    },
+    async captureWorkflowTrace() {
       return false;
     },
   };
@@ -101,48 +208,57 @@ export function createTechnicalTelemetryFromEnvironment(
     environment.EMAIL_SHIELD_POSTHOG_HOST?.trim() || DEFAULT_POSTHOG_HOST,
   );
   if (!captureUrl) return disabledTelemetry();
+  const telemetryCaptureUrl: URL = captureUrl;
 
   const platform = options.platform ?? process.platform;
   const appVersion = options.appVersion?.trim() || "unknown";
   const fetchImpl = options.fetchImpl ?? globalThis.fetch;
   if (typeof fetchImpl !== "function") return disabledTelemetry();
 
+  async function send(event: string, safeProperties: Record<string, unknown>, timestamp = new Date().toISOString()): Promise<boolean> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), CAPTURE_TIMEOUT_MS);
+    timeout.unref?.();
+
+    try {
+      const response = await fetchImpl(telemetryCaptureUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          api_key: projectToken,
+          distinct_id: ANONYMOUS_DISTINCT_ID,
+          event,
+          timestamp,
+          properties: {
+            $process_person_profile: false,
+            $geoip_disable: true,
+            component: "desktop_server",
+            app_version: appVersion,
+            platform,
+            ...safeProperties,
+          },
+        }),
+        signal: controller.signal,
+      });
+      return response.ok;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   return {
     async capture(event, properties) {
       if (!ALLOWED_EVENTS.has(event)) return false;
       const safeProperties = validateProperties(event, properties);
       if (!safeProperties) return false;
-
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), CAPTURE_TIMEOUT_MS);
-      timeout.unref?.();
-
-      try {
-        const response = await fetchImpl(captureUrl, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            api_key: projectToken,
-            distinct_id: ANONYMOUS_DISTINCT_ID,
-            event,
-            timestamp: new Date().toISOString(),
-            properties: {
-              $process_person_profile: false,
-              $geoip_disable: true,
-              component: "desktop_server",
-              app_version: appVersion,
-              platform,
-              ...safeProperties,
-            },
-          }),
-          signal: controller.signal,
-        });
-        return response.ok;
-      } catch {
-        return false;
-      } finally {
-        clearTimeout(timeout);
-      }
+      return send(event, safeProperties);
+    },
+    async captureWorkflowTrace(record) {
+      const safe = workflowTraceProperties(record);
+      if (!safe) return false;
+      return send("email_shield_workflow_trace", safe.properties, safe.timestamp);
     },
   };
 }
