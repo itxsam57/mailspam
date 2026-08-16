@@ -126,6 +126,38 @@ describe("RealtimeProtectionService", () => {
     expect(ids[2]).not.toBe(ids[1]);
   });
 
+  it("treats a recurring checkpoint as a new transition after an intervening successful checkpoint", async () => {
+    const account = session("i".repeat(64), "outlook");
+    let checkpoint = "checkpoint-a";
+    const processed: Array<{ eventId: string; checkpoint: string | null | undefined }> = [];
+    const service = createService({
+      sessions: { list: () => [account] },
+      repository: new InMemoryInboundEventStateRepository(),
+      pollProbe: { checkpoint: async () => checkpoint },
+      processor: {
+        process: async (event: { eventId: string; checkpoint?: string | null }) => {
+          processed.push({ eventId: event.eventId, checkpoint: event.checkpoint });
+          return { examined: 1, warnings: 0, highRisk: 0, confirmedThreat: 0 };
+        },
+      },
+    });
+
+    await service.pollNow(1_000); // baseline A
+    checkpoint = "checkpoint-b";
+    await service.pollNow(2_000); // A -> B
+    checkpoint = "checkpoint-c";
+    await service.pollNow(3_000); // B -> C
+    checkpoint = "checkpoint-b";
+    await service.pollNow(4_000); // C -> B must not replay-dedupe A -> B
+
+    expect(processed.map((entry) => entry.checkpoint)).toEqual([
+      "checkpoint-b",
+      "checkpoint-c",
+      "checkpoint-b",
+    ]);
+    expect(processed[2]!.eventId).not.toBe(processed[0]!.eventId);
+  });
+
   it("does not let one provider probe failure starve another changed connected account", async () => {
     const bad = session("c".repeat(64), "gmail");
     const good = session("d".repeat(64), "outlook");
