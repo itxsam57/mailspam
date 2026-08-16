@@ -42,6 +42,15 @@
     status.className = `scan-monitor-status ${state}`.trim();
   }
 
+  function confirmReviewTrace(actionName, outcome = 'success', errorCode) {
+    const trace = window.emailShieldRuntimeTrace;
+    const extra = errorCode ? { errorCode } : undefined;
+    if (actionName === 'report-scam' && trace?.currentWorkflowId?.() === 'message.report_scam') trace.checkpoint('message.report_scam.ui_confirmed', outcome, extra);
+    else if (actionName === 'move-spam' && trace?.currentWorkflowId?.() === 'message.move_spam') trace.checkpoint('message.move_spam.ui_confirmed', outcome, extra);
+    else if (actionName === 'mark-safe' && trace?.currentWorkflowId?.() === 'message.mark_safe') trace.checkpoint('message.mark_safe.ui_confirmed', outcome, extra);
+    else if (actionName === 'trust-sender' && trace?.currentWorkflowId?.() === 'message.trust_sender') trace.checkpoint('message.trust_sender.ui_confirmed', outcome, extra);
+  }
+
   async function refreshPersonalPolicy() {
     const refresh = window.emailShieldRefreshPersonalPolicy;
     if (typeof refresh === 'function') {
@@ -74,9 +83,6 @@
     const domainBlock = actions.querySelector('[data-action="block-domain"]');
     const trash = actions.querySelector('[data-action="trash"]');
 
-    // Every message mutation is authorized by the same opaque review token.
-    // Browser-rendered sender/domain strings are presentation only and never
-    // become policy authority.
     if (senderBlock instanceof HTMLButtonElement) {
       senderBlock.dataset.reviewToken = action.token;
       if (action.senderBlocked === true) {
@@ -187,25 +193,15 @@
     if (result.communityAccepted !== true) {
       return `Community delivery was unavailable or not accepted${result.communityError ? `: ${result.communityError}` : ''}. Local campaign protection remains active.`;
     }
-    if (result.delivery === 'remote_shared') {
-      return `Shared network status: ${result.status}; ${result.independentReporters} independent reporter(s).`;
-    }
-    if (result.delivery === 'queued_remote') {
-      return 'The encrypted privacy-reduced report is queued and will retry when the configured shared service is reachable.';
-    }
-    if (result.delivery === 'embedded_local') {
-      return `Local test-network status: ${result.status}; ${result.independentReporters} local reporter proof(s). Other installations are not protected until a central community service is configured.`;
-    }
+    if (result.delivery === 'remote_shared') return `Shared network status: ${result.status}; ${result.independentReporters} independent reporter(s).`;
+    if (result.delivery === 'queued_remote') return 'The encrypted privacy-reduced report is queued and will retry when the configured shared service is reachable.';
+    if (result.delivery === 'embedded_local') return `Local test-network status: ${result.status}; ${result.independentReporters} local reporter proof(s). Other installations are not protected until a central community service is configured.`;
     return 'Community evidence was accepted, but no recognized delivery scope was returned. Local campaign protection remains active.';
   }
 
   function familyDeliveryMessage(result) {
-    if (result.family?.shared === true) {
-      return `Family Shield: ${result.family.status || 'protected'} for this private Shield Circle.`;
-    }
-    if (result.family?.error) {
-      return `Family Shield sharing needs attention: ${result.family.error}. Local campaign protection remains active.`;
-    }
+    if (result.family?.shared === true) return `Family Shield: ${result.family.status || 'protected'} for this private Shield Circle.`;
+    if (result.family?.error) return `Family Shield sharing needs attention: ${result.family.error}. Local campaign protection remains active.`;
     return 'No Family Shield campaign share was completed for this mailbox.';
   }
 
@@ -228,6 +224,7 @@
 
     if (!accountId || !token) {
       setGlobalStatus('Message action failed: the selected account or action token is missing.', 'error');
+      confirmReviewTrace(actionName, 'failed', 'protected_action_missing');
       return;
     }
 
@@ -259,6 +256,7 @@
     }
     if (!selectionMatches(ownerSnapshot)) {
       window.alert('The selected account changed. The message action was not sent; rescan the selected mailbox before acting.');
+      confirmReviewTrace(actionName, 'rejected', 'stale_selection');
       return;
     }
 
@@ -288,28 +286,22 @@
       if (!selectionMatches(ownerSnapshot)) return;
 
       if (isReportScam) {
-        if (result.success !== true || result.localProtected !== true || result.accountId !== accountId || result.token !== token) {
-          throw new Error('The server did not confirm durable local scam protection.');
-        }
-
+        if (result.success !== true || result.localProtected !== true || result.accountId !== accountId || result.token !== token) throw new Error('The server did not confirm durable local scam protection.');
         document.querySelectorAll(`[data-action="report-scam"][data-review-token="${CSS.escape(token)}"]`).forEach((candidate) => {
           candidate.disabled = true;
           candidate.textContent = result.movedCurrent === true ? 'Reported & moved to Trash ✓' : 'Campaign protected — Trash retry needed';
         });
         disableConflictingDecisions(token);
         container?.classList.add('community-reported');
-
         if (result.senderBlocked === true) {
           document.querySelectorAll(`[data-action="block-sender"][data-review-token="${CSS.escape(token)}"]`).forEach((candidate) => {
             candidate.disabled = true;
             candidate.textContent = 'Sender blocked ✓';
           });
         }
-
         await refreshPersonalPolicy();
         if (!selectionMatches(ownerSnapshot)) return;
         if (result.family?.shared) window.dispatchEvent(new CustomEvent('email-shield-family-changed'));
-
         const mailboxState = result.movedCurrent === true
           ? 'The provider confirmed that the current message was moved to Trash. Future matching campaign mail will be auto-moved for this account.'
           : `The campaign rule is active, but the current provider Trash move needs a retry${result.moveError ? `: ${result.moveError}` : '.'} Future matching campaign mail remains protected.`;
@@ -326,15 +318,12 @@
             : 'Scam campaign protection is active, but the current provider Trash move needs attention. Future matches remain protected.',
           complete ? 'complete' : 'error',
         );
+        confirmReviewTrace(actionName, complete ? 'success' : 'partial');
         return;
       }
 
       if (isMoveSpam) {
-        if (
-          result.success !== true || result.accountId !== accountId || result.token !== token ||
-          result.requested !== 1 || result.reported !== 1 ||
-          !['provider_spam_label', 'junk_folder_move', 'fixture_junk_move'].includes(result.mode)
-        ) throw new Error('The provider did not confirm exactly one Spam/Junk move.');
+        if (result.success !== true || result.accountId !== accountId || result.token !== token || result.requested !== 1 || result.reported !== 1 || !['provider_spam_label', 'junk_folder_move', 'fixture_junk_move'].includes(result.mode)) throw new Error('The provider did not confirm exactly one Spam/Junk move.');
         document.querySelectorAll(`[data-action="move-spam"][data-review-token="${CSS.escape(token)}"]`).forEach((candidate) => {
           candidate.disabled = true;
           candidate.textContent = 'Moved to Spam/Junk ✓';
@@ -345,12 +334,11 @@
           status.textContent = 'The provider confirmed that exactly one message was placed in Spam/Junk. This did not submit community intelligence.';
         }
         setGlobalStatus('Exactly one message was moved to provider Spam/Junk.', 'complete');
+        confirmReviewTrace(actionName);
         return;
       }
 
-      if (result.accountId !== accountId || (isMarkSafe ? result.markedSafe !== true : result.trusted !== true)) {
-        throw new Error('The server did not confirm the expected review action.');
-      }
+      if (result.accountId !== accountId || (isMarkSafe ? result.markedSafe !== true : result.trusted !== true)) throw new Error('The server did not confirm the expected review action.');
 
       if (isMarkSafe) {
         button.textContent = 'Message marked Safe ✓';
@@ -383,6 +371,7 @@
         }
         setGlobalStatus('Sender trusted for the selected account. Rescan to verify.', 'complete');
       }
+      confirmReviewTrace(actionName);
     } catch (error) {
       if (!selectionMatches(ownerSnapshot)) return;
       button.disabled = false;
@@ -393,6 +382,7 @@
         status.textContent = `Message action failed: ${message}`;
       }
       setGlobalStatus(`Message action failed: ${message}`, 'error');
+      confirmReviewTrace(actionName, 'failed', 'review_action_failed');
     }
   }, true);
 })();
