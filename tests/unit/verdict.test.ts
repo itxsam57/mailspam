@@ -46,7 +46,7 @@ describe("computeVerdict — structural safety guarantee", () => {
     expect(result.verdict).toBe("unknown");
   });
 
-  it("allows an explicit exact-message approval to override ordinary uncertainty", () => {
+  it("never lets an exact-message approval convert incomplete inspection into Safe", () => {
     const result = computeVerdict({
       parseStatus: "partial",
       layerResults: [{
@@ -59,7 +59,7 @@ describe("computeVerdict — structural safety guarantee", () => {
       confirmedByRule: false,
       exactMessageApprovedByUser: true,
     });
-    expect(result.verdict).toBe("safe");
+    expect(result.verdict).toBe("review");
   });
 
   it("never lets exact-message approval override High Risk evidence", () => {
