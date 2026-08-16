@@ -33,8 +33,11 @@ async function listen(app: Express): Promise<BrowserContext> {
   return { baseUrl, cookie, csrf };
 }
 
-async function start(): Promise<BrowserContext> {
-  return listen(createLocalDesktopServer({ security: new LocalSecurityManager() }));
+async function start(developmentEntitlementsEnabled = false): Promise<BrowserContext> {
+  return listen(createLocalDesktopServer({
+    security: new LocalSecurityManager(),
+    developmentEntitlementsEnabled,
+  }));
 }
 
 async function startActionHarness(): Promise<BrowserContext> {
@@ -173,7 +176,7 @@ describe("local desktop security boundary", () => {
   });
 
   it("requires a single-use mutation nonce", async () => {
-    const context = await start();
+    const context = await start(true);
     const mutationNonce = await nonce(context);
     const request = () => fetch(`${context.baseUrl}/api/accounts/connect`, {
       method: "POST",
