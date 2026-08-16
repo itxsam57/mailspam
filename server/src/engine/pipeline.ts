@@ -8,6 +8,7 @@ import { transportAuthLayer } from "./layers/transportAuth.js";
 import { providerContextLayer } from "./layers/providerContext.js";
 import { identityImpersonationLayer } from "./layers/identityImpersonation.js";
 import { messageIntentLayer } from "./layers/messageIntent.js";
+import { structuralConsistencyLayer } from "./layers/structuralConsistency.js";
 import { linkStructureLayer } from "./layers/linkStructure.js";
 import { destinationLayerNotRun } from "./layers/destinationClassification.js";
 import { attachmentQrLayer } from "./layers/attachmentQr.js";
@@ -88,12 +89,15 @@ export function scanMessage(
 ): ScanResult {
   const { result: personalResult, confirmedByPersonalBlock } = personalRulesLayer(envelope, deps.personalPolicy);
   const { result: globalResult, confirmedByGlobalRule } = globalIntelligenceLayer(envelope, deps.threatFeed);
+  const identityResult = identityImpersonationLayer(envelope);
+  const intentResult = messageIntentLayer(envelope);
 
   const layerResults = [
     providerContextLayer(envelope),
     transportAuthLayer(envelope),
-    identityImpersonationLayer(envelope),
-    messageIntentLayer(envelope),
+    identityResult,
+    intentResult,
+    structuralConsistencyLayer(envelope, identityResult),
     linkStructureLayer(envelope),
     destinationLayerNotRun(),
     attachmentQrLayer(envelope),
