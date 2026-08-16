@@ -15,6 +15,7 @@ import {
   messageIdentityCandidateDomains,
   verifiedRelayOriginDomains,
 } from "../identitySignals.js";
+import { extractStructuralScamFacts } from "../structuralScamEvidence.js";
 import type { LayerResult } from "../verdict.js";
 
 /**
@@ -136,6 +137,21 @@ function repeatedOrganizationClaim(envelope: CanonicalEnvelope): string[] {
   if (!shared.length) return [];
   if (resemblesPersonNotification(displayName, shared)) return [];
 
+  // The structural extractor identifies organization-like transaction claims
+  // without a brand database. Keep this layer's stricter repeated-word grammar
+  // and use those extracted claims only as corroboration so identity matching
+  // does not broaden into arbitrary display-name/subject overlap.
+  const structuralFacts = extractStructuralScamFacts({
+    subject: envelope.subject,
+    text: envelope.textPreview,
+    htmlText: null,
+    displayName,
+    links: envelope.links,
+  });
+  const structuralClaimWords = new Set(structuralFacts.organizationClaims.flatMap((claim) => words(claim)));
+  const structurallySupported = shared.filter((word) => structuralClaimWords.has(word));
+  if (!structurallySupported.length) return [];
+
   // Repeated personal names are common in social/contact notifications. A
   // local generic brand rule must therefore also see transactional/security
   // context or an organization-type cue before treating the repeated words as
@@ -147,7 +163,9 @@ function repeatedOrganizationClaim(envelope: CanonicalEnvelope): string[] {
   // A single short word is often a product feature or ordinary verb (for
   // example "Find My"), not a reliable organization claim. Require either a
   // multi-word identity or one distinctive word of at least five characters.
-  const distinctive = shared.length >= 2 ? shared : shared.filter((word) => word.length >= 5);
+  const distinctive = structurallySupported.length >= 2
+    ? structurallySupported
+    : structurallySupported.filter((word) => word.length >= 5);
   if (!distinctive.length) return [];
   if (!riskyContext && distinctive.length < 2) return [];
   return distinctive;
@@ -168,18 +186,20 @@ export function identityImpersonationLayer(envelope: CanonicalEnvelope): LayerRe
   const evidence: LayerResult["evidence"] = [];
   const senderDomain = envelope.from.domain ? normalizeDomainName(envelope.from.domain) : null;
   const authenticatedIdentities = authenticatedSenderIdentityDomains(envelope);
+  const relayOrigins = verifiedRelayOriginDomains(envelope);
+  const knownRelay = Boolean(senderDomain && isKnownSenderRelay(senderDomain));
+  const unprovenRelay = knownRelay && relayOrigins.length === 0;
 
-  if (envelope.replyTo?.domain && senderDomain) {
+  if (envelope.replyTo?.domain && senderDomain && !unprovenRelay) {
     const replyDomain = normalizeDomainName(envelope.replyTo.domain);
-    const related = sameOrganizationalDomain(senderDomain, replyDomain);
-    const relayOrigins = verifiedRelayOriginDomains(envelope);
+    const directRelated = !knownRelay && sameOrganizationalDomain(senderDomain, replyDomain);
     const relayAligned = relayOrigins.some((domain) => sameOrganizationalDomain(domain, replyDomain));
 
-    if (!related && !relayAligned) {
+    if (!directRelated && !relayAligned) {
       evidence.push({
         layer: "identity_impersonation",
         code: "REPLY_TO_MISMATCH",
-        description: `Reply-To domain "${replyDomain}" is unrelated to the authenticated sender identity.`,
+        description: `Reply-To domain "${replyDomain}" is unrelated to the sender identity evidence available for this message.`,
         scoreContribution: 2,
         source: "local",
       });
@@ -191,12 +211,24 @@ export function identityImpersonationLayer(envelope: CanonicalEnvelope): LayerRe
     ...explicitDomains(envelope.subject),
   ]);
   for (const claimed of claimedDomains) {
-    const aligned = authenticatedIdentities.some((identity) => sameOrganizationalDomain(identity, claimed));
-    if (!aligned && senderDomain && !isKnownSenderRelay(senderDomain)) {
+    const visibleSenderAligned = Boolean(
+      senderDomain && !knownRelay && sameOrganizationalDomain(senderDomain, claimed),
+    );
+    const authenticatedAligned = authenticatedIdentities.some((identity) => sameOrganizationalDomain(identity, claimed));
+    const relayAligned = relayOrigins.some((origin) => sameOrganizationalDomain(origin, claimed));
+    const aligned = visibleSenderAligned || authenticatedAligned || relayAligned;
+
+    // A known relay with no attributable origin provides uncertainty, not
+    // contradictory organization evidence. Conversely, direct unrelated sender
+    // domains and proven relay origins can support a real contradiction.
+    if (!aligned && senderDomain && !unprovenRelay) {
+      const attributableIdentity = authenticatedIdentities[0]
+        ?? relayOrigins[0]
+        ?? organizationalDomain(senderDomain);
       evidence.push({
         layer: "identity_impersonation",
         code: "EXPLICIT_DOMAIN_CLAIM_MISMATCH",
-        description: `Message explicitly claims domain "${claimed}" but the sender identity is "${organizationalDomain(senderDomain)}".`,
+        description: `Message explicitly claims domain "${claimed}" but the sender identity is "${attributableIdentity}".`,
         scoreContribution: 4,
         source: "local",
       });
@@ -206,7 +238,7 @@ export function identityImpersonationLayer(envelope: CanonicalEnvelope): LayerRe
 
   const claimWords = repeatedOrganizationClaim(envelope);
   const labels = organizationLabels(envelope);
-  if (claimWords.length && labels.length && !claimMatchesLabels(claimWords, labels)) {
+  if (!unprovenRelay && claimWords.length && labels.length && !claimMatchesLabels(claimWords, labels)) {
     const closest = Math.min(...claimWords.flatMap((claim) => labels.map((label) => levenshtein(claim, label))));
     const lookalike = closest > 0 && closest <= 2 && claimWords.some((word) => word.length >= 5);
     evidence.push({
@@ -216,6 +248,16 @@ export function identityImpersonationLayer(envelope: CanonicalEnvelope): LayerRe
       scoreContribution: lookalike ? 5 : 4,
       source: "local",
     });
+  }
+
+  if (unprovenRelay) {
+    return {
+      layer: "identity_impersonation",
+      applicable: true,
+      evidence,
+      incomplete: true,
+      incompleteReason: "Known relay/forwarder transport was observed, but the original organizational sender identity could not be proven.",
+    };
   }
 
   return { layer: "identity_impersonation", applicable: true, evidence, incomplete: false };
