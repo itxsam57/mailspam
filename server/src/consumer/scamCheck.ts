@@ -238,9 +238,9 @@ function buildSubmittedEnvelope(input: ConsumerScamCheckRequestV1): CanonicalEnv
 }
 
 const CATEGORY_BY_CODE: Array<[RegExp, string]> = [
-  [/CREDENTIAL|PASSWORD|OTP|LOGIN/i, "credential_phishing"],
-  [/CALLBACK|REFUND|SUBSCRIPTION/i, "callback_refund"],
-  [/BEC|PAYMENT_DIVERSION|WIRE|GIFT_CARD/i, "payment_diversion"],
+  [/CREDENTIAL|PASSWORD|OTP|LOGIN|ACCOUNT_SECRET_EXFILTRATION/i, "credential_phishing"],
+  [/CALLBACK|REFUND|SUBSCRIPTION|REMOTE_ACCESS_FINANCIAL_PRESSURE/i, "callback_refund"],
+  [/BEC|PAYMENT_DIVERSION|WIRE|GIFT_CARD|IRREVERSIBLE_PAYMENT_PRESSURE|SECRECY_PAYMENT_DIVERSION/i, "payment_diversion"],
   [/CRYPTO|WALLET|SEED/i, "cryptocurrency"],
   [/DELIVERY|PARCEL|TOLL|SHIPMENT/i, "delivery_payment"],
   [/ROMANCE|ADULT|PROFILE_LURE/i, "romance_social"],
@@ -248,7 +248,7 @@ const CATEGORY_BY_CODE: Array<[RegExp, string]> = [
   [/GOV|LEGAL|ARREST|WARRANT/i, "government_legal"],
   [/PRIZE|LOTTERY|ADVANCE_FEE|REWARD/i, "prize_advance_fee"],
   [/CLOUD_DOC|DOCUMENT/i, "cloud_document"],
-  [/PUNYCODE|LOOKALIKE|IMPERSONATION|DISPLAYED_VS_ACTUAL/i, "impersonation_phishing"],
+  [/IMPERSONATED_TRANSACTION_ORIGIN|PUNYCODE|LOOKALIKE|IMPERSONATION|DISPLAYED_VS_ACTUAL/i, "impersonation_phishing"],
   [/RAW_IP|URL_SHORTENER|MALFORMED_URL|UNSAFE_LINK|NON_WEB_LINK/i, "suspicious_link"],
   [/GLOBAL_.*THREAT|COMMUNITY/i, "known_campaign"],
 ];
