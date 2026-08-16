@@ -1,0 +1,44 @@
+name: Flight Recorder Codemod
+
+on:
+  push:
+    branches:
+      - design/full-product-flight-recorder-20260816
+
+permissions:
+  contents: write
+
+concurrency:
+  group: flight-recorder-codemod
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.event.head_commit.message == 'chore: trigger flight recorder codemod'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: design/full-product-flight-recorder-20260816
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply exact-source codemods
+        run: node scripts/engineering/apply-flight-recorder-codemods.mjs
+      - name: Verify changed source parses
+        run: |
+          node --check web/runtime-workflow-trace.js
+          node --check web/consumer-product.js
+      - name: Commit generated source edits
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No codemod changes were produced."
+            exit 1
+          fi
+          git config user.name "email-shield-engineering"
+          git config user.email "email-shield-engineering@users.noreply.github.com"
+          git add web/runtime-workflow-trace.js web/consumer-product.js server/src/diagnostics/workflowRegistry.ts tests/unit/runtimeWorkflowFeatureCheckpoints.test.ts
+          git commit -m "feat: complete traced consumer control workflows"
+          git push origin HEAD:design/full-product-flight-recorder-20260816
