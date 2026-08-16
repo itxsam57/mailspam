@@ -42,6 +42,7 @@
     "gate": "node scripts/engineering/run-gate.mjs",
     "verify": "npm run gate",
     "dev": "node scripts/dev.mjs",
+    "dev:fixtures": "node scripts/dev-fixtures.mjs",
     "dev:community": "npm run dev:community -w server",
     "dev:account-service": "npm run dev:account-service -w server",
     "recover:local-state": "npm run recover:local-state -w server",
