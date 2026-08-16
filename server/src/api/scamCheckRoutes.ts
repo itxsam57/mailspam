@@ -1,5 +1,5 @@
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
-import type { CanonicalEnvelope, LinkInfo } from "../canonical/envelope.js";
+import type { LinkInfo } from "../canonical/envelope.js";
 import type { CommunityNetwork } from "../community/network.js";
 import {
   assertConsumerScamCheckRequest,
@@ -19,6 +19,7 @@ import {
   analyzeLinks,
   destinationAnalysisCoordinator,
   type DestinationAnalysisCoordinator,
+  type DestinationAnalysisInput,
 } from "../workflows/analyzeLinks.js";
 import type { LocalSecurityManager } from "./localSecurity.js";
 
@@ -91,7 +92,7 @@ function imageContentType(req: Request, _res: Response, next: NextFunction): voi
   next();
 }
 
-function submittedUrlEnvelope(rawUrl: string): Pick<CanonicalEnvelope, "links"> {
+function submittedUrlEnvelope(rawUrl: string): DestinationAnalysisInput {
   const normalizedUrl = canonicalizeWebDestination(rawUrl, null);
   const link: LinkInfo = {
     visibleText: rawUrl,
@@ -126,7 +127,7 @@ export function registerScamCheckRoutes(app: Express, deps: ScamCheckRouteDepend
         });
         const destinationAnalysis = req.body.kind === "url"
           ? await analyzeLinks(
-              submittedUrlEnvelope(req.body.url!.trim()) as CanonicalEnvelope,
+              submittedUrlEnvelope(req.body.url!.trim()),
               deps.destinationAnalyzer ?? destinationAnalysisCoordinator,
             )
           : undefined;
