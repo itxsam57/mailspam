@@ -26,12 +26,16 @@
     scamCheckButton: ['scam_check.run', 'scam_check.run', 'scam_check'],
     familyShieldButton: ['family.open', 'navigation.family', 'family_shield'],
     disconnectAccountBtn: ['account.disconnect', 'account.disconnect', 'account_disconnect'],
-    familyRefresh: ['family.load', 'family.load', 'family_refresh'],
-    familyCreate: ['family.create', 'family.create', 'family_create'],
-    familyJoin: ['family.join', 'family.join', 'family_join'],
-    familyInvite: ['family.invite', 'family.invite', 'family_invite'],
-    familyStrict: ['family.strict', 'family.strict', 'family_strict'],
-    familyLeave: ['family.leave', 'family.leave', 'family_leave'],
+
+    devSuiteBtn: ['developer.test_suite', 'developer.test_suite', 'developer_test_suite'],
+    operationsRefresh: ['community.operations.load', 'community.operations.load', 'community_operations'],
+
+    accountPlanRefresh: ['account.profile.snapshot', 'account.profile.snapshot', 'account_profile_snapshot'],
+    accountCreate: ['account.profile.register', 'account.profile.register', 'account_register'],
+    accountSignIn: ['account.profile.sign_in', 'account.profile.sign_in', 'account_sign_in'],
+    accountRecoverOpen: ['account.recovery.open', 'account.recovery.open', 'account_recovery_open'],
+    accountLinkMailbox: ['account.mailbox.link', 'account.mailbox.link', 'account_mailbox_link'],
+    accountSignOut: ['account.sign_out', 'account.sign_out', 'account_sign_out'],
     accountRotateRecovery: ['account.recovery.rotate', 'account.recovery.rotate', 'account_recovery_rotate'],
     accountRevokeOthers: ['account.devices.revoke_others', 'account.devices.revoke_others', 'account_devices_revoke_others'],
     accountExportMetadata: ['account.metadata.export', 'account.metadata.export', 'account_metadata_export'],
@@ -39,6 +43,42 @@
     accountTransferFamily: ['family.transfer', 'family.transfer', 'family_transfer'],
     accountDeleteFamily: ['account.family.delete', 'account.family.delete', 'account_family_delete'],
     accountDeleteProfile: ['account.delete', 'account.delete', 'account_delete'],
+
+    familyRefresh: ['family.load', 'family.load', 'family_refresh'],
+    familyCreate: ['family.create', 'family.create', 'family_create'],
+    familyJoin: ['family.join', 'family.join', 'family_join'],
+    familyInvite: ['family.invite', 'family.invite', 'family_invite'],
+    familyStrict: ['family.strict', 'family.strict', 'family_strict'],
+    familyLeave: ['family.leave', 'family.leave', 'family_leave'],
+    familyGuardianSave: ['family.guardian_preferences', 'family.guardian_preferences', 'family_guardian_preferences'],
+
+    homeScanNow: ['mailbox.scan.quick', 'mailbox.scan.quick', 'home_quick_scan'],
+    homeFamily: ['navigation.family', 'navigation.family', 'ui_navigation'],
+
+    consumerBuyIndividual: ['billing.purchase.individual', 'billing.purchase.individual', 'billing_purchase'],
+    consumerBuyFamily: ['billing.purchase.family', 'billing.purchase.family', 'billing_purchase'],
+    consumerRestorePurchase: ['billing.purchase.restore', 'billing.purchase.restore', 'billing_restore'],
+    consumerRunHealth: ['mailbox.health.run', 'mailbox.health.run', 'mailbox_health'],
+    consumerRefreshHealth: ['mailbox.health.load', 'mailbox.health.load', 'mailbox_health_view'],
+    consumerRefreshActivity: ['activity.load', 'activity.load', 'activity_load'],
+    consumerClearActivity: ['activity.clear', 'activity.clear', 'activity_clear'],
+    consumerRefreshFamily: ['family.load', 'family.load', 'family_refresh'],
+    consumerCheckBrowser: ['browser_destination.check', 'browser_destination.check', 'browser_destination_check'],
+    consumerCheckIntervention: ['intervention.check', 'intervention.check', 'intervention_check'],
+    consumerCheckExposure: ['exposure.email.check', 'exposure.email.check', 'exposure_check'],
+    consumerSupportBundle: ['support.bundle.export', 'support.bundle.export', 'support_bundle'],
+    consumerOnboardingDone: ['onboarding.complete', 'onboarding.complete', 'onboarding_complete'],
+
+    policyRefresh: ['policy.load', 'policy.load', 'policy_load'],
+    policyRevoke: ['policy.revoke', 'policy.revoke', 'policy_revoke'],
+    policyBulkRevoke: ['policy.bulk_revoke', 'policy.bulk_revoke', 'policy_bulk_revoke'],
+    policyClear: ['policy.clear', 'policy.clear', 'policy_clear'],
+    policyReset: ['policy.reset', 'policy.reset', 'policy_reset'],
+    policySelectVisible: ['policy.selection.toggle', 'policy.selection.toggle', 'policy_selection'],
+
+    scamCheckRun: ['scam_check.run', 'scam_check.run', 'scam_check'],
+    scamCheckClear: ['scam_check.clear', 'scam_check.clear', 'scam_check_clear'],
+    scanHistoryRefresh: ['mailbox.scan.history', 'mailbox.scan.history', 'scan_history'],
   });
 
   const ACTION_CONTROLS = Object.freeze({
@@ -73,6 +113,11 @@
 
   function validProvider(value) {
     return typeof value === 'string' && PROVIDERS.has(value) ? value : undefined;
+  }
+
+  function selectedProviderForConnect() {
+    const select = document.getElementById('providerSelect');
+    return select instanceof HTMLSelectElement ? validProvider(select.value) : undefined;
   }
 
   function validScanType(value) {
@@ -240,6 +285,11 @@
     const bound = registeredElements.get(button) || (button.id ? registeredById.get(button.id) : null);
     if (bound) return bound;
 
+    if (button.id === 'connectBtn') {
+      const provider = selectedProviderForConnect() || providerFor(button);
+      if (provider) return definition(`provider.connect.${provider}`, `provider.connect.${provider}`, 'provider_connection', provider);
+    }
+
     if (button.id && STATIC_CONTROLS[button.id]) {
       const [actionId, workflowId, expectedWorkflow] = STATIC_CONTROLS[button.id];
       return definition(actionId, workflowId, expectedWorkflow, providerFor(button));
@@ -293,6 +343,7 @@
     if (pathname.startsWith('/api/dev/runtime-trace')) return '/api/dev/runtime-trace/:operation';
     if (pathname.startsWith('/api/operations')) return '/api/operations/:operation';
     if (pathname.startsWith('/api/security')) return '/api/security/:operation';
+    if (pathname.startsWith('/api/dev/test-suite')) return '/api/dev/test-suite';
     return '/api/other';
   }
 
