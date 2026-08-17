@@ -45,7 +45,7 @@ jobs:
           delete rootPkg.overrides.mailparser;
           writeFileSync(rootPath, `${JSON.stringify(rootPkg, null, 2)}\n`);
           NODE
-          npm install --package-lock-only --ignore-scripts
+          npm install --package-lock-only --ignore-scripts --force
 
       - name: Inspect and verify resolved dependency graph
         shell: bash
