@@ -35,7 +35,7 @@ describe("RFC 8058 DKIM inspection resource bounds", () => {
       providerNativeId: "rfc8058-many-signatures",
     });
     envelope.authentication.providerTrust = "trusted";
-    expect(unsubscribeCapability(envelope).method).toBe("link_only");
+    expect(unsubscribeCapability(envelope).method).toBe("none");
   });
 
   it("rejects the whole one-click signature set when any DKIM signature exceeds its inspection bound", async () => {
@@ -51,6 +51,6 @@ describe("RFC 8058 DKIM inspection resource bounds", () => {
       providerNativeId: "rfc8058-oversized-signature",
     });
     envelope.authentication.providerTrust = "trusted";
-    expect(unsubscribeCapability(envelope).method).toBe("link_only");
+    expect(unsubscribeCapability(envelope).method).toBe("none");
   });
 });

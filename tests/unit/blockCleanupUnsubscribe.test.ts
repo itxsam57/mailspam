@@ -111,8 +111,7 @@ describe("unsubscribe", () => {
     const raw = readFileSync(join(CORPUS_DIR, "newsletter_marketing_abuse/legit-plain.eml"), "utf-8");
     const envelope = await normalizeRawMessage(raw, { provider: "gmail", accountProof: "x", providerFolderName: "INBOX", normalizedFolder: "inbox", providerNativeId: "test-id" });
     const capability = unsubscribeCapability(envelope);
-    expect(capability.method).toBe("link_only");
-    expect(capability.target).toBe("https://realnewsco.com/unsubscribe?one-click=true");
+    expect(capability).toEqual({ available: false, method: "none", target: null, source: "none" });
   });
 
   it("does not offer an insecure bare List-Unsubscribe link", async () => {

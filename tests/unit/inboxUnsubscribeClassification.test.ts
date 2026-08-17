@@ -128,7 +128,12 @@ describe("provider-neutral unsubscribe availability", () => {
         listUnsubscribePost: "List-Unsubscribe=One-Click",
       },
     }));
-    expect(capability).toMatchObject({ available: true, method: "link_only", source: "list_header" });
+    expect(capability).toMatchObject({
+      available: true,
+      method: "mailto",
+      target: "mailto:leave@example.com",
+      source: "list_header",
+    });
   });
 
   it("exposes ordinary header links instead of hiding them", () => {

@@ -74,9 +74,10 @@ function oneClickDkimAuthorized(envelope: CanonicalEnvelope): boolean {
  * Every canonical provider uses this same capability resolver. RFC 8058
  * one-click POST is offered only when the raw list-header field set is
  * unambiguous and a trusted passing DKIM identity maps unambiguously to exactly
- * one raw DKIM signature that signs both required list headers. Otherwise the
- * same message falls back to a manual List-Unsubscribe/footer option only when
- * that web destination is HTTPS, or to an explicit mailto action.
+ * one raw DKIM signature that signs both required list headers. A declared
+ * one-click HTTPS target is never reinterpreted as a browser GET destination
+ * when that authorization fails; only an independent mailto/footer target may
+ * remain available for explicit manual use.
  *
  * Manual footer discovery accepts either explicit unsubscribe text or a clear
  * unsubscribe/preferences URL structure. It never executes the target during
@@ -91,16 +92,25 @@ export function unsubscribeCapability(envelope: CanonicalEnvelope): UnsubscribeC
   );
 
   const httpsTarget = targets.find((target) => /^https:\/\//i.test(target));
-  if (oneClickDeclared && httpsTarget && oneClickDkimAuthorized(envelope)) {
-    return { available: true, method: "one_click_post", target: httpsTarget, source: "list_header" };
-  }
-
-  const webTarget = targets.find((target) => /^https:\/\//i.test(target));
-  if (webTarget) {
-    return { available: true, method: "link_only", target: webTarget, source: "list_header" };
-  }
-
   const mailtoTarget = targets.find((target) => /^mailto:/i.test(target));
+
+  if (oneClickDeclared) {
+    if (httpsTarget && oneClickDkimAuthorized(envelope)) {
+      return { available: true, method: "one_click_post", target: httpsTarget, source: "list_header" };
+    }
+    if (mailtoTarget) {
+      return { available: true, method: "mailto", target: mailtoTarget, source: "list_header" };
+    }
+    const footerTarget = normalizedFooterTarget(envelope);
+    if (footerTarget) {
+      return { available: true, method: footerTarget.method, target: footerTarget.target, source: "message_footer" };
+    }
+    return { available: false, method: "none", target: null, source: "none" };
+  }
+
+  if (httpsTarget) {
+    return { available: true, method: "link_only", target: httpsTarget, source: "list_header" };
+  }
   if (mailtoTarget) {
     return { available: true, method: "mailto", target: mailtoTarget, source: "list_header" };
   }
