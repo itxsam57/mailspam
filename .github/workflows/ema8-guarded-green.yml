@@ -6,6 +6,7 @@ on:
       - repair/ema-8-action-capability-contract-20260818
     paths:
       - .github/workflows/ema8-guarded-green.yml
+      - scripts/engineering/apply_ema8_action_capability_fix.py
 
 permissions:
   contents: write
