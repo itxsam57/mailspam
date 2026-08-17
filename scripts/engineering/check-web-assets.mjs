@@ -21,6 +21,7 @@ const desktopServer = read("server/src/api/localDesktopServer.ts");
 const dashboardScripts = read("server/src/api/dashboardScripts.ts");
 const scanStreamServer = read("server/src/api/scanStream.ts");
 const localSecurityServer = read("server/src/api/localSecurity.ts");
+const sessionStoreServer = read("server/src/api/sessionStore.ts");
 const gmailOAuthServer = read("server/src/oauth/googleOAuthFlow.ts");
 const microsoftOAuthServer = read("server/src/oauth/microsoftOAuthFlow.ts");
 const microsoftOAuthRuntime = read("server/src/oauth/microsoftOAuth.ts");
@@ -197,7 +198,9 @@ requireCondition(!browserSecurity.includes("localStorage"), "Local API security 
 requireCondition(!browserSecurity.includes("sessionStorage"), "Local API security must not store credentials or session material in sessionStorage.");
 requireCondition(localSecurityServer.includes("HttpOnly; SameSite=Strict"), "Local session cookie lost HttpOnly or SameSite protection.");
 requireCondition(localSecurityServer.includes("timingSafeEqual"), "Local CSRF comparison is no longer constant-time.");
-requireCondition(localSecurityServer.includes("usedActionTokens"), "Sensitive opaque actions are no longer invalidated after success.");
+requireCondition(localSecurityServer.includes("session.nonces.delete(nonce)"), "Local mutation authorization no longer spends its one-time server nonce.");
+requireCondition(!localSecurityServer.includes("usedActionTokens"), "Generic local security must not globally spend operation-specific message capabilities.");
+requireCondition(sessionStoreServer.includes("claimedOperations") && sessionStoreServer.includes("claimReviewAction"), "Message-action replay protection no longer belongs to the operation-specific SessionStore capability owner.");
 requireCondition(desktopServer.includes("frame-ancestors 'none'"), "Desktop Content Security Policy no longer blocks framing.");
 requireCondition(desktopServer.includes("requireScanSource"), "SSE scan starts are no longer restricted to the local dashboard.");
 
