@@ -24,7 +24,7 @@ const initialRss = process.memoryUsage().rss;
 
 try {
   const now = Date.now();
-  coordinator.configure(session.policyAccountKey, true, 30, now - 120_000);
+  coordinator.configure(session.policyAccountKey, true, 30, now - 30 * 60_000);
   assert.equal(await coordinator.runDue(now), true, "A due background scan must execute.");
   const status = coordinator.status(session.policyAccountKey);
   assert.equal(status.status, "completed");

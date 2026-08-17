@@ -6,14 +6,15 @@ import {
   RealtimeProtectionService,
 } from "../../server/src/realtime/realtimeProtectionService.js";
 
-function session(accountKey: string, provider: "gmail" | "outlook" = "gmail"): AccountSession {
+function session(
+  accountKey: string,
+  provider: "gmail" | "outlook" | "icloud" | "yahoo" | "imap" = "gmail",
+): AccountSession {
   return {
     id: `session-${accountKey.slice(0, 4)}-${provider}`,
     provider,
     label: "fixture",
-    config: provider === "gmail"
-      ? { provider: "gmail", mode: "fixture", fixtureFolderOverrides: {} }
-      : { provider: "outlook", mode: "fixture", fixtureFolderOverrides: {} },
+    config: { provider, mode: "fixture", fixtureFolderOverrides: {} },
     activeScanWorker: null,
     personalPolicy: {} as AccountSession["personalPolicy"],
     policyAccountKey: accountKey,
@@ -21,53 +22,85 @@ function session(accountKey: string, provider: "gmail" | "outlook" = "gmail"): A
     closing: false,
     unsubscribeActions: new Map(),
     reviewActions: new Map(),
-  };
+  } as AccountSession;
+}
+
+function createService(options: Record<string, unknown>): RealtimeProtectionService {
+  // Intentionally pass through an untyped boundary so this RED test can define
+  // the desired probe contract before production accepts the new dependency.
+  return new RealtimeProtectionService(options as never);
 }
 
 describe("RealtimeProtectionService", () => {
-  it("polls connected accounts through one serial inbound coordinator", async () => {
-    const sessions = [session("a".repeat(64)), session("b".repeat(64), "outlook")];
-    let active = 0;
-    let maxActive = 0;
-    const processed: string[] = [];
-    const service = new RealtimeProtectionService({
-      sessions: { list: () => sessions },
+  it("uses trusted metadata checkpoints so baseline and unchanged polls do not scan, but a real change does", async () => {
+    const account = session("a".repeat(64));
+    let checkpoint = "checkpoint-1";
+    const processed: Array<{ eventId: string; source: string; checkpoint: string | null | undefined }> = [];
+    const service = createService({
+      sessions: { list: () => [account] },
       repository: new InMemoryInboundEventStateRepository(),
       pollIntervalMs: MIN_REALTIME_POLL_INTERVAL_MS,
+      pollProbe: { checkpoint: async () => checkpoint },
       processor: {
-        process: async (event) => {
-          active += 1;
-          maxActive = Math.max(maxActive, active);
-          processed.push(`${event.accountKey}:${event.provider}:${event.source}`);
-          await new Promise((resolve) => setTimeout(resolve, 1));
-          active -= 1;
+        process: async (event: { eventId: string; source: string; checkpoint?: string | null }) => {
+          processed.push({ eventId: event.eventId, source: event.source, checkpoint: event.checkpoint });
           return { examined: 1, warnings: 0, highRisk: 0, confirmedThreat: 0 };
         },
       },
     });
 
-    await service.pollNow(1_000);
-    expect(processed).toEqual([
-      `${"a".repeat(64)}:gmail:poll`,
-      `${"b".repeat(64)}:outlook:poll`,
-    ]);
-    expect(maxActive).toBe(1);
-    expect(service.status()).toMatchObject({
-      running: false,
-      persistentReplayState: false,
-      connectedAccounts: 2,
-      lastPollAt: 1_000,
-    });
+    await service.pollNow(1_000); // establish baseline
+    await service.pollNow(2_000); // unchanged
+    expect(processed).toEqual([]);
+
+    checkpoint = "checkpoint-2";
+    await service.pollNow(3_000);
+    expect(processed).toHaveLength(1);
+    expect(processed[0]).toMatchObject({ source: "poll", checkpoint: "checkpoint-2" });
+    expect(service.status().lastSuccessAt).not.toBeNull();
   });
 
-  it("retries the exact opaque poll event after processing failure and advances only after success", async () => {
+  it("persists the poll baseline across service restart and scans only after a later checkpoint changes", async () => {
+    const account = session("h".repeat(64));
+    const repository = new InMemoryInboundEventStateRepository();
+    let checkpoint = "checkpoint-1";
+    let processed = 0;
+    const dependencies = () => ({
+      sessions: { list: () => [account] },
+      repository,
+      pollProbe: { checkpoint: async () => checkpoint },
+      processor: {
+        process: async () => {
+          processed += 1;
+          return { examined: 1, warnings: 0, highRisk: 0, confirmedThreat: 0 };
+        },
+      },
+    });
+
+    const first = createService(dependencies());
+    await first.pollNow(1_000);
+    expect(processed).toBe(0);
+
+    const restarted = createService(dependencies());
+    await restarted.pollNow(2_000);
+    expect(processed).toBe(0);
+
+    checkpoint = "checkpoint-2";
+    await restarted.pollNow(3_000);
+    expect(processed).toBe(1);
+  });
+
+  it("retries the exact changed checkpoint after processing failure and advances only after success", async () => {
+    const account = session("b".repeat(64));
+    let checkpoint = "checkpoint-1";
     const ids: string[] = [];
     let attempts = 0;
-    const service = new RealtimeProtectionService({
-      sessions: { list: () => [session("c".repeat(64))] },
+    const service = createService({
+      sessions: { list: () => [account] },
       repository: new InMemoryInboundEventStateRepository(),
+      pollProbe: { checkpoint: async () => checkpoint },
       processor: {
-        process: async (event) => {
+        process: async (event: { eventId: string }) => {
           ids.push(event.eventId);
           attempts += 1;
           if (attempts === 1) {
@@ -80,57 +113,130 @@ describe("RealtimeProtectionService", () => {
       },
     });
 
-    await service.pollNow(2_000);
+    await service.pollNow(1_000); // baseline
+    checkpoint = "checkpoint-2";
+    await service.pollNow(2_000); // fails; checkpoint must not advance
     expect(service.status().lastErrorCode).toBe("scan_conflict");
-    await service.pollNow(3_000);
+    await service.pollNow(3_000); // same changed checkpoint retries
     expect(ids[1]).toBe(ids[0]);
     expect(service.status().lastErrorCode).toBeNull();
+
+    checkpoint = "checkpoint-3";
     await service.pollNow(4_000);
     expect(ids[2]).not.toBe(ids[1]);
   });
 
-  it("does not let one unavailable mailbox starve another connected account", async () => {
-    const bad = "d".repeat(64);
-    const good = "e".repeat(64);
-    const processed: string[] = [];
-    const service = new RealtimeProtectionService({
-      sessions: { list: () => [session(bad), session(good)] },
+  it("treats a recurring checkpoint as a new transition after an intervening successful checkpoint", async () => {
+    const account = session("i".repeat(64), "outlook");
+    let checkpoint = "checkpoint-a";
+    const processed: Array<{ eventId: string; checkpoint: string | null | undefined }> = [];
+    const service = createService({
+      sessions: { list: () => [account] },
       repository: new InMemoryInboundEventStateRepository(),
+      pollProbe: { checkpoint: async () => checkpoint },
       processor: {
-        process: async (event) => {
-          processed.push(event.accountKey);
-          if (event.accountKey === bad) throw new Error("provider unavailable");
-          return { examined: 2, warnings: 1, highRisk: 0, confirmedThreat: 0 };
-        },
-      },
-    });
-
-    await service.pollNow();
-    expect(processed).toEqual([bad, good]);
-    expect(service.status().lastSuccessAt).not.toBeNull();
-  });
-
-  it("coalesces overlapping poll ticks instead of creating duplicate scans", async () => {
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => { release = resolve; });
-    let calls = 0;
-    const service = new RealtimeProtectionService({
-      sessions: { list: () => [session("f".repeat(64))] },
-      repository: new InMemoryInboundEventStateRepository(),
-      processor: {
-        process: async () => {
-          calls += 1;
-          await gate;
+        process: async (event: { eventId: string; checkpoint?: string | null }) => {
+          processed.push({ eventId: event.eventId, checkpoint: event.checkpoint });
           return { examined: 1, warnings: 0, highRisk: 0, confirmedThreat: 0 };
         },
       },
     });
 
-    const first = service.pollNow();
-    await service.pollNow();
-    expect(calls).toBe(1);
+    await service.pollNow(1_000); // baseline A
+    checkpoint = "checkpoint-b";
+    await service.pollNow(2_000); // A -> B
+    checkpoint = "checkpoint-c";
+    await service.pollNow(3_000); // B -> C
+    checkpoint = "checkpoint-b";
+    await service.pollNow(4_000); // C -> B must not replay-dedupe A -> B
+
+    expect(processed.map((entry) => entry.checkpoint)).toEqual([
+      "checkpoint-b",
+      "checkpoint-c",
+      "checkpoint-b",
+    ]);
+    expect(processed[2]!.eventId).not.toBe(processed[0]!.eventId);
+  });
+
+  it("does not let one provider probe failure starve another changed connected account", async () => {
+    const bad = session("c".repeat(64), "gmail");
+    const good = session("d".repeat(64), "outlook");
+    const checkpoints = new Map([
+      [bad.policyAccountKey, "bad-1"],
+      [good.policyAccountKey, "good-1"],
+    ]);
+    let failBad = false;
+    const processed: string[] = [];
+    const service = createService({
+      sessions: { list: () => [bad, good] },
+      repository: new InMemoryInboundEventStateRepository(),
+      pollProbe: {
+        checkpoint: async (value: AccountSession) => {
+          if (failBad && value.policyAccountKey === bad.policyAccountKey) throw new Error("probe unavailable");
+          return checkpoints.get(value.policyAccountKey) ?? null;
+        },
+      },
+      processor: {
+        process: async (event: { accountKey: string }) => {
+          processed.push(event.accountKey);
+          return { examined: 1, warnings: 0, highRisk: 0, confirmedThreat: 0 };
+        },
+      },
+    });
+
+    await service.pollNow(1_000); // baselines
+    failBad = true;
+    checkpoints.set(good.policyAccountKey, "good-2");
+    await service.pollNow(2_000);
+    expect(processed).toEqual([good.policyAccountKey]);
+  });
+
+  it("coalesces overlapping poll ticks while a metadata probe is still active", async () => {
+    const account = session("e".repeat(64));
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let probes = 0;
+    const service = createService({
+      sessions: { list: () => [account] },
+      repository: new InMemoryInboundEventStateRepository(),
+      pollProbe: {
+        checkpoint: async () => {
+          probes += 1;
+          await gate;
+          return "checkpoint-1";
+        },
+      },
+      processor: { process: async () => ({ examined: 1, warnings: 0, highRisk: 0, confirmedThreat: 0 }) },
+    });
+
+    const first = service.pollNow(1_000);
+    await Promise.resolve();
+    await service.pollNow(2_000);
+    expect(probes).toBe(1);
     release();
     await first;
+  });
+
+  it("does not turn an immediate startup baseline probe into a Quick scan", async () => {
+    let calls = 0;
+    const service = createService({
+      sessions: { list: () => [session("f".repeat(64))] },
+      repository: new InMemoryInboundEventStateRepository(),
+      pollIntervalMs: MIN_REALTIME_POLL_INTERVAL_MS,
+      pollProbe: { checkpoint: async () => "checkpoint-1" },
+      processor: {
+        process: async () => {
+          calls += 1;
+          return { examined: 1, warnings: 0, highRisk: 0, confirmedThreat: 0 };
+        },
+      },
+    });
+
+    service.start();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    service.stop();
+    expect(calls).toBe(0);
+    expect(service.status().lastPollAt).not.toBeNull();
   });
 
   it("rejects polling cadences that would create an abusive or useless runtime", () => {
@@ -142,7 +248,7 @@ describe("RealtimeProtectionService", () => {
     })).toThrow(/polling interval/i);
   });
 
-  it("accepts immediate push/idle events through the same replay-safe coordinator", async () => {
+  it("accepts genuine push/idle events through the same replay-safe coordinator", async () => {
     let calls = 0;
     const service = new RealtimeProtectionService({
       sessions: { list: () => [] },

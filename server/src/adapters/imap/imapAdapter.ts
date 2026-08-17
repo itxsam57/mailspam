@@ -459,6 +459,39 @@ export class ImapAdapter implements EmailAdapter {
     });
   }
 
+  async mailboxCheckpoint(signal: AbortSignal): Promise<string> {
+    const client = this.requireClient();
+    const folders = (await this.listFolders(signal))
+      .filter((folder) => folder.normalized === "inbox" || folder.normalized === "spam")
+      .sort((left, right) => left.normalized.localeCompare(right.normalized) || left.providerFolderName.localeCompare(right.providerFolderName));
+    if (!folders.some((folder) => folder.normalized === "inbox")) {
+      throw new Error("IMAP mailbox checkpoint could not locate Inbox.");
+    }
+
+    const snapshots: string[] = [];
+    for (const folder of folders) {
+      const lock = await withImapDeadline(
+        client.getMailboxLock(folder.providerFolderName),
+        signal,
+        `mailbox checkpoint lock for ${folder.providerFolderName}`,
+        LOCK_TIMEOUT_MS,
+      );
+      try {
+        const mailbox: any = client.mailbox;
+        const uidValidity = mailbox?.uidValidity === undefined || mailbox?.uidValidity === null ? "" : String(mailbox.uidValidity);
+        const uidNext = mailbox?.uidNext === undefined || mailbox?.uidNext === null ? "" : String(mailbox.uidNext);
+        const exists = Number.isSafeInteger(Number(mailbox?.exists)) ? Number(mailbox.exists) : 0;
+        snapshots.push(`${folder.normalized}\0${folder.providerFolderName}\0${uidValidity}\0${uidNext}\0${exists}`);
+      } finally {
+        lock.release();
+      }
+    }
+
+    return createHash("sha256")
+      .update(["email-shield-imap-checkpoint-v1", this.provider, ...snapshots].join("\0"), "utf8")
+      .digest("hex");
+  }
+
   async fetchPage(folder: FolderDescriptor, cursorValue: string | null, pageSize: number, signal: AbortSignal): Promise<FetchPage> {
     const client = this.requireClient();
     const lock = await withImapDeadline(

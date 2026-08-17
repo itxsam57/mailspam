@@ -47,6 +47,13 @@ export interface EmailAdapter {
   listFolders(signal: AbortSignal): Promise<FolderDescriptor[]>;
 
   /**
+   * Optional metadata-only heartbeat used by realtime polling fallback. The
+   * value must be opaque local change state: no message body, subject, address,
+   * URL, credential, or raw provider message identifier may be returned.
+   */
+  mailboxCheckpoint?(signal: AbortSignal): Promise<string | null>;
+
+  /**
    * Fetch one bounded page of messages from a folder, batched using
    * provider-native batch calls (spec: "one batch fetch per page, not one
    * network command per message").

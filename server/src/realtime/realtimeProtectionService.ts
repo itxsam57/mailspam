@@ -1,13 +1,14 @@
-import { randomUUID } from "node:crypto";
-import type { SessionStore } from "../api/sessionStore.js";
+import type { AccountSession, SessionStore } from "../api/sessionStore.js";
 import type { Provider } from "../canonical/envelope.js";
+import { sha256Hex } from "../core/sha256.js";
 import {
   InboundProtectionCoordinator,
   type CanonicalInboundEventV1,
   type InboundEventOutcome,
   type InboundEventStateRepository,
 } from "./inboundEvents.js";
-import { createPollingFallbackEvent, type ProviderInboundBatch } from "./providerSources.js";
+import type { MailboxCheckpointProbe } from "./mailboxCheckpointProbe.js";
+import type { ProviderInboundBatch } from "./providerSources.js";
 import type { RealtimeProtectionProcessor } from "./realtimeProtectionProcessor.js";
 
 export const DEFAULT_REALTIME_POLL_INTERVAL_MS = 2 * 60_000;
@@ -27,11 +28,6 @@ export interface RealtimeProtectionStatus {
   lastErrorCode: "scan_conflict" | "provider_unavailable" | "provider_mismatch" | "processing_failure" | null;
 }
 
-interface PollCursor {
-  generation: string;
-  sequence: number;
-}
-
 function providerOf(value: string): Provider | null {
   return value === "gmail" || value === "outlook" || value === "icloud" || value === "yahoo" || value === "imap"
     ? value
@@ -45,19 +41,44 @@ function boundedInterval(value: number): number {
   return value;
 }
 
+function pollingEvent(
+  accountKey: string,
+  provider: Provider,
+  previousCheckpoint: string,
+  checkpoint: string,
+): CanonicalInboundEventV1 {
+  return {
+    schemaVersion: 1,
+    accountKey,
+    provider,
+    source: "poll",
+    kind: "mailbox_changed",
+    eventId: sha256Hex([
+      "email-shield-poll-checkpoint-transition-v1",
+      accountKey,
+      provider,
+      previousCheckpoint,
+      checkpoint,
+    ].join("\0")),
+    checkpoint,
+    providerMessageId: null,
+  };
+}
+
 /**
- * Local near-realtime runtime.
+ * Local near-realtime event coordinator.
  *
- * Push/IDLE adapters may enqueue normalized events immediately. Polling remains
- * the provider-neutral safety net when push delivery is unavailable, delayed,
- * dropped, or requires public infrastructure. One coordinator serializes all
- * processing so realtime work does not create unbounded Worker concurrency.
+ * Provider push/IDLE adapters may enqueue normalized metadata-only events
+ * immediately. The polling fallback first compares a provider-native opaque
+ * metadata checkpoint. It establishes a protected baseline without scanning,
+ * ignores unchanged mailboxes, and enters the shared replay-safe Quick scan
+ * path only after the checkpoint genuinely changes.
  */
 export class RealtimeProtectionService {
   readonly #sessions: Pick<SessionStore, "list">;
   readonly #coordinator: InboundProtectionCoordinator;
   readonly #pollIntervalMs: number;
-  readonly #pollCursors = new Map<string, PollCursor>();
+  readonly #pollProbe: MailboxCheckpointProbe | null;
   #timer: NodeJS.Timeout | null = null;
   #pollRunning = false;
   #lastPollAt: number | null = null;
@@ -69,9 +90,11 @@ export class RealtimeProtectionService {
     sessions: Pick<SessionStore, "list">;
     repository: InboundEventStateRepository;
     processor: Pick<RealtimeProtectionProcessor, "process">;
+    pollProbe?: MailboxCheckpointProbe;
     pollIntervalMs?: number;
   }) {
     this.#sessions = options.sessions;
+    this.#pollProbe = options.pollProbe ?? null;
     this.#pollIntervalMs = boundedInterval(options.pollIntervalMs ?? DEFAULT_REALTIME_POLL_INTERVAL_MS);
     this.#coordinator = new InboundProtectionCoordinator({
       repository: options.repository,
@@ -83,8 +106,8 @@ export class RealtimeProtectionService {
     if (this.#timer) return;
     this.#timer = setInterval(() => { void this.pollNow(); }, this.#pollIntervalMs);
     this.#timer.unref();
-    // Initial protection check is intentionally immediate so app restart does
-    // not create a full polling interval of unprotected time.
+    // Establish provider baselines immediately, but never turn startup itself
+    // into a scan or Activity entry.
     void this.pollNow();
   }
 
@@ -132,56 +155,59 @@ export class RealtimeProtectionService {
     return outcomes;
   }
 
+  async #pollAccount(session: AccountSession): Promise<void> {
+    const provider = providerOf(session.provider);
+    if (!provider || session.closing || !this.#pollProbe) return;
+
+    let checkpoint: string | null;
+    try {
+      checkpoint = await this.#pollProbe.checkpoint(session);
+    } catch {
+      this.#lastErrorAt = Date.now();
+      this.#lastErrorCode = "provider_unavailable";
+      return;
+    }
+    if (!checkpoint) return;
+
+    const current = this.#coordinator.checkpoint(session.policyAccountKey, provider, "poll");
+    if (current === null) {
+      try {
+        this.#coordinator.establishCheckpoint(session.policyAccountKey, provider, "poll", checkpoint);
+      } catch (error) {
+        this.#recordError(error);
+      }
+      return;
+    }
+    if (current === checkpoint) return;
+
+    try {
+      await this.enqueue(pollingEvent(session.policyAccountKey, provider, current, checkpoint));
+    } catch {
+      // Failed processing must remain unacknowledged so the same checkpoint and
+      // event identity are retried on the next poll.
+    }
+  }
+
   /**
-   * Poll every connected account serially. A cursor advances only after the
-   * corresponding protection scan succeeds; failures retry the same opaque
-   * event identity on the next poll instead of pretending it was handled.
+   * Metadata-only fallback tick. Connected accounts are probed concurrently so
+   * a slow or unavailable provider cannot prevent another account from being
+   * protected. The shared inbound coordinator still serializes actual scans.
    */
   async pollNow(now = Date.now()): Promise<void> {
     if (this.#pollRunning) return;
     this.#pollRunning = true;
-    this.#lastPollAt = now;
     try {
-      const seen = new Set<string>();
-      const sessions = this.#sessions.list()
-        .filter((session) => !session.closing)
-        .filter((session) => providerOf(session.provider) !== null)
-        .sort((left, right) => left.policyAccountKey.localeCompare(right.policyAccountKey));
+      this.#lastPollAt = now;
+      if (!this.#pollProbe) return;
 
-      for (const session of sessions) {
-        const provider = providerOf(session.provider)!;
-        const key = `${session.policyAccountKey}\0${provider}`;
-        if (seen.has(key)) {
-          // Duplicate active identity is deliberately left to the processor's
-          // ambiguity check if an external trigger arrives. Polling itself does
-          // not amplify the duplicate into multiple scans.
-          continue;
-        }
-        seen.add(key);
-        let cursor = this.#pollCursors.get(key);
-        if (!cursor) {
-          cursor = { generation: randomUUID(), sequence: 0 };
-          this.#pollCursors.set(key, cursor);
-        }
-        const batch = createPollingFallbackEvent({
-          accountKey: session.policyAccountKey,
-          provider,
-          pollGeneration: cursor.generation,
-          sequence: cursor.sequence,
-        });
-        try {
-          await this.enqueueBatch(batch);
-          cursor.sequence += 1;
-        } catch {
-          // Keep the same sequence so the failed trigger is retried next time.
-          // Continue to other accounts: one unavailable mailbox must not starve
-          // protection for unrelated connected accounts.
-        }
+      const unique = new Map<string, AccountSession>();
+      for (const session of this.#sessions.list()) {
+        const provider = providerOf(session.provider);
+        if (!provider || session.closing) continue;
+        const key = `${provider}\0${session.policyAccountKey}`;
+        if (!unique.has(key)) unique.set(key, session);
       }
-
-      for (const key of [...this.#pollCursors.keys()]) {
-        if (!seen.has(key)) this.#pollCursors.delete(key);
-      }
+      await Promise.all([...unique.values()].map((session) => this.#pollAccount(session)));
     } finally {
       this.#pollRunning = false;
     }

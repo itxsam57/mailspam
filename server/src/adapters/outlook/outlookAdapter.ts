@@ -113,6 +113,35 @@ export class OutlookAdapter implements EmailAdapter {
       });
   }
 
+  async mailboxCheckpoint(signal: AbortSignal): Promise<string> {
+    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+    const snapshots: string[] = [];
+    for (const folder of ["inbox", "junkemail"] as const) {
+      const folderResponse = await this.graphFetch(`/me/mailFolders/${folder}?$select=totalItemCount`, { signal });
+      if (!folderResponse.ok) throw new Error(`Graph ${folder} checkpoint metadata failed: ${folderResponse.status}`);
+      const folderMetadata = await folderResponse.json() as { totalItemCount?: unknown };
+      const totalItemCount = typeof folderMetadata.totalItemCount === "number" && Number.isSafeInteger(folderMetadata.totalItemCount)
+        ? folderMetadata.totalItemCount
+        : null;
+
+      const latestResponse = await this.graphFetch(
+        `/me/mailFolders/${folder}/messages?$select=id,receivedDateTime&$top=1&$orderby=receivedDateTime%20desc`,
+        { signal },
+      );
+      if (!latestResponse.ok) throw new Error(`Graph ${folder} latest-message metadata failed: ${latestResponse.status}`);
+      const latest = await latestResponse.json() as {
+        value?: Array<{ id?: unknown; receivedDateTime?: unknown }>;
+      };
+      const item = latest.value?.[0];
+      const immutableId = typeof item?.id === "string" ? item.id : "";
+      const receivedDateTime = typeof item?.receivedDateTime === "string" ? item.receivedDateTime : "";
+      snapshots.push(`${folder}\0${totalItemCount ?? ""}\0${immutableId}\0${receivedDateTime}`);
+    }
+    return createHash("sha256")
+      .update(["email-shield-outlook-checkpoint-v1", ...snapshots].join("\0"), "utf8")
+      .digest("hex");
+  }
+
   async fetchPage(
     folder: FolderDescriptor,
     cursor: string | null,
