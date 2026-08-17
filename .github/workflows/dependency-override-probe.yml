@@ -33,7 +33,7 @@ jobs:
           import { readFileSync, writeFileSync } from 'node:fs';
           const path = 'server/package.json';
           const pkg = JSON.parse(readFileSync(path, 'utf8'));
-          pkg.dependencies.mailparser = '3.9.8';
+          pkg.dependencies.mailparser = '3.9.15';
           writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
           NODE
           npm install --package-lock-only --ignore-scripts
@@ -43,18 +43,11 @@ jobs:
         run: |
           npm ci
           echo '--- resolved parser tree ---'
-          npm ls mailparser html-to-text deepmerge-ts deepmerge --all || true
+          npm ls mailparser html-to-text deepmerge-ts linkify-it nodemailer --all || true
           echo '--- production audit ---'
-          set +e
           npm audit --omit=dev --audit-level=high --json | tee /tmp/email-shield-audit.json
-          audit_status=${PIPESTATUS[0]}
-          set -e
           echo '--- full unit suite ---'
           npm run test:unit
-          if [ "$audit_status" -ne 0 ]; then
-            echo "Production audit remained blocking after the candidate dependency graph."
-            exit "$audit_status"
-          fi
 
       - name: Commit verified package metadata
         shell: bash
@@ -66,5 +59,5 @@ jobs:
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'fix: remove vulnerable mailparser dependency chain'
+          git commit -m 'fix: update audited mailparser dependency chain'
           git push origin HEAD:repair/canonical-session-reachability-p0-20260817
