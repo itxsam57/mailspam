@@ -1,0 +1,59 @@
+name: Temporary dependency override probe
+
+on:
+  push:
+    branches:
+      - repair/canonical-session-reachability-p0-20260817
+
+permissions:
+  contents: write
+
+jobs:
+  resolve-and-verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout repair branch
+        uses: actions/checkout@v4
+        with:
+          ref: repair/canonical-session-reachability-p0-20260817
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Pin patched deepmerge-ts override
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const path = 'package.json';
+          const pkg = JSON.parse(readFileSync(path, 'utf8'));
+          pkg.overrides = { ...(pkg.overrides ?? {}), 'deepmerge-ts': '8.0.1' };
+          writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+          npm install --package-lock-only --ignore-scripts
+
+      - name: Verify resolved dependency graph
+        run: |
+          npm ci
+          node -e "const p=require('./node_modules/deepmerge-ts/package.json'); if (p.version !== '8.0.1') throw new Error('Expected deepmerge-ts 8.0.1, got '+p.version); console.log('deepmerge-ts', p.version)"
+          npm audit --omit=dev --audit-level=high
+          npm run test:unit
+
+      - name: Commit verified package metadata
+        shell: bash
+        run: |
+          git add package.json package-lock.json
+          if git diff --cached --quiet; then
+            echo 'No package metadata changes to commit.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'chore: pin audited deepmerge-ts release'
+          git push origin HEAD:repair/canonical-session-reachability-p0-20260817
