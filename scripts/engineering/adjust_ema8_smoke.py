@@ -2,6 +2,37 @@ from pathlib import Path
 
 path = Path("scripts/engineering/smoke-browser-scan-results.mjs")
 source = path.read_text(encoding="utf-8")
+trace_anchor = '''  const positiveDecisionToken = await evaluate(client, `(() => {
+'''
+trace_replacement = '''  await evaluate(client, `(() => {
+    if (window.__ema8FetchTraceInstalled) return true;
+    window.__ema8FetchTraceInstalled = true;
+    window.__ema8FetchTrace = [];
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (...args) => {
+      const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || '';
+      const method = String(args[1]?.method || 'GET').toUpperCase();
+      const relevant = url.includes('/messages/');
+      const entry = relevant ? { url, method, startedAt: Date.now(), status: null, ok: null, error: null } : null;
+      if (entry) window.__ema8FetchTrace.push(entry);
+      try {
+        const response = await originalFetch(...args);
+        if (entry) { entry.status = response.status; entry.ok = response.ok; entry.finishedAt = Date.now(); }
+        return response;
+      } catch (error) {
+        if (entry) { entry.error = error instanceof Error ? error.message : String(error); entry.finishedAt = Date.now(); }
+        throw error;
+      }
+    };
+    return true;
+  })()`);
+
+  const positiveDecisionToken = await evaluate(client, `(() => {
+'''
+if source.count(trace_anchor) != 1:
+    raise RuntimeError(f"expected positive decision trace anchor exactly once, found {source.count(trace_anchor)}")
+source = source.replace(trace_anchor, trace_replacement, 1)
+
 before = '''  assert(positiveDecisionState?.safeDisabled === true && positiveDecisionState?.safeText.includes('marked Safe'),
     `Browser Mark Safe did not persist its visible local decision. State: ${JSON.stringify(positiveDecisionState)}`);
   assert(positiveDecisionState?.reportDisabled === true && positiveDecisionState?.reportText.includes('Campaign decision already saved'),
@@ -58,15 +89,16 @@ after = '''  assert(positiveDecisionState?.safeDisabled === true && positiveDeci
       if (reported || failedForAnotherReason) break;
       await sleep(100);
     }
+    const mutationTrace = await evaluate(client, `window.__ema8FetchTrace || []`);
     assert(releasedReportState,
       'Released Report Scam capability did not produce an observable browser state.');
     const replayConflict = /message_action_conflict|already been used|rescan before performing another action/i.test(releasedReportState.statusText || '');
     assert(replayConflict === false,
-      `Released campaign-decision capability still hit the stale replay conflict. State: ${JSON.stringify(releasedReportState)} Workspace: ${JSON.stringify(authoritativeWorkspaceState)}`);
+      `Released campaign-decision capability still hit the stale replay conflict. State: ${JSON.stringify(releasedReportState)} Workspace: ${JSON.stringify(authoritativeWorkspaceState)} Requests: ${JSON.stringify(mutationTrace)}`);
     assert(
       (releasedReportState.reportDisabled && /Reported|Campaign protected/.test(releasedReportState.reportText)) ||
       (!releasedReportState.reportDisabled && /^Message action failed:/.test(releasedReportState.statusText)),
-      `Released Report Scam capability never settled to success or an unrelated explicit failure. State: ${JSON.stringify(releasedReportState)} Workspace: ${JSON.stringify(authoritativeWorkspaceState)}`,
+      `Released Report Scam capability never settled to success or an unrelated explicit failure. State: ${JSON.stringify(releasedReportState)} Workspace: ${JSON.stringify(authoritativeWorkspaceState)} Requests: ${JSON.stringify(mutationTrace)}`,
     );
   }
 
@@ -75,4 +107,4 @@ after = '''  assert(positiveDecisionState?.safeDisabled === true && positiveDeci
 if source.count(before) != 1:
     raise RuntimeError(f"expected generated smoke block exactly once, found {source.count(before)}")
 path.write_text(source.replace(before, after, 1), encoding="utf-8")
-print("EMA-8 browser acceptance now diagnoses authoritative workspace capability before replay testing")
+print("EMA-8 browser acceptance now traces message mutation requests around the authoritative capability race")
