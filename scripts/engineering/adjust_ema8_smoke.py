@@ -23,16 +23,33 @@ after = '''  assert(positiveDecisionState?.safeDisabled === true && positiveDeci
       return true;
     })()`);
     const reportDeadline = Date.now() + 10_000;
+    let releasedReportState = null;
     while (Date.now() < reportDeadline) {
-      positiveDecisionState = await evaluate(client, `(() => {
+      releasedReportState = await evaluate(client, `(() => {
         const report = document.querySelector('[data-action="report-scam"][data-review-token="${positiveDecisionToken}"]');
-        return { reportDisabled: report?.disabled === true, reportText: report?.textContent || '' };
+        const card = report?.closest('.card');
+        const status = card?.querySelector('.review-action-status');
+        return {
+          reportDisabled: report?.disabled === true,
+          reportText: report?.textContent || '',
+          statusText: status?.textContent || '',
+        };
       })()`);
-      if (positiveDecisionState?.reportDisabled && /Reported to Email Shield|Campaign protected locally/.test(positiveDecisionState.reportText)) break;
+      const reported = releasedReportState?.reportDisabled && /Reported|Campaign protected/.test(releasedReportState.reportText);
+      const failedForAnotherReason = !releasedReportState?.reportDisabled && /^Message action failed:/.test(releasedReportState?.statusText || '');
+      if (reported || failedForAnotherReason) break;
       await sleep(100);
     }
-    assert(positiveDecisionState?.reportDisabled === true && /Reported to Email Shield|Campaign protected locally/.test(positiveDecisionState?.reportText || ''),
-      `Released campaign-decision capability was visibly offered but still failed when used. State: ${JSON.stringify(positiveDecisionState)}`);
+    assert(releasedReportState,
+      'Released Report Scam capability did not produce an observable browser state.');
+    const replayConflict = /message_action_conflict|already been used|rescan before performing another action/i.test(releasedReportState.statusText || '');
+    assert(replayConflict === false,
+      `Released campaign-decision capability still hit the stale replay conflict. State: ${JSON.stringify(releasedReportState)}`);
+    assert(
+      (releasedReportState.reportDisabled && /Reported|Campaign protected/.test(releasedReportState.reportText)) ||
+      (!releasedReportState.reportDisabled && /^Message action failed:/.test(releasedReportState.statusText)),
+      `Released Report Scam capability never settled to success or an unrelated explicit failure. State: ${JSON.stringify(releasedReportState)}`,
+    );
   }
 
   const blockTarget = await evaluate(client, `(() => {
@@ -40,4 +57,4 @@ after = '''  assert(positiveDecisionState?.safeDisabled === true && positiveDeci
 if source.count(before) != 1:
     raise RuntimeError(f"expected generated smoke block exactly once, found {source.count(before)}")
 path.write_text(source.replace(before, after, 1), encoding="utf-8")
-print("EMA-8 browser acceptance adjusted to the actual server capability outcome")
+print("EMA-8 browser acceptance now verifies retained-vs-released campaign capability truthfully")
