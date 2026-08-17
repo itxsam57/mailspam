@@ -322,16 +322,28 @@ export function createLocalDesktopServer(options: {
     if (!session) return res.status(404).json({ error: "Unknown account" });
     if (session.activeScanWorker) requestActiveScanStop(id);
     const before = sessionStore.list();
+    let removedMailboxLink: ReturnType<AccountPlatformService["unlinkMailbox"]> = null;
     try {
+      const canonical = sessionStore.canonicalForPolicyAccountKey(session.policyAccountKey);
+      const removingFinalOwner = !canonical || canonical.id === id;
       fixtureConnections.synchronize(before.filter((candidate) => candidate.id !== id));
+      if (removingFinalOwner) removedMailboxLink = accountPlatform.unlinkMailbox(session.policyAccountKey);
       await sessionStore.remove(id);
       backgroundProtection.remove(session.policyAccountKey);
       res.status(204).send();
     } catch (error) {
-      try { fixtureConnections.synchronize(before); } catch {}
-      res.status(502).json({
-        error: `Account disconnect could not be completed: ${error instanceof Error ? error.message : String(error)}`,
-      });
+      let compensationError: unknown = null;
+      if (removedMailboxLink) {
+        try { accountPlatform.restoreMailboxLink(removedMailboxLink); }
+        catch (restoreError) { compensationError = restoreError; }
+      }
+      try { fixtureConnections.synchronize(before); }
+      catch (restoreError) { compensationError ??= restoreError; }
+      const primary = error instanceof Error ? error.message : String(error);
+      const compensation = compensationError
+        ? ` Recovery also failed: ${compensationError instanceof Error ? compensationError.message : String(compensationError)}`
+        : "";
+      res.status(502).json({ error: `Account disconnect could not be completed: ${primary}.${compensation}` });
     }
   });
 
