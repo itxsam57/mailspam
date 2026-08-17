@@ -1,0 +1,160 @@
+name: Temporary canonical-session Task 3 GREEN
+
+on:
+  push:
+    branches:
+      - repair/canonical-session-reachability-p0-20260817
+
+permissions:
+  contents: write
+
+jobs:
+  apply-verify-commit:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact repair branch
+        uses: actions/checkout@v4
+        with:
+          ref: repair/canonical-session-reachability-p0-20260817
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Apply exact canonical-owner production edits
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          background_path = Path('server/src/api/backgroundProtection.ts')
+          background = background_path.read_text()
+
+          replacements = [
+              ('sessions?: Pick<SessionStore, "list">;', 'sessions?: Pick<SessionStore, "canonicalForPolicyAccountKey">;'),
+              ('private readonly sessions: Pick<SessionStore, "list">;', 'private readonly sessions: Pick<SessionStore, "canonicalForPolicyAccountKey">;'),
+          ]
+          for old, new in replacements:
+              count = background.count(old)
+              if count != 1:
+                  raise SystemExit(f'Expected exactly one background contract snippet, found {count}: {old}')
+              background = background.replace(old, new, 1)
+
+          old_lookup = '''    const session = this.sessions.list().find((candidate) => candidate.policyAccountKey === due.accountKey);
+    if (!session || session.closing || session.activeScanWorker) {
+      this.repository.save(due.accountKey, {
+        ...due.record,
+        status: "deferred",
+        nextRunAt: now + CONFLICT_RETRY_MS,
+        lastErrorCode: session?.activeScanWorker ? "scan_conflict" : "provider_unavailable",
+      });
+      return false;
+    }
+'''
+          new_lookup = '''    let session: AccountSession | undefined;
+    try {
+      session = this.sessions.canonicalForPolicyAccountKey(due.accountKey);
+    } catch {
+      const consecutiveFailures = Math.min(16, due.record.consecutiveFailures + 1);
+      this.repository.save(due.accountKey, {
+        ...due.record,
+        status: "failed",
+        nextRunAt: nextBackgroundRunAt(now, due.record.intervalMinutes, consecutiveFailures),
+        lastAttemptAt: now,
+        consecutiveFailures,
+        lastErrorCode: "protected_state_failure",
+      });
+      return false;
+    }
+    if (!session || session.closing || session.activeScanWorker) {
+      this.repository.save(due.accountKey, {
+        ...due.record,
+        status: "deferred",
+        nextRunAt: now + CONFLICT_RETRY_MS,
+        lastErrorCode: session?.activeScanWorker ? "scan_conflict" : "provider_unavailable",
+      });
+      return false;
+    }
+'''
+          count = background.count(old_lookup)
+          if count != 1:
+              raise SystemExit(f'Expected exactly one background lookup block, found {count}')
+          background = background.replace(old_lookup, new_lookup, 1)
+          background_path.write_text(background)
+
+          realtime_path = Path('server/src/realtime/realtimeProtectionProcessor.ts')
+          realtime = realtime_path.read_text()
+          old_type = 'Pick<SessionStore, "list">'
+          if realtime.count(old_type) != 2:
+              raise SystemExit(f'Expected exactly two realtime list contracts, found {realtime.count(old_type)}')
+          realtime = realtime.replace(old_type, 'Pick<SessionStore, "canonicalForPolicyAccountKey">')
+
+          old_realtime = '''    const candidates = this.sessions.list().filter((session) => session.policyAccountKey === event.accountKey && !session.closing);
+    if (candidates.length === 0) {
+      throw new RealtimeProtectionRunError("provider_unavailable", "The protected mailbox is not connected locally.");
+    }
+    const providerMatches = candidates.filter((session) => sessionProvider(session) === event.provider);
+    if (providerMatches.length !== 1) {
+      throw new RealtimeProtectionRunError(
+        "provider_mismatch",
+        providerMatches.length === 0
+          ? "The inbound provider does not match the connected protected mailbox."
+          : "More than one active mailbox session matches the inbound protection identity.",
+      );
+    }
+    const session = providerMatches[0]!;
+'''
+          new_realtime = '''    let session: AccountSession | undefined;
+    try {
+      session = this.sessions.canonicalForPolicyAccountKey(event.accountKey);
+    } catch {
+      throw new RealtimeProtectionRunError(
+        "provider_mismatch",
+        "Mailbox session ownership is ambiguous; reconnect this mailbox before realtime protection continues.",
+      );
+    }
+    if (!session) {
+      throw new RealtimeProtectionRunError("provider_unavailable", "The protected mailbox is not connected locally.");
+    }
+    if (sessionProvider(session) !== event.provider) {
+      throw new RealtimeProtectionRunError(
+        "provider_mismatch",
+        "The inbound provider does not match the connected protected mailbox.",
+      );
+    }
+'''
+          count = realtime.count(old_realtime)
+          if count != 1:
+              raise SystemExit(f'Expected exactly one realtime lookup block, found {count}')
+          realtime = realtime.replace(old_realtime, new_realtime, 1)
+          realtime_path.write_text(realtime)
+          PY
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Prove Task 3 GREEN
+        run: |
+          npm run typecheck
+          npm run test:unit
+
+      - name: Commit only the two production owners
+        shell: bash
+        run: |
+          git add server/src/api/backgroundProtection.ts server/src/realtime/realtimeProtectionProcessor.ts
+          changed="$(git diff --cached --name-only)"
+          expected=$'server/src/api/backgroundProtection.ts\nserver/src/realtime/realtimeProtectionProcessor.ts'
+          if [ "$changed" != "$expected" ]; then
+            echo "Unexpected staged files:" >&2
+            printf '%s\n' "$changed" >&2
+            exit 1
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: route protection through canonical mailbox owner'
+          git push origin HEAD:repair/canonical-session-reachability-p0-20260817
