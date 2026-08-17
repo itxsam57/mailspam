@@ -6,11 +6,10 @@ on:
       - repair/canonical-session-reachability-p0-20260817
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   resolve-and-verify:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -26,7 +25,7 @@ jobs:
           node-version: '20'
           cache: npm
 
-      - name: Select audited parser compatibility graph
+      - name: Resolve candidate graph from a fresh lock
         shell: bash
         run: |
           node --input-type=module <<'NODE'
@@ -44,7 +43,10 @@ jobs:
           };
           writeFileSync(rootPath, `${JSON.stringify(rootPkg, null, 2)}\n`);
           NODE
+          mv package-lock.json /tmp/email-shield-original-package-lock.json
           npm install --package-lock-only --ignore-scripts
+          echo '--- candidate lockfile size ---'
+          wc -l package-lock.json
 
       - name: Inspect and verify resolved dependency graph
         shell: bash
@@ -56,23 +58,3 @@ jobs:
           npm audit --omit=dev --audit-level=high --json | tee /tmp/email-shield-audit.json
           echo '--- full unit suite ---'
           npm run test:unit
-
-      - name: Commit verified package metadata
-        shell: bash
-        run: |
-          git add package.json server/package.json package-lock.json
-          if git diff --cached --quiet; then
-            echo 'No package metadata changes to commit.'
-            exit 0
-          fi
-          changed=$(git diff --cached --name-only)
-          unexpected=$(printf '%s\n' "$changed" | grep -Ev '^(package.json|server/package.json|package-lock.json)$' || true)
-          if [ -n "$unexpected" ]; then
-            echo "Unexpected dependency-probe changes:" >&2
-            printf '%s\n' "$unexpected" >&2
-            exit 1
-          fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'fix: remove vulnerable parser dependency chains'
-          git push origin HEAD:repair/canonical-session-reachability-p0-20260817
