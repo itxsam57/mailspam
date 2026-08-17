@@ -26,27 +26,25 @@ jobs:
           node-version: '20'
           cache: npm
 
-      - name: Select audited mailparser dependency graph
+      - name: Select audited parser compatibility graph
         shell: bash
         run: |
           node --input-type=module <<'NODE'
           import { readFileSync, writeFileSync } from 'node:fs';
           const serverPath = 'server/package.json';
           const serverPkg = JSON.parse(readFileSync(serverPath, 'utf8'));
-          serverPkg.dependencies.mailparser = '3.9.15';
+          serverPkg.dependencies.mailparser = '3.9.8';
           writeFileSync(serverPath, `${JSON.stringify(serverPkg, null, 2)}\n`);
 
           const rootPath = 'package.json';
           const rootPkg = JSON.parse(readFileSync(rootPath, 'utf8'));
           rootPkg.overrides = {
-            ...(rootPkg.overrides ?? {}),
-            'html-to-text': '9.0.5',
+            'linkify-it': '5.0.2',
+            'nodemailer': '9.0.5'
           };
-          delete rootPkg.overrides.mailparser;
           writeFileSync(rootPath, `${JSON.stringify(rootPkg, null, 2)}\n`);
           NODE
           npm install --package-lock-only --ignore-scripts
-          npm install html-to-text@9.0.5 --package-lock-only --ignore-scripts --save=false --force
 
       - name: Inspect and verify resolved dependency graph
         shell: bash
@@ -67,7 +65,14 @@ jobs:
             echo 'No package metadata changes to commit.'
             exit 0
           fi
+          changed=$(git diff --cached --name-only)
+          unexpected=$(printf '%s\n' "$changed" | grep -Ev '^(package.json|server/package.json|package-lock.json)$' || true)
+          if [ -n "$unexpected" ]; then
+            echo "Unexpected dependency-probe changes:" >&2
+            printf '%s\n' "$unexpected" >&2
+            exit 1
+          fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'fix: update audited mailparser dependency chain'
+          git commit -m 'fix: remove vulnerable parser dependency chains'
           git push origin HEAD:repair/canonical-session-reachability-p0-20260817
