@@ -1,4 +1,4 @@
-name: Temporary dependency override probe
+name: Temporary dependency graph probe
 
 on:
   push:
@@ -26,14 +26,14 @@ jobs:
           node-version: '20'
           cache: npm
 
-      - name: Pin patched deepmerge-ts override
+      - name: Select audited mailparser dependency graph
         shell: bash
         run: |
           node --input-type=module <<'NODE'
           import { readFileSync, writeFileSync } from 'node:fs';
-          const path = 'package.json';
+          const path = 'server/package.json';
           const pkg = JSON.parse(readFileSync(path, 'utf8'));
-          pkg.overrides = { ...(pkg.overrides ?? {}), 'deepmerge-ts': '8.0.1' };
+          pkg.dependencies.mailparser = '3.9.8';
           writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
           NODE
           npm install --package-lock-only --ignore-scripts
@@ -41,19 +41,31 @@ jobs:
       - name: Verify resolved dependency graph
         run: |
           npm ci
-          node -e "const p=require('./node_modules/deepmerge-ts/package.json'); if (p.version !== '8.0.1') throw new Error('Expected deepmerge-ts 8.0.1, got '+p.version); console.log('deepmerge-ts', p.version)"
+          node - <<'NODE'
+          const mailparser = require('./node_modules/mailparser/package.json');
+          const htmlToText = require('./node_modules/html-to-text/package.json');
+          if (mailparser.version !== '3.9.8') throw new Error(`Expected mailparser 3.9.8, got ${mailparser.version}`);
+          if (htmlToText.version !== '9.0.5') throw new Error(`Expected html-to-text 9.0.5, got ${htmlToText.version}`);
+          try {
+            const deepmergeTs = require('./node_modules/deepmerge-ts/package.json');
+            throw new Error(`Vulnerable deepmerge-ts remained in the production graph at ${deepmergeTs.version}`);
+          } catch (error) {
+            if (error?.code !== 'MODULE_NOT_FOUND') throw error;
+          }
+          console.log('mailparser', mailparser.version, 'html-to-text', htmlToText.version, 'deepmerge-ts absent');
+          NODE
           npm audit --omit=dev --audit-level=high
           npm run test:unit
 
       - name: Commit verified package metadata
         shell: bash
         run: |
-          git add package.json package-lock.json
+          git add server/package.json package-lock.json
           if git diff --cached --quiet; then
             echo 'No package metadata changes to commit.'
             exit 0
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'chore: pin audited deepmerge-ts release'
+          git commit -m 'fix: remove vulnerable mailparser dependency chain'
           git push origin HEAD:repair/canonical-session-reachability-p0-20260817
