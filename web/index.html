@@ -362,6 +362,13 @@ async function refreshAccounts() {
     const row = document.createElement('div');
     row.className = `account-chip${selected ? ' active' : ''}`;
     row.dataset.id = String(account.accountId || '');
+    const rawReachability = account.reachability?.state;
+    const reachability = rawReachability === 'checking'
+      || rawReachability === 'reachable'
+      || rawReachability === 'unavailable'
+      ? rawReachability
+      : 'unknown';
+    row.dataset.reachability = reachability;
     row.setAttribute('role', 'listitem');
     const identity = document.createElement('span');
     identity.textContent = String(account.label || account.provider || 'Account');
