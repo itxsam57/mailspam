@@ -270,16 +270,19 @@ describe("local desktop security boundary", () => {
     expect((await fetch(developerUrl)).status).toBe(200);
   });
 
-  it("consumes a successful opaque action token before it can be replayed", async () => {
+  it("does not spend semantic message action tokens at the generic HTTP security boundary", async () => {
     const context = await startActionHarness();
     const actionToken = "11111111-1111-4111-8111-111111111111";
 
     const first = await mutate(context, "/api/action", { token: actionToken });
     expect(first.status).toBe(200);
 
-    const replay = await mutate(context, "/api/action", { token: actionToken });
-    expect(replay.status).toBe(409);
-    expect((await replay.json()).error).toContain("already been used");
+    // A fresh local mutation nonce proves a second request is genuinely from
+    // this dashboard. Whether the same opaque message capability may perform a
+    // different operation belongs to SessionStore/route-specific replay rules,
+    // not this generic CSRF/origin middleware.
+    const second = await mutate(context, "/api/action", { token: actionToken });
+    expect(second.status).toBe(200);
   });
 
   it("redacts exact credentials, OAuth parameters, bearer values, and JWT-like tokens", () => {
