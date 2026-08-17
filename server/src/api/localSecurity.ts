@@ -15,7 +15,6 @@ interface LocalSession {
   createdAt: number;
   lastSeenAt: number;
   nonces: Map<string, number>;
-  usedActionTokens: Set<string>;
   rateEvents: Map<string, number[]>;
 }
 
@@ -117,7 +116,6 @@ export class LocalSecurityManager {
         createdAt: now,
         lastSeenAt: now,
         nonces: new Map(),
-        usedActionTokens: new Set(),
         rateEvents: new Map(),
       };
       this.sessions.set(session.id, session);
@@ -236,11 +234,10 @@ export class LocalSecurityManager {
       }
       session.nonces.delete(nonce);
 
-      const actionToken = typeof req.body?.token === "string" ? req.body.token : null;
-      if (actionToken && session.usedActionTokens.has(actionToken)) {
-        res.status(409).json({ error: "This message action has already been used. Rescan before performing another action." });
-        return;
-      }
+      // Opaque mailbox action capabilities have operation-specific replay
+      // semantics owned by their route/session registries. This generic local
+      // security boundary authenticates the dashboard request with a one-time
+      // mutation nonce; it must not globally spend an application capability.
 
       try {
         this.enforceRate(session, "mutation", DEFAULT_MUTATION_LIMIT);
@@ -251,14 +248,6 @@ export class LocalSecurityManager {
         return;
       }
 
-      if (actionToken) {
-        const originalJson = res.json.bind(res);
-        res.json = ((body: unknown) => {
-          const locallyApplied = Boolean(body && typeof body === "object" && "localProtected" in body && (body as { localProtected?: unknown }).localProtected === true);
-          if (res.statusCode < 400 || locallyApplied) session.usedActionTokens.add(actionToken);
-          return originalJson(body);
-        }) as typeof res.json;
-      }
       next();
     };
   }
