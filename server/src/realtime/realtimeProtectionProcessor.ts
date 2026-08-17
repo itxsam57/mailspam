@@ -40,25 +40,29 @@ function sessionProvider(session: AccountSession): Provider | null {
  */
 export class RealtimeProtectionProcessor {
   constructor(
-    private readonly sessions: Pick<SessionStore, "list">,
+    private readonly sessions: Pick<SessionStore, "canonicalForPolicyAccountKey">,
     private readonly executor: BoundedProtectionExecutor,
   ) {}
 
   async process(event: Readonly<CanonicalInboundEventV1>): Promise<InboundEventProcessingResult> {
-    const candidates = this.sessions.list().filter((session) => session.policyAccountKey === event.accountKey && !session.closing);
-    if (candidates.length === 0) {
-      throw new RealtimeProtectionRunError("provider_unavailable", "The protected mailbox is not connected locally.");
-    }
-    const providerMatches = candidates.filter((session) => sessionProvider(session) === event.provider);
-    if (providerMatches.length !== 1) {
+    let session: AccountSession | undefined;
+    try {
+      session = this.sessions.canonicalForPolicyAccountKey(event.accountKey);
+    } catch {
       throw new RealtimeProtectionRunError(
         "provider_mismatch",
-        providerMatches.length === 0
-          ? "The inbound provider does not match the connected protected mailbox."
-          : "More than one active mailbox session matches the inbound protection identity.",
+        "Mailbox session ownership is ambiguous; reconnect this mailbox before realtime protection continues.",
       );
     }
-    const session = providerMatches[0]!;
+    if (!session) {
+      throw new RealtimeProtectionRunError("provider_unavailable", "The protected mailbox is not connected locally.");
+    }
+    if (sessionProvider(session) !== event.provider) {
+      throw new RealtimeProtectionRunError(
+        "provider_mismatch",
+        "The inbound provider does not match the connected protected mailbox.",
+      );
+    }
     if (session.activeScanWorker) {
       throw new RealtimeProtectionRunError("scan_conflict", "A manual, scheduled or realtime scan is already active for this mailbox.");
     }
@@ -76,7 +80,7 @@ export class RealtimeProtectionProcessor {
 }
 
 export function createRealtimeProtectionProcessor(
-  sessions: Pick<SessionStore, "list">,
+  sessions: Pick<SessionStore, "canonicalForPolicyAccountKey">,
   executor: Pick<WorkerBackgroundProtectionExecutor, "executeWithSummary">,
 ): RealtimeProtectionProcessor {
   return new RealtimeProtectionProcessor(sessions, executor);
