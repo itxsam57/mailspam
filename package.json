@@ -25,7 +25,7 @@
     "capacity:plan": "npm run build && node scripts/engineering/capacity-plan.mjs",
     "vault": "npm run build && node scripts/engineering/regression-vault-cli.mjs",
     "smoke:server": "node scripts/engineering/smoke-server.mjs",
-    "smoke:browser": "node scripts/engineering/smoke-browser-boot-resilient.mjs && node scripts/engineering/smoke-google-provider.mjs",
+    "smoke:browser": "node scripts/engineering/smoke-browser-boot-resilient.mjs && node scripts/engineering/smoke-onboarding-handoff.mjs && node scripts/engineering/smoke-google-provider.mjs",
     "smoke:browser-scan": "node scripts/engineering/smoke-browser-scan-results.mjs",
     "smoke:community": "node scripts/engineering/smoke-community.mjs",
     "smoke:account-service": "node scripts/engineering/smoke-account-service.mjs",
