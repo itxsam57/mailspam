@@ -20,6 +20,7 @@ import {
   type FamilyCircle,
   type FamilyThreatSnapshot,
   type FamilyThreatSource,
+  type MailboxAccountLink,
   type PublicAccountPlatformSnapshot,
   type RegisteredDevice,
   type VerifiedEntitlement,
@@ -38,6 +39,10 @@ function unique<T>(values: Iterable<T>): T[] {
 
 function assertFingerprint(value: string): void {
   if (!/^[a-f0-9]{64}$/.test(value)) throw new Error("Family campaign fingerprint is invalid.");
+}
+
+function assertMailboxAccountKey(value: string): void {
+  if (!/^[a-f0-9]{64}$/.test(value)) throw new Error("Mailbox account key is invalid.");
 }
 
 function assertEntitlement(value: VerifiedEntitlement): void {
@@ -412,7 +417,7 @@ export class AccountPlatformService {
   }
 
   linkMailbox(mailboxAccountKey: string): void {
-    if (!/^[a-f0-9]{64}$/.test(mailboxAccountKey)) throw new Error("Mailbox account key is invalid.");
+    assertMailboxAccountKey(mailboxAccountKey);
     const state = this.read();
     const account = this.current(state);
     const existing = state.mailboxLinks.find((link) => link.mailboxAccountKey === mailboxAccountKey);
@@ -422,6 +427,35 @@ export class AccountPlatformService {
     } else {
       if (state.mailboxLinks.length >= MAX_MAILBOX_LINKS) throw new Error("Mailbox profile-link capacity has been reached.");
       state.mailboxLinks.push({ mailboxAccountKey, accountId: account.accountId, linkedAt: this.runtime.now() });
+    }
+    this.write(state);
+  }
+
+  unlinkMailbox(mailboxAccountKey: string): MailboxAccountLink | null {
+    assertMailboxAccountKey(mailboxAccountKey);
+    const state = this.read();
+    const index = state.mailboxLinks.findIndex((link) => link.mailboxAccountKey === mailboxAccountKey);
+    if (index < 0) return null;
+    const [removed] = state.mailboxLinks.splice(index, 1);
+    this.write(state);
+    return structuredClone(removed ?? null);
+  }
+
+  restoreMailboxLink(link: MailboxAccountLink): void {
+    assertMailboxAccountKey(link.mailboxAccountKey);
+    if (!statefulAccountId(link.accountId)) throw new Error("Mailbox profile-link account ID is invalid.");
+    if (!Number.isSafeInteger(link.linkedAt) || link.linkedAt <= 0) throw new Error("Mailbox profile-link time is invalid.");
+    const state = this.read();
+    if (!state.accounts.some((account) => account.accountId === link.accountId)) {
+      throw new Error("Mailbox profile-link account no longer exists.");
+    }
+    const existing = state.mailboxLinks.find((candidate) => candidate.mailboxAccountKey === link.mailboxAccountKey);
+    if (existing) {
+      existing.accountId = link.accountId;
+      existing.linkedAt = link.linkedAt;
+    } else {
+      if (state.mailboxLinks.length >= MAX_MAILBOX_LINKS) throw new Error("Mailbox profile-link capacity has been reached.");
+      state.mailboxLinks.push(structuredClone(link));
     }
     this.write(state);
   }
@@ -494,4 +528,8 @@ export class AccountPlatformService {
     const state = this.read();
     return entitlementActive(this.current(state).entitlement, this.runtime.now());
   }
+}
+
+function statefulAccountId(value: string): boolean {
+  return /^acct_[A-Za-z0-9_-]{8,128}$/.test(value);
 }
