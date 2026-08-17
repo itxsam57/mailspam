@@ -48,6 +48,7 @@ interface CleanupWorkerResult {
   keptNewest: boolean;
   bounded: boolean;
   providerNativeIds: string[];
+  fixtureFolderOverrides?: Record<string, "inbox" | "spam" | "trash">;
 }
 
 export interface ConsumerProtectionRouteDependencies {
@@ -293,6 +294,12 @@ export function registerConsumerProtectionRoutes(
         olderThanDays,
         keepNewest,
       }) as CleanupWorkerResult;
+      if (session.config.mode === "fixture" && result.fixtureFolderOverrides) {
+        session.config.fixtureFolderOverrides = {
+          ...(session.config.fixtureFolderOverrides ?? {}),
+          ...result.fixtureFolderOverrides,
+        };
+      }
       const provider = session.config.provider;
       const changed = result.movedToTrash > 0;
       const canUndo = changed && result.providerNativeIds.length > 0 && restoreSupported(provider, session.config.mode === "fixture");
