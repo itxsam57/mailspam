@@ -141,6 +141,12 @@ async function cleanup(adapter: ReturnType<typeof createAdapter>) {
     keptNewest: data.cleanup.keepNewest === true && matches.length > 0,
     bounded: collected.incomplete || selected.length > ids.length,
     providerNativeIds: ids,
+    // Worker data is structured-cloned, so fixture adapter mutations must be
+    // returned explicitly to the main session owner. Real providers persist
+    // the mutation remotely and therefore do not need this field.
+    fixtureFolderOverrides: data.config.mode === "fixture"
+      ? { ...(data.config.fixtureFolderOverrides ?? {}) }
+      : undefined,
   };
 }
 
