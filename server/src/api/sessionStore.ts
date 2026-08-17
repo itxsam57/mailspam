@@ -56,6 +56,8 @@ export interface RegisteredReviewAction {
 
 export type ReviewActionOperation = "mark_safe" | "trust_sender" | "report_scam" | "trash" | "report_spam";
 
+type SessionOwnership = "candidate" | "canonical" | "superseded";
+
 export class ReviewActionConflictError extends Error {
   constructor() {
     super("This message action was already used in another tab or request. Rescan to obtain a fresh action.");
@@ -131,6 +133,7 @@ function secureConfigReferences(config: SecureAdapterConfig): CredentialReferenc
 
 export class SessionStore {
   private sessions = new Map<string, AccountSession>();
+  private sessionOwnership = new Map<string, SessionOwnership>();
   private policyStores = new Map<string, InMemoryPersonalPolicyStore>();
   private vaultReferenceCounts = new Map<string, number>();
   private vaultLifecycleTail: Promise<void> = Promise.resolve();
@@ -182,7 +185,7 @@ export class SessionStore {
     const restored: AccountSession[] = [];
     for (const connection of this.liveConnectionPersistence.list()) {
       const accountKey = policyAccountKeyFromPersistentConnection(connection);
-      if (this.list().some((session) => session.policyAccountKey === accountKey)) continue;
+      if (this.canonicalForPolicyAccountKey(accountKey)) continue;
       const config = secureConfigFromPersistentConnection(connection);
       const session = this.createFromSecured(
         connection.provider,
@@ -191,6 +194,7 @@ export class SessionStore {
         accountKey,
         secureConfigReferences(config),
       );
+      this.promoteCanonical(session);
       restored.push(session);
     }
     return restored;
@@ -198,7 +202,15 @@ export class SessionStore {
 
   create(provider: string, label: string, config: AdapterConfig): AccountSession {
     const secured = secureAdapterConfigInMemory(config);
-    return this.createFromSecured(provider, label, secured.config, policyAccountKey(config), secured.vaultReferences);
+    const session = this.createFromSecured(
+      provider,
+      label,
+      secured.config,
+      policyAccountKey(config),
+      secured.vaultReferences,
+    );
+    this.promoteCanonical(session);
+    return session;
   }
 
   /**
@@ -245,14 +257,15 @@ export class SessionStore {
 
     const accountKey = policyAccountKey(config);
     // Same-account overlap is intentional during credential rotation/reconnect.
-    // Session creation is serialized with disconnect/revocation; the persistent
-    // registry itself stores only the newest descriptor for the mailbox key.
+    // A replacement remains an ineligible candidate until both protected
+    // credential storage and the newest encrypted persistent descriptor commit.
 
     const secured = await secureAdapterConfig(config, this.credentialVault);
     let session: AccountSession | null = null;
     try {
       session = this.createFromSecured(provider, label, secured.config, accountKey, secured.vaultReferences);
       if (isLive) this.liveConnectionPersistence.remember(session);
+      this.promoteCanonical(session);
       return session;
     } catch (error) {
       if (session) this.rollbackCreatedSession(session);
@@ -274,6 +287,7 @@ export class SessionStore {
     this.workspacePresentations.delete(session.id);
     if (this.selectedWorkspaceSessionId === session.id) this.selectedWorkspaceSessionId = null;
     this.sessions.delete(session.id);
+    this.sessionOwnership.delete(session.id);
     releaseMemorySecrets(session.config);
     for (const reference of session.vaultReferences) {
       const key = credentialReferenceKey(reference);
@@ -317,12 +331,47 @@ export class SessionStore {
       reviewActions: new Map(),
     };
     this.sessions.set(session.id, session);
+    this.sessionOwnership.set(session.id, "candidate");
 
     for (const reference of session.vaultReferences) {
       const key = credentialReferenceKey(reference);
       this.vaultReferenceCounts.set(key, (this.vaultReferenceCounts.get(key) ?? 0) + 1);
     }
     return session;
+  }
+
+  private promoteCanonical(session: AccountSession): void {
+    if (this.sessions.get(session.id) !== session || session.closing) {
+      throw new Error("A disconnected mailbox session cannot become the canonical protection owner.");
+    }
+
+    for (const other of this.sessions.values()) {
+      if (other.id === session.id || other.policyAccountKey !== session.policyAccountKey) continue;
+      if (this.sessionOwnership.get(other.id) === "canonical") {
+        this.sessionOwnership.set(other.id, "superseded");
+        if (this.selectedWorkspaceSessionId === other.id) this.selectedWorkspaceSessionId = session.id;
+      }
+    }
+    this.sessionOwnership.set(session.id, "canonical");
+  }
+
+  private isCanonical(session: AccountSession): boolean {
+    return !session.closing && this.sessionOwnership.get(session.id) === "canonical";
+  }
+
+  canonicalForPolicyAccountKey(accountKey: string): AccountSession | undefined {
+    const matches = [...this.sessions.values()].filter(
+      (session) => session.policyAccountKey === accountKey && this.isCanonical(session),
+    );
+    if (matches.length > 1) {
+      throw new Error("Mailbox session ownership is ambiguous; reconnect this mailbox before protection continues.");
+    }
+    return matches[0];
+  }
+
+  getCanonical(id: string): AccountSession | undefined {
+    const session = this.get(id);
+    return session && this.isCanonical(session) ? session : undefined;
   }
 
   persistPersonalPolicy(session: AccountSession): void {
@@ -366,11 +415,14 @@ export class SessionStore {
   }
 
   selectWorkspaceSession(id: string): void {
-    if (!this.get(id)) throw new Error("The selected account is no longer connected.");
+    if (!this.getCanonical(id)) throw new Error("The selected account is no longer the active mailbox connection.");
     this.selectedWorkspaceSessionId = id;
   }
 
   beginWorkspaceScan(session: AccountSession, scanId: string, type: string, counters: ScanCounters): void {
+    if (!this.isCanonical(session)) {
+      throw new Error("A superseded mailbox connection cannot start new protection work.");
+    }
     this.selectedWorkspaceSessionId = session.id;
     this.workspacePresentations.set(session.id, {
       scanId,
@@ -407,7 +459,7 @@ export class SessionStore {
   }
 
   workspaceSnapshot(): { selectedAccountId: string | null; presentation: WorkspaceScanPresentation | null } {
-    const selected = this.selectedWorkspaceSessionId && this.get(this.selectedWorkspaceSessionId)
+    const selected = this.selectedWorkspaceSessionId && this.getCanonical(this.selectedWorkspaceSessionId)
       ? this.selectedWorkspaceSessionId
       : null;
     if (!selected) this.selectedWorkspaceSessionId = null;
@@ -543,7 +595,7 @@ export class SessionStore {
   }
 
   list(): AccountSession[] {
-    return [...this.sessions.values()].filter((session) => !session.closing);
+    return [...this.sessions.values()].filter((session) => this.isCanonical(session));
   }
 
   async remove(id: string): Promise<void> {
@@ -559,16 +611,16 @@ export class SessionStore {
       }
 
       await this.withVaultLifecycle(async () => {
-        const finalProviderAccountSession = ![...this.sessions.values()].some(
-          (other) => other.id !== session.id && other.policyAccountKey === session.policyAccountKey,
-        );
+        // Ownership is resolved inside the serialized lifecycle. A reconnect may
+        // have promoted a replacement while this removal was waiting its turn.
+        const removingCanonical = this.sessionOwnership.get(session.id) === "canonical";
 
-        if (finalProviderAccountSession && session.config.mode === "live") {
+        if (removingCanonical && session.config.mode === "live") {
           this.liveConnectionPersistence.remove(session.policyAccountKey);
           persistentDescriptorRemoved = true;
         }
 
-        if (finalProviderAccountSession && this.credentialRevoker.requiresRevocation(session.config)) {
+        if (removingCanonical && this.credentialRevoker.requiresRevocation(session.config)) {
           await this.credentialRevoker.revoke(session.config, this.credentialVault);
         }
 
@@ -583,6 +635,7 @@ export class SessionStore {
         this.workspacePresentations.delete(id);
         if (this.selectedWorkspaceSessionId === id) this.selectedWorkspaceSessionId = null;
         this.sessions.delete(id);
+        this.sessionOwnership.delete(id);
         releaseMemorySecrets(session.config);
 
         for (const reference of session.vaultReferences) {
