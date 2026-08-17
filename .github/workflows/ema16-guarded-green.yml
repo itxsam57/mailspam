@@ -1,4 +1,5 @@
 name: EMA-16 Guarded Green
+# User-authored post-install trigger so this branch-local workflow runs after it exists.
 
 on:
   push:
