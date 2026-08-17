@@ -165,7 +165,7 @@ replace_once(
     window.confirm = () => true;
     const button = [...document.querySelectorAll('.card button[data-action="mark-safe"]')]
       .find((candidate) => !candidate.disabled && candidate.dataset.reviewToken &&
-        document.querySelector(`[data-action="report-scam"][data-review-token="${CSS.escape(candidate.dataset.reviewToken)}"]`));
+        document.querySelector('[data-action="report-scam"][data-review-token="' + CSS.escape(candidate.dataset.reviewToken) + '"]'));
     if (!button) return null;
     const token = button.dataset.reviewToken;
     button.click();
