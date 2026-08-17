@@ -194,7 +194,7 @@ function errorMessage(error: unknown): string {
 }
 
 function accountSession(req: Request, res: Response) {
-  const session = sessionStore.get(req.params.id!);
+  const session = sessionStore.getCanonical(req.params.id!);
   if (!session) {
     res.status(404).json({ error: "Unknown account" });
     return null;

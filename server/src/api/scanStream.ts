@@ -142,7 +142,7 @@ function sseHeaders(res: Response): void {
 }
 
 function registerPublicActions(
-  session: NonNullable<ReturnType<typeof sessionStore.get>>,
+  session: NonNullable<ReturnType<typeof sessionStore.getCanonical>>,
   context: ScanActionContext,
 ) {
   const reviewAction = sessionStore.registerReviewAction(session, context);
@@ -231,7 +231,7 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
   const { community, resume } = options;
 
   return (req: Request, res: Response) => {
-    const session = sessionStore.get(req.params.id!);
+    const session = sessionStore.getCanonical(req.params.id!);
     if (!session) {
       res.status(404).json({ error: "Unknown account" });
       return;

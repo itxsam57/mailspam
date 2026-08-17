@@ -231,7 +231,7 @@ export function createLocalDesktopServer(options: {
     service: accountPlatform,
     deviceIdentity,
     developmentEntitlementsEnabled,
-    resolveMailboxAccountKey: (sessionId) => sessionStore.get(sessionId)?.policyAccountKey ?? null,
+    resolveMailboxAccountKey: (sessionId) => sessionStore.getCanonical(sessionId)?.policyAccountKey ?? null,
   });
 
   registerProtectionActionRoutes(app, {
@@ -334,7 +334,7 @@ export function createLocalDesktopServer(options: {
   });
 
   app.get("/api/accounts/:id/background-protection", (req: Request, res: Response) => {
-    const session = sessionStore.get(req.params.id!);
+    const session = sessionStore.getCanonical(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
     try {
       res.setHeader("Cache-Control", "no-store");
@@ -345,7 +345,7 @@ export function createLocalDesktopServer(options: {
   });
 
   app.post("/api/accounts/:id/background-protection", (req: Request, res: Response) => {
-    const session = sessionStore.get(req.params.id!);
+    const session = sessionStore.getCanonical(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
     const body = req.body as Record<string, unknown>;
     if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some((key) => !["enabled", "intervalMinutes"].includes(key))) {
@@ -364,7 +364,7 @@ export function createLocalDesktopServer(options: {
   });
 
   app.get("/api/accounts/:id/scan-history", (req: Request, res: Response) => {
-    const session = sessionStore.get(req.params.id!);
+    const session = sessionStore.getCanonical(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
     try {
       res.setHeader("Cache-Control", "no-store");
@@ -422,7 +422,7 @@ export function createLocalDesktopServer(options: {
   });
 
   app.post("/api/accounts/:id/messages/unblock-sender", (req: Request, res: Response) => {
-    const session = sessionStore.get(req.params.id!);
+    const session = sessionStore.getCanonical(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
     let address: string;
     try { address = normalizeSenderAddress((req.body as { address?: unknown }).address); }
@@ -437,7 +437,7 @@ export function createLocalDesktopServer(options: {
   });
 
   app.post("/api/accounts/:id/messages/unblock-domain", (req: Request, res: Response) => {
-    const session = sessionStore.get(req.params.id!);
+    const session = sessionStore.getCanonical(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
     let domain: string;
     try { domain = normalizeSenderDomain((req.body as { domain?: unknown }).domain); }

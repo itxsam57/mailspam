@@ -32,7 +32,7 @@ function familyAwareHandler(options: {
   resume: boolean;
 }): RequestHandler {
   return (req, res, next) => {
-    const session = sessionStore.get(req.params.id!);
+    const session = sessionStore.getCanonical(req.params.id!);
     const community = session
       ? accountScopedCommunityView(options.community, options.accountPlatform, session.policyAccountKey)
       : options.community;

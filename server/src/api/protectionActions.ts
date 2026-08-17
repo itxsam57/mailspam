@@ -69,7 +69,7 @@ function legitimateLearningContext(context: CommunityReportContext): CommunityRe
 }
 
 function reversibleProviderAction(
-  session: NonNullable<ReturnType<SessionStore["get"]>>,
+  session: NonNullable<ReturnType<SessionStore["getCanonical"]>>,
   providerNativeId: string,
 ): ConsumerActivityRecord["undo"] {
   const provider = session.config.provider;
@@ -83,7 +83,7 @@ function reversibleProviderAction(
 
 function recordActivity(
   dependencies: ProtectionActionRouteDependencies,
-  session: NonNullable<ReturnType<SessionStore["get"]>>,
+  session: NonNullable<ReturnType<SessionStore["getCanonical"]>>,
   input: Omit<ConsumerActivityRecord, "activityId" | "createdAt" | "provider">,
 ): boolean {
   const activity = dependencies.consumerActivity ?? defaultConsumerStateRepository;
@@ -102,7 +102,7 @@ function recordActivity(
 }
 
 async function moveCurrentMessageToTrash(
-  session: NonNullable<ReturnType<SessionStore["get"]>>,
+  session: NonNullable<ReturnType<SessionStore["getCanonical"]>>,
   providerNativeId: string,
   adapterFactory: ProtectionActionRouteDependencies["adapterFactory"],
 ): Promise<{ movedCurrent: boolean; moveError?: string }> {
@@ -166,7 +166,7 @@ export function registerProtectionActionRoutes(
   const community = dependencies.community ?? communityNetwork;
 
   const block = (scope: "sender" | "domain") => async (req: Request, res: Response) => {
-    const session = sessions.get(req.params.id!);
+    const session = sessions.getCanonical(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
 
     let action;
@@ -257,7 +257,7 @@ export function registerProtectionActionRoutes(
   app.post("/api/accounts/:id/messages/block-domain", block("domain"));
 
   app.post("/api/accounts/:id/messages/mark-safe", (req: Request, res: Response) => {
-    const session = sessions.get(req.params.id!);
+    const session = sessions.getCanonical(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
     let action;
     try { action = sessions.claimReviewAction(session, (req.body as { token?: unknown }).token, "mark_safe"); }
@@ -283,7 +283,7 @@ export function registerProtectionActionRoutes(
   });
 
   app.post("/api/accounts/:id/messages/trust-sender", (req: Request, res: Response) => {
-    const session = sessions.get(req.params.id!);
+    const session = sessions.getCanonical(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
     let action;
     try { action = sessions.claimReviewAction(session, (req.body as { token?: unknown }).token, "trust_sender"); }
@@ -311,7 +311,7 @@ export function registerProtectionActionRoutes(
   });
 
   app.post("/api/accounts/:id/messages/trash", async (req: Request, res: Response) => {
-    const session = sessions.get(req.params.id!);
+    const session = sessions.getCanonical(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
     let action;
     try { action = sessions.claimReviewAction(session, (req.body as { token?: unknown }).token, "trash"); }
@@ -336,7 +336,7 @@ export function registerProtectionActionRoutes(
   });
 
   app.post("/api/accounts/:id/messages/report-spam", async (req: Request, res: Response) => {
-    const session = sessions.get(req.params.id!);
+    const session = sessions.getCanonical(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
     let action;
     try { action = sessions.claimReviewAction(session, (req.body as { token?: unknown }).token, "report_spam"); }
@@ -377,7 +377,7 @@ export function registerProtectionActionRoutes(
   });
 
   app.post("/api/accounts/:id/messages/unsubscribe", async (req: Request, res: Response) => {
-    const session = sessions.get(req.params.id!);
+    const session = sessions.getCanonical(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
     let action;
     try { action = sessions.resolveUnsubscribeAction(session, (req.body as { token?: unknown }).token); }
@@ -413,7 +413,7 @@ export function registerProtectionActionRoutes(
   });
 
   app.post("/api/accounts/:id/messages/report-scam", async (req: Request, res: Response) => {
-    const session = sessions.get(req.params.id!);
+    const session = sessions.getCanonical(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
 
     let action;
@@ -500,7 +500,7 @@ export function registerProtectionActionRoutes(
   });
 
   app.post("/api/accounts/:id/messages/legitimate-feedback", async (req: Request, res: Response) => {
-    const session = sessions.get(req.params.id!);
+    const session = sessions.getCanonical(req.params.id!);
     if (!session) return res.status(404).json({ error: "Unknown account" });
 
     let action;
