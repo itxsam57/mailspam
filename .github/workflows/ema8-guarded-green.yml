@@ -8,6 +8,7 @@ on:
       - .github/workflows/ema8-guarded-green.yml
       - scripts/engineering/apply_ema8_action_capability_fix.py
       - scripts/engineering/adjust_ema8_authoritative_state.py
+      - scripts/engineering/adjust_ema8_local_security.py
       - scripts/engineering/adjust_ema8_smoke.py
 
 permissions:
@@ -36,9 +37,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m py_compile scripts/engineering/apply_ema8_action_capability_fix.py scripts/engineering/adjust_ema8_authoritative_state.py scripts/engineering/adjust_ema8_smoke.py
+          python3 -m py_compile scripts/engineering/apply_ema8_action_capability_fix.py scripts/engineering/adjust_ema8_authoritative_state.py scripts/engineering/adjust_ema8_local_security.py scripts/engineering/adjust_ema8_smoke.py
           python3 scripts/engineering/apply_ema8_action_capability_fix.py
           python3 scripts/engineering/adjust_ema8_authoritative_state.py
+          python3 scripts/engineering/adjust_ema8_local_security.py
           python3 scripts/engineering/adjust_ema8_smoke.py
           node --check web/review-actions.js
           node --check web/protection-learning.js
@@ -52,6 +54,7 @@ jobs:
           printf '%s\n' "${changed[@]}"
           expected=(
             scripts/engineering/smoke-browser-scan-results.mjs
+            server/src/api/localSecurity.ts
             server/src/api/sessionStore.ts
             web/protection-learning.js
             web/review-actions.js
@@ -80,6 +83,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -- \
+            server/src/api/localSecurity.ts \
             server/src/api/sessionStore.ts \
             web/review-actions.js \
             web/protection-learning.js \
@@ -87,9 +91,10 @@ jobs:
           staged="$(git diff --cached --name-only | sort)"
           expected="$(printf '%s\n' \
             scripts/engineering/smoke-browser-scan-results.mjs \
+            server/src/api/localSecurity.ts \
             server/src/api/sessionStore.ts \
             web/protection-learning.js \
             web/review-actions.js | sort)"
           test "$staged" = "$expected"
-          git commit -m "fix: reconcile mutually exclusive message actions"
+          git commit -m "fix: reconcile message action capability ownership"
           git push origin HEAD:repair/ema-8-action-capability-contract-20260818
