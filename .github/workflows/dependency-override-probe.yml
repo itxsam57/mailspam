@@ -40,11 +40,9 @@ jobs:
           const rootPkg = JSON.parse(readFileSync(rootPath, 'utf8'));
           rootPkg.overrides = {
             ...(rootPkg.overrides ?? {}),
-            mailparser: {
-              ...((rootPkg.overrides ?? {}).mailparser ?? {}),
-              'html-to-text': '9.0.5',
-            },
+            'html-to-text': '9.0.5',
           };
+          delete rootPkg.overrides.mailparser;
           writeFileSync(rootPath, `${JSON.stringify(rootPkg, null, 2)}\n`);
           NODE
           npm install --package-lock-only --ignore-scripts
