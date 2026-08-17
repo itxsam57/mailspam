@@ -47,6 +47,18 @@ jobs:
           npm install --package-lock-only --ignore-scripts
           echo '--- candidate lockfile size ---'
           wc -l package-lock.json
+          echo '--- changed lock package entries ---'
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const before = JSON.parse(readFileSync('/tmp/email-shield-original-package-lock.json', 'utf8'));
+          const after = JSON.parse(readFileSync('package-lock.json', 'utf8'));
+          const keys = new Set([...Object.keys(before.packages ?? {}), ...Object.keys(after.packages ?? {})]);
+          const changed = [...keys].filter((key) => JSON.stringify(before.packages?.[key] ?? null) !== JSON.stringify(after.packages?.[key] ?? null)).sort();
+          console.log(`changed package entries: ${changed.length}`);
+          for (const key of changed) console.log(key || '<root>');
+          NODE
+          echo '--- textual lock diff stats ---'
+          git diff --no-index --numstat /tmp/email-shield-original-package-lock.json package-lock.json || true
 
       - name: Inspect and verify resolved dependency graph
         shell: bash
