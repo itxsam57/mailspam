@@ -1,0 +1,1 @@
+EMA-34 Task 6 exact-head gate trigger. Removed immediately in the following commit.
