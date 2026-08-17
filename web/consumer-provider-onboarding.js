@@ -59,6 +59,45 @@
   providerButtons.get('outlook')?.remove();
   providerButtons.delete('outlook');
 
+  const setupGuidance = document.createElement('div');
+  setupGuidance.id = 'consumerProviderSetupGuidance';
+  setupGuidance.className = 'consumer-card';
+  setupGuidance.hidden = true;
+  setupGuidance.setAttribute('role', 'status');
+  setupGuidance.setAttribute('aria-live', 'polite');
+  grid.insertAdjacentElement('beforebegin', setupGuidance);
+
+  const setupGuidanceByReason = new Map([
+    ['connect', 'Choose a provider below and finish its sign-in or app-password steps. This setup item completes only after Email Shield sees that mailbox connected and selected.'],
+    ['permissions', 'Connect and select a mailbox first. Then Email Shield can show the permission promise for the provider you are actually using.'],
+    ['scan', 'Connect and select a mailbox first. Then return to Check & Scan to establish the first protection baseline.'],
+    ['sensitivity', 'Connect and select a mailbox first. Protection sensitivity is saved to the selected mailbox and cannot be applied before one is connected.'],
+    ['background', 'Connect and select a mailbox first. Background Protection is configured per mailbox and completes only after the enabled state is observed.'],
+    ['family', 'Connect and select a mailbox first so this setup choice is saved to the correct mailbox before you review or skip Family Shield.'],
+    ['home', 'Connect and select a mailbox first. The protection home cannot be confirmed until all required mailbox setup steps are complete.'],
+  ]);
+
+  function showSetupGuidance(reason) {
+    const message = setupGuidanceByReason.get(reason)
+      || 'Connect and select a mailbox first. Choose one of the available providers below to continue setup.';
+    const heading = document.createElement('strong');
+    heading.textContent = 'Connect a mailbox to continue';
+    const copy = document.createElement('p');
+    copy.textContent = message;
+    setupGuidance.replaceChildren(heading, copy);
+    setupGuidance.hidden = false;
+    grid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const firstAvailableProvider = [...providerButtons.values()].find((button) => button instanceof HTMLButtonElement && !button.hidden);
+    if (firstAvailableProvider instanceof HTMLButtonElement) firstAvailableProvider.focus({ preventScroll: true });
+  }
+
+  window.addEventListener('email-shield-provider-setup-requested', (event) => {
+    const reason = event instanceof CustomEvent && typeof event.detail?.reason === 'string'
+      ? event.detail.reason
+      : 'generic';
+    showSetupGuidance(reason);
+  });
+
   const oauthConfiguration = {
     gmail: { path: '/api/accounts/oauth/google/config', label: 'Google' },
   };
@@ -183,6 +222,7 @@
       event.preventDefault();
       event.stopImmediatePropagation();
       connectStatus.textContent = '';
+      setupGuidance.hidden = true;
       actions.replaceChildren();
       selectProvider(provider);
 
