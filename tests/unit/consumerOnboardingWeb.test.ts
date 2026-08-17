@@ -83,4 +83,20 @@ describe("canonical consumer first-run journey", () => {
     expect(source).toContain("completed.add('first_scan_completed')");
     expect(source).toContain("completed.add('continuous_protection_configured')");
   });
+
+  it("hands mailbox prerequisites to the real provider setup surface without granting completion", () => {
+    const onboarding = read("web/consumer-onboarding.js");
+    const providers = read("web/consumer-provider-onboarding.js");
+
+    expect(onboarding).toContain("email-shield-provider-setup-requested");
+    expect(onboarding).toContain("Requires a connected, selected mailbox");
+    expect(onboarding).toContain("requestMailboxSetup('connect')");
+    expect(onboarding).toContain("requestMailboxSetup('sensitivity')");
+    expect(onboarding).not.toContain("state.completed.add('mailbox_connected');\n      requestMailboxSetup");
+
+    expect(providers).toContain("email-shield-provider-setup-requested");
+    expect(providers).toContain("consumerProviderSetupGuidance");
+    expect(providers).toContain("grid.scrollIntoView");
+    expect(providers).toContain("firstAvailableProvider.focus");
+  });
 });
