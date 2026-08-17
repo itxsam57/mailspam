@@ -25,11 +25,13 @@ jobs:
           node-version: '20'
           cache: npm
 
-      - name: Resolve candidate graph from a fresh lock
+      - name: Re-resolve only the stale parser security subgraph
         shell: bash
         run: |
+          cp package-lock.json /tmp/email-shield-original-package-lock.json
           node --input-type=module <<'NODE'
           import { readFileSync, writeFileSync } from 'node:fs';
+
           const serverPath = 'server/package.json';
           const serverPkg = JSON.parse(readFileSync(serverPath, 'utf8'));
           serverPkg.dependencies.mailparser = '3.9.8';
@@ -38,15 +40,29 @@ jobs:
           const rootPath = 'package.json';
           const rootPkg = JSON.parse(readFileSync(rootPath, 'utf8'));
           rootPkg.overrides = {
+            ...(rootPkg.overrides ?? {}),
             'linkify-it': '5.0.2',
             'nodemailer': '9.0.5'
           };
           writeFileSync(rootPath, `${JSON.stringify(rootPkg, null, 2)}\n`);
+
+          const lockPath = 'package-lock.json';
+          const lock = JSON.parse(readFileSync(lockPath, 'utf8'));
+          const staleExact = new Set([
+            'node_modules/html-to-text',
+            'node_modules/deepmerge-ts',
+            'node_modules/linkify-it',
+            'node_modules/nodemailer'
+          ]);
+          for (const key of Object.keys(lock.packages ?? {})) {
+            if (key === 'node_modules/mailparser' || key.startsWith('node_modules/mailparser/') || staleExact.has(key)) {
+              delete lock.packages[key];
+            }
+          }
+          writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
           NODE
-          mv package-lock.json /tmp/email-shield-original-package-lock.json
           npm install --package-lock-only --ignore-scripts
-          echo '--- candidate lockfile size ---'
-          wc -l package-lock.json
+
           echo '--- changed lock package entries ---'
           node --input-type=module <<'NODE'
           import { readFileSync } from 'node:fs';
