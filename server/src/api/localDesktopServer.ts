@@ -11,7 +11,7 @@ import {
   createFamilyAwareScanStreamHandler,
 } from "./familyAwareScanStream.js";
 import { defaultScanStateRepository } from "./defaultScanStateRepository.js";
-import { sessionStore } from "./sessionStore.js";
+import { sessionStore, type AccountSession } from "./sessionStore.js";
 import { registerPolicyManagementRoutes } from "./policyManagement.js";
 import { registerProtectionActionRoutes } from "./protectionActions.js";
 import {
@@ -88,6 +88,7 @@ export function createLocalDesktopServer(options: {
   accountPlatform?: AccountPlatformService;
   deviceIdentity?: AccountPlatformRouteDependencies["deviceIdentity"];
   developmentEntitlementsEnabled?: boolean;
+  accountReachability?: (session: AccountSession) => unknown;
 } = {}) {
   const app = express();
   const security = options.security ?? localSecurity;
@@ -114,6 +115,7 @@ export function createLocalDesktopServer(options: {
     destinationAnalyzer,
     fixtureConnections,
     developerToolsEnabled: developmentEntitlementsEnabled,
+    accountReachability: options.accountReachability,
   });
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const webDir = join(__dirname, "../../../web");

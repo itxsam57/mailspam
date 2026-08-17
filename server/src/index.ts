@@ -146,6 +146,7 @@ const realtimeProtection = new RealtimeProtectionService({
 realtimeProtection.start();
 
 const app = createConsumerDesktopServer({
+  accountReachability: (session) => realtimeProtection.mailboxReachability(session),
   backgroundProtection,
   fixtureConnections,
   accountPlatform,
