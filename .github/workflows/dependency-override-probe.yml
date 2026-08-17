@@ -1,4 +1,4 @@
-name: Temporary dependency graph probe
+name: Temporary dependency graph adoption
 
 on:
   push:
@@ -6,10 +6,11 @@ on:
       - repair/canonical-session-reachability-p0-20260817
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  resolve-and-verify:
+  resolve-verify-and-commit:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -63,26 +64,71 @@ jobs:
           NODE
           npm install --package-lock-only --ignore-scripts
 
-          echo '--- changed lock package entries ---'
+      - name: Reject unrelated lockfile churn
+        shell: bash
+        run: |
           node --input-type=module <<'NODE'
           import { readFileSync } from 'node:fs';
           const before = JSON.parse(readFileSync('/tmp/email-shield-original-package-lock.json', 'utf8'));
           const after = JSON.parse(readFileSync('package-lock.json', 'utf8'));
           const keys = new Set([...Object.keys(before.packages ?? {}), ...Object.keys(after.packages ?? {})]);
           const changed = [...keys].filter((key) => JSON.stringify(before.packages?.[key] ?? null) !== JSON.stringify(after.packages?.[key] ?? null)).sort();
-          console.log(`changed package entries: ${changed.length}`);
-          for (const key of changed) console.log(key || '<root>');
+          const allowed = new Set([
+            'node_modules/@selderee/plugin-htmlparser2',
+            'node_modules/deepmerge',
+            'node_modules/deepmerge-ts',
+            'node_modules/html-to-text',
+            'node_modules/html-to-text/node_modules/@selderee/plugin-htmlparser2',
+            'node_modules/html-to-text/node_modules/htmlparser2',
+            'node_modules/html-to-text/node_modules/leac',
+            'node_modules/html-to-text/node_modules/parseley',
+            'node_modules/html-to-text/node_modules/peberminta',
+            'node_modules/html-to-text/node_modules/selderee',
+            'node_modules/htmlparser2',
+            'node_modules/htmlparser2/node_modules/entities',
+            'node_modules/leac',
+            'node_modules/mailparser',
+            'node_modules/mailparser/node_modules/@zone-eu/mailsplit',
+            'node_modules/mailparser/node_modules/@zone-eu/mailsplit/node_modules/iconv-lite',
+            'node_modules/mailparser/node_modules/@zone-eu/mailsplit/node_modules/libmime',
+            'node_modules/mailparser/node_modules/iconv-lite',
+            'node_modules/mailparser/node_modules/libmime',
+            'node_modules/nodemailer',
+            'node_modules/parseley',
+            'node_modules/peberminta',
+            'node_modules/selderee',
+            'server'
+          ]);
+          const unexpected = changed.filter((key) => !allowed.has(key));
+          if (unexpected.length) {
+            throw new Error(`Unrelated lock entries changed: ${unexpected.join(', ')}`);
+          }
+          if (changed.length !== allowed.size || allowed.size !== 24) {
+            throw new Error(`Expected exactly 24 parser-closure lock changes, observed ${changed.length}`);
+          }
+          console.log(`Bounded parser lock update confirmed: ${changed.length} allowed entries only.`);
           NODE
-          echo '--- textual lock diff stats ---'
-          git diff --no-index --numstat /tmp/email-shield-original-package-lock.json package-lock.json || true
 
-      - name: Inspect and verify resolved dependency graph
+      - name: Verify dependency graph, production audit, and unit suite
         shell: bash
         run: |
           npm ci
-          echo '--- resolved parser tree ---'
           npm ls mailparser html-to-text deepmerge-ts deepmerge linkify-it nodemailer --all
-          echo '--- production audit ---'
-          npm audit --omit=dev --audit-level=high --json | tee /tmp/email-shield-audit.json
-          echo '--- full unit suite ---'
+          npm audit --omit=dev --audit-level=high
           npm run test:unit
+
+      - name: Commit verified package metadata only
+        shell: bash
+        run: |
+          git add package.json server/package.json package-lock.json
+          changed=$(git diff --cached --name-only)
+          unexpected=$(printf '%s\n' "$changed" | grep -Ev '^(package.json|server/package.json|package-lock.json)$' || true)
+          if [ -n "$unexpected" ]; then
+            echo "Unexpected dependency-adoption changes:" >&2
+            printf '%s\n' "$unexpected" >&2
+            exit 1
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: remove vulnerable parser dependency chains'
+          git push origin HEAD:repair/canonical-session-reachability-p0-20260817
