@@ -48,6 +48,7 @@ interface CleanupWorkerResult {
   keptNewest: boolean;
   bounded: boolean;
   providerNativeIds: string[];
+  fixtureFolderOverrides?: Record<string, "inbox" | "spam" | "trash">;
 }
 
 export interface ConsumerProtectionRouteDependencies {
@@ -293,15 +294,24 @@ export function registerConsumerProtectionRoutes(
         olderThanDays,
         keepNewest,
       }) as CleanupWorkerResult;
+      if (session.config.mode === "fixture" && result.fixtureFolderOverrides) {
+        session.config.fixtureFolderOverrides = {
+          ...(session.config.fixtureFolderOverrides ?? {}),
+          ...result.fixtureFolderOverrides,
+        };
+      }
       const provider = session.config.provider;
-      const canUndo = result.providerNativeIds.length > 0 && restoreSupported(provider, session.config.mode === "fixture");
+      const changed = result.movedToTrash > 0;
+      const canUndo = changed && result.providerNativeIds.length > 0 && restoreSupported(provider, session.config.mode === "fixture");
       const activity = defaultConsumerStateRepository.appendActivity(session.policyAccountKey, {
         kind: "cleanup",
         severity: "info",
         provider,
-        title: "Mailbox cleanup moved messages to Trash",
-        detail: `${result.movedToTrash} matching message(s) were moved to Trash after explicit confirmation.${result.bounded ? " The operation was bounded; additional matching mail may remain." : ""}`,
-        reasonCodes: ["BULK_CLEANUP_TO_TRASH"],
+        title: changed ? "Mailbox cleanup completed" : "Mailbox cleanup made no changes",
+        detail: changed
+          ? `${result.movedToTrash} matching message(s) were moved to Trash after explicit confirmation.${result.bounded ? " The operation was bounded; additional matching mail may remain." : ""}`
+          : `No matching messages remained eligible for the requested cleanup.${result.bounded ? " The bounded Health inventory may not include every mailbox message." : ""}`,
+        reasonCodes: [changed ? "BULK_CLEANUP_TO_TRASH" : "BULK_CLEANUP_NO_CHANGE"],
         undo: canUndo ? {
           providerNativeIds: result.providerNativeIds,
           expiresAt: Date.now() + UNDO_WINDOW_MS,
