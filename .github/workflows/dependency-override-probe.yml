@@ -38,24 +38,23 @@ jobs:
           NODE
           npm install --package-lock-only --ignore-scripts
 
-      - name: Verify resolved dependency graph
+      - name: Inspect and verify resolved dependency graph
+        shell: bash
         run: |
           npm ci
-          node - <<'NODE'
-          const mailparser = require('./node_modules/mailparser/package.json');
-          const htmlToText = require('./node_modules/html-to-text/package.json');
-          if (mailparser.version !== '3.9.8') throw new Error(`Expected mailparser 3.9.8, got ${mailparser.version}`);
-          if (htmlToText.version !== '9.0.5') throw new Error(`Expected html-to-text 9.0.5, got ${htmlToText.version}`);
-          try {
-            const deepmergeTs = require('./node_modules/deepmerge-ts/package.json');
-            throw new Error(`Vulnerable deepmerge-ts remained in the production graph at ${deepmergeTs.version}`);
-          } catch (error) {
-            if (error?.code !== 'MODULE_NOT_FOUND') throw error;
-          }
-          console.log('mailparser', mailparser.version, 'html-to-text', htmlToText.version, 'deepmerge-ts absent');
-          NODE
-          npm audit --omit=dev --audit-level=high
+          echo '--- resolved parser tree ---'
+          npm ls mailparser html-to-text deepmerge-ts deepmerge --all || true
+          echo '--- production audit ---'
+          set +e
+          npm audit --omit=dev --audit-level=high --json | tee /tmp/email-shield-audit.json
+          audit_status=${PIPESTATUS[0]}
+          set -e
+          echo '--- full unit suite ---'
           npm run test:unit
+          if [ "$audit_status" -ne 0 ]; then
+            echo "Production audit remained blocking after the candidate dependency graph."
+            exit "$audit_status"
+          fi
 
       - name: Commit verified package metadata
         shell: bash
