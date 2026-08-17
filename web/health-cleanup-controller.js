@@ -17,7 +17,7 @@
   function setHealthStatus(message, error = false) {
     const status = document.getElementById('consumerHealthStatus');
     if (!status) return;
-    status.textContent = message;
+    if (status.textContent !== message) status.textContent = message;
     status.style.color = error ? 'var(--confirmed)' : '';
   }
 
@@ -62,7 +62,8 @@
         eligibility.className = 'hint health-cleanup-eligibility';
         info.appendChild(eligibility);
       }
-      if (eligibility) eligibility.textContent = `${oldCount} message(s) older than 30 days`;
+      const eligibilityText = `${oldCount} message(s) older than 30 days`;
+      if (eligibility && eligibility.textContent !== eligibilityText) eligibility.textContent = eligibilityText;
 
       if (!group || oldCount <= 0) {
         legacyButton?.remove();
@@ -79,7 +80,7 @@
       if (legacyButton instanceof HTMLButtonElement) {
         legacyButton.dataset.healthCleanupKey = item.key;
         legacyButton.dataset.healthCleanupCount = String(oldCount);
-        legacyButton.textContent = 'Clean old mail';
+        if (legacyButton.textContent !== 'Clean old mail') legacyButton.textContent = 'Clean old mail';
       }
     });
   }
