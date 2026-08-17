@@ -1,8 +1,11 @@
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { SessionStore } from "../../server/src/api/sessionStore.js";
 import { InMemoryPolicyRepository } from "../../server/src/api/policyPersistence.js";
 import type { ScanActionContext } from "../../server/src/workflows/scanWorkflows.js";
+
+const webRoot = join(import.meta.dirname, "../../web");
 
 function reviewContext(): ScanActionContext {
   return {
@@ -50,15 +53,24 @@ describe("EMA-8 campaign decision availability", () => {
   });
 
   it("renders Report Scam from server availability rather than scan-time campaign state alone", () => {
-    const source = readFileSync("web/review-actions.js", "utf8");
+    const source = readFileSync(join(webRoot, "review-actions.js"), "utf8");
     expect(source).toContain("action.reportScamAvailable === false");
     expect(source).toContain("Campaign decision already saved");
   });
 
-  it("locks Report Scam while positive campaign feedback is pending and restores it if that feedback fails", () => {
-    const source = readFileSync("web/protection-learning.js", "utf8");
-    expect(source).toContain("setReportScamAvailability(token, false");
-    expect(source).toContain("setReportScamAvailability(token, true");
-    expect(source).toContain("Campaign decision already saved");
+  it("keeps Report Scam ownership in review-actions while positive learning publishes pending, saved, and rollback state", () => {
+    const learning = readFileSync(join(webRoot, "protection-learning.js"), "utf8");
+    const review = readFileSync(join(webRoot, "review-actions.js"), "utf8");
+
+    expect(learning).toContain("email-shield-campaign-decision-state");
+    expect(learning).toContain("publishCampaignDecisionState(token, 'pending')");
+    expect(learning).toContain("publishCampaignDecisionState(token, 'saved')");
+    expect(learning).toContain("publishCampaignDecisionState(token, 'available')");
+    expect(learning).not.toContain("[data-action=\"report-scam\"]");
+
+    expect(review).toContain("email-shield-campaign-decision-state");
+    expect(review).toContain("setReportScamAvailability(token, false");
+    expect(review).toContain("setReportScamAvailability(token, true");
+    expect(review).toContain("Campaign decision already saved");
   });
 });
