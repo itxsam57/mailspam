@@ -31,10 +31,21 @@ jobs:
         run: |
           node --input-type=module <<'NODE'
           import { readFileSync, writeFileSync } from 'node:fs';
-          const path = 'server/package.json';
-          const pkg = JSON.parse(readFileSync(path, 'utf8'));
-          pkg.dependencies.mailparser = '3.9.15';
-          writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
+          const serverPath = 'server/package.json';
+          const serverPkg = JSON.parse(readFileSync(serverPath, 'utf8'));
+          serverPkg.dependencies.mailparser = '3.9.15';
+          writeFileSync(serverPath, `${JSON.stringify(serverPkg, null, 2)}\n`);
+
+          const rootPath = 'package.json';
+          const rootPkg = JSON.parse(readFileSync(rootPath, 'utf8'));
+          rootPkg.overrides = {
+            ...(rootPkg.overrides ?? {}),
+            mailparser: {
+              ...((rootPkg.overrides ?? {}).mailparser ?? {}),
+              'html-to-text': '9.0.5',
+            },
+          };
+          writeFileSync(rootPath, `${JSON.stringify(rootPkg, null, 2)}\n`);
           NODE
           npm install --package-lock-only --ignore-scripts
 
@@ -43,7 +54,7 @@ jobs:
         run: |
           npm ci
           echo '--- resolved parser tree ---'
-          npm ls mailparser html-to-text deepmerge-ts linkify-it nodemailer --all || true
+          npm ls mailparser html-to-text deepmerge-ts deepmerge linkify-it nodemailer --all
           echo '--- production audit ---'
           npm audit --omit=dev --audit-level=high --json | tee /tmp/email-shield-audit.json
           echo '--- full unit suite ---'
@@ -52,7 +63,7 @@ jobs:
       - name: Commit verified package metadata
         shell: bash
         run: |
-          git add server/package.json package-lock.json
+          git add package.json server/package.json package-lock.json
           if git diff --cached --quiet; then
             echo 'No package metadata changes to commit.'
             exit 0
