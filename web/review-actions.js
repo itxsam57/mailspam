@@ -57,6 +57,28 @@
     })[character]);
   }
 
+  function setReportScamAvailability(token, available, label = null) {
+    document.querySelectorAll(`[data-action="report-scam"][data-review-token="${CSS.escape(token)}"]`).forEach((candidate) => {
+      if (!(candidate instanceof HTMLButtonElement)) return;
+      candidate.disabled = !available;
+      if (typeof label === 'string' && label) candidate.textContent = label;
+    });
+  }
+
+  window.addEventListener('email-shield-campaign-decision-state', (event) => {
+    const detail = event instanceof CustomEvent ? event.detail : null;
+    const token = typeof detail?.token === 'string' ? detail.token : '';
+    const state = detail?.state;
+    if (!token) return;
+    if (state === 'pending') {
+      setReportScamAvailability(token, false, 'Saving campaign feedback…');
+    } else if (state === 'saved') {
+      setReportScamAvailability(token, false, 'Campaign decision already saved ✓');
+    } else if (state === 'available') {
+      setReportScamAvailability(token, true, 'Report Scam to Email Shield');
+    }
+  });
+
   window.renderCard = function renderCardWithReviewActions(result) {
     const html = originalRenderCard(result);
     const action = result?.reviewAction;
@@ -70,6 +92,7 @@
 
     const sender = result?.envelope?.from?.address || '';
     const campaignProtected = action.scamAlreadyReported === true;
+    const campaignDecisionTaken = action.reportScamAvailable === false && !campaignProtected;
     const senderBlock = actions.querySelector('[data-action="block-sender"]');
     const domainBlock = actions.querySelector('[data-action="block-domain"]');
     const trash = actions.querySelector('[data-action="trash"]');
@@ -100,8 +123,12 @@
     reportScam.dataset.action = 'report-scam';
     reportScam.dataset.reviewToken = action.token;
     reportScam.dataset.sender = sender;
-    reportScam.textContent = campaignProtected ? 'Campaign protected locally ✓' : 'Report Scam to Email Shield';
-    reportScam.disabled = campaignProtected;
+    reportScam.textContent = campaignProtected
+      ? 'Campaign protected locally ✓'
+      : campaignDecisionTaken
+        ? 'Campaign decision already saved ✓'
+        : 'Report Scam to Email Shield';
+    reportScam.disabled = campaignProtected || campaignDecisionTaken;
     actions.appendChild(reportScam);
 
     if (action.canMoveToSpam) {

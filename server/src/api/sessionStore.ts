@@ -458,17 +458,46 @@ export class SessionStore {
     presentation.updatedAt = Date.now();
   }
 
-  workspaceSnapshot(): { selectedAccountId: string | null; presentation: WorkspaceScanPresentation | null } {
-    const selected = this.selectedWorkspaceSessionId && this.getCanonical(this.selectedWorkspaceSessionId)
-      ? this.selectedWorkspaceSessionId
-      : null;
-    if (!selected) this.selectedWorkspaceSessionId = null;
+  private hydrateReviewActionAvailability(session: AccountSession, entry: unknown): unknown {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entry;
+    const record = entry as Record<string, unknown>;
+    const reviewValue = record.reviewAction;
+    if (!reviewValue || typeof reviewValue !== "object" || Array.isArray(reviewValue)) return entry;
+    const reviewAction = reviewValue as Record<string, unknown>;
+    const token = typeof reviewAction.token === "string" ? reviewAction.token : null;
+    if (!token) return entry;
+    const registered = session.reviewActions.get(token);
+    if (!registered) return entry;
+    const campaignProtected = session.personalPolicy.isReportedCampaign(
+      registered.communityReport.campaignFingerprint,
+    );
     return {
-      selectedAccountId: selected,
-      presentation: selected && this.workspacePresentations.has(selected)
-        ? structuredClone(this.workspacePresentations.get(selected)!)
-        : null,
+      ...record,
+      reviewAction: {
+        ...reviewAction,
+        reportScamAvailable: !campaignProtected && !registered.claimedOperations.has("report_scam"),
+      },
     };
+  }
+
+  workspaceSnapshot(): { selectedAccountId: string | null; presentation: WorkspaceScanPresentation | null } {
+    const selectedSession = this.selectedWorkspaceSessionId
+      ? this.getCanonical(this.selectedWorkspaceSessionId)
+      : undefined;
+    const selected = selectedSession?.id ?? null;
+    if (!selected) this.selectedWorkspaceSessionId = null;
+    const presentation = selected && this.workspacePresentations.has(selected)
+      ? structuredClone(this.workspacePresentations.get(selected)!)
+      : null;
+    if (selectedSession && presentation) {
+      presentation.suspiciousCards = presentation.suspiciousCards.map(
+        (entry) => this.hydrateReviewActionAvailability(selectedSession, entry),
+      );
+      presentation.diagnosticSummaries = presentation.diagnosticSummaries.map(
+        (entry) => this.hydrateReviewActionAvailability(selectedSession, entry),
+      );
+    }
+    return { selectedAccountId: selected, presentation };
   }
 
   registerReviewAction(session: AccountSession, context: ScanActionContext): {
@@ -481,6 +510,7 @@ export class SessionStore {
     canReportSpam: boolean;
     scamAlreadyReported: boolean;
     communityReported: boolean;
+    reportScamAvailable: boolean;
   } {
     this.pruneExpiredScanActions(session);
     if (session.reviewActions.size >= MAX_SCAN_ACTIONS) {
@@ -512,6 +542,7 @@ export class SessionStore {
       canReportSpam: canMoveToSpam,
       scamAlreadyReported: alreadyReported,
       communityReported: alreadyReported,
+      reportScamAvailable: !alreadyReported,
     };
   }
 

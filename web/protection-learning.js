@@ -28,6 +28,37 @@
     return result;
   }
 
+  function publishCampaignDecisionState(token, state) {
+    window.dispatchEvent(new CustomEvent('email-shield-campaign-decision-state', {
+      detail: { token, state },
+    }));
+  }
+
+  async function authoritativeCampaignDecisionState(accountId, token, fallbackState) {
+    try {
+      const response = await fetch('/api/accounts/workspace', {
+        headers: { Accept: 'application/json' },
+        cache: 'no-store',
+      });
+      const workspace = await response.json().catch(() => ({}));
+      if (!response.ok || workspace.selectedAccountId !== accountId) return fallbackState;
+      const presentation = workspace.presentation && typeof workspace.presentation === 'object'
+        ? workspace.presentation
+        : {};
+      const entries = [
+        ...(Array.isArray(presentation.suspiciousCards) ? presentation.suspiciousCards : []),
+        ...(Array.isArray(presentation.diagnosticSummaries) ? presentation.diagnosticSummaries : []),
+      ];
+      const entry = entries.find((candidate) => candidate?.reviewAction?.token === token);
+      if (entry?.reviewAction?.reportScamAvailable === false) return 'saved';
+      if (entry?.reviewAction?.reportScamAvailable === true) return 'available';
+    } catch {
+      // The mutation result remains the bounded fallback when optional workspace
+      // presentation cannot be re-read. Never expose mailbox content here.
+    }
+    return fallbackState;
+  }
+
   async function familyAvailable() {
     try {
       const response = await fetch('/api/profile/v1/snapshot', { cache: 'no-store' });
@@ -56,14 +87,20 @@
     const key = `${accountId}:${token}`;
     if (submittedPositiveFeedback.has(key)) return;
     submittedPositiveFeedback.add(key);
+    publishCampaignDecisionState(token, 'pending');
+    let fallbackState = 'available';
     try {
       await post(accountId, 'legitimate-feedback', { token });
+      fallbackState = 'saved';
     } catch {
       // Community learning is deliberately secondary to the user's durable
-      // local Safe/Trust decision. A later fresh action can retry without
-      // undoing local policy or exposing raw mailbox content.
-      submittedPositiveFeedback.delete(key);
+      // local Safe/Trust decision. The server remains authoritative about
+      // whether a concurrent/duplicate decision retained this capability.
     }
+    const state = await authoritativeCampaignDecisionState(accountId, token, fallbackState);
+    if (state === 'saved') submittedPositiveFeedback.add(key);
+    else submittedPositiveFeedback.delete(key);
+    publishCampaignDecisionState(token, state);
   }
 
   function observeSuccessfulPositiveAction(button, accountId, token, kind) {
