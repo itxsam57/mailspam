@@ -11,12 +11,30 @@ before = '''  assert(positiveDecisionState?.safeDisabled === true && positiveDec
 '''
 after = '''  assert(positiveDecisionState?.safeDisabled === true && positiveDecisionState?.safeText.includes('marked Safe'),
     `Browser Mark Safe did not persist its visible local decision. State: ${JSON.stringify(positiveDecisionState)}`);
+  const authoritativeWorkspaceState = await evaluate(client, `(async () => {
+    const response = await fetch('/api/accounts/workspace', { headers: { Accept: 'application/json' }, cache: 'no-store' });
+    const workspace = await response.json().catch(() => ({}));
+    const presentation = workspace?.presentation && typeof workspace.presentation === 'object' ? workspace.presentation : {};
+    const entries = [
+      ...(Array.isArray(presentation.suspiciousCards) ? presentation.suspiciousCards : []),
+      ...(Array.isArray(presentation.diagnosticSummaries) ? presentation.diagnosticSummaries : []),
+    ];
+    const matching = entries.find((candidate) => candidate?.reviewAction?.token === ${JSON.stringify(positiveDecisionToken)}) || null;
+    return {
+      responseOk: response.ok,
+      selectedAccountId: workspace?.selectedAccountId || null,
+      expectedAccountId: ${JSON.stringify(accountId)},
+      matchingTokenFound: Boolean(matching),
+      reportScamAvailable: matching?.reviewAction?.reportScamAvailable ?? null,
+      workspaceEntryCount: entries.length,
+    };
+  })()`);
   if (positiveDecisionState?.reportDisabled) {
     assert(positiveDecisionState.reportText.includes('Campaign decision already saved'),
-      `Retained campaign-decision capability was disabled with the wrong consumer state. State: ${JSON.stringify(positiveDecisionState)}`);
+      `Retained campaign-decision capability was disabled with the wrong consumer state. State: ${JSON.stringify(positiveDecisionState)} Workspace: ${JSON.stringify(authoritativeWorkspaceState)}`);
   } else {
     assert(positiveDecisionState?.reportText === 'Report Scam to Email Shield',
-      `Released campaign-decision capability was not restored truthfully. State: ${JSON.stringify(positiveDecisionState)}`);
+      `Released campaign-decision capability was not restored truthfully. State: ${JSON.stringify(positiveDecisionState)} Workspace: ${JSON.stringify(authoritativeWorkspaceState)}`);
     await evaluate(client, `(() => {
       window.confirm = () => true;
       document.querySelector('[data-action="report-scam"][data-review-token="${positiveDecisionToken}"]')?.click();
@@ -44,11 +62,11 @@ after = '''  assert(positiveDecisionState?.safeDisabled === true && positiveDeci
       'Released Report Scam capability did not produce an observable browser state.');
     const replayConflict = /message_action_conflict|already been used|rescan before performing another action/i.test(releasedReportState.statusText || '');
     assert(replayConflict === false,
-      `Released campaign-decision capability still hit the stale replay conflict. State: ${JSON.stringify(releasedReportState)}`);
+      `Released campaign-decision capability still hit the stale replay conflict. State: ${JSON.stringify(releasedReportState)} Workspace: ${JSON.stringify(authoritativeWorkspaceState)}`);
     assert(
       (releasedReportState.reportDisabled && /Reported|Campaign protected/.test(releasedReportState.reportText)) ||
       (!releasedReportState.reportDisabled && /^Message action failed:/.test(releasedReportState.statusText)),
-      `Released Report Scam capability never settled to success or an unrelated explicit failure. State: ${JSON.stringify(releasedReportState)}`,
+      `Released Report Scam capability never settled to success or an unrelated explicit failure. State: ${JSON.stringify(releasedReportState)} Workspace: ${JSON.stringify(authoritativeWorkspaceState)}`,
     );
   }
 
@@ -57,4 +75,4 @@ after = '''  assert(positiveDecisionState?.safeDisabled === true && positiveDeci
 if source.count(before) != 1:
     raise RuntimeError(f"expected generated smoke block exactly once, found {source.count(before)}")
 path.write_text(source.replace(before, after, 1), encoding="utf-8")
-print("EMA-8 browser acceptance now verifies retained-vs-released campaign capability truthfully")
+print("EMA-8 browser acceptance now diagnoses authoritative workspace capability before replay testing")
