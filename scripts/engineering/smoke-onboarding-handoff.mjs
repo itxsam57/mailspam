@@ -1,8 +1,9 @@
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { waitForDevToolsPort } from "./chromium-devtools-port.mjs";
 
 const root = process.cwd();
 const host = "127.0.0.1";
@@ -51,22 +52,6 @@ async function waitForHttp(url, processRef, stderr, timeoutMs = 20_000) {
     await sleep(100);
   }
   throw new Error(`Timed out waiting for ${url}: ${lastError?.message ?? "unknown error"}\n${stderr()}`);
-}
-
-async function waitForDevToolsPort(profileDirectory, processRef, stderr, timeoutMs = 20_000) {
-  const activePortPath = join(profileDirectory, "DevToolsActivePort");
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (processRef?.exitCode !== null) {
-      throw new Error(`Chromium exited before publishing DevToolsActivePort with code ${processRef.exitCode}.\n${stderr()}`);
-    }
-    if (existsSync(activePortPath)) {
-      const port = Number.parseInt(readFileSync(activePortPath, "utf8").split(/\r?\n/, 1)[0]?.trim() ?? "", 10);
-      if (Number.isInteger(port) && port > 0 && port <= 65_535) return port;
-    }
-    await sleep(50);
-  }
-  throw new Error(`Timed out waiting for Chromium to publish its authoritative DevTools port.\n${stderr()}`);
 }
 
 function findOnPath(command) {
