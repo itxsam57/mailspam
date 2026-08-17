@@ -1,0 +1,63 @@
+name: EMA-16 Guarded Green
+
+on:
+  push:
+    branches:
+      - repair/ema-16-health-cleanup-targeting-20260818
+    paths:
+      - .github/workflows/ema16-guarded-green.yml
+      - scripts/engineering/apply_ema16_health_cleanup_fix.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-prove:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: repair/ema-16-health-cleanup-targeting-20260818
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Apply guarded root repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/engineering/apply_ema16_health_cleanup_fix.py
+          python3 scripts/engineering/apply_ema16_health_cleanup_fix.py
+          node --check web/consumer-product.js
+          node --check scripts/engineering/smoke-browser-scan-results.mjs
+      - name: Assert product diff allowlist
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' scripts/engineering/smoke-browser-scan-results.mjs server/src/api/consumerProtectionRoutes.ts web/consumer-product.js | sort)"
+          printf '%s\n' "$changed"
+          test "$changed" = "$expected"
+      - name: Typecheck
+        run: npm run typecheck -w server
+      - name: EMA-16 RED contracts become GREEN
+        run: npx vitest run tests/unit/healthCleanupTargeting.test.ts
+      - name: Full unit/API regression
+        run: npm run test:unit -w server
+      - name: Production build
+        run: npm run build -w server
+      - name: Real Chromium Health cleanup acceptance
+        run: node scripts/engineering/smoke-browser-scan-results.mjs
+      - name: Commit only proven owners
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- web/consumer-product.js server/src/api/consumerProtectionRoutes.ts scripts/engineering/smoke-browser-scan-results.mjs
+          git rm -- .github/workflows/ema16-guarded-green.yml scripts/engineering/apply_ema16_health_cleanup_fix.py
+          git commit -m "fix: make Health cleanup eligibility authoritative"
+          git push origin HEAD:repair/ema-16-health-cleanup-targeting-20260818
