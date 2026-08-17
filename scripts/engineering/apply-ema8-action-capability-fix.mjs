@@ -175,8 +175,8 @@ replaceExactlyOnce(
   const positiveDecisionDeadline = Date.now() + 15_000;
   while (Date.now() < positiveDecisionDeadline) {
     positiveDecisionState = await evaluate(client, \`(() => {
-      const report = document.querySelector('[data-action="report-scam"][data-review-token="${positiveDecisionToken}"]');
-      const safe = document.querySelector('[data-action="mark-safe"][data-review-token="${positiveDecisionToken}"]');
+      const report = document.querySelector('[data-action="report-scam"][data-review-token="\${positiveDecisionToken}"]');
+      const safe = document.querySelector('[data-action="mark-safe"][data-review-token="\${positiveDecisionToken}"]');
       return {
         reportDisabled: report?.disabled === true,
         reportText: report?.textContent || '',
