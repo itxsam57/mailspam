@@ -42,7 +42,7 @@ export interface BackgroundProtectionExecutor {
 
 export interface BackgroundProtectionCoordinatorOptions {
   repository?: BackgroundProtectionRepository;
-  sessions?: Pick<SessionStore, "list">;
+  sessions?: Pick<SessionStore, "canonicalForPolicyAccountKey">;
   executor: BackgroundProtectionExecutor;
   now?: () => number;
 }
@@ -85,7 +85,7 @@ export function publicBackgroundProtectionStatus(
 
 export class BackgroundProtectionCoordinator {
   private readonly repository: BackgroundProtectionRepository;
-  private readonly sessions: Pick<SessionStore, "list">;
+  private readonly sessions: Pick<SessionStore, "canonicalForPolicyAccountKey">;
   private readonly executor: BackgroundProtectionExecutor;
   private readonly now: () => number;
   private activeAccountKey: string | null = null;
@@ -164,7 +164,21 @@ export class BackgroundProtectionCoordinator {
       .sort((left, right) => (left.record.nextRunAt ?? 0) - (right.record.nextRunAt ?? 0))[0];
     if (!due) return false;
 
-    const session = this.sessions.list().find((candidate) => candidate.policyAccountKey === due.accountKey);
+    let session: AccountSession | undefined;
+    try {
+      session = this.sessions.canonicalForPolicyAccountKey(due.accountKey);
+    } catch {
+      const consecutiveFailures = Math.min(16, due.record.consecutiveFailures + 1);
+      this.repository.save(due.accountKey, {
+        ...due.record,
+        status: "failed",
+        nextRunAt: nextBackgroundRunAt(now, due.record.intervalMinutes, consecutiveFailures),
+        lastAttemptAt: now,
+        consecutiveFailures,
+        lastErrorCode: "protected_state_failure",
+      });
+      return false;
+    }
     if (!session || session.closing || session.activeScanWorker) {
       this.repository.save(due.accountKey, {
         ...due.record,

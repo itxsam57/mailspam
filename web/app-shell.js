@@ -14,7 +14,7 @@
     .app-sidebar-brand{display:flex;align-items:center;gap:10px;padding:4px 8px 18px;border-bottom:1px solid var(--border);margin-bottom:12px}.app-sidebar-brand strong{font-size:14px}.app-sidebar-brand span{display:block;font-size:10px;color:var(--text-faint);margin-top:2px}
     .app-nav{display:flex;flex-direction:column;gap:4px;overflow:auto}.app-nav button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:transparent;border:1px solid transparent;color:var(--text-muted);padding:9px 10px;border-radius:7px}.app-nav button:hover,.app-nav button:focus-visible{background:var(--panel-raised);color:var(--text)}.app-nav button[aria-current="page"]{background:#222a36;color:var(--text);border-color:#323b49}.app-nav-icon{width:18px;text-align:center;font-weight:700}.app-sidebar-foot{margin-top:auto;padding:12px 8px 0;border-top:1px solid var(--border);font-size:10px;color:var(--text-faint);line-height:1.45}
     .app-route[hidden]{display:none!important}.app-route{max-width:1180px;margin:0 auto}.app-route-title{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin:4px 0 12px}.app-route-title h2{font-size:18px;margin:0}.app-route-title p{margin:0;color:var(--text-faint);font-size:11px}
-    .home-hero{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(260px,.8fr);gap:12px}.home-protection-card{padding:20px;border:1px solid var(--border);border-radius:10px;background:linear-gradient(145deg,#171d27,#12161d)}.home-protection-state{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--safe);margin-bottom:10px}.home-protection-dot{width:10px;height:10px;border-radius:50%;background:var(--safe);box-shadow:0 0 0 4px rgba(63,184,138,.1)}.home-protection-card h2{font-size:24px;margin:0 0 6px}.home-protection-card p{color:var(--text-muted);font-size:12px;line-height:1.55;max-width:640px}.home-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}.home-summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.home-stat{border:1px solid var(--border);border-radius:9px;background:var(--panel-raised);padding:14px}.home-stat span{display:block;font-size:10px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em}.home-stat strong{display:block;font-size:17px;margin-top:6px}.home-notice{margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:8px;color:var(--text-muted);font-size:11px;line-height:1.5}
+    .home-hero{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(260px,.8fr);gap:12px}.home-protection-card{padding:20px;border:1px solid var(--border);border-radius:10px;background:linear-gradient(145deg,#171d27,#12161d)}.home-protection-state{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--text-muted);margin-bottom:10px}.home-protection-dot{width:10px;height:10px;border-radius:50%;background:var(--unknown);box-shadow:0 0 0 4px rgba(108,118,132,.1)}.home-protection-state[data-reachability="reachable"]{color:var(--safe)}.home-protection-state[data-reachability="reachable"] .home-protection-dot{background:var(--safe);box-shadow:0 0 0 4px rgba(63,184,138,.1)}.home-protection-state[data-reachability="unavailable"]{color:var(--review)}.home-protection-state[data-reachability="unavailable"] .home-protection-dot{background:var(--review);box-shadow:0 0 0 4px rgba(232,178,61,.1)}.home-protection-state[data-reachability="checking"]{color:var(--text-muted)}.home-protection-state[data-reachability="unknown"]{color:var(--text-muted)}.home-protection-state[data-reachability="none"]{color:var(--text-muted)}.home-protection-card h2{font-size:24px;margin:0 0 6px}.home-protection-card p{color:var(--text-muted);font-size:12px;line-height:1.55;max-width:640px}.home-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}.home-summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.home-stat{border:1px solid var(--border);border-radius:9px;background:var(--panel-raised);padding:14px}.home-stat span{display:block;font-size:10px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em}.home-stat strong{display:block;font-size:17px;margin-top:6px}.home-notice{margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:8px;color:var(--text-muted);font-size:11px;line-height:1.5}
     .shell-panel-stack{display:flex;flex-direction:column;gap:14px}.shell-panel-stack>.panel{margin:0}.shell-protection-background{border:1px solid var(--border);background:var(--panel);border-radius:9px;padding:16px}.shell-protection-background #backgroundProtection{margin:0!important;border:0!important;padding:0!important}
     .mobile-bottom-nav{display:none}.mobile-more-backdrop{display:none}
     @media(max-width:900px){body.email-shield-shell{padding-left:0;padding-bottom:72px}.app-sidebar{transform:translateX(-105%);transition:transform .18s ease;width:min(82vw,280px);box-shadow:12px 0 30px rgba(0,0,0,.35)}.app-sidebar.mobile-open{transform:translateX(0)}.mobile-more-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.52);z-index:70}.mobile-more-backdrop.open{display:block}.mobile-bottom-nav{position:fixed;display:grid;grid-template-columns:repeat(5,1fr);left:0;right:0;bottom:0;z-index:90;background:#0b0e13;border-top:1px solid var(--border);padding:max(5px,env(safe-area-inset-bottom)) 5px 6px}.mobile-bottom-nav button{border:0;background:transparent;color:var(--text-faint);font-size:10px;padding:7px 3px;display:flex;flex-direction:column;gap:2px;align-items:center}.mobile-bottom-nav button span:first-child{font-size:16px}.mobile-bottom-nav button[aria-current="page"]{color:var(--text)}.home-hero{grid-template-columns:1fr}header{position:relative;z-index:1}.email-shield-shell main{padding-bottom:16px}}
@@ -73,7 +73,7 @@
   home.innerHTML = `
     <div class="home-hero">
       <div class="home-protection-card">
-        <div class="home-protection-state"><span class="home-protection-dot"></span><span id="homeProtectionState">Protection ready</span></div>
+        <div class="home-protection-state" data-reachability="none"><span class="home-protection-dot"></span><span id="homeProtectionState">Connect or select a mailbox</span></div>
         <h2>Email Shield</h2>
         <p>Your mail stays with your providers. Email Shield scans locally, applies your personal and family protection rules, and shares only privacy-reduced threat intelligence when you explicitly report scams.</p>
         <div class="home-actions"><button id="homeScanNow" class="primary" type="button">Scan now</button><button id="homeFamily" type="button">Family Shield</button></div>
@@ -195,12 +195,26 @@
   const homeFamilyState = document.getElementById('homeFamilyState');
   const homeLastScan = document.getElementById('homeLastScan');
   const homeProtectionState = document.getElementById('homeProtectionState');
+  const homeProtectionIndicator = homeProtectionState?.closest('.home-protection-state');
 
   function updateMailboxSummary() {
     const selected = document.querySelector('#accountsList .account-chip.active');
     const text = selected?.querySelector('span')?.textContent?.trim() || 'None selected';
     homeMailbox.textContent = text.length > 30 ? `${text.slice(0, 27)}…` : text;
-    homeProtectionState.textContent = selected ? 'Protection ready for selected mailbox' : 'Connect or select a mailbox';
+    const reachability = selected?.dataset.reachability || 'unknown';
+    if (!selected) {
+      homeProtectionState.textContent = 'Connect or select a mailbox';
+      if (homeProtectionIndicator) homeProtectionIndicator.dataset.reachability = 'none';
+      return;
+    }
+    homeProtectionState.textContent = reachability === 'reachable'
+      ? 'Mailbox connection verified'
+      : reachability === 'checking'
+        ? 'Checking mailbox connection'
+        : reachability === 'unavailable'
+          ? 'Mailbox connection needs attention'
+          : 'Mailbox status unavailable';
+    if (homeProtectionIndicator) homeProtectionIndicator.dataset.reachability = reachability;
   }
 
   async function updateProfileSummary() {

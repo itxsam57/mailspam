@@ -28,6 +28,16 @@ export interface RealtimeProtectionStatus {
   lastErrorCode: "scan_conflict" | "provider_unavailable" | "provider_mismatch" | "processing_failure" | null;
 }
 
+export interface MailboxReachabilitySnapshot {
+  state: "checking" | "reachable" | "unavailable";
+  checkedAt: number | null;
+  lastReachableAt: number | null;
+}
+
+interface MailboxReachabilityRecord extends MailboxReachabilitySnapshot {
+  sessionId: string;
+}
+
 function providerOf(value: string): Provider | null {
   return value === "gmail" || value === "outlook" || value === "icloud" || value === "yahoo" || value === "imap"
     ? value
@@ -85,6 +95,7 @@ export class RealtimeProtectionService {
   #lastSuccessAt: number | null = null;
   #lastErrorAt: number | null = null;
   #lastErrorCode: RealtimeProtectionStatus["lastErrorCode"] = null;
+  readonly #mailboxReachabilityByAccount = new Map<string, MailboxReachabilityRecord>();
 
   constructor(options: {
     sessions: Pick<SessionStore, "list">;
@@ -137,6 +148,35 @@ export class RealtimeProtectionService {
     };
   }
 
+  mailboxReachability(session: AccountSession): MailboxReachabilitySnapshot {
+    const record = this.#mailboxReachabilityByAccount.get(session.policyAccountKey);
+    if (!record || record.sessionId !== session.id) {
+      return { state: "checking", checkedAt: null, lastReachableAt: null };
+    }
+    return {
+      state: record.state,
+      checkedAt: record.checkedAt,
+      lastReachableAt: record.lastReachableAt,
+    };
+  }
+
+  #recordMailboxReachability(
+    session: AccountSession,
+    state: "reachable" | "unavailable",
+    checkedAt: number,
+  ): void {
+    const previous = this.#mailboxReachabilityByAccount.get(session.policyAccountKey);
+    const sameSession = previous?.sessionId === session.id;
+    this.#mailboxReachabilityByAccount.set(session.policyAccountKey, {
+      sessionId: session.id,
+      state,
+      checkedAt,
+      lastReachableAt: state === "reachable"
+        ? checkedAt
+        : sameSession ? previous.lastReachableAt : null,
+    });
+  }
+
   async enqueue(event: CanonicalInboundEventV1): Promise<InboundEventOutcome> {
     try {
       const outcome = await this.#coordinator.enqueue(event);
@@ -155,7 +195,7 @@ export class RealtimeProtectionService {
     return outcomes;
   }
 
-  async #pollAccount(session: AccountSession): Promise<void> {
+  async #pollAccount(session: AccountSession, checkedAt: number): Promise<void> {
     const provider = providerOf(session.provider);
     if (!provider || session.closing || !this.#pollProbe) return;
 
@@ -163,10 +203,12 @@ export class RealtimeProtectionService {
     try {
       checkpoint = await this.#pollProbe.checkpoint(session);
     } catch {
-      this.#lastErrorAt = Date.now();
+      this.#recordMailboxReachability(session, "unavailable", checkedAt);
+      this.#lastErrorAt = checkedAt;
       this.#lastErrorCode = "provider_unavailable";
       return;
     }
+    this.#recordMailboxReachability(session, "reachable", checkedAt);
     if (!checkpoint) return;
 
     const current = this.#coordinator.checkpoint(session.policyAccountKey, provider, "poll");
@@ -207,7 +249,7 @@ export class RealtimeProtectionService {
         const key = `${provider}\0${session.policyAccountKey}`;
         if (!unique.has(key)) unique.set(key, session);
       }
-      await Promise.all([...unique.values()].map((session) => this.#pollAccount(session)));
+      await Promise.all([...unique.values()].map((session) => this.#pollAccount(session, now)));
     } finally {
       this.#pollRunning = false;
     }

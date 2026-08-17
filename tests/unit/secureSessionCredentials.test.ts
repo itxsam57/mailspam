@@ -129,6 +129,28 @@ describe("secure account-session credentials", () => {
     expect((await store.materializeConfig(first) as typeof oldConfig).credentials.appPassword).toBe("new-password");
   });
 
+  it("exposes only the newest intentional same-mailbox reconnect to normal session consumers", async () => {
+    const vault = new TestCredentialVault();
+    const store = new SessionStore(new InMemoryPolicyRepository(), vault);
+    const first = await store.createSecured("icloud", "first", icloudConfig("same@icloud.com", "password-one"));
+    const second = await store.createSecured("icloud", "second", icloudConfig("SAME@ICLOUD.COM", "password-two"));
+
+    expect(store.get(first.id)).toBe(first);
+    expect(store.list().map((session) => session.id)).toEqual([second.id]);
+  });
+
+  it("does not silently reactivate a superseded session when the canonical reconnect is removed", async () => {
+    const vault = new TestCredentialVault();
+    const store = new SessionStore(new InMemoryPolicyRepository(), vault);
+    const first = await store.createSecured("icloud", "first", icloudConfig("same@icloud.com", "password-one"));
+    const second = await store.createSecured("icloud", "second", icloudConfig("SAME@ICLOUD.COM", "password-two"));
+
+    await store.remove(second.id);
+
+    expect(store.get(first.id)).toBe(first);
+    expect(store.list()).toEqual([]);
+  });
+
   it("does not delete a shared vault credential until the last same-account session is removed", async () => {
     const vault = new TestCredentialVault();
     const store = new SessionStore(new InMemoryPolicyRepository(), vault);

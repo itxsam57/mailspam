@@ -1,8 +1,9 @@
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { waitForDevToolsPort } from "./chromium-devtools-port.mjs";
 
 const root = process.cwd();
 const host = "127.0.0.1";
@@ -51,22 +52,6 @@ async function waitForHttp(url, processRef, stderr, timeoutMs = 20_000) {
     await sleep(100);
   }
   throw new Error(`Timed out waiting for ${url}: ${lastError?.message ?? "unknown error"}\n${stderr()}`);
-}
-
-async function waitForDevToolsPort(profileDirectory, processRef, stderr, timeoutMs = 20_000) {
-  const activePortPath = join(profileDirectory, "DevToolsActivePort");
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (processRef?.exitCode !== null) {
-      throw new Error(`Chromium exited before publishing DevToolsActivePort with code ${processRef.exitCode}.\n${stderr()}`);
-    }
-    if (existsSync(activePortPath)) {
-      const port = Number.parseInt(readFileSync(activePortPath, "utf8").split(/\r?\n/, 1)[0]?.trim() ?? "", 10);
-      if (Number.isInteger(port) && port > 0 && port <= 65_535) return port;
-    }
-    await sleep(50);
-  }
-  throw new Error(`Timed out waiting for Chromium to publish its authoritative DevTools port.\n${stderr()}`);
 }
 
 function findOnPath(command) {
@@ -189,7 +174,7 @@ try {
       EMAIL_SHIELD_DATA_DIR: dataDir,
       EMAIL_SHIELD_COMMUNITY_SERVER: "0",
       EMAIL_SHIELD_COMMUNITY_URL: "",
-      EMAIL_SHIELD_ENABLE_DEVELOPMENT_ENTITLEMENTS: "0",
+      EMAIL_SHIELD_ENABLE_DEVELOPMENT_ENTITLEMENTS: "1",
     },
     stdio: ["ignore", "ignore", "pipe"],
   });
@@ -278,8 +263,55 @@ try {
   assert(result.focusedProvider !== 'outlook', `Postponed Outlook became reachable in normal consumer setup: ${JSON.stringify(result)}`);
   assert(result.sensitivityComplete === false, `Sensitivity was incorrectly credited without a connected mailbox: ${JSON.stringify(result)}`);
 
+  const connectionStarted = await evaluate(client, `(() => {
+    const provider = document.getElementById('providerSelect');
+    const mode = document.getElementById('modeSelect');
+    const connect = document.getElementById('connectBtn');
+    if (!provider || !mode || !connect) return false;
+    provider.value = 'gmail';
+    provider.dispatchEvent(new Event('change', { bubbles: true }));
+    mode.value = 'fixture';
+    mode.dispatchEvent(new Event('change', { bubbles: true }));
+    connect.click();
+    return true;
+  })()`);
+  assert(connectionStarted === true, "Onboarding smoke could not start the fixture mailbox connection.");
+
+  const statusDeadline = Date.now() + 15_000;
+  let mailboxStatus = null;
+  while (Date.now() < statusDeadline) {
+    try {
+      mailboxStatus = await evaluate(client, `(() => {
+        const selected = document.querySelector('#accountsList .account-chip.active');
+        const status = document.getElementById('homeProtectionState');
+        const indicator = status?.closest('.home-protection-state');
+        if (!selected || !status || !indicator) return null;
+        window.emailShieldNavigate?.('home', { focus: false });
+        return {
+          rowReachability: selected.dataset.reachability || null,
+          text: status.textContent?.trim() || '',
+          indicatorReachability: indicator.dataset.reachability || null,
+        };
+      })()`);
+      if (mailboxStatus?.rowReachability && mailboxStatus?.text) break;
+    } catch {}
+    await sleep(100);
+  }
+
+  const expectedStatusText = {
+    checking: 'Checking mailbox connection',
+    reachable: 'Mailbox connection verified',
+    unavailable: 'Mailbox connection needs attention',
+    unknown: 'Mailbox status unavailable',
+  };
+  assert(mailboxStatus && Object.hasOwn(expectedStatusText, mailboxStatus.rowReachability), `Connected mailbox exposed no sanitized reachability state: ${JSON.stringify(mailboxStatus)}`);
+  assert(mailboxStatus.text === expectedStatusText[mailboxStatus.rowReachability], `Home did not render the selected mailbox reachability truthfully: ${JSON.stringify(mailboxStatus)}`);
+  assert(mailboxStatus.indicatorReachability === mailboxStatus.rowReachability, `Home indicator did not follow the canonical selected mailbox reachability: ${JSON.stringify(mailboxStatus)}`);
+  assert(!/protection ready/i.test(mailboxStatus.text), `Home inferred protection from mailbox selection: ${JSON.stringify(mailboxStatus)}`);
+
   console.log(`Executable onboarding handoff smoke passed with ${browserExecutable}.`);
   console.log("No-mailbox sensitivity action routed to provider setup, surfaced guidance/provider focus, preserved Outlook postponement, and granted no false completion.");
+  console.log("Connected fixture mailbox retained explicit sanitized reachability state and Home rendered fail-closed status instead of inferring protection from selection.");
 } finally {
   try { cdpSocket?.close(); } catch {}
   if (browser && browser.exitCode === null) {

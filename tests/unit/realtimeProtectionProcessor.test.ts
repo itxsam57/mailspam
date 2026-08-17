@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AccountSession } from "../../server/src/api/sessionStore.js";
+import type { AccountSession, SessionStore } from "../../server/src/api/sessionStore.js";
 import {
   RealtimeProtectionProcessor,
   RealtimeProtectionRunError,
@@ -24,6 +24,12 @@ function session(accountKey = "a".repeat(64), provider: "gmail" | "outlook" = "g
   };
 }
 
+function canonicalSession(account: AccountSession | undefined): Pick<SessionStore, "canonicalForPolicyAccountKey"> {
+  return {
+    canonicalForPolicyAccountKey: (accountKey) => account?.policyAccountKey === accountKey ? account : undefined,
+  };
+}
+
 function event(overrides: Partial<CanonicalInboundEventV1> = {}): CanonicalInboundEventV1 {
   return {
     schemaVersion: 1,
@@ -43,7 +49,7 @@ describe("RealtimeProtectionProcessor", () => {
     const account = session();
     const calls: AccountSession[] = [];
     const processor = new RealtimeProtectionProcessor(
-      { list: () => [account] },
+      canonicalSession(account),
       {
         executeWithSummary: async (value) => {
           calls.push(value);
@@ -63,7 +69,7 @@ describe("RealtimeProtectionProcessor", () => {
 
   it("does not let webhook metadata choose a different connected account", async () => {
     const processor = new RealtimeProtectionProcessor(
-      { list: () => [session("b".repeat(64))] },
+      canonicalSession(session("b".repeat(64))),
       { executeWithSummary: async () => ({ examined: 0, review: 0, highRisk: 0, confirmedThreat: 0, unknown: 0 }) },
     );
     await expect(processor.process(event())).rejects.toMatchObject({ code: "provider_unavailable" });
@@ -71,25 +77,31 @@ describe("RealtimeProtectionProcessor", () => {
 
   it("fails closed when the bound account provider does not match the trigger provider", async () => {
     const processor = new RealtimeProtectionProcessor(
-      { list: () => [session("a".repeat(64), "outlook")] },
+      canonicalSession(session("a".repeat(64), "outlook")),
       { executeWithSummary: async () => ({ examined: 0, review: 0, highRisk: 0, confirmedThreat: 0, unknown: 0 }) },
     );
     await expect(processor.process(event())).rejects.toMatchObject({ code: "provider_mismatch" });
   });
 
-  it("rejects ambiguous duplicate active sessions rather than scanning an arbitrary one", async () => {
+  it("rejects ambiguous canonical ownership rather than scanning an arbitrary session", async () => {
+    let called = false;
     const processor = new RealtimeProtectionProcessor(
-      { list: () => [session(), { ...session(), id: "session-duplicate" }] },
-      { executeWithSummary: async () => ({ examined: 0, review: 0, highRisk: 0, confirmedThreat: 0, unknown: 0 }) },
+      {
+        canonicalForPolicyAccountKey: () => {
+          throw new Error("Mailbox session ownership is ambiguous; reconnect this mailbox before protection continues.");
+        },
+      },
+      { executeWithSummary: async () => { called = true; return { examined: 0, review: 0, highRisk: 0, confirmedThreat: 0, unknown: 0 }; } },
     );
     await expect(processor.process(event())).rejects.toBeInstanceOf(RealtimeProtectionRunError);
     await expect(processor.process(event())).rejects.toMatchObject({ code: "provider_mismatch" });
+    expect(called).toBe(false);
   });
 
   it("does not acknowledge a trigger while a manual/scheduled scan owns the account Worker slot", async () => {
     let called = false;
     const processor = new RealtimeProtectionProcessor(
-      { list: () => [session("a".repeat(64), "gmail", true)] },
+      canonicalSession(session("a".repeat(64), "gmail", true)),
       { executeWithSummary: async () => { called = true; return { examined: 0, review: 0, highRisk: 0, confirmedThreat: 0, unknown: 0 }; } },
     );
     await expect(processor.process(event())).rejects.toMatchObject({ code: "scan_conflict" });
@@ -100,7 +112,7 @@ describe("RealtimeProtectionProcessor", () => {
     const account = session();
     let calls = 0;
     const processor = new RealtimeProtectionProcessor(
-      { list: () => [account] },
+      canonicalSession(account),
       {
         executeWithSummary: async () => {
           calls++;

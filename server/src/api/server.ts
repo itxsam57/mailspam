@@ -3,7 +3,7 @@ import type { Request, Response } from "express";
 import { dirname, join } from "node:path";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { ReviewActionConflictError, sessionStore } from "./sessionStore.js";
+import { ReviewActionConflictError, sessionStore, type AccountSession } from "./sessionStore.js";
 import { createAdapter, type AdapterConfig } from "./adapterConfig.js";
 import { Worker } from "node:worker_threads";
 import {
@@ -46,6 +46,38 @@ const ACCOUNT_CONNECT_CREDENTIAL_FIELDS: Record<Provider, ReadonlySet<string>> =
 };
 const MAX_ACCOUNT_LABEL_LENGTH = 160;
 const MAX_CREDENTIAL_VALUE_LENGTH = 16_384;
+
+type PublicMailboxReachabilityState = "checking" | "reachable" | "unavailable" | "unknown";
+
+interface PublicMailboxReachability {
+  state: PublicMailboxReachabilityState;
+  checkedAt: number | null;
+  lastReachableAt: number | null;
+}
+
+function publicReachabilityTimestamp(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function publicMailboxReachability(
+  session: AccountSession,
+  reader?: (session: AccountSession) => unknown,
+): PublicMailboxReachability {
+  let value: unknown;
+  try { value = reader?.(session); } catch { value = undefined; }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { state: "unknown", checkedAt: null, lastReachableAt: null };
+  }
+  const record = value as Record<string, unknown>;
+  const state = record.state === "checking" || record.state === "reachable" || record.state === "unavailable"
+    ? record.state
+    : "unknown";
+  return {
+    state,
+    checkedAt: publicReachabilityTimestamp(record.checkedAt),
+    lastReachableAt: publicReachabilityTimestamp(record.lastReachableAt),
+  };
+}
 
 interface AccountConnectRequest {
   provider: Provider;
@@ -114,6 +146,7 @@ export function createServer(options: {
   fixtureConnections?: FixtureConnectionPersistence;
   developerToolsEnabled?: boolean;
   developerTestSuiteRunner?: typeof runDeveloperTestSuite;
+  accountReachability?: (session: AccountSession) => unknown;
 } = {}) {
   const app = express();
   const community = options.community ?? communityNetwork;
@@ -249,6 +282,7 @@ export function createServer(options: {
       accountId: session.id,
       provider: session.provider,
       label: session.label,
+      reachability: publicMailboxReachability(session, options.accountReachability),
     })));
   });
 
