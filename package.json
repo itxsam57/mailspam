@@ -3,7 +3,9 @@
   "private": true,
   "version": "0.2.0",
   "type": "module",
-  "workspaces": ["server"],
+  "workspaces": [
+    "server"
+  ],
   "scripts": {
     "preflight": "node scripts/engineering/preflight.mjs",
     "typecheck": "npm run typecheck -w server",
@@ -50,5 +52,9 @@
     "start": "npm run start -w server",
     "start:community": "npm run start:community -w server",
     "start:account-service": "npm run start:account-service -w server"
+  },
+  "overrides": {
+    "linkify-it": "5.0.2",
+    "nodemailer": "9.0.5"
   }
 }
