@@ -6,7 +6,7 @@ import {
   type BackgroundProtectionExecutor,
 } from "../../server/src/api/backgroundProtection.js";
 import { InMemoryBackgroundProtectionRepository } from "../../server/src/api/backgroundProtectionPersistence.js";
-import type { AccountSession } from "../../server/src/api/sessionStore.js";
+import type { AccountSession, SessionStore } from "../../server/src/api/sessionStore.js";
 
 function session(accountKey: string, activeScanWorker: AccountSession["activeScanWorker"] = null): AccountSession {
   return {
@@ -24,6 +24,12 @@ function session(accountKey: string, activeScanWorker: AccountSession["activeSca
   };
 }
 
+function canonicalSessions(...accounts: AccountSession[]): Pick<SessionStore, "canonicalForPolicyAccountKey"> {
+  return {
+    canonicalForPolicyAccountKey: (accountKey) => accounts.find((account) => account.policyAccountKey === accountKey),
+  };
+}
+
 describe("quota-aware background protection coordinator", () => {
   it("honors the configured interval from first enable, then executes and resets a successful run", async () => {
     let now = 1_800_000_000_000;
@@ -33,7 +39,7 @@ describe("quota-aware background protection coordinator", () => {
     const executor: BackgroundProtectionExecutor = { execute: async () => { executions++; now += 2_000; } };
     const coordinator = new BackgroundProtectionCoordinator({
       repository,
-      sessions: { list: () => [account] },
+      sessions: canonicalSessions(account),
       executor,
       now: () => now,
     });
@@ -58,7 +64,7 @@ describe("quota-aware background protection coordinator", () => {
     const accountKey = "2".repeat(64);
     const coordinator = new BackgroundProtectionCoordinator({
       repository,
-      sessions: { list: () => [] },
+      sessions: canonicalSessions(),
       executor: { execute: async () => { throw new Error("must not run"); } },
       now: () => now,
     });
@@ -75,12 +81,39 @@ describe("quota-aware background protection coordinator", () => {
     repository.save(accountKey, { ...repository.get(accountKey)!, nextRunAt: now });
     const conflicted = new BackgroundProtectionCoordinator({
       repository,
-      sessions: { list: () => [active] },
+      sessions: canonicalSessions(active),
       executor: { execute: async () => { throw new Error("must not run"); } },
       now: () => now,
     });
     expect(await conflicted.runDue(now)).toBe(false);
     expect(repository.get(accountKey)?.lastErrorCode).toBe("scan_conflict");
+  });
+
+  it("fails closed when canonical mailbox ownership is internally ambiguous", async () => {
+    const now = 1_800_000_000_000;
+    const repository = new InMemoryBackgroundProtectionRepository();
+    const accountKey = "6".repeat(64);
+    let executed = false;
+    const coordinator = new BackgroundProtectionCoordinator({
+      repository,
+      sessions: {
+        canonicalForPolicyAccountKey: () => {
+          throw new Error("Mailbox session ownership is ambiguous; reconnect this mailbox before protection continues.");
+        },
+      },
+      executor: { execute: async () => { executed = true; } },
+      now: () => now,
+    });
+    coordinator.configure(accountKey, true, 30, now - 30 * 60_000);
+
+    expect(await coordinator.runDue(now)).toBe(false);
+    expect(executed).toBe(false);
+    expect(repository.get(accountKey)).toMatchObject({
+      status: "failed",
+      lastErrorCode: "protected_state_failure",
+      consecutiveFailures: 1,
+      nextRunAt: nextBackgroundRunAt(now, 30, 1),
+    });
   });
 
   it("allows only one global run and applies bounded failure backoff", async () => {
@@ -96,7 +129,7 @@ describe("quota-aware background protection coordinator", () => {
     } };
     const coordinator = new BackgroundProtectionCoordinator({
       repository,
-      sessions: { list: () => [first, second] },
+      sessions: canonicalSessions(first, second),
       executor,
       now: () => now,
     });
@@ -124,7 +157,7 @@ describe("quota-aware background protection coordinator", () => {
     const pending = new Promise<void>((resolve) => { release = resolve; });
     const coordinator = new BackgroundProtectionCoordinator({
       repository,
-      sessions: { list: () => [account] },
+      sessions: canonicalSessions(account),
       executor: { execute: async () => pending },
       now: () => now,
     });
