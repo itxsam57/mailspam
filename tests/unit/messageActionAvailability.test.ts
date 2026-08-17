@@ -64,8 +64,9 @@ describe("EMA-8 campaign decision availability", () => {
 
     expect(learning).toContain("email-shield-campaign-decision-state");
     expect(learning).toContain("publishCampaignDecisionState(token, 'pending')");
-    expect(learning).toContain("publishCampaignDecisionState(token, 'saved')");
-    expect(learning).toContain("publishCampaignDecisionState(token, 'available')");
+    expect(learning).toContain("publishCampaignDecisionState(token");
+    expect(learning).toContain("/api/accounts/workspace");
+    expect(learning).toContain("reportScamAvailable");
     expect(learning).not.toContain("[data-action=\"report-scam\"]");
 
     expect(review).toContain("email-shield-campaign-decision-state");
