@@ -97,6 +97,47 @@ replace_once(
 review_path = "web/review-actions.js"
 replace_once(
     review_path,
+    '''  function escapeAttribute(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[character]);
+  }
+
+  window.renderCard = function renderCardWithReviewActions(result) {
+''',
+    '''  function escapeAttribute(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[character]);
+  }
+
+  function setReportScamAvailability(token, available, label = null) {
+    document.querySelectorAll(`[data-action="report-scam"][data-review-token="${CSS.escape(token)}"]`).forEach((candidate) => {
+      if (!(candidate instanceof HTMLButtonElement)) return;
+      candidate.disabled = !available;
+      if (typeof label === 'string' && label) candidate.textContent = label;
+    });
+  }
+
+  window.addEventListener('email-shield-campaign-decision-state', (event) => {
+    const detail = event instanceof CustomEvent ? event.detail : null;
+    const token = typeof detail?.token === 'string' ? detail.token : '';
+    const state = detail?.state;
+    if (!token) return;
+    if (state === 'pending') {
+      setReportScamAvailability(token, false, 'Saving campaign feedback…');
+    } else if (state === 'saved') {
+      setReportScamAvailability(token, false, 'Campaign decision already saved ✓');
+    } else if (state === 'available') {
+      setReportScamAvailability(token, true, 'Report Scam to Email Shield');
+    }
+  });
+
+  window.renderCard = function renderCardWithReviewActions(result) {
+''',
+)
+replace_once(
+    review_path,
     '''    const campaignProtected = action.scamAlreadyReported === true;
     const senderBlock = actions.querySelector('[data-action="block-sender"]');
 ''',
@@ -124,12 +165,10 @@ replace_once(
     learning_path,
     '''  async function familyAvailable() {
 ''',
-    '''  function setReportScamAvailability(token, available, label = null) {
-    document.querySelectorAll(`[data-action="report-scam"][data-review-token="${CSS.escape(token)}"]`).forEach((candidate) => {
-      if (!(candidate instanceof HTMLButtonElement)) return;
-      candidate.disabled = !available;
-      if (typeof label === 'string' && label) candidate.textContent = label;
-    });
+    '''  function publishCampaignDecisionState(token, state) {
+    window.dispatchEvent(new CustomEvent('email-shield-campaign-decision-state', {
+      detail: { token, state },
+    }));
   }
 
   async function familyAvailable() {
@@ -143,12 +182,12 @@ replace_once(
     } catch {
 ''',
     '''    submittedPositiveFeedback.add(key);
-    setReportScamAvailability(token, false, 'Saving campaign feedback…');
+    publishCampaignDecisionState(token, 'pending');
     try {
       await post(accountId, 'legitimate-feedback', { token });
-      setReportScamAvailability(token, false, 'Campaign decision already saved ✓');
+      publishCampaignDecisionState(token, 'saved');
     } catch {
-      setReportScamAvailability(token, true, 'Report Scam to Email Shield');
+      publishCampaignDecisionState(token, 'available');
 ''',
 )
 
