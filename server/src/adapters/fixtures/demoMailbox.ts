@@ -31,15 +31,15 @@ interface ManifestEntry { category: string; kind: "malicious" | "legit"; file: s
  * Builds a demo mailbox from the synthetic scam corpus: malicious "plain"
  * variants land in Inbox (as if they slipped past provider spam filtering,
  * which is the realistic case this app targets) and Spam; legit controls
- * land in Inbox. A single additional fixture-only old newsletter gives the
- * executable Health workflow a deterministic >30-day cleanup target without
- * modifying or weakening the detection corpus itself. Fixture folder mutations
- * are held in the account session so a provider-confirmed move remains visible
- * on the next scan.
+ * land in Inbox. When the explicit development entitlement is enabled, one
+ * additional old newsletter gives executable Health acceptance a deterministic
+ * >30-day cleanup target without modifying the detection corpus or normal
+ * fixture-domain baselines. Fixture folder mutations are held in the account
+ * session so a provider-confirmed move remains visible on the next scan.
  *
  * The corpus is controlled test input. Its Authentication-Results values model
  * provider-produced outcomes and are therefore marked trusted explicitly here;
- * the additional Health fixture is also explicit trusted synthetic input.
+ * the development-only Health sample is also explicit trusted synthetic input.
  */
 export function buildDemoMailbox(
   provider: Provider,
@@ -75,14 +75,16 @@ export function buildDemoMailbox(
     };
   });
 
-  const healthCleanupFolder = folderOverrides[HEALTH_CLEANUP_FIXTURE_ID] ?? ("inbox" as const);
-  messages.push({
-    id: HEALTH_CLEANUP_FIXTURE_ID,
-    rawEml: HEALTH_CLEANUP_OLD_NEWSLETTER,
-    folder: healthCleanupFolder,
-    providerFolderName: healthCleanupFolder === "inbox" ? "INBOX" : healthCleanupFolder === "spam" ? "Spam" : "Trash",
-    authenticationTrust: "trusted",
-  });
+  if (process.env.EMAIL_SHIELD_ENABLE_DEVELOPMENT_ENTITLEMENTS === "1") {
+    const healthCleanupFolder = folderOverrides[HEALTH_CLEANUP_FIXTURE_ID] ?? ("inbox" as const);
+    messages.push({
+      id: HEALTH_CLEANUP_FIXTURE_ID,
+      rawEml: HEALTH_CLEANUP_OLD_NEWSLETTER,
+      folder: healthCleanupFolder,
+      providerFolderName: healthCleanupFolder === "inbox" ? "INBOX" : healthCleanupFolder === "spam" ? "Spam" : "Trash",
+      authenticationTrust: "trusted",
+    });
+  }
 
   return new FixtureAdapter(provider, messages, folderOverrides);
 }
