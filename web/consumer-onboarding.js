@@ -41,6 +41,14 @@
     if (button instanceof HTMLButtonElement) button.click();
   }
 
+  function requestMailboxSetup(reason) {
+    route('settings');
+    status.textContent = 'This setup item needs a connected, selected mailbox. Choose a provider in Mailboxes & Settings to continue.';
+    window.dispatchEvent(new CustomEvent('email-shield-provider-setup-requested', {
+      detail: { reason },
+    }));
+  }
+
   async function readJson(response, label) {
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body.error || `${label} failed (${response.status}).`);
@@ -59,7 +67,7 @@
   panel.innerHTML = `
     <div class="first-run-head"><div><h2 id="consumerFirstRunHeading">Finish protection setup</h2><p>Eight clear steps take Email Shield from local Scam Check to continuous mailbox and optional Family protection. Private mailbox content stays with your provider and on this device.</p></div><span id="consumerFirstRunProgress" class="first-run-progress" role="status" aria-live="polite"></span></div>
     <div id="consumerFirstRunList" class="first-run-list"></div>
-    <div id="consumerPermissionNote" class="first-run-note" hidden><strong>Permission promise</strong><br>Gmail and Microsoft use browser OAuth. iCloud, Yahoo and other IMAP providers use only the credentials required by that provider. Secrets stay in the operating-system credential vault. Email Shield requests mail access to inspect and perform the actions you explicitly enable; it does not upload mailbox bodies to the account, Family or Community services. You can disconnect a mailbox independently of your Email Shield account.</div>
+    <div id="consumerPermissionNote" class="first-run-note" hidden><strong>Permission promise</strong><br>Gmail uses browser OAuth. iCloud, Yahoo and other IMAP providers use only the credentials required by that provider. Secrets stay in the operating-system credential vault. Email Shield requests mail access to inspect and perform the actions you explicitly enable; it does not upload mailbox bodies to the account, Family or Community services. You can disconnect a mailbox independently of your Email Shield account.</div>
     <div id="consumerFirstRunStatus" class="hint" role="status" aria-live="polite" style="margin-top:10px"></div>`;
   home.prepend(panel);
   const list = panel.querySelector('#consumerFirstRunList');
@@ -69,13 +77,13 @@
 
   const definitions = [
     ['account_ready', 'Create or sign in', 'Use an Email Shield account for cross-device entitlement and Family features. Scam Check remains available locally before you sign in.', 'account'],
-    ['mailbox_connected', 'Connect a mailbox', 'Choose Gmail, Microsoft, iCloud, Yahoo or another IMAP provider. Each mailbox remains independently removable.', 'settings'],
-    ['permissions_reviewed', 'Review permissions', 'See exactly why provider access is requested and what Email Shield never uploads.', 'permissions'],
-    ['first_scan_completed', 'Run the first protection scan', 'Complete at least one protection scan so the dashboard has an observed baseline.', 'scan'],
-    ['sensitivity_chosen', 'Choose protection sensitivity', 'Explicitly save High Protection, Balanced or Low Noise. Hard threats and authentication contradictions can never be disabled.', 'sensitivity'],
-    ['continuous_protection_configured', 'Enable continuous protection', 'Enable background protection. Near-real-time provider events use the same protected scan pipeline when available and the schedule remains a fallback.', 'background'],
-    ['family_option_reviewed', 'Review Family Shield', 'Create or join a Shield Circle if useful, or explicitly skip it. Family members cannot browse one another’s mail by default.', 'family'],
-    ['consumer_home_ready', 'Confirm your protection home', 'Return Home after steps 1–7 so protection status, activity, Family state and connection problems are easy to find.', 'home'],
+    ['mailbox_connected', 'Connect a mailbox', 'Requires a connected, selected mailbox. Choose Gmail, iCloud, Yahoo or another IMAP provider. Each mailbox remains independently removable.', 'connect'],
+    ['permissions_reviewed', 'Review permissions', 'Requires a connected, selected mailbox. See exactly why provider access is requested and what Email Shield never uploads.', 'permissions'],
+    ['first_scan_completed', 'Run the first protection scan', 'Requires a connected, selected mailbox. Complete at least one protection scan so the dashboard has an observed baseline.', 'scan'],
+    ['sensitivity_chosen', 'Choose protection sensitivity', 'Requires a connected, selected mailbox. Explicitly save High Protection, Balanced or Low Noise. Hard threats and authentication contradictions can never be disabled.', 'sensitivity'],
+    ['continuous_protection_configured', 'Enable continuous protection', 'Requires a connected, selected mailbox. Enable background protection. Near-real-time provider events use the same protected scan pipeline when available and the schedule remains a fallback.', 'background'],
+    ['family_option_reviewed', 'Review Family Shield', 'Requires a connected, selected mailbox to save this setup choice. Create or join a Shield Circle if useful, or explicitly skip it. Family members cannot browse one another’s mail by default.', 'family'],
+    ['consumer_home_ready', 'Confirm your protection home', 'Requires a connected, selected mailbox and completed steps 1–7. Return Home so protection status, activity, Family state and connection problems are easy to find.', 'home'],
   ];
 
   for (const [id, title, copy, action] of definitions) {
@@ -112,9 +120,10 @@
       skip.type = 'button';
       skip.textContent = 'Not now';
       skip.addEventListener('click', async () => {
-        if (!await ensureBoundMailbox()) return;
+        const id = await ensureBoundMailbox();
+        if (!id) { requestMailboxSetup('family'); return; }
         state.completed.add('family_option_reviewed');
-        await persistProgress(false).catch(showError);
+        await persistProgress(false, id).catch(showError);
         render();
       });
       actions.append(skip);
@@ -175,7 +184,7 @@
 
   async function chooseSensitivity(profile) {
     const id = await ensureBoundMailbox();
-    if (!id) { route('settings'); return; }
+    if (!id) { requestMailboxSetup('sensitivity'); return; }
     try {
       await readJson(await fetch(`/api/consumer/v1/accounts/${encodeURIComponent(id)}/sensitivity`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profile }),
@@ -189,16 +198,28 @@
 
   async function handleAction(action) {
     status.textContent = '';
+    if (action === 'connect') {
+      requestMailboxSetup('connect');
+      return;
+    }
     if (action === 'permissions') {
       const id = await ensureBoundMailbox();
-      if (!id) return;
+      if (!id) { requestMailboxSetup('permissions'); return; }
       permissionNote.hidden = false;
       state.completed.add('permissions_reviewed');
       await persistProgress(false, id).catch(showError);
       render();
       return;
     }
+    if (action === 'scan') {
+      const id = await ensureBoundMailbox();
+      if (!id) { requestMailboxSetup('scan'); return; }
+      route('scan');
+      return;
+    }
     if (action === 'background') {
+      const id = await ensureBoundMailbox();
+      if (!id) { requestMailboxSetup('background'); return; }
       route('protection');
       document.querySelector('#backgroundProtection')?.scrollIntoView({ block: 'center' });
       status.textContent = 'Enable Background Protection. This step completes only after the enabled state is observed.';
@@ -206,7 +227,7 @@
     }
     if (action === 'family') {
       const id = await ensureBoundMailbox();
-      if (!id) return;
+      if (!id) { requestMailboxSetup('family'); return; }
       route('family');
       state.completed.add('family_option_reviewed');
       await persistProgress(false, id).catch(showError);
@@ -215,7 +236,7 @@
     }
     if (action === 'home') {
       const id = await ensureBoundMailbox();
-      if (!id) return;
+      if (!id) { requestMailboxSetup('home'); return; }
       synchronizeLocalSteps();
       if (!coreReadyForHome()) { status.textContent = 'Home cannot be marked ready until steps 1–7 are complete.'; render(); return; }
       route('home');
