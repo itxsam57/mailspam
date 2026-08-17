@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { simpleParser } from "mailparser";
+import { normalizeRawMessage } from "../../server/src/util/mimeNormalize.js";
 
 describe("mailparser production dependency compatibility", () => {
-  it("keeps HTML-only MIME parsing and html-to-text conversion working under the audited dependency graph", async () => {
+  it("keeps HTML-only MIME parsing and text extraction working through Email Shield normalization", async () => {
     const source = [
       "From: sender@example.com",
       "To: recipient@example.com",
@@ -15,13 +15,19 @@ describe("mailparser production dependency compatibility", () => {
       "",
     ].join("\r\n");
 
-    const parsed = await simpleParser(source);
+    const envelope = await normalizeRawMessage(source, {
+      provider: "icloud",
+      accountProof: "dependency-compatibility-proof",
+      providerFolderName: "INBOX",
+      normalizedFolder: "inbox",
+      providerNativeId: "dependency-compatibility-message",
+    });
 
-    expect(parsed.subject).toBe("HTML-only compatibility fixture");
-    expect(typeof parsed.html).toBe("string");
-    expect(parsed.html).toContain("https://example.com/path");
-    expect(parsed.text).toContain("Security notice");
-    expect(parsed.text).toContain("Hello world");
-    expect(parsed.text).toContain("Review details");
+    expect(envelope.subject).toBe("HTML-only compatibility fixture");
+    expect(envelope.parseStatus).toBe("complete");
+    expect(envelope.htmlSignals?.extractedText).toContain("Security notice");
+    expect(envelope.htmlSignals?.extractedText).toContain("Hello world");
+    expect(envelope.htmlSignals?.extractedText).toContain("Review details");
+    expect(envelope.links.map((link) => link.normalizedUrl)).toContain("https://example.com/path");
   });
 });
