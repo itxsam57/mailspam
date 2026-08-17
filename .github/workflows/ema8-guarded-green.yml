@@ -29,8 +29,15 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Apply exact guarded root fix
-        run: node scripts/engineering/apply-ema8-action-capability-fix.mjs
+      - name: Validate and apply exact declarative root fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --check scripts/engineering/ema8-action-capability.patch
+          git apply scripts/engineering/ema8-action-capability.patch
+          node --check web/review-actions.js
+          node --check web/protection-learning.js
+          node --check scripts/engineering/smoke-browser-scan-results.mjs
 
       - name: Assert production diff allowlist
         shell: bash
