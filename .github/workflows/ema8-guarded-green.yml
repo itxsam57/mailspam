@@ -29,12 +29,12 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Validate and apply exact declarative root fix
+      - name: Syntax-check and apply exact root fix
         shell: bash
         run: |
           set -euo pipefail
-          git apply --check scripts/engineering/ema8-action-capability.patch
-          git apply scripts/engineering/ema8-action-capability.patch
+          python3 -m py_compile scripts/engineering/apply_ema8_action_capability_fix.py
+          python3 scripts/engineering/apply_ema8_action_capability_fix.py
           node --check web/review-actions.js
           node --check web/protection-learning.js
           node --check scripts/engineering/smoke-browser-scan-results.mjs
