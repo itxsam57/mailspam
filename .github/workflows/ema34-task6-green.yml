@@ -1,0 +1,93 @@
+name: EMA-34 Task 6 Green
+
+on:
+  push:
+    branches:
+      - repair/canonical-session-reachability-p0-20260817
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-prove:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repair branch
+        uses: actions/checkout@v4
+        with:
+          ref: repair/canonical-session-reachability-p0-20260817
+          fetch-depth: 1
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Apply guarded fail-closed Home repair
+        run: node scripts/engineering/ema34-task6-green.mjs
+
+      - name: Verify only intended permanent owners changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=$(printf '%s\n' \
+            scripts/engineering/smoke-onboarding-handoff.mjs \
+            web/app-shell.js \
+            web/index.html)
+          actual=$(git diff --name-only | sort)
+          test "$actual" = "$expected" || {
+            echo "Unexpected permanent diff:" >&2
+            printf '%s\n' "$actual" >&2
+            exit 1
+          }
+
+      - name: Strict typecheck
+        run: npm run typecheck
+
+      - name: Full unit and API regression suite
+        run: npm run test:unit
+
+      - name: Build compiled consumer app
+        run: npm run build
+
+      - name: Permanent Chromium onboarding and Home status smoke
+        run: node scripts/engineering/smoke-onboarding-handoff.mjs
+
+      - name: Remove temporary proof machinery
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm scripts/engineering/ema34-task6-green.mjs
+          rm .github/workflows/ema34-task6-green.yml
+
+      - name: Verify final commit allowlist
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=$(printf '%s\n' \
+            .github/workflows/ema34-task6-green.yml \
+            scripts/engineering/ema34-task6-green.mjs \
+            scripts/engineering/smoke-onboarding-handoff.mjs \
+            web/app-shell.js \
+            web/index.html)
+          actual=$(git diff --name-only | sort)
+          test "$actual" = "$expected" || {
+            echo "Unexpected final diff:" >&2
+            printf '%s\n' "$actual" >&2
+            exit 1
+          }
+
+      - name: Commit proven Task 6 repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "email-shield-engineering[bot]"
+          git config user.email "email-shield-engineering[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: make Home mailbox status fail closed"
+          git push origin HEAD:repair/canonical-session-reachability-p0-20260817
