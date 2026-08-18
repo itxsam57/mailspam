@@ -169,6 +169,27 @@ const PROVIDERS = new Set<Provider>(["gmail", "icloud", "outlook", "yahoo", "ima
 const SCAN_TYPES = new Set(["quick", "full", "spam"] as const);
 const HTTP_METHODS = new Set<string>(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]);
 const SAFE_LABEL = /^[a-z0-9][a-z0-9_.:/-]{0,159}$/i;
+const SAFE_ROUTE_TEMPLATES = new Set<string>([
+  "/api/accounts",
+  "/api/accounts/connect",
+  "/api/accounts/workspace",
+  "/api/security/mutation-token",
+  "/api/accounts/oauth/google/status/:flowId",
+  "/api/accounts/oauth/microsoft/status/:flowId",
+  "/api/accounts/:accountId/scan/:type",
+  "/api/accounts/:accountId/scan/resume/:scanId",
+  "/api/accounts/:accountId/scan/stop",
+  "/api/accounts/:accountId/background-protection",
+  "/api/accounts/:accountId/scan-history",
+  "/api/accounts/:accountId/messages/:action",
+  "/api/accounts/:accountId",
+  "/api/profile/:operation",
+  "/api/scam-check/:operation",
+  "/api/consumer/:operation",
+  "/api/dev/runtime-trace/:operation",
+  "/api/operations/:operation",
+  "/api/other",
+]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const COMMIT_SHA = /^[0-9a-f]{40}$/i;
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
@@ -184,6 +205,10 @@ function validOptionalLabel(value: unknown): value is string | undefined {
   return value === undefined || (typeof value === "string" && SAFE_LABEL.test(value));
 }
 
+function validOptionalRouteTemplate(value: unknown): value is string | undefined {
+  return value === undefined || (typeof value === "string" && SAFE_ROUTE_TEMPLATES.has(value));
+}
+
 function validCommonEventFields(record: Record<string, unknown>): boolean {
   if (typeof record.traceId !== "string" || !UUID.test(record.traceId)) return false;
   if (typeof record.stage !== "string" || !STAGES.has(record.stage as RuntimeWorkflowTraceStage)) return false;
@@ -192,7 +217,7 @@ function validCommonEventFields(record: Record<string, unknown>): boolean {
   if (record.provider !== undefined && (typeof record.provider !== "string" || !PROVIDERS.has(record.provider as Provider))) return false;
   if (record.scanType !== undefined && (typeof record.scanType !== "string" || !SCAN_TYPES.has(record.scanType as "quick" | "full" | "spam"))) return false;
   if (!validOptionalLabel(record.component) || !validOptionalLabel(record.step) || !validOptionalLabel(record.errorCode)) return false;
-  if (!validOptionalLabel(record.routeTemplate)) return false;
+  if (!validOptionalRouteTemplate(record.routeTemplate)) return false;
   const httpMethod = record.httpMethod;
   if (httpMethod !== undefined && (typeof httpMethod !== "string" || !HTTP_METHODS.has(httpMethod))) return false;
   if (record.httpStatus !== undefined && !safePositiveInteger(record.httpStatus, 599)) return false;

@@ -73,6 +73,7 @@ function scanWorkflow(type: "quick" | "full" | "spam"): WorkflowDefinition {
     `${workflowId}.verdict_evaluated`,
     `${workflowId}.checkpoint_persisted`,
     `${workflowId}.stream_completed`,
+    `${workflowId}.projection_rendered`,
     `${workflowId}.ui_confirmed`,
   ];
   return {
@@ -96,18 +97,22 @@ const DEFINITIONS: WorkflowDefinition[] = [
   automaticWorkflow("protection.background.run"),
   automaticWorkflow("protection.realtime.run"),
   automaticWorkflow("community.feed.refresh"),
+  automaticWorkflow("workspace.restore"),
+  automaticWorkflow("learning.legitimate_feedback"),
 
   linearWorkflow("provider.connect.gmail", ["provider.connect.gmail", "account.connect"]),
   linearWorkflow("provider.connect.icloud", ["provider.connect.icloud", "account.connect"]),
   linearWorkflow("provider.connect.yahoo", ["provider.connect.yahoo", "account.connect"]),
   linearWorkflow("provider.connect.imap", ["provider.connect.imap", "account.connect"]),
   linearWorkflow("provider.connect.outlook", ["provider.connect.outlook"], true),
+  uiWorkflow("provider.credentials.icloud"),
+  uiWorkflow("provider.credentials.yahoo"),
+  uiWorkflow("provider.credentials.imap"),
   linearWorkflow("account.select"),
   linearWorkflow("account.disconnect"),
   linearWorkflow("account.mailbox.link"),
   linearWorkflow("account.sign_out"),
   linearWorkflow("account.profile.snapshot"),
-  linearWorkflow("workspace.restore"),
 
   scanWorkflow("quick"),
   scanWorkflow("full"),
@@ -197,6 +202,8 @@ const DEFINITIONS: WorkflowDefinition[] = [
 
   linearWorkflow("onboarding.start"),
   linearWorkflow("onboarding.complete"),
+  uiWorkflow("onboarding.permissions.review"),
+  uiWorkflow("onboarding.family.skip"),
   uiWorkflow("navigation.home"),
   uiWorkflow("navigation.scan"),
   uiWorkflow("navigation.protection"),
