@@ -2,6 +2,7 @@ import express from "express";
 import type { VisualTextExtractor } from "../consumer/scamCheckInputs.js";
 import type { MediaAuthenticityPort } from "../consumer/mediaAuthenticity.js";
 import type { ExposureLookupPort } from "../consumer/identityExposure.js";
+import { createRuntimeTraceHttpMiddleware } from "../diagnostics/runtimeTraceHttp.js";
 import type { AccountLifecycleService } from "../platform/accountLifecycleService.js";
 import { communityNetwork } from "../community/network.js";
 import { registerAccountLifecycleRoutes } from "./accountLifecycleRoutes.js";
@@ -47,6 +48,11 @@ export function createConsumerDesktopServer(options: ConsumerDesktopServerOption
   const security = localOptions.security ?? localSecurity;
   const community = localOptions.community ?? communityNetwork;
   const app = express();
+
+  // Correlation is diagnostic-only and fail-closed. It runs before route
+  // composition so every protected consumer route sees one AsyncLocalStorage
+  // context, but it neither authenticates requests nor reads request bodies.
+  app.use(createRuntimeTraceHttpMiddleware());
 
   registerRuntimeWorkflowTraceRoutes(app, { security });
 
