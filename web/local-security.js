@@ -85,14 +85,59 @@
     return body.nonce;
   }
 
-  // This fixed transport can only append an already-sanitized diagnostic event
-  // to the loopback developer trace route. It bypasses the product mutation
-  // nonce because the route cannot mutate mailbox/account state, while still
-  // carrying the protected local session, CSRF token and same-origin provenance.
+  // Runtime tracing is optional diagnostics. Probe its protected local config
+  // before sending events so a normal trace-disabled consumer session never
+  // generates repeated 404s. Rate limiting backs diagnostics off without
+  // affecting product requests or weakening their security boundary.
+  let traceAvailability = 'unknown';
+  let traceAvailabilityPromise = null;
+  let traceRetryAt = 0;
+
+  function traceBackoffMs(response, fallbackMs) {
+    const retryAfter = Number(response?.headers?.get?.('Retry-After'));
+    if (Number.isFinite(retryAfter) && retryAfter > 0 && retryAfter <= 3600) return retryAfter * 1000;
+    return fallbackMs;
+  }
+
+  async function runtimeTraceAvailable() {
+    if (Date.now() < traceRetryAt) return false;
+    if (traceAvailability === 'disabled') return false;
+    if (traceAvailability === 'enabled') return true;
+    if (traceAvailabilityPromise) return traceAvailabilityPromise;
+
+    traceAvailabilityPromise = (async () => {
+      try {
+        const response = await originalFetch('/api/dev/runtime-trace/config', {
+          ...dashboardProvenance(),
+          method: 'GET',
+          headers: { 'X-Email-Shield-CSRF': csrfToken },
+        });
+        if (response.status === 429) {
+          traceRetryAt = Date.now() + traceBackoffMs(response, 60_000);
+          return false;
+        }
+        if (!response.ok) {
+          traceAvailability = 'disabled';
+          return false;
+        }
+        const body = await response.json().catch(() => ({}));
+        traceAvailability = body.enabled === true ? 'enabled' : 'disabled';
+        return traceAvailability === 'enabled';
+      } catch {
+        traceRetryAt = Date.now() + 30_000;
+        return false;
+      } finally {
+        traceAvailabilityPromise = null;
+      }
+    })();
+    return traceAvailabilityPromise;
+  }
+
   Object.defineProperty(window, 'emailShieldRuntimeTraceTransport', {
     value: async (event) => {
+      if (!await runtimeTraceAvailable()) return;
       try {
-        await originalFetch('/api/dev/runtime-trace/events', {
+        const response = await originalFetch('/api/dev/runtime-trace/events', {
           ...dashboardProvenance(),
           method: 'POST',
           headers: {
@@ -101,7 +146,14 @@
           },
           body: JSON.stringify(event),
         });
-      } catch {}
+        if (response.status === 429) {
+          traceRetryAt = Date.now() + traceBackoffMs(response, 60_000);
+        } else if (response.status === 404) {
+          traceAvailability = 'disabled';
+        }
+      } catch {
+        traceRetryAt = Date.now() + 30_000;
+      }
     },
     writable: false,
     configurable: false,
