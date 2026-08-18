@@ -1,0 +1,87 @@
+name: EMA-5 Semantic Green Transform
+
+on:
+  push:
+    branches:
+      - repair/ema-5-diagnostic-flight-recorder-p1-20260818
+    paths:
+      - .github/workflows/ema5-semantic-green.yml
+
+permissions:
+  contents: write
+
+jobs:
+  transform:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: repair/ema-5-diagnostic-flight-recorder-p1-20260818
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Apply guarded transform
+        run: node scripts/engineering/ema5-semantic-green.mjs
+
+      - name: Strict typecheck
+        run: npm run typecheck
+
+      - name: Unit and regression tests
+        run: npm run test:unit
+
+      - name: Production build
+        run: npm run build
+
+      - name: Browser source/privacy checks
+        run: npm run check:web
+
+      - name: Executable Chromium smoke
+        run: npm run smoke:browser
+
+      - name: Remove temporary transform automation
+        shell: bash
+        run: |
+          rm scripts/engineering/ema5-semantic-green.mjs
+          rm .github/workflows/ema5-semantic-green.yml
+
+      - name: Assert exact production diff
+        shell: bash
+        run: |
+          expected=$(cat <<'EOF' | sort
+          scripts/engineering/generate-runtime-trace-manifest.mjs
+          server/src/api/runtimeWorkflowTraceRoutes.ts
+          server/src/diagnostics/runtimeTraceHttp.ts
+          server/src/diagnostics/workflowRegistry.ts
+          web/app-shell.js
+          web/consumer-onboarding.js
+          web/consumer-provider-onboarding.js
+          web/consumer-scan-results.js
+          web/gmail-oauth.js
+          web/local-security.js
+          web/protection-learning.js
+          web/runtime-workflow-trace.js
+          web/scan-monitor.js
+          web/workspace-restore.js
+          EOF
+          )
+          actual=$(git diff --name-only | sort)
+          printf 'Expected files:\n%s\nActual files:\n%s\n' "$expected" "$actual"
+          test "$actual" = "$expected"
+
+      - name: Commit verified production repair
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat(ema-5): trace semantic owners and fail soft availability"
+          git push origin HEAD:repair/ema-5-diagnostic-flight-recorder-p1-20260818
