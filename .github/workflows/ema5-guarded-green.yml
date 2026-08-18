@@ -46,33 +46,12 @@ jobs:
 
       - name: Materialize exact GREEN payloads
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          python - <<'PY'
-          import base64, json, os, pathlib, urllib.request
-          repo = os.environ['GITHUB_REPOSITORY']
-          token = os.environ['GH_TOKEN']
-          direct = {
-              'server/src/diagnostics/runtimeWorkflowTrace.ts': '65174a3382a1cbb354c21cd7ec1909c838fac48f',
-              'server/src/diagnostics/workflowRegistry.ts': 'f1d8987152466927ecf11a19e755d2d1a50b5cf1',
-              'web/runtime-workflow-trace.js': 'ec3cb6c1d3719713ae46abad6c74c55bfd35f481',
-          }
-          for path, sha in direct.items():
-              req = urllib.request.Request(
-                  f'https://api.github.com/repos/{repo}/git/blobs/{sha}',
-                  headers={
-                      'Authorization': f'Bearer {token}',
-                      'Accept': 'application/vnd.github+json',
-                      'X-GitHub-Api-Version': '2022-11-28',
-                  },
-              )
-              with urllib.request.urlopen(req) as response:
-                  payload = json.load(response)
-              pathlib.Path(path).write_bytes(base64.b64decode(payload['content']))
-          PY
           declare -A payloads=(
+            [server/src/diagnostics/runtimeWorkflowTrace.ts]=runtimeWorkflowTrace
+            [server/src/diagnostics/workflowRegistry.ts]=workflowRegistry
+            [web/runtime-workflow-trace.js]=runtime-workflow-trace
             [web/app-shell.js]=app-shell
             [web/consumer-provider-onboarding.js]=consumer-provider-onboarding
             [web/gmail-oauth.js]=gmail-oauth
