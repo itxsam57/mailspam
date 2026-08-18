@@ -1,4 +1,7 @@
-import type { ResolvedRuntimeTraceWorkflow } from "./runtimeTraceRequestContext.js";
+import {
+  runWithRuntimeTraceRequest,
+  type ResolvedRuntimeTraceWorkflow,
+} from "./runtimeTraceRequestContext.js";
 
 const MESSAGE_WORKFLOWS = Object.freeze({
   "block-sender": "message.block_sender",
@@ -11,6 +14,17 @@ const MESSAGE_WORKFLOWS = Object.freeze({
   unsubscribe: "message.unsubscribe",
   "analyze-links": "message.analyze_links",
 } as const);
+
+type RuntimeTraceHeaderValue = string | string[] | undefined;
+type RuntimeTraceHttpHeaders = Record<string, RuntimeTraceHeaderValue>;
+
+interface RuntimeTraceHttpRequest {
+  method: string;
+  path: string;
+  headers: RuntimeTraceHttpHeaders;
+}
+
+type RuntimeTraceNext = () => void;
 
 function pathOnly(value: string): string {
   const question = value.indexOf("?");
@@ -81,4 +95,21 @@ export function resolveRuntimeHttpWorkflow(
   // /api/accounts/connect route. Its payload is the only place that names the
   // provider, and diagnostics never read request bodies to choose a workflow.
   return null;
+}
+
+/**
+ * Canonical desktop request correlation boundary. This middleware does not
+ * authorize the request and does not inspect request bodies. It only binds a
+ * valid opaque browser trace UUID to workflow identity derived from the trusted
+ * method/path map for the lifetime of downstream execution.
+ */
+export function createRuntimeTraceHttpMiddleware() {
+  return (req: RuntimeTraceHttpRequest, _res: unknown, next: RuntimeTraceNext): void => {
+    const workflow = resolveRuntimeHttpWorkflow(req.method, req.path);
+    if (!workflow) {
+      next();
+      return;
+    }
+    runWithRuntimeTraceRequest(req.headers, workflow, next);
+  };
 }
