@@ -38,7 +38,7 @@ describe("runtime trace checkpoint helper", () => {
       workflowId: "mailbox.scan.quick",
       actionId: "mailbox.scan.quick",
       checkpointId: "scan.request.accepted",
-      stage: "request",
+      stage: "api_request",
       component: "local_desktop_server",
       outcome: "success",
     })).toBe(true);
@@ -67,7 +67,7 @@ describe("runtime trace checkpoint helper", () => {
       workflowId: "mailbox.scan.quick",
       actionId: "mailbox.scan.quick",
       checkpointId: "scan.request.accepted",
-      stage: "request",
+      stage: "api_request",
       component: "local_desktop_server",
       outcome: "success",
     })).toBe(false);
@@ -92,10 +92,10 @@ describe("runtime trace checkpoint helper", () => {
       workflowId: "mailbox.scan.quick",
       actionId: "mailbox.scan.quick",
       checkpointId: "scan.request.accepted",
-      stage: "request",
+      stage: "api_request",
       component: "local_desktop_server",
-      outcome: "failure",
-      reasonCode: "simulated_failure",
+      outcome: "failed",
+      errorCode: "simulated_failure",
     })).toBe(false);
   });
 });
