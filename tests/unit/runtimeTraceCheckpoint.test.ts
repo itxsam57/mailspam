@@ -1,12 +1,11 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRuntimeWorkflowTraceRecorder } from "../../server/src/diagnostics/runtimeWorkflowTrace.js";
+import { recordRuntimeTraceCheckpoint } from "../../server/src/diagnostics/runtimeTraceCheckpoint.js";
 
 const temporaryDirectories: string[] = [];
-const modulePath = join(process.cwd(), "server", "src", "diagnostics", "runtimeTraceCheckpoint.ts");
 
 function tempDirectory(): string {
   const directory = mkdtempSync(join(tmpdir(), "email-shield-runtime-checkpoint-"));
@@ -20,9 +19,7 @@ afterEach(() => {
 });
 
 describe("runtime trace checkpoint helper", () => {
-  it("exists as the single fail-soft checkpoint write boundary and records schema-v2 events", async () => {
-    expect(existsSync(modulePath)).toBe(true);
-    const module = await import(pathToFileURL(modulePath).href) as typeof import("../../server/src/diagnostics/runtimeTraceCheckpoint.js");
+  it("records schema-v2 events through the single fail-soft checkpoint write boundary", () => {
     const recorder = createRuntimeWorkflowTraceRecorder({
       dataDirectory: tempDirectory(),
       environment: {
@@ -33,7 +30,7 @@ describe("runtime trace checkpoint helper", () => {
       now: () => 1_700_000_000_000,
     });
 
-    expect(module.recordRuntimeTraceCheckpoint(recorder, {
+    expect(recordRuntimeTraceCheckpoint(recorder, {
       traceId: "22222222-2222-4222-8222-222222222222",
       workflowId: "mailbox.scan.quick",
       actionId: "mailbox.scan.quick",
@@ -52,9 +49,7 @@ describe("runtime trace checkpoint helper", () => {
     ]);
   });
 
-  it("returns false without writing when disabled", async () => {
-    expect(existsSync(modulePath)).toBe(true);
-    const module = await import(pathToFileURL(modulePath).href) as typeof import("../../server/src/diagnostics/runtimeTraceCheckpoint.js");
+  it("returns false without writing when disabled", () => {
     const recorder = createRuntimeWorkflowTraceRecorder({
       dataDirectory: tempDirectory(),
       environment: {},
@@ -62,7 +57,7 @@ describe("runtime trace checkpoint helper", () => {
     });
     const record = vi.spyOn(recorder, "record");
 
-    expect(module.recordRuntimeTraceCheckpoint(recorder, {
+    expect(recordRuntimeTraceCheckpoint(recorder, {
       traceId: "22222222-2222-4222-8222-222222222222",
       workflowId: "mailbox.scan.quick",
       actionId: "mailbox.scan.quick",
@@ -74,9 +69,7 @@ describe("runtime trace checkpoint helper", () => {
     expect(record).not.toHaveBeenCalled();
   });
 
-  it("never lets recorder failure break the product workflow", async () => {
-    expect(existsSync(modulePath)).toBe(true);
-    const module = await import(pathToFileURL(modulePath).href) as typeof import("../../server/src/diagnostics/runtimeTraceCheckpoint.js");
+  it("never lets recorder failure break the product workflow", () => {
     const recorder = createRuntimeWorkflowTraceRecorder({
       dataDirectory: tempDirectory(),
       environment: {
@@ -85,9 +78,9 @@ describe("runtime trace checkpoint helper", () => {
       },
       runId: "11111111-1111-4111-8111-111111111111",
     });
-    vi.spyOn(recorder, "record").mockImplementation(() => { throw new Error("simulated recorder failure"); });
+    vi.spyOn(recorder, "record").mockImplementation(() => { throw new Error("simulated trace sink failure"); });
 
-    expect(module.recordRuntimeTraceCheckpoint(recorder, {
+    expect(recordRuntimeTraceCheckpoint(recorder, {
       traceId: "22222222-2222-4222-8222-222222222222",
       workflowId: "mailbox.scan.quick",
       actionId: "mailbox.scan.quick",
@@ -95,7 +88,7 @@ describe("runtime trace checkpoint helper", () => {
       stage: "api_request",
       component: "local_desktop_server",
       outcome: "failed",
-      errorCode: "simulated_failure",
+      errorCode: "trace_sink_failure",
     })).toBe(false);
   });
 });
