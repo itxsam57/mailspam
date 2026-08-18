@@ -4,17 +4,23 @@ on:
   push:
     branches:
       - repair/ema-5-diagnostic-flight-recorder-p1-20260818
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
 
 jobs:
   apply:
-    if: github.event.head_commit.message == 'chore: arm EMA-5 guarded GREEN'
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'repair/ema-5-diagnostic-flight-recorder-p1-20260818') ||
+      (github.event_name == 'push' && github.ref_name == 'repair/ema-5-diagnostic-flight-recorder-p1-20260818')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
       - name: Guard exact RED source boundary
@@ -22,6 +28,7 @@ jobs:
         run: |
           set -euo pipefail
           RED=5682c82bc41cf454ed241158637c48b98b79eec0
+          test "$(git rev-parse HEAD)" = "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}"
           git merge-base --is-ancestor "$RED" HEAD
           targets=(
             server/src/diagnostics/runtimeWorkflowTrace.ts
@@ -130,9 +137,9 @@ jobs:
             web/protection-learning.js \
             web/runtime-workflow-trace.js \
             web/workspace-restore.js | sort > "$expected"
-          git diff --cached --name-only | grep -v -E '^(.engineering/tmp/ema5/|.github/workflows/ema5-guarded-green.yml$)' | sort > "$actual"
+          git diff --cached --name-only | grep -v -E '^(\.engineering/tmp/ema5/|\.github/workflows/ema5-guarded-green\.yml$)' | sort > "$actual"
           diff -u "$expected" "$actual"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m 'fix: declare canonical runtime trace ownership'
-          git push origin HEAD:${GITHUB_REF_NAME}
+          git push origin HEAD:${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}
