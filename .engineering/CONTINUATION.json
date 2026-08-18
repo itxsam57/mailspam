@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "project": "Email Shield",
+  "repository": "itxsam57/mailspam",
+  "updatedAt": "2026-08-18T16:35:00+05:00",
+  "governor": {
+    "mode": "AUTONOMOUS",
+    "allowedStopStates": [
+      "OWNER_REQUIRED",
+      "BLOCKED",
+      "WAIT_EXTERNAL",
+      "LOOP_DETECTED",
+      "COMPLETE"
+    ],
+    "currentState": "ACTIVE"
+  },
+  "sourceOfTruth": {
+    "baseBranch": "main",
+    "baseSha": "188477f4d6a29ec534a30c2c3098fb71d9d2b247",
+    "activeBranch": "repair/ema-5-diagnostic-flight-recorder-p1-20260818",
+    "activePullRequest": 115,
+    "observedHeadSha": "12f51f33411d6ee4d831747fd17fbb140dab17da"
+  },
+  "activeBatch": [
+    "EMA-5 Diagnostic Flight Recorder",
+    "EMA-20 Truthful Privacy-Safe Support Bundle",
+    "EMA-17 Health Security-Alert Composition"
+  ],
+  "activeIssue": {
+    "id": "EMA-5",
+    "phase": "QUALIFICATION_PENDING_AFTER_PROOF_CLEANUP",
+    "redEvidence": {
+      "runId": 32121468796,
+      "runNumber": 1368,
+      "result": "EXPECTED_RED",
+      "existingTestsPassed": 1200,
+      "newTestsFailed": 6,
+      "integrationCorpus": "140/140 malicious caught; 140/140 legitimate Safe"
+    },
+    "greenImplementation": {
+      "sha": "7bdf04f6d7a3b1f3fdb4ad5a15ce30463a5695b5",
+      "guardedVerificationRunId": 32131413879,
+      "guardedVerificationResult": "GREEN_BEFORE_COMMIT",
+      "verified": [
+        "all staged payload SHA-256 guards passed",
+        "browser JavaScript syntax checks passed",
+        "npm ci completed with zero vulnerabilities",
+        "TypeScript typecheck passed",
+        "runtimeTraceSemanticOwnershipCurrent: 5/5 passed",
+        "runtimeTraceRouteTemplatePrivacy: 1/1 passed",
+        "temporary guarded payload/workflow files absent from implementation head"
+      ]
+    },
+    "qualificationCleanup": {
+      "headBeforeCheckpoint": "12f51f33411d6ee4d831747fd17fbb140dab17da",
+      "removed": [
+        ".github/workflows/ema5-semantic-green.yml",
+        "scripts/engineering/ema5-semantic-green.mjs"
+      ],
+      "reason": "Both files were proof-only transform scaffolding and explicitly self-described as temporary. They are not part of the consumer product or permanent engineering gate, so they were removed before the final qualification SHA.",
+      "netPrFileSetRechecked": true
+    },
+    "rootCause": "The flight recorder had two ownership-boundary defects. Browser feature owners relied on generic inference instead of declaring navigation/provider/onboarding/automatic/scan-projection semantics, so valid user and automatic flows could be mislabeled or terminate at the wrong checkpoint. Separately, runtimeWorkflowTrace allowed routeTemplate metadata but validated it with the generic SAFE_LABEL grammar, which rejects the leading '/' required by every canonical API route. The repair keeps generic metadata validation strict, adds an exact canonical route-template allowlist, maps /api/accounts/workspace canonically, and moves semantic identity to the feature owners that actually know the workflow meaning.",
+    "repairedContracts": [
+      "owner-declared Home navigation semantics",
+      "provider credential/connect semantic separation",
+      "automatic workspace restore root and terminal checkpoints",
+      "automatic legitimate-learning root and terminal checkpoints",
+      "scan projection_rendered before visible ui_confirmed",
+      "dynamic onboarding semantic ownership",
+      "exact privacy-safe route-template validation without raw IDs/query secrets"
+    ],
+    "nextAction": "Run a fresh full exact-head Engineering Gate on this Continuation checkpoint SHA across Windows, macOS, Ubuntu/Linux plus summary. The earlier candidate gate was intentionally superseded by proof-scaffolding cleanup and must not be used as acceptance evidence. If completely green, inspect net PR diff/reviews, update PR evidence, mark ready, squash merge the exact verified head, and require independent merged-main verification before closing EMA-5."
+  },
+  "physicalAcceptance": {
+    "artifactCommit": "215b3fd966df69e61dffefeafa9744507f6f5d22",
+    "status": "PASSED_FOR_EMA_5_GREEN",
+    "verified": [
+      "desktop/mobile rendering remained stable",
+      "Home to Scan navigation traced as navigation.scan",
+      "iCloud app-password setup traced as provider.credentials.icloud rather than provider connection",
+      "fixture Gmail connected through the visible consumer flow",
+      "fixture Gmail Quick Scan completed with 20 visible result rows",
+      "mailbox.scan.quick.projection_rendered occurred before mailbox.scan.quick.ui_confirmed",
+      "zero page errors",
+      "zero failed runtime trace-event requests and zero trace-event HTTP 400 responses"
+    ],
+    "finding": "The repaired semantic owners and exact route-template boundary behave correctly in trace-enabled real Chromium without changing provider, entitlement, detection, message-action, or privacy behavior."
+  },
+  "externalAcceptance": {
+    "gmailLive": "OWNER_TEST_ACCOUNT_PENDING",
+    "outlookLive": "OWNER_TEST_ACCOUNT_PENDING",
+    "paidFamily": "OWNER_OR_ENTITLEMENT_REQUIRED"
+  }
+}

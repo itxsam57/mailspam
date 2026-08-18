@@ -92,6 +92,11 @@
         if (typeof window.selectAccount === 'function' && typeof body.accountId === 'string') {
           window.selectAccount(body.accountId);
         }
+        window.emailShieldRuntimeTrace?.checkpoint(
+          'provider.connect.gmail.ui_confirmed',
+          'success',
+          { provider: 'gmail', component: 'gmail_oauth', step: 'oauth_complete' },
+        );
         return;
       }
     }

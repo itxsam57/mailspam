@@ -152,8 +152,32 @@
     list.replaceChildren(fragment);
   }
 
+  function confirmCompletedProjection(type) {
+    if (!['quick', 'full', 'spam'].includes(type)) return;
+    render();
+    const workflowId = `mailbox.scan.${type}`;
+    const itemCount = tableBody.querySelectorAll('tr[data-message-row="true"]').length;
+    const trace = window.emailShieldRuntimeTrace;
+    trace?.checkpoint(`${workflowId}.projection_rendered`, 'success', {
+      scanType: type,
+      component: 'consumer_scan_results',
+      step: 'projection_rendered',
+      itemCount,
+    });
+    trace?.checkpoint(`${workflowId}.ui_confirmed`, 'success', {
+      scanType: type,
+      component: 'consumer_scan_results',
+      step: 'results_visible',
+      itemCount,
+    });
+  }
+
   const observer = new MutationObserver(render);
   observer.observe(tableBody, { childList: true });
   window.addEventListener('email-shield-workspace-restored', () => queueMicrotask(render));
+  window.addEventListener('email-shield-scan-stream-complete', (event) => {
+    const type = event instanceof CustomEvent ? event.detail?.type : null;
+    confirmCompletedProjection(type);
+  });
   render();
 })();
