@@ -9,6 +9,7 @@ import { currentRuntimeTraceContext } from "../../server/src/diagnostics/runtime
 
 const root = join(import.meta.dirname, "../..");
 const browserTrace = readFileSync(join(root, "web/runtime-workflow-trace.js"), "utf8");
+const desktopComposition = readFileSync(join(root, "server/src/api/consumerDesktopServer.ts"), "utf8");
 
 describe("EMA-5 central runtime trace HTTP/browser wiring", () => {
   it("resolves protected routes to server-authoritative workflows without mailbox ids", () => {
@@ -76,6 +77,11 @@ describe("EMA-5 central runtime trace HTTP/browser wiring", () => {
     expect(called).toBe(true);
     expect(inside).toBeNull();
     expect(currentRuntimeTraceContext()).toBeNull();
+  });
+
+  it("mounts the scoped resolver once in the canonical consumer desktop composition", () => {
+    expect(desktopComposition).toContain('from "../diagnostics/runtimeTraceHttp.js"');
+    expect(desktopComposition).toContain("app.use(createRuntimeTraceHttpMiddleware())");
   });
 
   it("emits schema-v2 browser workflow/checkpoint identity through one central owner", () => {
