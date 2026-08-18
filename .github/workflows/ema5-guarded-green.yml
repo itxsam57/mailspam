@@ -58,7 +58,6 @@ jobs:
           }
           materialize server/src/diagnostics/runtimeWorkflowTrace.ts runtimeWorkflowTrace 5ab72391ce13298a9fcc9247307046a39eff9d7bda8ae64cc4ad0172cb2f8c5c
           materialize server/src/diagnostics/workflowRegistry.ts workflowRegistry 0357345160a7a9e5f00ba53acd6382e4637675909aaada29d6cfae39b41c1084
-          materialize web/runtime-workflow-trace.js runtime-workflow-trace 42e5dbaa335e3b6c9cf68bff7f02576ae44627ad8d858828eab54150d23c0187
           materialize web/app-shell.js app-shell d7c442f0171550ab99254e7738b1a4620671d70744678ba5f817907eef319a02
           materialize web/consumer-provider-onboarding.js consumer-provider-onboarding 30092965abc5da9b40b4667e68d49cd7d168a2b54d2545ae07dd42aa6bb923f3
           materialize web/gmail-oauth.js gmail-oauth acbb3c2ba75e4a1e1d5e7c0a4c333c4b9d7186b2b817588bcd884bc90a9665a0
@@ -66,6 +65,26 @@ jobs:
           materialize web/protection-learning.js protection-learning 2ed6515ac6201a19d5e74ab758880811ce1ff146e6efa2d3814327e1633b6558
           materialize web/consumer-scan-results.js consumer-scan-results 3ef0c2f67b29a3b2735843298c3bdf3edb481f836a1b867fb8db38ceaaf2083c
           materialize web/consumer-onboarding.js consumer-onboarding b5bbc11b3f357f670d1f5fd3c9193f78a17cac5f3172daaa35c72ca2a53b533e
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('web/runtime-workflow-trace.js')
+          text = path.read_text()
+          replacements = [
+              (
+                  "if (outcome === 'failed' || outcome === 'rejected' || outcome === 'cancelled' || checkpointId.endsWith('.ui_confirmed')) {",
+                  "if (outcome === 'failed' || outcome === 'rejected' || outcome === 'cancelled' || checkpointId.endsWith('.ui_confirmed') || checkpointId.endsWith('.completed')) {",
+              ),
+              (
+                  "if (pathname === '/api/accounts' || pathname === '/api/accounts/connect') return pathname;",
+                  "if (pathname === '/api/accounts' || pathname === '/api/accounts/connect' || pathname === '/api/accounts/workspace') return pathname;",
+              ),
+          ]
+          for old, new in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f'guarded tracer source mismatch: {old}')
+              text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
 
       - name: Verify GREEN contracts before commit
         shell: bash
