@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "project": "Email Shield",
   "repository": "itxsam57/mailspam",
-  "updatedAt": "2026-08-18T14:32:00+05:00",
+  "updatedAt": "2026-08-18T16:25:00+05:00",
   "governor": {
     "mode": "AUTONOMOUS",
     "allowedStopStates": [
@@ -19,7 +19,7 @@
     "baseSha": "188477f4d6a29ec534a30c2c3098fb71d9d2b247",
     "activeBranch": "repair/ema-5-diagnostic-flight-recorder-p1-20260818",
     "activePullRequest": 115,
-    "observedHeadSha": "fe71521938f67a1e943030165824f9b54a684d46"
+    "observedHeadSha": "7bdf04f6d7a3b1f3fdb4ad5a15ce30463a5695b5"
   },
   "activeBatch": [
     "EMA-5 Diagnostic Flight Recorder",
@@ -28,45 +28,55 @@
   ],
   "activeIssue": {
     "id": "EMA-5",
-    "phase": "EXPANDED_TDD_RED_CONFIRMED",
-    "gate": {
+    "phase": "TDD_GREEN_IMPLEMENTED_PHYSICAL_ACCEPTED",
+    "redEvidence": {
       "runId": 32121468796,
       "runNumber": 1368,
       "result": "EXPECTED_RED",
-      "evidence": {
-        "existingTestsPassed": 1200,
-        "newTestsFailed": 6,
-        "newFailures": [
-          "owner-declared Home navigation semantics",
-          "provider credential/connect semantic separation",
-          "automatic workspace/legitimate-learning roots",
-          "scan projection before visible confirmation",
-          "dynamic onboarding semantic ownership",
-          "canonical privacy-safe route-template acceptance"
-        ],
-        "integrationCorpus": "140/140 malicious caught; 140/140 legitimate Safe",
-        "typecheck": "passed",
-        "build": "passed",
-        "browserSmokes": "passed",
-        "serverApiSmokes": "passed",
-        "packageRelease": "passed"
-      }
+      "existingTestsPassed": 1200,
+      "newTestsFailed": 6,
+      "integrationCorpus": "140/140 malicious caught; 140/140 legitimate Safe"
     },
-    "rootCause": "Two diagnostic ownership defects are isolated. First, browser feature owners still rely on generic inference rather than explicitly declaring navigation/provider/onboarding/automatic/scan-projection semantics. Second, runtimeWorkflowTrace permits routeTemplate as a field but validates it with SAFE_LABEL, whose first character must be alphanumeric; every canonical API route template begins with '/', so privacy-safe API trace events are rejected with HTTP 400. Broadening SAFE_LABEL would weaken unrelated metadata validation, so route templates require a dedicated exact allowlist.",
-    "nextAction": "Apply owner-declared semantic instrumentation plus an exact canonical route-template validator, correct /api/accounts/workspace browser templating, physically rerun trace-enabled Chromium with zero trace-event 400s, then run an exact-head full Engineering Gate."
+    "greenImplementation": {
+      "sha": "7bdf04f6d7a3b1f3fdb4ad5a15ce30463a5695b5",
+      "guardedVerificationRunId": 32131413879,
+      "guardedVerificationResult": "GREEN_BEFORE_COMMIT",
+      "verified": [
+        "all staged payload SHA-256 guards passed",
+        "browser JavaScript syntax checks passed",
+        "npm ci completed with zero vulnerabilities",
+        "TypeScript typecheck passed",
+        "runtimeTraceSemanticOwnershipCurrent: 5/5 passed",
+        "runtimeTraceRouteTemplatePrivacy: 1/1 passed",
+        "temporary payload/workflow files absent from implementation head"
+      ]
+    },
+    "rootCause": "The flight recorder had two ownership-boundary defects. Browser feature owners relied on generic inference instead of declaring navigation/provider/onboarding/automatic/scan-projection semantics, so valid user and automatic flows could be mislabeled or terminate at the wrong checkpoint. Separately, runtimeWorkflowTrace allowed routeTemplate metadata but validated it with the generic SAFE_LABEL grammar, which rejects the leading '/' required by every canonical API route. The repair keeps generic metadata validation strict, adds an exact canonical route-template allowlist, maps /api/accounts/workspace canonically, and moves semantic identity to the feature owners that actually know the workflow meaning.",
+    "repairedContracts": [
+      "owner-declared Home navigation semantics",
+      "provider credential/connect semantic separation",
+      "automatic workspace restore root and terminal checkpoints",
+      "automatic legitimate-learning root and terminal checkpoints",
+      "scan projection_rendered before visible ui_confirmed",
+      "dynamic onboarding semantic ownership",
+      "exact privacy-safe route-template validation without raw IDs/query secrets"
+    ],
+    "nextAction": "Require the full exact-head Engineering Gate on the Continuation checkpoint SHA across Windows, macOS, Ubuntu/Linux plus summary. If completely green, inspect net PR diff/reviews, update PR evidence, mark ready, squash merge the exact verified head, and require independent merged-main verification before closing EMA-5."
   },
   "physicalAcceptance": {
     "artifactCommit": "215b3fd966df69e61dffefeafa9744507f6f5d22",
-    "status": "IN_PROGRESS",
+    "status": "PASSED_FOR_EMA_5_GREEN",
     "verified": [
-      "desktop/mobile rendering",
-      "all eight consumer routes",
-      "zero-mailbox sensitivity provider handoff",
-      "five fixture provider connections through visible developer controls",
-      "proposed semantic workspace/navigation/provider checkpoints accepted in trace-enabled Chromium",
-      "fixture Quick Scan completed with proposed projection_rendered then ui_confirmed ordering"
+      "desktop/mobile rendering remained stable",
+      "Home to Scan navigation traced as navigation.scan",
+      "iCloud app-password setup traced as provider.credentials.icloud rather than provider connection",
+      "fixture Gmail connected through the visible consumer flow",
+      "fixture Gmail Quick Scan completed with 20 visible result rows",
+      "mailbox.scan.quick.projection_rendered occurred before mailbox.scan.quick.ui_confirmed",
+      "zero page errors",
+      "zero failed runtime trace-event requests and zero trace-event HTTP 400 responses"
     ],
-    "finding": "Trace-enabled physical Chromium reproduced repeated HTTP 400 responses only for sanitized api_request/api_response events carrying canonical routeTemplate/httpMethod metadata. Rejected bodies contained no raw account IDs or message content; the recorder route-template validator is the mismatched consumer boundary."
+    "finding": "The repaired semantic owners and exact route-template boundary behave correctly in trace-enabled real Chromium without changing provider, entitlement, detection, message-action, or privacy behavior."
   },
   "externalAcceptance": {
     "gmailLive": "OWNER_TEST_ACCOUNT_PENDING",
