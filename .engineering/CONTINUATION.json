@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "project": "Email Shield",
   "repository": "itxsam57/mailspam",
-  "updatedAt": "2026-08-18T16:25:00+05:00",
+  "updatedAt": "2026-08-18T16:35:00+05:00",
   "governor": {
     "mode": "AUTONOMOUS",
     "allowedStopStates": [
@@ -19,7 +19,7 @@
     "baseSha": "188477f4d6a29ec534a30c2c3098fb71d9d2b247",
     "activeBranch": "repair/ema-5-diagnostic-flight-recorder-p1-20260818",
     "activePullRequest": 115,
-    "observedHeadSha": "7bdf04f6d7a3b1f3fdb4ad5a15ce30463a5695b5"
+    "observedHeadSha": "12f51f33411d6ee4d831747fd17fbb140dab17da"
   },
   "activeBatch": [
     "EMA-5 Diagnostic Flight Recorder",
@@ -28,7 +28,7 @@
   ],
   "activeIssue": {
     "id": "EMA-5",
-    "phase": "TDD_GREEN_IMPLEMENTED_PHYSICAL_ACCEPTED",
+    "phase": "QUALIFICATION_PENDING_AFTER_PROOF_CLEANUP",
     "redEvidence": {
       "runId": 32121468796,
       "runNumber": 1368,
@@ -48,8 +48,17 @@
         "TypeScript typecheck passed",
         "runtimeTraceSemanticOwnershipCurrent: 5/5 passed",
         "runtimeTraceRouteTemplatePrivacy: 1/1 passed",
-        "temporary payload/workflow files absent from implementation head"
+        "temporary guarded payload/workflow files absent from implementation head"
       ]
+    },
+    "qualificationCleanup": {
+      "headBeforeCheckpoint": "12f51f33411d6ee4d831747fd17fbb140dab17da",
+      "removed": [
+        ".github/workflows/ema5-semantic-green.yml",
+        "scripts/engineering/ema5-semantic-green.mjs"
+      ],
+      "reason": "Both files were proof-only transform scaffolding and explicitly self-described as temporary. They are not part of the consumer product or permanent engineering gate, so they were removed before the final qualification SHA.",
+      "netPrFileSetRechecked": true
     },
     "rootCause": "The flight recorder had two ownership-boundary defects. Browser feature owners relied on generic inference instead of declaring navigation/provider/onboarding/automatic/scan-projection semantics, so valid user and automatic flows could be mislabeled or terminate at the wrong checkpoint. Separately, runtimeWorkflowTrace allowed routeTemplate metadata but validated it with the generic SAFE_LABEL grammar, which rejects the leading '/' required by every canonical API route. The repair keeps generic metadata validation strict, adds an exact canonical route-template allowlist, maps /api/accounts/workspace canonically, and moves semantic identity to the feature owners that actually know the workflow meaning.",
     "repairedContracts": [
@@ -61,7 +70,7 @@
       "dynamic onboarding semantic ownership",
       "exact privacy-safe route-template validation without raw IDs/query secrets"
     ],
-    "nextAction": "Require the full exact-head Engineering Gate on the Continuation checkpoint SHA across Windows, macOS, Ubuntu/Linux plus summary. If completely green, inspect net PR diff/reviews, update PR evidence, mark ready, squash merge the exact verified head, and require independent merged-main verification before closing EMA-5."
+    "nextAction": "Run a fresh full exact-head Engineering Gate on this Continuation checkpoint SHA across Windows, macOS, Ubuntu/Linux plus summary. The earlier candidate gate was intentionally superseded by proof-scaffolding cleanup and must not be used as acceptance evidence. If completely green, inspect net PR diff/reviews, update PR evidence, mark ready, squash merge the exact verified head, and require independent merged-main verification before closing EMA-5."
   },
   "physicalAcceptance": {
     "artifactCommit": "215b3fd966df69e61dffefeafa9744507f6f5d22",
