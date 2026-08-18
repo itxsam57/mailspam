@@ -56,6 +56,11 @@ describe("EMA-5 owner-declared browser trace semantics", () => {
     expect(registry).toContain('automaticWorkflow("learning.legitimate_feedback")');
   });
 
+  it("releases automatic trace context when a completed checkpoint is recorded", () => {
+    const tracer = read("web/runtime-workflow-trace.js");
+    expect(tracer).toContain("checkpointId.endsWith('.completed')");
+  });
+
   it("requires the separate consumer scan projection before a scan is visibly confirmed", () => {
     const projection = read("web/consumer-scan-results.js");
     const registry = read("server/src/diagnostics/workflowRegistry.ts");
