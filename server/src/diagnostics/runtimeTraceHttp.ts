@@ -1,7 +1,9 @@
 import {
+  recordCurrentRuntimeCheckpoint,
   runWithRuntimeTraceRequest,
   type ResolvedRuntimeTraceWorkflow,
 } from "./runtimeTraceRequestContext.js";
+import { runtimeWorkflowTrace, type RuntimeWorkflowTraceRecorder } from "./runtimeWorkflowTrace.js";
 
 const MESSAGE_WORKFLOWS = Object.freeze({
   "block-sender": "message.block_sender",
@@ -22,6 +24,11 @@ interface RuntimeTraceHttpRequest {
   method: string;
   path: string;
   headers: RuntimeTraceHttpHeaders;
+}
+
+interface RuntimeTraceHttpResponse {
+  statusCode?: number;
+  once?: (event: "finish", listener: () => void) => unknown;
 }
 
 type RuntimeTraceNext = () => void;
@@ -99,17 +106,38 @@ export function resolveRuntimeHttpWorkflow(
 
 /**
  * Canonical desktop request correlation boundary. This middleware does not
- * authorize the request and does not inspect request bodies. It only binds a
- * valid opaque browser trace UUID to workflow identity derived from the trusted
- * method/path map for the lifetime of downstream execution.
+ * authorize the request and does not inspect request bodies. It binds a valid
+ * opaque browser trace UUID to workflow identity derived from the trusted
+ * method/path map for downstream execution, then records exactly one terminal
+ * response checkpoint from the status code only. Response bodies and errors are
+ * never inspected by diagnostics.
  */
-export function createRuntimeTraceHttpMiddleware() {
-  return (req: RuntimeTraceHttpRequest, _res: unknown, next: RuntimeTraceNext): void => {
+export function createRuntimeTraceHttpMiddleware(
+  options: { recorder?: RuntimeWorkflowTraceRecorder | null } = {},
+) {
+  const recorder = options.recorder === undefined ? runtimeWorkflowTrace() : options.recorder;
+  return (req: RuntimeTraceHttpRequest, res: RuntimeTraceHttpResponse, next: RuntimeTraceNext): void => {
     const workflow = resolveRuntimeHttpWorkflow(req.method, req.path);
     if (!workflow) {
       next();
       return;
     }
-    runWithRuntimeTraceRequest(req.headers, workflow, next);
+    runWithRuntimeTraceRequest(req.headers, workflow, () => {
+      if (typeof res.once === "function") {
+        res.once("finish", () => {
+          const rawStatus = Number.isSafeInteger(res.statusCode) ? Number(res.statusCode) : 200;
+          const httpStatus = Math.max(0, Math.min(599, rawStatus));
+          recordCurrentRuntimeCheckpoint(recorder, "backend_completed", {
+            stage: "api_response",
+            outcome: httpStatus >= 400 ? "failed" : "success",
+            component: "local_api",
+            step: "response_finished",
+            httpStatus,
+            ...(httpStatus >= 400 ? { errorCode: `http_${httpStatus}` } : {}),
+          });
+        });
+      }
+      next();
+    });
   };
 }
