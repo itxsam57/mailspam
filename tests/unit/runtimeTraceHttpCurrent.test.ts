@@ -1,7 +1,11 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { resolveRuntimeHttpWorkflow } from "../../server/src/diagnostics/runtimeTraceHttp.js";
+import {
+  createRuntimeTraceHttpMiddleware,
+  resolveRuntimeHttpWorkflow,
+} from "../../server/src/diagnostics/runtimeTraceHttp.js";
+import { currentRuntimeTraceContext } from "../../server/src/diagnostics/runtimeTraceRequestContext.js";
 
 const root = join(import.meta.dirname, "../..");
 const browserTrace = readFileSync(join(root, "web/runtime-workflow-trace.js"), "utf8");
@@ -36,6 +40,39 @@ describe("EMA-5 central runtime trace HTTP/browser wiring", () => {
     expect(resolveRuntimeHttpWorkflow("POST", "/api/accounts/connect")).toBeNull();
     expect(resolveRuntimeHttpWorkflow("POST", "/api/accounts/abc/messages/not-real")).toBeNull();
     expect(resolveRuntimeHttpWorkflow("GET", "/api/unknown/private/value")).toBeNull();
+  });
+
+  it("scopes the browser trace UUID to the server-resolved workflow for one request only", () => {
+    const middleware = createRuntimeTraceHttpMiddleware();
+    let inside = null;
+    middleware({
+      method: "POST",
+      path: "/api/accounts/abc/messages/report-scam",
+      headers: { "x-email-shield-trace-id": "22222222-2222-4222-8222-222222222222" },
+    }, {}, () => {
+      inside = currentRuntimeTraceContext();
+    });
+
+    expect(inside).toEqual({
+      traceId: "22222222-2222-4222-8222-222222222222",
+      workflowId: "message.report_scam",
+      actionId: "message.report_scam",
+    });
+    expect(currentRuntimeTraceContext()).toBeNull();
+  });
+
+  it("runs unknown routes without creating diagnostic identity", () => {
+    const middleware = createRuntimeTraceHttpMiddleware();
+    let inside = "not-called";
+    middleware({
+      method: "POST",
+      path: "/api/accounts/connect",
+      headers: { "x-email-shield-trace-id": "22222222-2222-4222-8222-222222222222" },
+    }, {}, () => {
+      inside = currentRuntimeTraceContext();
+    });
+    expect(inside).toBeNull();
+    expect(currentRuntimeTraceContext()).toBeNull();
   });
 
   it("emits schema-v2 browser workflow/checkpoint identity through one central owner", () => {
