@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "project": "Email Shield",
+  "repository": "itxsam57/mailspam",
+  "updatedAt": "2026-08-18T14:00:00+05:00",
+  "governor": {
+    "mode": "AUTONOMOUS",
+    "allowedStopStates": [
+      "OWNER_REQUIRED",
+      "BLOCKED",
+      "WAIT_EXTERNAL",
+      "LOOP_DETECTED",
+      "COMPLETE"
+    ],
+    "currentState": "ACTIVE"
+  },
+  "sourceOfTruth": {
+    "baseBranch": "main",
+    "baseSha": "188477f4d6a29ec534a30c2c3098fb71d9d2b247",
+    "activeBranch": "repair/ema-5-diagnostic-flight-recorder-p1-20260818",
+    "activePullRequest": 115,
+    "observedHeadSha": "215b3fd966df69e61dffefeafa9744507f6f5d22"
+  },
+  "activeBatch": [
+    "EMA-5 Diagnostic Flight Recorder",
+    "EMA-20 Truthful Privacy-Safe Support Bundle",
+    "EMA-17 Health Security-Alert Composition"
+  ],
+  "activeIssue": {
+    "id": "EMA-5",
+    "phase": "TDD_RED_CONFIRMED",
+    "gate": {
+      "runId": 32106067877,
+      "runNumber": 1359,
+      "result": "EXPECTED_RED",
+      "evidence": {
+        "existingTestsPassed": 1200,
+        "newTestsFailed": 5,
+        "integrationCorpus": "140/140 malicious caught; 140/140 legitimate Safe",
+        "typecheck": "passed",
+        "build": "passed",
+        "browserSmokes": "passed",
+        "serverApiSmokes": "passed",
+        "packageRelease": "passed"
+      }
+    },
+    "rootCause": "The central runtime trace transport/request correlation exists, but semantic ownership is still generic. Feature owners do not yet explicitly register navigation/provider/onboarding controls, automatic workspace/learning roots, or the separate scan projection terminal checkpoint.",
+    "nextAction": "Implement the five owner-declared semantic trace contracts without changing product behavior, then run an exact-head full Engineering Gate."
+  },
+  "physicalAcceptance": {
+    "artifactCommit": "e570dc159499a84d1a81bcff484099f5c5ddbf33",
+    "status": "IN_PROGRESS",
+    "verified": [
+      "desktop/mobile rendering",
+      "all eight consumer routes",
+      "zero-mailbox sensitivity provider handoff",
+      "five fixture provider connections through visible developer controls"
+    ],
+    "finding": "Disabled runtime tracing previously generated repeated /api/dev/runtime-trace/events 404/429 browser noise; current EMA-5 head contains a backoff change and still requires semantic-owner closure."
+  },
+  "externalAcceptance": {
+    "gmailLive": "OWNER_TEST_ACCOUNT_PENDING",
+    "outlookLive": "OWNER_TEST_ACCOUNT_PENDING",
+    "paidFamily": "OWNER_OR_ENTITLEMENT_REQUIRED"
+  }
+}
