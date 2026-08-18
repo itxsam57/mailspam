@@ -8,15 +8,15 @@ import {
 import type { LocalSecurityManager } from "./localSecurity.js";
 
 export function createRuntimeWorkflowTraceRouter(options: {
-  recorder: RuntimeWorkflowTraceRecorder;
+  recorder: RuntimeWorkflowTraceRecorder | null;
   telemetry?: Pick<TechnicalTelemetry, "captureWorkflowTrace">;
 }): Router {
   const router = Router();
   const recorder = options.recorder;
 
   router.get("/config", (_req, res) => {
-    if (!recorder.enabled) {
-      res.status(404).json({ error: "Runtime workflow tracing is disabled." });
+    if (!recorder?.enabled) {
+      res.json({ enabled: false, localAuthoritative: true });
       return;
     }
     res.json({
@@ -27,7 +27,7 @@ export function createRuntimeWorkflowTraceRouter(options: {
   });
 
   router.post("/events", (req, res) => {
-    if (!recorder.enabled) {
+    if (!recorder?.enabled) {
       res.status(404).json({ error: "Runtime workflow tracing is disabled." });
       return;
     }
@@ -43,7 +43,7 @@ export function createRuntimeWorkflowTraceRouter(options: {
   });
 
   router.get("/current", (req, res) => {
-    if (!recorder.enabled) {
+    if (!recorder?.enabled) {
       res.status(404).json({ error: "Runtime workflow tracing is disabled." });
       return;
     }
@@ -66,15 +66,21 @@ export function createRuntimeWorkflowTraceRouter(options: {
  * the second strict allowlist validation before anything reaches disk. The
  * optional remote mirror revalidates the record independently and remains
  * controlled by the existing EMAIL_SHIELD_TELEMETRY opt-in.
+ *
+ * The protected config route remains mounted when tracing is disabled. That is
+ * an availability probe only: events/current stay unavailable, while a normal
+ * consumer browser can learn once that diagnostics are off and avoid a 404/429
+ * request loop. Explicit null preserves this fail-soft disabled state in tests.
  */
 export function registerRuntimeWorkflowTraceRoutes(app: Express, options: {
   security: LocalSecurityManager;
   recorder?: RuntimeWorkflowTraceRecorder | null;
   telemetry?: Pick<TechnicalTelemetry, "captureWorkflowTrace">;
 }): void {
-  const recorder = options.recorder ?? runtimeWorkflowTrace();
-  if (!recorder?.enabled) return;
-  const telemetry = options.telemetry ?? createTechnicalTelemetryFromEnvironment();
+  const recorder = options.recorder === undefined ? runtimeWorkflowTrace() : options.recorder;
+  const telemetry = recorder?.enabled
+    ? (options.telemetry ?? createTechnicalTelemetryFromEnvironment())
+    : undefined;
   app.use(
     "/api/dev/runtime-trace",
     options.security.validateLoopbackRequest,
