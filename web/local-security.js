@@ -45,33 +45,6 @@
     };
   }
 
-  function requestActionToken(init) {
-    if (typeof init?.body !== 'string') return null;
-    try {
-      const parsed = JSON.parse(init.body);
-      return typeof parsed?.token === 'string' ? parsed.token : null;
-    } catch {
-      return null;
-    }
-  }
-
-  function disableUsedAction(token) {
-    if (!token) return;
-    let selector;
-    try { selector = CSS.escape(token); }
-    catch { return; }
-    document.querySelectorAll(
-      `[data-review-token="${selector}"],[data-unsubscribe-token="${selector}"]`,
-    ).forEach((element) => {
-      if (element instanceof HTMLButtonElement) {
-        element.disabled = true;
-        if (!/✓|complete|reported|blocked|trusted|safe/i.test(element.textContent || '')) {
-          element.textContent = 'Action used — rescan';
-        }
-      }
-    });
-  }
-
   async function mutationNonce() {
     const response = await originalFetch('/api/security/mutation-token', {
       ...dashboardProvenance(),
@@ -124,7 +97,6 @@
       headers,
     };
     const isNonceRequest = url.pathname === '/api/security/mutation-token';
-    const token = requestActionToken(init);
     const traceRequest = window.emailShieldRuntimeTrace?.apiRequest?.(method, url.pathname) || null;
 
     if (unsafeMethod(method) && !isNonceRequest && !analysisOnlyPath(url.pathname)) {
@@ -141,11 +113,6 @@
     }
     if (response.status === 401) {
       window.dispatchEvent(new CustomEvent('email-shield-session-expired'));
-    }
-    if (token) {
-      response.clone().json().then((body) => {
-        if (response.ok || body?.localProtected === true) disableUsedAction(token);
-      }).catch(() => {});
     }
     return response;
   };
