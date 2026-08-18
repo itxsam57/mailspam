@@ -63,14 +63,17 @@ describe("EMA-5 central runtime trace HTTP/browser wiring", () => {
 
   it("runs unknown routes without creating diagnostic identity", () => {
     const middleware = createRuntimeTraceHttpMiddleware();
-    let inside = "not-called";
+    let called = false;
+    let inside: ReturnType<typeof currentRuntimeTraceContext> = null;
     middleware({
       method: "POST",
       path: "/api/accounts/connect",
       headers: { "x-email-shield-trace-id": "22222222-2222-4222-8222-222222222222" },
     }, {}, () => {
+      called = true;
       inside = currentRuntimeTraceContext();
     });
+    expect(called).toBe(true);
     expect(inside).toBeNull();
     expect(currentRuntimeTraceContext()).toBeNull();
   });
