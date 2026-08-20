@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "project": "Email Shield",
   "repository": "itxsam57/mailspam",
-  "updatedAt": "2026-08-20T23:25:00+05:00",
+  "updatedAt": "2026-08-20T23:35:00+05:00",
   "governor": {
     "mode": "AUTONOMOUS",
     "allowedStopStates": ["OWNER_REQUIRED", "BLOCKED", "WAIT_EXTERNAL", "LOOP_DETECTED", "COMPLETE"],
@@ -10,69 +10,60 @@
   },
   "sourceOfTruth": {
     "baseBranch": "main",
-    "baseSha": "f1ba5cc45855d6026036fef5939668ae75c57beb",
-    "activeBranch": "repair/ema-15-health-identity-aggregation-20260820",
-    "activePullRequest": 123,
-    "lastQualifiedCodeHeadSha": "36c8bf2caa626361a1620999686904e3791f4aa6"
+    "baseSha": "c52b368ef04094fecf6dad1158154c7ce6741255",
+    "activeBranch": "repair/ema-11-consumer-community-boundary-20260820",
+    "activePullRequest": null,
+    "lastQualifiedCodeHeadSha": null
   },
   "activeBatch": [
-    "EMA-15 Health identity aggregation and cleanup targeting",
     "EMA-11 consumer Community/operations exposure",
-    "EMA-26 continuous-protection consumer composition"
+    "EMA-26 continuous-protection consumer composition",
+    "EMA-12 notification privacy setting without delivery contract"
   ],
   "activeIssue": {
-    "id": "EMA-15",
-    "phase": "QUALIFIED_MERGE_PENDING",
-    "rootCause": "Health had two identity-composition failures plus one destructive-target boundary failure. Digital Account Footprint grouped by domain plus evidence kind, so one service/domain became multiple top-level entries. Subscription inventory preserved distinct list/sender keys, but the consumer renderer discarded that identity and showed only displayName. The destructive Health cleanup path selected a row by canonical key in the browser but submitted only sender address/domain, so sibling list identities sharing one sender could collide.",
-    "repair": [
-      "aggregate Digital Account Footprint by canonical service/domain while preserving per-category evidence counts and observation metadata",
-      "preserve distinct actionable subscription identities and render a privacy-safe same-name source differentiator",
-      "carry the selected canonical subscription key from rendered Health row through cleanup controller, API and worker",
-      "fail closed when destructive cleanup lacks the canonical selected subscription identity",
-      "retain sender/domain and age checks as additional narrowing constraints rather than as the destructive identity",
-      "add opt-in EMA-15 fixture data isolated from normal fixture/corpus startup",
-      "wire a permanent real Chromium acceptance through smoke:browser-scan"
+    "id": "EMA-11",
+    "phase": "RED_TEST_PENDING",
+    "rootCause": "The consumer shell still authorizes a real Community route and mounts the internal operations dashboard into it. The later consumer layer may hide the sidebar button, but both app-shell and ui-router still authorize direct #community navigation, operations-dashboard explicitly treats that route/hash as visible, and /api/operations/v1/snapshot is served in ordinary consumer mode. This is a route-authorization and server-boundary defect, not merely a navigation-label/selector defect.",
+    "requiredContracts": [
+      "normal consumer navigation exposes no Community route or internal operations controls",
+      "direct #community, back/forward, or router navigation cannot expose the retired internal route and resolves safely to Home without breaking unrelated anchors such as #mainContent",
+      "operations diagnostics live only inside the intended developer diagnostics path under Settings",
+      "operations diagnostics require both explicit developer launch and resolved development entitlement before becoming visible or loading",
+      "ordinary consumer mode returns 404 for the operations snapshot endpoint instead of advertising an internal diagnostics contract",
+      "development-entitled mode retains aggregate-only operations metrics with no mailbox identity, sender identity, message content, account IDs, tokens, or provider-native IDs",
+      "existing privacy, local-session, CSRF, same-origin and developer-route isolation remain intact",
+      "RED regressions precede production changes and real Chromium acceptance validates both normal-consumer denial and entitled diagnostic access"
     ],
-    "qualifiedEvidence": {
-      "codeHeadSha": "36c8bf2caa626361a1620999686904e3791f4aa6",
-      "engineeringGateRunId": 32401651448,
-      "engineeringGateRunNumber": 1431,
-      "evidence": [
-        "Windows full applicable Engineering Gate passed",
-        "macOS full applicable Engineering Gate passed",
-        "Ubuntu full Engineering Gate passed with real Linux Secret Service",
-        "Gate Result Summary passed",
-        "1225 unit tests passed on macOS with one platform-specific skip",
-        "EMA-15 healthIdentityAggregation 3/3 and healthCleanupTargeting 4/4 passed",
-        "five-provider corpus remained 140/140 malicious caught and 140/140 legitimate Safe",
-        "real Chromium rendered two same-name and same-sender Instagram list identities distinctly",
-        "real Chromium cleaned one selected Instagram list while its sibling list remained",
-        "real Chromium rendered Private Relay once with account-welcome count 2 and receipt/subscription count 1",
-        "existing Health cleanup, request-ordering, security-alert composition, Support Bundle, server, account, background and release lifecycle smokes remained green"
-      ]
-    },
-    "nextAction": "Verify the governor-only head differs from qualified code head only by .engineering/CONTINUATION.json, qualify that exact governor-only head, require zero unresolved review threads, mark PR #123 ready, merge with expected-head guard, confirm signed main, close EMA-15 in Linear, then branch EMA-11 from the exact merged main and start with isolated RED navigation/reachability regressions."
+    "evidenceBeforeRepair": [
+      "app-shell.js defines a nav-visible community route and mounts operationsPanel into its route container",
+      "ui-router.js authorizes community in its route set and accepts location.hash routes",
+      "operations-dashboard.js treats community route/#community as its visibility condition",
+      "consumer-product.js hiding of the Community sidebar is downstream presentation only and cannot revoke route authorization",
+      "localDesktopServer.ts serves /api/operations/v1/snapshot in ordinary consumer mode after protected-read checks",
+      "localApiSecurity.test.ts currently codifies ordinary consumer HTTP 200 for the aggregate operations endpoint"
+    ],
+    "nextAction": "Add isolated test-only RED contracts for retired Community navigation/route authorization and development-entitled operations diagnostics. Open a draft PR from exact signed main c52b368e and observe the intended RED before any production change."
   },
   "lastVerifiedRepair": {
-    "id": "EMA-17",
-    "pullRequest": 122,
-    "verifiedHeadSha": "af1e884a19a23bd6a6bb1c67f4ab18f72b482ddb",
-    "qualifiedCodeHeadSha": "82e4f557cb5e03e64a04f3fb8b2bd229670453a3",
-    "engineeringGateRunId": 32386171804,
-    "engineeringGateRunNumber": 1421,
-    "mergeSha": "f1ba5cc45855d6026036fef5939668ae75c57beb",
+    "id": "EMA-15",
+    "pullRequest": 123,
+    "verifiedHeadSha": "eceae5a8ff52edba387adc931e32812590fff6d3",
+    "qualifiedCodeHeadSha": "36c8bf2caa626361a1620999686904e3791f4aa6",
+    "engineeringGateRunId": 32403220066,
+    "engineeringGateRunNumber": 1432,
+    "mergeSha": "c52b368ef04094fecf6dad1158154c7ce6741255",
     "evidence": [
-      "Windows full applicable Engineering Gate passed",
-      "macOS full applicable Engineering Gate passed",
-      "Ubuntu full Engineering Gate passed with real Linux Secret Service",
-      "Gate Result Summary passed and overall run completed/success",
-      "1222 applicable unit tests passed on macOS with one platform-specific skip",
-      "EMA-17 three-contract regression suite passed",
+      "qualified code head passed Engineering Gate #1431 on Windows, macOS and Ubuntu with real Linux Secret Service",
+      "final governor-only head passed Engineering Gate #1432 on Windows, macOS and Ubuntu with real Linux Secret Service",
+      "both Gate Result Summary jobs passed",
+      "1225 applicable unit tests passed on macOS with one platform-specific skip",
+      "EMA-15 identity aggregation and cleanup-targeting regressions passed",
       "five-provider corpus remained 140/140 malicious caught and 140/140 legitimate Safe",
-      "real Chromium rendered three authenticated provider events as two distinct consumer warning groups while state remained attention",
-      "final governor-only head differed from the qualified code head only by .engineering/CONTINUATION.json",
-      "PR #122 had zero unresolved review threads and was merged with an expected-head guard",
-      "main points exactly to the signed/verified GitHub merge commit f1ba5cc4"
+      "real Chromium rendered same-name/same-sender Instagram lists distinctly and cleaned only the selected canonical list",
+      "real Chromium rendered Private Relay once with account-welcome count 2 and receipt/subscription count 1",
+      "final governor head differed from qualified code head only by .engineering/CONTINUATION.json",
+      "PR #123 had zero unresolved review threads and merged with an expected-head guard",
+      "main points exactly to signed/verified GitHub merge commit c52b368e"
     ],
     "postMergeMainEvidence": "PUSH_RUN_NOT_QUERYABLE_BY_CURRENT_COMMIT_RUN_CONNECTOR"
   },
