@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "project": "Email Shield",
+  "repository": "itxsam57/mailspam",
+  "updatedAt": "2026-08-20T13:21:00+05:00",
+  "governor": {
+    "mode": "AUTONOMOUS",
+    "allowedStopStates": [
+      "OWNER_REQUIRED",
+      "BLOCKED",
+      "WAIT_EXTERNAL",
+      "LOOP_DETECTED",
+      "COMPLETE"
+    ],
+    "currentState": "ACTIVE"
+  },
+  "sourceOfTruth": {
+    "baseBranch": "main",
+    "baseSha": "ac36fe70b665cad1ed7bf8157feee8611a7890e7",
+    "activeBranch": "repair/ema-5-diagnostic-flight-recorder-stack-20260818",
+    "activePullRequest": 118,
+    "observedHeadSha": "ed2f68430f0d1b9b73762c0d0daabfd0225d33da"
+  },
+  "activeBatch": [
+    "EMA-5 Diagnostic Flight Recorder",
+    "EMA-20 Truthful Privacy-Safe Support Bundle",
+    "EMA-17 Health Security-Alert Composition"
+  ],
+  "activeIssue": {
+    "id": "EMA-5",
+    "phase": "GREEN_IMPLEMENTED_QUALIFICATION_PENDING",
+    "redEvidence": {
+      "runId": 32113938647,
+      "result": "EXPECTED_RED",
+      "existingTestsPassed": 1202,
+      "newTestsFailed": 6,
+      "integrationCorpus": "140/140 malicious caught; 140/140 legitimate Safe"
+    },
+    "greenImplementation": {
+      "sourceProofSha": "7bdf04f6d7a3b1f3fdb4ad5a15ce30463a5695b5",
+      "restackedSha": "ed2f68430f0d1b9b73762c0d0daabfd0225d33da",
+      "preservedCurrentMainOwner": "web/local-security.js",
+      "repairedContracts": [
+        "owner-declared Home navigation semantics",
+        "provider credential/connect semantic separation",
+        "automatic workspace restore root and terminal checkpoints",
+        "automatic legitimate-learning root and terminal checkpoints",
+        "automatic trace context released on completed checkpoint",
+        "scan projection_rendered before visible ui_confirmed",
+        "dynamic onboarding semantic ownership",
+        "exact privacy-safe route-template allowlist"
+      ]
+    },
+    "nextAction": "Run a fresh exact-head Engineering Gate across Windows, macOS, Ubuntu/Linux plus summary. If completely green, inspect net PR diff/reviews, mark ready, squash merge the exact verified head, and require independent merged-main verification before closing EMA-5."
+  },
+  "physicalAcceptance": {
+    "artifactCommit": "215b3fd966df69e61dffefeafa9744507f6f5d22",
+    "status": "PASSED_FOR_EMA_5_GREEN",
+    "verified": [
+      "desktop/mobile rendering remained stable",
+      "Home to Scan navigation traced as navigation.scan",
+      "iCloud app-password setup traced as provider.credentials.icloud rather than provider connection",
+      "fixture Gmail connected through the visible consumer flow",
+      "fixture Gmail Quick Scan completed with 20 visible result rows",
+      "mailbox.scan.quick.projection_rendered occurred before mailbox.scan.quick.ui_confirmed",
+      "zero page errors",
+      "zero failed runtime trace-event requests and zero trace-event HTTP 400 responses"
+    ]
+  },
+  "externalAcceptance": {
+    "gmailLive": "OWNER_TEST_ACCOUNT_PENDING",
+    "outlookLive": "DEFERRED_BY_OWNER",
+    "paidFamily": "OWNER_OR_ENTITLEMENT_REQUIRED"
+  }
+}
