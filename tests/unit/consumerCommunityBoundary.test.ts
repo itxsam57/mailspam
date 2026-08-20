@@ -6,33 +6,29 @@ function webSource(name: string): string {
 }
 
 describe("EMA-11 consumer Community and diagnostics boundary", () => {
-  it("removes Community from the authorized consumer route set and retires direct #community navigation safely", () => {
-    const appShell = webSource("app-shell.js");
+  it("revokes Community in the authoritative router and retires direct #community navigation safely", () => {
     const uiRouter = webSource("ui-router.js");
 
-    expect(appShell).not.toMatch(/id:\s*["']community["']/);
-    expect(uiRouter).not.toMatch(/const\s+ROUTES\s*=\s*\[[^\]]*["']community["']/s);
+    expect(uiRouter).not.toMatch(/const\s+ROUTES\s*=\s*Object\.freeze\(\[[^\]]*["']community["']/s);
     expect(uiRouter).toMatch(/RETIRED_ROUTES[\s\S]*community[\s\S]*home/i);
     expect(uiRouter).toMatch(/mainContent/);
+    expect(uiRouter).toMatch(/operationsPanel/);
+    expect(uiRouter).toMatch(/routeStack\(["']settings["']\)/);
+    expect(uiRouter).toMatch(/data-route-target[\s\S]*community[\s\S]*(?:remove|removed)/i);
   });
 
-  it("places operations diagnostics under Settings and gates them behind explicit developer entitlement", () => {
-    const appShell = webSource("app-shell.js");
-    const index = webSource("index.html");
+  it("exposes operations diagnostics only inside entitled Settings diagnostics", () => {
     const developerControls = webSource("developer-controls.js");
     const operationsDashboard = webSource("operations-dashboard.js");
 
-    expect(appShell).toMatch(/routeContainers\.get\(["']settings["']\)[\s\S]*operationsPanel/);
-    expect(appShell).not.toMatch(/routeContainers\.get\(["']community["']\)[\s\S]*operationsPanel/);
-
-    const operationsTag = index.match(/<section\b[^>]*\bid=["']operationsPanel["'][^>]*>/i)?.[0] ?? "";
-    expect(operationsTag).toMatch(/\bhidden\b/i);
-
     expect(developerControls).toMatch(/operationsPanel/);
+    expect(developerControls).toMatch(/operationsPanel[\s\S]*hidden\s*=\s*true|hidden\s*=\s*true[\s\S]*operationsPanel/i);
     expect(developerControls).toMatch(/developmentEntitlementsEnabled/);
-    expect(developerControls).toMatch(/developer=1/);
+    expect(developerControls).toMatch(/developer["']?\)\s*===\s*["']1["']|developer=1/);
+    expect(developerControls).toMatch(/email-shield-developer-ui-enabled/);
 
     expect(operationsDashboard).not.toMatch(/communityVisible|#community|route\s*===\s*["']community["']/i);
-    expect(operationsDashboard).toMatch(/settings/i);
+    expect(operationsDashboard).toMatch(/emailShieldDeveloperEnabled/);
+    expect(operationsDashboard).toMatch(/route[\s\S]*settings/i);
   });
 });
