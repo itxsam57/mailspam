@@ -8,7 +8,7 @@ describe("EMA-40 Health request presentation ordering", () => {
   it("gives only the newest same-mailbox Health success authority to render", () => {
     expect(source).toContain("let healthRequestGeneration = 0");
     expect(source).toMatch(/async function runHealth\(\)[\s\S]*?const healthRequestGenerationAtStart = \+\+healthRequestGeneration;/);
-    expect(source).toMatch(/const result = await post\([\s\S]*?health[\s\S]*?if \(healthRequestGenerationAtStart !== healthRequestGeneration \|\| !stillSelected\(id\)\) return;[\s\S]*?renderHealth\(result, id\);/);
+    expect(source).toMatch(/const result = await post\([\s\S]*?health[\s\S]*?if \(healthRequestGenerationAtStart !== healthRequestGeneration\) return;[\s\S]*?if \(!stillSelected\(id\)\) return;[\s\S]*?renderHealth\(result, id\);/);
   });
 
   it("prevents a stale Health failure from replacing newer same-mailbox status", () => {
