@@ -88,6 +88,9 @@ interface ManifestEntry { category: string; kind: "malicious" | "legit"; file: s
  * fixture-domain baselines. A second, independently opt-in Gmail-only Health
  * security fixture set is reserved for browser acceptance of authenticated
  * provider-alert composition and is never enabled by normal fixture startup.
+ * Its additional `FIXTURES_ONLY` flag deliberately excludes the general demo
+ * corpus so the browser acceptance has an exact three-event mailbox rather
+ * than inheriting unrelated trusted-alert samples from the detection corpus.
  * Fixture folder mutations are held in the account session so a provider-
  * confirmed move remains visible on the next scan.
  *
@@ -102,8 +105,12 @@ export function buildDemoMailbox(
   const manifest: ManifestEntry[] = JSON.parse(readFileSync(join(CORPUS_DIR, "manifest.json"), "utf-8"));
   const plainOnly = manifest.filter((m) => m.variant === "plain");
   let maliciousIndex = 0;
+  const healthSecurityFixturesEnabled = provider === "gmail"
+    && process.env.EMAIL_SHIELD_ENABLE_HEALTH_SECURITY_ALERT_FIXTURES === "1";
+  const healthSecurityFixturesOnly = healthSecurityFixturesEnabled
+    && process.env.EMAIL_SHIELD_HEALTH_SECURITY_ALERT_FIXTURES_ONLY === "1";
 
-  const messages: FixtureMessage[] = plainOnly.map((entry, i) => {
+  const messages: FixtureMessage[] = healthSecurityFixturesOnly ? [] : plainOnly.map((entry, i) => {
     const rawEml = readFileSync(join(CORPUS_DIR, entry.file), "utf-8");
     const id = `${entry.category}-${entry.kind}-${i}`;
 
@@ -129,7 +136,7 @@ export function buildDemoMailbox(
     };
   });
 
-  if (process.env.EMAIL_SHIELD_ENABLE_DEVELOPMENT_ENTITLEMENTS === "1") {
+  if (process.env.EMAIL_SHIELD_ENABLE_DEVELOPMENT_ENTITLEMENTS === "1" && !healthSecurityFixturesOnly) {
     const healthCleanupFolder = folderOverrides[HEALTH_CLEANUP_FIXTURE_ID] ?? ("inbox" as const);
     messages.push({
       id: HEALTH_CLEANUP_FIXTURE_ID,
@@ -140,7 +147,7 @@ export function buildDemoMailbox(
     });
   }
 
-  if (provider === "gmail" && process.env.EMAIL_SHIELD_ENABLE_HEALTH_SECURITY_ALERT_FIXTURES === "1") {
+  if (healthSecurityFixturesEnabled) {
     for (const fixture of HEALTH_SECURITY_ALERT_FIXTURES) {
       const folder = folderOverrides[fixture.id] ?? fixture.folder;
       messages.push({
