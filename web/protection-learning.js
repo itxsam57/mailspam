@@ -87,6 +87,12 @@
     const key = `${accountId}:${token}`;
     if (submittedPositiveFeedback.has(key)) return;
     submittedPositiveFeedback.add(key);
+    const trace = window.emailShieldRuntimeTrace;
+    trace?.automaticRoot('system.learning.legitimate_feedback', 'learning.legitimate_feedback');
+    trace?.checkpoint('learning.legitimate_feedback.started', 'started', {
+      component: 'protection_learning',
+      step: 'secondary_feedback_started',
+    });
     publishCampaignDecisionState(token, 'pending');
     let fallbackState = 'available';
     try {
@@ -101,6 +107,11 @@
     if (state === 'saved') submittedPositiveFeedback.add(key);
     else submittedPositiveFeedback.delete(key);
     publishCampaignDecisionState(token, state);
+    trace?.checkpoint(
+      'learning.legitimate_feedback.completed',
+      state === 'saved' ? 'success' : 'partial',
+      { component: 'protection_learning', step: state === 'saved' ? 'feedback_saved' : 'feedback_not_saved' },
+    );
   }
 
   function observeSuccessfulPositiveAction(button, accountId, token, kind) {

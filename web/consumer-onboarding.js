@@ -14,6 +14,7 @@
     'consumer_home_ready',
   ];
   const LEGACY_MARKER = 'consumer_intro';
+  const runtimeTrace = window.emailShieldRuntimeTrace;
   const state = {
     profileSignedIn: false,
     mailboxId: null,
@@ -105,6 +106,11 @@
       const go = document.createElement('button');
       go.type = 'button';
       go.textContent = action === 'permissions' ? 'Review' : action === 'home' ? 'Check Home' : 'Open';
+      if (action === 'permissions') {
+        runtimeTrace?.registerControl(go, 'onboarding.permissions.review', 'onboarding.permissions.review', 'onboarding_permissions');
+      } else if (action === 'home') {
+        runtimeTrace?.registerControl(go, 'onboarding.complete', 'onboarding.complete', 'onboarding_completion');
+      }
       go.addEventListener('click', () => { void handleAction(action); });
       actions.append(go);
     }
@@ -119,12 +125,17 @@
       const skip = document.createElement('button');
       skip.type = 'button';
       skip.textContent = 'Not now';
+      runtimeTrace?.registerControl(skip, 'onboarding.family.skip', 'onboarding.family.skip', 'onboarding_family');
       skip.addEventListener('click', async () => {
         const id = await ensureBoundMailbox();
         if (!id) { requestMailboxSetup('family'); return; }
         state.completed.add('family_option_reviewed');
         await persistProgress(false, id).catch(showError);
         render();
+        runtimeTrace?.checkpoint('onboarding.family.skip.ui_confirmed', 'success', {
+          component: 'consumer_onboarding',
+          step: 'family_skip_saved',
+        });
       });
       actions.append(skip);
     }
@@ -209,6 +220,10 @@
       state.completed.add('permissions_reviewed');
       await persistProgress(false, id).catch(showError);
       render();
+      runtimeTrace?.checkpoint('onboarding.permissions.review.ui_confirmed', 'success', {
+        component: 'consumer_onboarding',
+        step: 'permission_promise_visible',
+      });
       return;
     }
     if (action === 'scan') {
@@ -241,8 +256,17 @@
       if (!coreReadyForHome()) { status.textContent = 'Home cannot be marked ready until steps 1–7 are complete.'; render(); return; }
       route('home');
       state.completed.add('consumer_home_ready');
-      try { await persistProgress(true, id); status.textContent = 'Protection setup complete.'; }
-      catch (error) { state.completed.delete('consumer_home_ready'); showError(error); }
+      try {
+        await persistProgress(true, id);
+        status.textContent = 'Protection setup complete.';
+        runtimeTrace?.checkpoint('onboarding.complete.ui_confirmed', 'success', {
+          component: 'consumer_onboarding',
+          step: 'setup_complete_visible',
+        });
+      } catch (error) {
+        state.completed.delete('consumer_home_ready');
+        showError(error);
+      }
       render();
       return;
     }
