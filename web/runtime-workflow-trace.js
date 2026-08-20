@@ -214,7 +214,7 @@
     if (extra.itemCount !== undefined) event.itemCount = extra.itemCount;
     if (extra.retryCount !== undefined) event.retryCount = extra.retryCount;
     transport(event);
-    if (outcome === 'failed' || outcome === 'rejected' || outcome === 'cancelled' || checkpointId.endsWith('.ui_confirmed')) {
+    if (outcome === 'failed' || outcome === 'rejected' || outcome === 'cancelled' || checkpointId.endsWith('.ui_confirmed') || checkpointId.endsWith('.completed')) {
       if (active?.traceId === context.traceId) active = null;
     }
     return true;
@@ -268,7 +268,7 @@
   }
 
   function safeRouteTemplate(pathname) {
-    if (pathname === '/api/accounts' || pathname === '/api/accounts/connect') return pathname;
+    if (pathname === '/api/accounts' || pathname === '/api/accounts/connect' || pathname === '/api/accounts/workspace') return pathname;
     if (pathname === '/api/security/mutation-token') return pathname;
     if (/^\/api\/accounts\/oauth\/google\/status\/[^/]+$/.test(pathname)) return '/api/accounts/oauth/google/status/:flowId';
     if (/^\/api\/accounts\/oauth\/microsoft\/status\/[^/]+$/.test(pathname)) return '/api/accounts/oauth/microsoft/status/:flowId';

@@ -101,6 +101,17 @@
   const oauthConfiguration = {
     gmail: { path: '/api/accounts/oauth/google/config', label: 'Google' },
   };
+  const providerCredentialWorkflows = Object.freeze({
+    icloud: 'provider.credentials.icloud',
+    yahoo: 'provider.credentials.yahoo',
+    imap: 'provider.credentials.imap',
+  });
+  const providerConnectWorkflows = Object.freeze({
+    gmail: 'provider.connect.gmail',
+    icloud: 'provider.connect.icloud',
+    yahoo: 'provider.connect.yahoo',
+    imap: 'provider.connect.imap',
+  });
 
   // This guard is deliberately idempotent. A MutationObserver watches the
   // legacy row for compatibility code that tries to reveal it, so writing the
@@ -121,13 +132,22 @@
     restoreConsumerVisibility();
   }
 
-  function waitForLegacyConnectToSettle(button) {
+  function waitForLegacyConnectToSettle(button, provider) {
     let frames = 0;
     const poll = () => {
       frames += 1;
       restoreConsumerVisibility();
       if (!connectBtn.disabled || frames > 1200) {
         button.disabled = false;
+        const workflowId = providerConnectWorkflows[provider];
+        if (workflowId) {
+          const connected = connectStatus.textContent?.startsWith('Account connected.') === true;
+          window.emailShieldRuntimeTrace?.checkpoint(
+            `${workflowId}.ui_confirmed`,
+            connected ? 'success' : 'failed',
+            { provider, component: 'consumer_provider_onboarding', step: connected ? 'connection_visible' : 'connection_failed' },
+          );
+        }
         return;
       }
       requestAnimationFrame(poll);
@@ -145,11 +165,15 @@
       : provider === 'yahoo'
         ? 'Connect Yahoo Mail'
         : 'Connect email provider';
+    const workflowId = providerConnectWorkflows[provider];
+    if (workflowId) {
+      window.emailShieldRuntimeTrace?.registerControl(button, workflowId, workflowId, 'provider_connection', provider);
+    }
     button.addEventListener('click', () => {
       button.disabled = true;
       connectBtn.click();
       restoreConsumerVisibility();
-      waitForLegacyConnectToSettle(button);
+      waitForLegacyConnectToSettle(button, provider);
     });
     actions.append(button);
   }
@@ -204,6 +228,18 @@
   }
 
   for (const [provider, button] of providerButtons) {
+    const semanticWorkflow = provider === 'gmail'
+      ? providerConnectWorkflows.gmail
+      : providerCredentialWorkflows[provider];
+    if (semanticWorkflow) {
+      window.emailShieldRuntimeTrace?.registerControl(
+        button,
+        semanticWorkflow,
+        semanticWorkflow,
+        provider === 'gmail' ? 'provider_connection' : 'provider_credentials',
+        provider,
+      );
+    }
     if (oauthConfiguration[provider]) {
       const description = button.querySelector('div span');
       if (description instanceof HTMLElement) {
@@ -236,6 +272,14 @@
 
       renderCredentialAction(provider);
       credentialFields.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      const credentialWorkflow = providerCredentialWorkflows[provider];
+      if (credentialWorkflow) {
+        window.emailShieldRuntimeTrace?.checkpoint(
+          `${credentialWorkflow}.ui_confirmed`,
+          'success',
+          { provider, component: 'consumer_provider_onboarding', step: 'credential_form_visible' },
+        );
+      }
     }, true);
   }
 

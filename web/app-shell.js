@@ -187,6 +187,9 @@
   });
   backdrop.addEventListener('click', closeMobileMenu);
 
+  const runtimeTrace = window.emailShieldRuntimeTrace;
+  runtimeTrace?.registerControl('homeScanNow', 'navigation.scan', 'navigation.scan', 'ui_navigation');
+  runtimeTrace?.registerControl('homeFamily', 'navigation.family', 'navigation.family', 'ui_navigation');
   document.getElementById('homeScanNow')?.addEventListener('click', () => showRoute('scan'));
   document.getElementById('homeFamily')?.addEventListener('click', () => showRoute('family'));
 
