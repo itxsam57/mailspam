@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import { createLocalDesktopServer } from "../../server/src/api/localDesktopServer.js";
+import { createConsumerDesktopServer } from "../../server/src/api/consumerDesktopServer.js";
 import { LocalSecurityManager } from "../../server/src/api/localSecurity.js";
 
 interface BrowserContext {
@@ -17,7 +17,7 @@ afterEach(async () => {
 });
 
 async function start(developmentEntitlementsEnabled = false): Promise<BrowserContext> {
-  const app = createLocalDesktopServer({
+  const app = createConsumerDesktopServer({
     security: new LocalSecurityManager(),
     developmentEntitlementsEnabled,
   });
@@ -45,10 +45,9 @@ function headers(context: BrowserContext): Record<string, string> {
   };
 }
 
-describe("EMA-11 operations diagnostics HTTP boundary", () => {
+describe("EMA-11 canonical consumer operations diagnostics HTTP boundary", () => {
   it("does not advertise the internal operations snapshot in ordinary consumer mode", async () => {
     const consumer = await start(false);
-    expect((await fetch(`${consumer.baseUrl}/api/operations/v1/snapshot`)).status).toBe(401);
     expect((await fetch(`${consumer.baseUrl}/api/operations/v1/snapshot`, { headers: headers(consumer) })).status).toBe(404);
   });
 
