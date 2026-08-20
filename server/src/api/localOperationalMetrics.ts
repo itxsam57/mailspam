@@ -46,6 +46,17 @@ function providerHealth(): MutableProviderHealth {
   };
 }
 
+/** Build the fixed-cardinality provider surface without widening it to arbitrary string keys. */
+function fixedProviderRecord<T>(factory: (provider: Provider) => T): Record<Provider, T> {
+  return {
+    gmail: factory("gmail"),
+    icloud: factory("icloud"),
+    outlook: factory("outlook"),
+    yahoo: factory("yahoo"),
+    imap: factory("imap"),
+  };
+}
+
 function boundedWorkerMetric(value: unknown): number {
   if (!Number.isFinite(value) || Number(value) < 0) return 0;
   return Math.min(1_000_000_000, Math.floor(Number(value)));
@@ -146,9 +157,9 @@ export class LocalOperationalMetrics {
       schemaVersion: 1 as const,
       scope: "current_process" as const,
       uptimeSeconds: Math.max(0, (this.now() - this.startedAt) / 1000),
-      providers: Object.fromEntries(PROVIDERS.map((provider) => {
+      providers: fixedProviderRecord((provider) => {
         const health = this.providers.get(provider)!;
-        return [provider, {
+        return {
           scans: {
             started: health.scansStarted,
             completed: health.scansCompleted,
@@ -161,9 +172,9 @@ export class LocalOperationalMetrics {
             skipped: health.skipped,
             malformed: health.malformed,
           },
-          operations: Object.fromEntries(OPERATIONS.map((operation) => [operation, { ...health.operations[operation] }])),
-        }];
-      })),
+          operations: Object.fromEntries(OPERATIONS.map((operation) => [operation, { ...health.operations[operation] }])) as Record<AdapterOperation, MutableAdapterMetric>,
+        };
+      }),
       review: {
         falsePositiveApprovals: this.falsePositiveApprovals,
         abuseReportsAccepted: this.abuseReportsAccepted,

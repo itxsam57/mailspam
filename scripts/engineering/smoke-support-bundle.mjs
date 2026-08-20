@@ -54,6 +54,20 @@ function assert(condition, message) {
 
 const sleep = (ms) => new Promise((resolveWait) => setTimeout(resolveWait, ms));
 
+async function stopChildProcess(processRef, label, timeoutMs = 5_000) {
+  if (!processRef || processRef.exitCode !== null) return;
+  const exited = new Promise((resolveExit) => processRef.once("exit", resolveExit));
+  try { processRef.kill(); } catch {}
+  await Promise.race([exited, sleep(timeoutMs)]);
+  if (processRef.exitCode === null) {
+    try { processRef.kill("SIGKILL"); } catch {}
+    await Promise.race([exited, sleep(1_000)]);
+  }
+  if (processRef.exitCode === null) {
+    throw new Error(`${label} did not exit during Support Bundle teardown.`);
+  }
+}
+
 async function freePort() {
   return await new Promise((resolvePort, reject) => {
     const listener = net.createServer();
@@ -420,10 +434,19 @@ try {
   if (browserStderr.trim()) console.error(`Browser stderr:\n${browserStderr.trim()}`);
   process.exitCode = 1;
 } finally {
+  let teardownFailure = null;
   try { socket?.close(); } catch {}
-  try { if (browser && browser.exitCode === null) browser.kill(); } catch {}
-  try { if (server && server.exitCode === null) server.kill(); } catch {}
-  rmSync(browserProfile, { recursive: true, force: true });
-  rmSync(downloadDir, { recursive: true, force: true });
-  rmSync(dataDir, { recursive: true, force: true });
+  try { await stopChildProcess(browser, "Chromium"); } catch (error) { teardownFailure ??= error; }
+  try { await stopChildProcess(server, "Email Shield server"); } catch (error) { teardownFailure ??= error; }
+  for (const directory of [browserProfile, downloadDir, dataDir]) {
+    try {
+      rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    } catch (error) {
+      teardownFailure ??= error;
+    }
+  }
+  if (teardownFailure) {
+    console.error(`FAIL: Support Bundle teardown did not release its temporary resources: ${teardownFailure.message}`);
+    process.exitCode = 1;
+  }
 }
