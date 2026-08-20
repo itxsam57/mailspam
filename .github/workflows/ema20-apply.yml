@@ -1,9 +1,13 @@
 name: EMA-20 guarded apply
 
 on:
-  push:
+  pull_request:
     branches:
-      - repair/ema-20-support-bundle-diagnostics-p1-20260820
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
     paths:
       - scripts/engineering/ema20-apply.mjs
       - .github/workflows/ema20-apply.yml
@@ -13,7 +17,7 @@ permissions:
 
 jobs:
   apply:
-    if: github.actor != 'github-actions[bot]'
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repair branch
