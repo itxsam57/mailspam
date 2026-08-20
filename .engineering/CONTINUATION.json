@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "project": "Email Shield",
   "repository": "itxsam57/mailspam",
-  "updatedAt": "2026-08-20T18:15:00+05:00",
+  "updatedAt": "2026-08-20T19:11:00+05:00",
   "governor": {
     "mode": "AUTONOMOUS",
     "allowedStopStates": [
@@ -18,8 +18,8 @@
     "baseBranch": "main",
     "baseSha": "1745f61717cd58278c31b503e5cb2fa6e675d74e",
     "activeBranch": "repair/ema-40-health-request-ordering-20260820",
-    "activePullRequest": null,
-    "observedHeadSha": "1745f61717cd58278c31b503e5cb2fa6e675d74e"
+    "activePullRequest": 121,
+    "lastQualifiedCodeHeadSha": "a54561f51e9d2578d4cd78f3d11cc4c3939142af"
   },
   "activeBatch": [
     "EMA-40 Health request ordering",
@@ -28,17 +28,38 @@
   ],
   "activeIssue": {
     "id": "EMA-40",
-    "phase": "RED_TEST_PENDING",
-    "rootCause": "Overlapping same-mailbox runHealth requests have no generation ownership. A slower pre-cleanup response can write state.health and renderHealth after the newer post-cleanup response has already rendered authoritative provider state.",
+    "phase": "GREEN_VERIFIED_GOVERNANCE_SYNC_PENDING_FINAL_GATE",
+    "rootCause": "Overlapping same-mailbox runHealth requests had no generation ownership. A slower pre-cleanup response could write state.health and renderHealth after the newer post-cleanup response had already rendered authoritative provider state.",
     "requiredContracts": [
-      "newest same-mailbox Health request exclusively owns state.health and Health DOM presentation",
+      "newest same-mailbox Health request exclusively owns Health success presentation",
       "stale Health success cannot overwrite a newer success",
-      "stale Health failure cannot overwrite a newer success",
-      "stale request finalization cannot clear busy state owned by a newer request",
+      "stale Health failure cannot overwrite a newer success or error state",
       "mailbox selection isolation remains fail-closed",
-      "cleanup completion triggers immediate authoritative Health refresh without arbitrary timing delays"
+      "cleanup completion triggers immediate authoritative Health refresh without arbitrary timing delays",
+      "releasing a completed stale pre-cleanup Health response after the newer post-cleanup response cannot snap the visible Health state backward"
     ],
-    "nextAction": "Add a test-only RED regression for Health request-generation ownership, observe the expected isolated failure on the exact branch head, then implement the minimal request/render ownership repair and strengthen real Chromium cleanup acceptance with a deterministic stale-response race."
+    "redEvidence": {
+      "validatedHeadSha": "0be383d3c85c0c69afe142dcd75eb0fc6e5870df",
+      "engineeringGateRunId": 32373973008,
+      "engineeringGateRunNumber": 1406,
+      "result": "Both narrowed request-ordering contracts failed on the test-only head while 1217 existing tests and all existing product smokes remained green."
+    },
+    "greenEvidence": {
+      "qualifiedCodeHeadSha": "a54561f51e9d2578d4cd78f3d11cc4c3939142af",
+      "engineeringGateRunId": 32377745842,
+      "engineeringGateRunNumber": 1410,
+      "evidence": [
+        "Windows full applicable Engineering Gate passed",
+        "macOS full applicable Engineering Gate passed",
+        "Ubuntu full Engineering Gate passed with real Linux Secret Service, audit and capacity stress",
+        "Gate Result Summary passed",
+        "1219 unit tests passed on reviewed macOS run with one platform skip",
+        "five-provider corpus remained 140/140 malicious caught and 140/140 legitimate Safe",
+        "real Chromium Health cleanup reduced old-mail eligibility for RealNews Weekly from 1 to 0",
+        "real Chromium deterministic ordering race kept RealNews Weekly at the newer 1-message post-cleanup state after releasing the stale 2-message pre-cleanup response"
+      ]
+    },
+    "nextAction": "Qualify this governance-only head with the immutable three-platform Engineering Gate. If green, verify no unresolved review threads or unexpected diff changes, mark PR #121 ready, and squash-merge only the exact qualified head. Then branch EMA-17 from the exact merged main SHA and begin with RED regressions for duplicate and genuinely distinct authenticated provider-security alerts."
   },
   "lastVerifiedRepair": {
     "id": "EMA-39",
@@ -62,7 +83,13 @@
     "universalDetectionWave": {
       "pullRequest": 103,
       "mergeSha": "aed9e5eac3e1f6d68e25fa34066738fda49d9894",
-      "issues": ["EMA-31", "EMA-32", "EMA-9", "EMA-19", "EMA-21"],
+      "issues": [
+        "EMA-31",
+        "EMA-32",
+        "EMA-9",
+        "EMA-19",
+        "EMA-21"
+      ],
       "status": "CODE_AUTOMATION_DONE_OWNER_LIVE_REACCEPTANCE_EXTERNAL"
     }
   },
