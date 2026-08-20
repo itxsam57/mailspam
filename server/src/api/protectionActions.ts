@@ -332,7 +332,7 @@ export function registerProtectionActionRoutes(
       undo: reversibleProviderAction(session, action.providerNativeId),
     });
     noStore(res);
-    return res.json({ moved: 1, failed: [], success: true, accountId: session.id, token: action.token });
+    return res.json({ requested: 1, moved: 1, failed: [], success: true, accountId: session.id, token: action.token });
   });
 
   app.post("/api/accounts/:id/messages/report-spam", async (req: Request, res: Response) => {
