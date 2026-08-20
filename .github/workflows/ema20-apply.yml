@@ -43,10 +43,10 @@ jobs:
           npx vitest run \
             tests/unit/supportBundleDiagnosticFaithfulness.test.ts \
             tests/unit/localOperationalMetrics.test.ts \
-            tests/unit/backgroundProtectionCoordinator.test.ts \
-            tests/integration/scanWorkerRuntime.test.ts
+            tests/unit/backgroundProtectionCoordinator.test.ts
           npm run typecheck
           npm run build
+          npx vitest run tests/integration/scanWorkerRuntime.test.ts
           git diff --check
 
       - name: Remove temporary proof automation
