@@ -1,5 +1,6 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { createAdapter, type AdapterConfig } from "../api/adapterConfig.js";
+import { localOperationalMetrics } from "../api/localOperationalMetrics.js";
 import type { SecureAdapterConfig } from "../security/secureAdapterConfig.js";
 import type { CanonicalEnvelope, Provider } from "../canonical/envelope.js";
 import { analyzeInboxHealth } from "../consumer/inboxHealth.js";
@@ -152,14 +153,23 @@ async function cleanup(adapter: ReturnType<typeof createAdapter>) {
 
 async function main() {
   const adapter = createAdapter(data.config);
+  let result: Awaited<ReturnType<typeof cleanup>> | Awaited<ReturnType<typeof inspect>>;
   try {
-    const result = data.mode === "cleanup" ? await cleanup(adapter) : await inspect(adapter);
-    parentPort?.postMessage({ type: "result", result });
+    result = data.mode === "cleanup" ? await cleanup(adapter) : await inspect(adapter);
   } finally {
     await adapter.disconnect().catch(() => undefined);
   }
+  parentPort?.postMessage({
+    type: "result",
+    result,
+    operationalMetrics: localOperationalMetrics.snapshot(),
+  });
 }
 
 void main()
-  .catch((error) => parentPort?.postMessage({ type: "error", error: error instanceof Error ? error.message : String(error) }))
+  .catch((error) => parentPort?.postMessage({
+    type: "error",
+    error: error instanceof Error ? error.message : String(error),
+    operationalMetrics: localOperationalMetrics.snapshot(),
+  }))
   .finally(() => parentPort?.close());

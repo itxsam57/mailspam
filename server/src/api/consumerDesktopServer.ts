@@ -8,6 +8,7 @@ import { communityNetwork } from "../community/network.js";
 import { registerAccountLifecycleRoutes } from "./accountLifecycleRoutes.js";
 import { registerConsumerCatchTrashRoutes } from "./consumerCatchTrashRoutes.js";
 import { registerConsumerProtectionRoutes } from "./consumerProtectionRoutes.js";
+import { createBackgroundProtectionCoordinator } from "./backgroundProtection.js";
 import { registerConsumerUnsubscribeActivityRoutes } from "./consumerUnsubscribeActivityRoutes.js";
 import { registerFamilyGuardianPreferenceRoutes } from "./familyGuardianPreferenceRoutes.js";
 import { registerLinkAnalysisActionRoutes } from "./linkAnalysisActions.js";
@@ -47,6 +48,8 @@ export function createConsumerDesktopServer(options: ConsumerDesktopServerOption
   } = options;
   const security = localOptions.security ?? localSecurity;
   const community = localOptions.community ?? communityNetwork;
+  const backgroundProtection = localOptions.backgroundProtection
+    ?? createBackgroundProtectionCoordinator(community, localOptions.accountPlatform);
   const app = express();
 
   // Correlation is diagnostic-only and fail-closed. It runs before route
@@ -110,6 +113,7 @@ export function createConsumerDesktopServer(options: ConsumerDesktopServerOption
     community,
     destinationAnalyzer: localOptions.destinationAnalyzer,
     exposureLookup,
+    backgroundProtection,
   });
   if (localOptions.accountPlatform && localOptions.deviceIdentity) {
     registerFamilyGuardianPreferenceRoutes(app, {
@@ -122,6 +126,7 @@ export function createConsumerDesktopServer(options: ConsumerDesktopServerOption
     ...localOptions,
     security,
     community,
+    backgroundProtection,
   }));
   return app;
 }

@@ -7,6 +7,7 @@ import { mergeVerifiedAndFamilyIntelligence } from "../platform/familyThreatFeed
 import { defaultRelationshipHistoryRepository } from "./defaultRelationshipHistoryRepository.js";
 import { defaultScanStateRepository } from "./defaultScanStateRepository.js";
 import { defaultConsumerStateRepository } from "./defaultConsumerStateRepository.js";
+import { localOperationalMetrics } from "./localOperationalMetrics.js";
 import {
   MAX_BACKGROUND_INTERVAL_MINUTES,
   MIN_BACKGROUND_INTERVAL_MINUTES,
@@ -91,6 +92,9 @@ export class BackgroundProtectionCoordinator {
   private activeAccountKey: string | null = null;
   private readonly removedAccountKeys = new Set<string>();
   private timer: NodeJS.Timeout | null = null;
+  private schedulerStartedAt: number | null = null;
+  private schedulerLoopCount = 0;
+  private lastSchedulerTrigger: "startup" | "interval" | "direct" | null = null;
 
   constructor(options: BackgroundProtectionCoordinatorOptions) {
     this.repository = options.repository ?? defaultBackgroundProtectionRepository;
@@ -102,9 +106,10 @@ export class BackgroundProtectionCoordinator {
   start(): void {
     if (this.timer) return;
     this.repository.recoverInterrupted(this.now());
-    this.timer = setInterval(() => { void this.runDue(); }, SCHEDULER_TICK_MS);
+    this.schedulerStartedAt = this.now();
+    this.timer = setInterval(() => { void this.runDue(this.now(), "interval"); }, SCHEDULER_TICK_MS);
     this.timer.unref();
-    void this.runDue();
+    void this.runDue(this.now(), "startup");
   }
 
   stop(): void {
@@ -152,12 +157,48 @@ export class BackgroundProtectionCoordinator {
     );
   }
 
+  diagnosticSnapshot() {
+    const entries = this.repository.list().map(({ record }) => record);
+    const statusCounts = entries.reduce<Record<string, number>>((counts, record) => {
+      counts[record.status] = (counts[record.status] ?? 0) + 1;
+      return counts;
+    }, {});
+    const errorCodeCounts = entries.reduce<Record<string, number>>((counts, record) => {
+      if (record.lastErrorCode) counts[record.lastErrorCode] = (counts[record.lastErrorCode] ?? 0) + 1;
+      return counts;
+    }, {});
+    const latest = (values: Array<number | null>) => values.reduce<number | null>((current, value) => (
+      value !== null && (current === null || value > current) ? value : current
+    ), null);
+    return {
+      schemaVersion: 1 as const,
+      scope: "current_process_scheduler_plus_persisted_schedule_state" as const,
+      schedulerRunning: this.timer !== null,
+      schedulerStartedAt: this.schedulerStartedAt,
+      schedulerLoopCount: this.schedulerLoopCount,
+      lastSchedulerTrigger: this.lastSchedulerTrigger,
+      active: this.activeAccountKey !== null,
+      repositoryPersistent: this.repository.persistent,
+      configuredAccounts: entries.length,
+      enabledAccounts: entries.filter((record) => record.enabled).length,
+      statusCounts,
+      errorCodeCounts,
+      latestAttemptAt: latest(entries.map((record) => record.lastAttemptAt)),
+      latestCompletedAt: latest(entries.map((record) => record.lastCompletedAt)),
+    };
+  }
+
   remove(accountKey: string): void {
     this.removedAccountKeys.add(accountKey);
     this.repository.remove(accountKey);
   }
 
-  async runDue(now = this.now()): Promise<boolean> {
+  async runDue(
+    now = this.now(),
+    trigger: "startup" | "interval" | "direct" = "direct",
+  ): Promise<boolean> {
+    this.schedulerLoopCount += 1;
+    this.lastSchedulerTrigger = trigger;
     if (this.activeAccountKey) return false;
     const due = this.repository.list()
       .filter(({ record }) => record.enabled && record.nextRunAt !== null && record.nextRunAt <= now)
@@ -247,6 +288,19 @@ export class WorkerBackgroundProtectionExecutor implements BackgroundProtectionE
    * get a separate scanner, policy model or threat-feed path.
    */
   async executeWithSummary(session: AccountSession): Promise<ScanCounters> {
+    const provider = session.config.provider;
+    localOperationalMetrics.recordScanStarted(provider);
+    try {
+      const counters = await this.executeWithSummaryUnmetered(session);
+      localOperationalMetrics.recordScanFinished(provider, "completed", counters);
+      return counters;
+    } catch (error) {
+      localOperationalMetrics.recordScanFinished(provider, "failed", emptyScanCounters());
+      throw error;
+    }
+  }
+
+  private async executeWithSummaryUnmetered(session: AccountSession): Promise<ScanCounters> {
     if (session.activeScanWorker) throw new BackgroundProtectionRunError("scan_conflict", "An account scan is already active.");
     const now = Date.now();
     const record: ScanHistoryRecord = {
@@ -356,6 +410,9 @@ export class WorkerBackgroundProtectionExecutor implements BackgroundProtectionE
       deadline.unref();
 
       worker.on("message", (message) => {
+        if (message?.operationalMetrics) {
+          localOperationalMetrics.mergeWorkerAdapterSnapshot(message.operationalMetrics);
+        }
         if (settled) return;
         if (message.type === "progress") {
           clock.progressSeen = true;
