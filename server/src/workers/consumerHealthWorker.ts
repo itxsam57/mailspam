@@ -3,7 +3,7 @@ import { createAdapter, type AdapterConfig } from "../api/adapterConfig.js";
 import { localOperationalMetrics } from "../api/localOperationalMetrics.js";
 import type { SecureAdapterConfig } from "../security/secureAdapterConfig.js";
 import type { CanonicalEnvelope, Provider } from "../canonical/envelope.js";
-import { analyzeInboxHealth } from "../consumer/inboxHealth.js";
+import { analyzeInboxHealth, subscriptionIdentityKey } from "../consumer/inboxHealth.js";
 import { analyzeMailboxHealth } from "../consumer/mailboxHealth.js";
 import { discoverDigitalAccountFootprint } from "../consumer/digitalFootprint.js";
 import {
@@ -13,6 +13,7 @@ import {
 } from "../engine/relationshipHistory.js";
 
 interface CleanupCriteria {
+  subscriptionKey?: string;
   senderAddress?: string;
   senderDomain?: string;
   olderThanDays?: number;
@@ -50,10 +51,19 @@ function normalizedDomain(value: string | undefined): string | null {
   return domain;
 }
 
+function normalizedSubscriptionKey(value: string | undefined): string | null {
+  if (!value) return null;
+  const key = value.trim().toLowerCase();
+  if (key.length < 1 || key.length > 512 || /[\u0000-\u001f\u007f]/.test(key)) throw new Error("Cleanup subscription identity is invalid.");
+  return key;
+}
+
 function matchesCleanup(envelope: CanonicalEnvelope, criteria: CleanupCriteria, now: number): boolean {
+  const subscriptionKey = normalizedSubscriptionKey(criteria.subscriptionKey);
   const address = normalizedAddress(criteria.senderAddress);
   const domain = normalizedDomain(criteria.senderDomain);
-  if (!address && !domain) throw new Error("Bulk cleanup requires an exact sender address or domain selected from Inbox Health.");
+  if (!subscriptionKey && !address && !domain) throw new Error("Bulk cleanup requires a subscription identity, exact sender address or domain selected from Inbox Health.");
+  if (subscriptionKey && subscriptionIdentityKey(envelope) !== subscriptionKey) return false;
   if (address && envelope.from.address?.toLowerCase() !== address) return false;
   if (domain && envelope.from.domain?.toLowerCase() !== domain) return false;
   if (criteria.olderThanDays !== undefined) {
