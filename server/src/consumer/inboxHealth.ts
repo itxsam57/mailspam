@@ -14,6 +14,8 @@ export interface SubscriptionInventoryItem {
   oldestAt: string | null;
   oneClickEligibleMessages: number;
   unsubscribeAvailable: boolean;
+  sameNameOrdinal: number;
+  sameNameTotal: number;
 }
 
 export interface InboxCleanupGroup {
@@ -57,7 +59,7 @@ function isoOrNull(value: number | null): string | null {
   return value === null ? null : new Date(value).toISOString();
 }
 
-function senderKey(envelope: CanonicalEnvelope): string {
+export function subscriptionIdentityKey(envelope: CanonicalEnvelope): string {
   return envelope.listHeaders.listId?.trim().toLowerCase()
     || envelope.from.address?.trim().toLowerCase()
     || envelope.from.domain?.trim().toLowerCase()
@@ -69,6 +71,10 @@ function displayName(envelope: CanonicalEnvelope): string {
     || envelope.from.address?.trim()
     || envelope.from.domain?.trim()
     || "Unknown sender";
+}
+
+function normalizedDisplayName(value: string): string {
+  return value.trim().toLocaleLowerCase("en-US");
 }
 
 interface MutableGroup {
@@ -107,7 +113,7 @@ export function analyzeInboxHealth(
     if (envelope.threadContext.isFirstContact) firstContactMessages += 1;
     if (envelope.parseStatus !== "complete" || envelope.diagnostics.contentCoverage === "insufficient") unreadableOrPartialMessages += 1;
 
-    const key = senderKey(envelope);
+    const key = subscriptionIdentityKey(envelope);
     let group = groups.get(key);
     if (!group) {
       group = {
@@ -144,11 +150,11 @@ export function analyzeInboxHealth(
 
   volume.approximateBytes = approximateBytes;
   const allGroups = [...groups.values()];
-  const subscriptions = allGroups
+  const subscriptionBase = allGroups
     .filter((group) => group.newsletter)
     .sort((left, right) => right.messages - left.messages)
     .slice(0, INBOX_HEALTH_MAX_SUBSCRIPTIONS)
-    .map((group): SubscriptionInventoryItem => ({
+    .map((group) => ({
       key: group.key,
       displayName: group.displayName,
       senderAddress: group.senderAddress,
@@ -159,6 +165,23 @@ export function analyzeInboxHealth(
       oneClickEligibleMessages: group.oneClickEligibleMessages,
       unsubscribeAvailable: group.unsubscribeAvailable,
     }));
+
+  const sameNameTotals = new Map<string, number>();
+  for (const item of subscriptionBase) {
+    const name = normalizedDisplayName(item.displayName);
+    sameNameTotals.set(name, (sameNameTotals.get(name) ?? 0) + 1);
+  }
+  const sameNameSeen = new Map<string, number>();
+  const subscriptions = subscriptionBase.map((item): SubscriptionInventoryItem => {
+    const name = normalizedDisplayName(item.displayName);
+    const sameNameOrdinal = (sameNameSeen.get(name) ?? 0) + 1;
+    sameNameSeen.set(name, sameNameOrdinal);
+    return {
+      ...item,
+      sameNameOrdinal,
+      sameNameTotal: sameNameTotals.get(name) ?? 1,
+    };
+  });
 
   const cleanupGroups = allGroups
     .filter((group) => group.newsletter || group.messages >= 3 || group.firstContacts === group.messages)

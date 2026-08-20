@@ -276,7 +276,10 @@
       subscriptions.replaceChildren();
       for (const item of (inbox.subscriptions || []).slice(0, 20)) {
         const row = document.createElement('div'); row.className = 'consumer-list-item';
-        const info = document.createElement('div'); info.innerHTML = `<strong>${escapeHtml(item.displayName || item.senderDomain || 'Subscription')}</strong><div class="hint">${Number(item.messages || 0)} message(s) · ${item.unsubscribeAvailable ? 'unsubscribe available' : 'no verified unsubscribe control'}</div>`;
+        const sameNameTotal = Number(item.sameNameTotal || 1);
+        const sameNameOrdinal = Number(item.sameNameOrdinal || 1);
+        const identityHint = sameNameTotal > 1 ? ` · source ${sameNameOrdinal} of ${sameNameTotal}` : '';
+        const info = document.createElement('div'); info.innerHTML = `<strong>${escapeHtml(item.displayName || item.senderDomain || 'Subscription')}</strong><div class="hint">${Number(item.messages || 0)} message(s)${identityHint} · ${item.unsubscribeAvailable ? 'unsubscribe available' : 'no verified unsubscribe control'}</div>`;
         const controls = document.createElement('div');
         const cleanup = document.createElement('button'); cleanup.type = 'button'; cleanup.textContent = 'Clean old mail';
         cleanup.addEventListener('click', async () => {
@@ -289,6 +292,7 @@
           if (confirmation !== 'MOVE TO TRASH' || !stillSelected(accountId)) return;
           try {
             const cleanupResult = await post(`/api/consumer/v1/accounts/${encodeURIComponent(accountId)}/cleanup`, {
+              subscriptionKey: item.key,
               senderAddress: item.senderAddress,
               senderDomain: item.senderDomain,
               olderThanDays: 30,
@@ -326,7 +330,10 @@
       footprintList.replaceChildren();
       for (const entry of (footprint.entries || []).slice(0, 30)) {
         const row=document.createElement('div'); row.className='consumer-list-item';
-        row.innerHTML=`<div><strong>${escapeHtml(entry.serviceDomain)}</strong><div class="hint">${escapeHtml(String(entry.evidenceKind || '').replace(/_/g,' '))} · ${Number(entry.messages || 0)} evidence message(s)</div></div>`;
+        const evidence = Array.isArray(entry.evidence)
+          ? entry.evidence.map((item) => `${String(item.kind || '').replace(/_/g,' ')} (${Number(item.messages || 0)})`).join(' · ')
+          : String(entry.evidenceKind || '').replace(/_/g,' ');
+        row.innerHTML=`<div><strong>${escapeHtml(entry.serviceDomain)}</strong><div class="hint">${escapeHtml(evidence)} · ${Number(entry.messages || 0)} evidence message(s)</div></div>`;
         footprintList.append(row);
       }
       if (!(footprint.entries || []).length) footprintList.innerHTML='<div class="hint">No authenticated account-footprint evidence found in the bounded sample.</div>';

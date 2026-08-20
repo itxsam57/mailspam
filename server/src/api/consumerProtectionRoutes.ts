@@ -94,7 +94,7 @@ function restoreSupported(provider: Provider, fixture: boolean): boolean {
 function runHealthWorker(
   session: NonNullable<ReturnType<SessionStore["get"]>>,
   mode: "inspect" | "cleanup",
-  cleanup?: { senderAddress?: string; senderDomain?: string; olderThanDays?: number; keepNewest?: boolean },
+  cleanup?: { subscriptionKey?: string; senderAddress?: string; senderDomain?: string; olderThanDays?: number; keepNewest?: boolean },
 ): Promise<HealthInspectResult | CleanupWorkerResult> {
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL("../workers/consumerHealthWorker.js", import.meta.url), {
@@ -139,6 +139,13 @@ function normalizedSelector(body: Record<string, unknown>): { senderAddress: str
   if (senderAddress && (senderAddress.length > 320 || !senderAddress.includes("@"))) throw new Error("Rule sender address is invalid.");
   if (senderDomain && (senderDomain.length > 253 || !/^[a-z0-9.-]+$/.test(senderDomain))) throw new Error("Rule sender domain is invalid.");
   return { senderAddress, senderDomain };
+}
+
+function normalizedSubscriptionKey(body: Record<string, unknown>): string | null {
+  if (typeof body.subscriptionKey !== "string") return null;
+  const key = body.subscriptionKey.trim().toLowerCase();
+  if (key.length < 1 || key.length > 512 || /[\u0000-\u001f\u007f]/.test(key)) throw new Error("Cleanup subscription identity is invalid.");
+  return key;
 }
 
 function exposurePortFromEnvironment(): ExposureLookupPort {
@@ -296,11 +303,14 @@ export function registerConsumerProtectionRoutes(
     try {
       const body = req.body as Record<string, unknown>;
       if (body.confirmation !== "MOVE TO TRASH") throw new Error("Type MOVE TO TRASH to confirm bulk cleanup.");
+      const subscriptionKey = normalizedSubscriptionKey(body);
+      if (!subscriptionKey) throw new Error("Choose an exact subscription from Inbox Health before cleanup.");
       const selector = normalizedSelector(body);
       if (!selector.senderAddress && !selector.senderDomain) throw new Error("Choose an exact sender or domain from Inbox Health before cleanup.");
       const olderThanDays = body.olderThanDays === undefined ? undefined : Number(body.olderThanDays);
       const keepNewest = body.keepNewest === true;
       const result = await runHealthWorker(session, "cleanup", {
+        subscriptionKey,
         senderAddress: selector.senderAddress ?? undefined,
         senderDomain: selector.senderDomain ?? undefined,
         olderThanDays,

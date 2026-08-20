@@ -2,94 +2,77 @@
   "schemaVersion": 1,
   "project": "Email Shield",
   "repository": "itxsam57/mailspam",
-  "updatedAt": "2026-08-20T20:26:10+05:00",
+  "updatedAt": "2026-08-20T23:25:00+05:00",
   "governor": {
     "mode": "AUTONOMOUS",
-    "allowedStopStates": [
-      "OWNER_REQUIRED",
-      "BLOCKED",
-      "WAIT_EXTERNAL",
-      "LOOP_DETECTED",
-      "COMPLETE"
-    ],
+    "allowedStopStates": ["OWNER_REQUIRED", "BLOCKED", "WAIT_EXTERNAL", "LOOP_DETECTED", "COMPLETE"],
     "currentState": "ACTIVE"
   },
   "sourceOfTruth": {
     "baseBranch": "main",
-    "baseSha": "dcdc6ca0d54f11655e53c03f101079068f493475",
-    "activeBranch": "repair/ema-17-security-alert-composition-20260820",
-    "activePullRequest": 122,
-    "lastQualifiedCodeHeadSha": "82e4f557cb5e03e64a04f3fb8b2bd229670453a3"
+    "baseSha": "f1ba5cc45855d6026036fef5939668ae75c57beb",
+    "activeBranch": "repair/ema-15-health-identity-aggregation-20260820",
+    "activePullRequest": 123,
+    "lastQualifiedCodeHeadSha": "36c8bf2caa626361a1620999686904e3791f4aa6"
   },
   "activeBatch": [
-    "EMA-17 Health security-alert composition",
-    "EMA-15 Health identity aggregation",
-    "EMA-11 consumer Community/operations exposure"
+    "EMA-15 Health identity aggregation and cleanup targeting",
+    "EMA-11 consumer Community/operations exposure",
+    "EMA-26 continuous-protection consumer composition"
   ],
   "activeIssue": {
-    "id": "EMA-17",
-    "phase": "GREEN_VERIFIED_GOVERNANCE_SYNC_PENDING_FINAL_GATE",
-    "rootCause": "Mailbox Health emitted one identical TRUSTED_PROVIDER_SECURITY_ALERT warning for every matching authenticated provider envelope. It had no provider-native event identity, no privacy-safe alert classification, and no presentation aggregation contract, while the browser renders only indicator title/detail/severity. Exact duplicate observations therefore inflated warning cards and genuinely distinct provider alerts were visually indistinguishable.",
-    "requiredContracts": [
-      "exact duplicate authenticated provider-alert evidence is deduplicated by canonical provider/account/provider-native event identity before alert presentation counting",
-      "genuinely distinct alert classes remain separately visible and actionable",
-      "several genuinely distinct events of the same alert class are grouped with an explicit truthful distinct-observation count",
-      "latest valid observation time is retained for a grouped alert without exposing raw message identifiers or subjects",
-      "consumer-visible title/detail are privacy-safe and distinguish alert class/provider",
-      "official provider app-or-website direct-review guidance is preserved",
-      "authenticated provider alerts preserve truthful mailbox state attention",
-      "normal fixture startup and the five-provider detection corpus remain unchanged; Health-specific synthetic alert fixtures require explicit test-only opt-in",
-      "real Chromium Health rendering proves three authenticated events compose into two distinct warning groups without uncaught browser errors"
+    "id": "EMA-15",
+    "phase": "QUALIFIED_MERGE_PENDING",
+    "rootCause": "Health had two identity-composition failures plus one destructive-target boundary failure. Digital Account Footprint grouped by domain plus evidence kind, so one service/domain became multiple top-level entries. Subscription inventory preserved distinct list/sender keys, but the consumer renderer discarded that identity and showed only displayName. The destructive Health cleanup path selected a row by canonical key in the browser but submitted only sender address/domain, so sibling list identities sharing one sender could collide.",
+    "repair": [
+      "aggregate Digital Account Footprint by canonical service/domain while preserving per-category evidence counts and observation metadata",
+      "preserve distinct actionable subscription identities and render a privacy-safe same-name source differentiator",
+      "carry the selected canonical subscription key from rendered Health row through cleanup controller, API and worker",
+      "fail closed when destructive cleanup lacks the canonical selected subscription identity",
+      "retain sender/domain and age checks as additional narrowing constraints rather than as the destructive identity",
+      "add opt-in EMA-15 fixture data isolated from normal fixture/corpus startup",
+      "wire a permanent real Chromium acceptance through smoke:browser-scan"
     ],
-    "redEvidence": {
-      "initialHeadSha": "eb59a9430601aee63958a07919953c63fcd9b1ec",
-      "initialEngineeringGateRunId": 32380875886,
-      "initialEngineeringGateRunNumber": 1413,
-      "strengthenedHeadSha": "05ffe5c0acfeec338ac8cb996363e977d28ac0fc",
-      "strengthenedEngineeringGateRunId": 32381249693,
-      "strengthenedEngineeringGateRunNumber": 1414,
-      "result": "The test-only RED first failed exactly the duplicate-card and distinct-visibility contracts while 1219 existing tests passed. The strengthened test-only head then failed all three EMA-17 contracts, including same-class counted aggregation, with the existing suite and five-provider corpus otherwise intact."
-    },
-    "greenEvidence": {
-      "qualifiedCodeHeadSha": "82e4f557cb5e03e64a04f3fb8b2bd229670453a3",
-      "engineeringGateRunId": 32383310291,
-      "engineeringGateRunNumber": 1420,
+    "qualifiedEvidence": {
+      "codeHeadSha": "36c8bf2caa626361a1620999686904e3791f4aa6",
+      "engineeringGateRunId": 32401651448,
+      "engineeringGateRunNumber": 1431,
       "evidence": [
         "Windows full applicable Engineering Gate passed",
         "macOS full applicable Engineering Gate passed",
-        "Ubuntu full Engineering Gate passed with real Linux Secret Service, audit and capacity stress",
+        "Ubuntu full Engineering Gate passed with real Linux Secret Service",
         "Gate Result Summary passed",
-        "1222 applicable unit tests passed on macOS with one platform-specific skip",
-        "EMA-17 three-contract regression suite passed",
+        "1225 unit tests passed on macOS with one platform-specific skip",
+        "EMA-15 healthIdentityAggregation 3/3 and healthCleanupTargeting 4/4 passed",
         "five-provider corpus remained 140/140 malicious caught and 140/140 legitimate Safe",
-        "real Chromium Health security-alert composition rendered three authenticated provider events as two distinct consumer warning groups while mailbox state remained attention",
-        "same-class new-sign-in events rendered as one grouped warning with an explicit count of two, while password-change remained separately visible",
-        "consumer presentation preserved official app-or-website guidance and did not expose raw fixture subjects",
-        "Health-specific synthetic alert fixtures are isolated behind explicit environment flags and normal fixture/corpus startup remains unchanged",
-        "Linux Secret Service qualification passed together with 10000-client durability/restart/dedup/review qualification",
-        "all-dependency advisory inventory and production dependency audit reported zero vulnerabilities"
+        "real Chromium rendered two same-name and same-sender Instagram list identities distinctly",
+        "real Chromium cleaned one selected Instagram list while its sibling list remained",
+        "real Chromium rendered Private Relay once with account-welcome count 2 and receipt/subscription count 1",
+        "existing Health cleanup, request-ordering, security-alert composition, Support Bundle, server, account, background and release lifecycle smokes remained green"
       ]
     },
-    "nextAction": "Qualify this governance-only head with the immutable three-platform Engineering Gate. If green, confirm the diff from qualified code head 82e4f557 is only .engineering/CONTINUATION.json, verify no unresolved review threads, mark PR #122 ready, and squash-merge only the exact qualified head. Then verify main points to the signed merge SHA, reconcile EMA-17 to Done with exact evidence, and branch EMA-15 from that exact main SHA."
+    "nextAction": "Verify the governor-only head differs from qualified code head only by .engineering/CONTINUATION.json, qualify that exact governor-only head, require zero unresolved review threads, mark PR #123 ready, merge with expected-head guard, confirm signed main, close EMA-15 in Linear, then branch EMA-11 from the exact merged main and start with isolated RED navigation/reachability regressions."
   },
   "lastVerifiedRepair": {
-    "id": "EMA-40",
-    "pullRequest": 121,
-    "verifiedHeadSha": "5f61ffc2dea17e1f73ea6715bbdfddc2a5b40b83",
-    "qualifiedCodeHeadSha": "a54561f51e9d2578d4cd78f3d11cc4c3939142af",
-    "engineeringGateRunId": 32378490805,
-    "engineeringGateRunNumber": 1411,
-    "mergeSha": "dcdc6ca0d54f11655e53c03f101079068f493475",
+    "id": "EMA-17",
+    "pullRequest": 122,
+    "verifiedHeadSha": "af1e884a19a23bd6a6bb1c67f4ab18f72b482ddb",
+    "qualifiedCodeHeadSha": "82e4f557cb5e03e64a04f3fb8b2bd229670453a3",
+    "engineeringGateRunId": 32386171804,
+    "engineeringGateRunNumber": 1421,
+    "mergeSha": "f1ba5cc45855d6026036fef5939668ae75c57beb",
     "evidence": [
       "Windows full applicable Engineering Gate passed",
       "macOS full applicable Engineering Gate passed",
-      "Ubuntu full Engineering Gate passed with real Linux Secret Service, audit and capacity stress",
-      "Gate Result Summary passed",
-      "1219 unit tests passed on the reviewed macOS code qualification with one platform skip",
+      "Ubuntu full Engineering Gate passed with real Linux Secret Service",
+      "Gate Result Summary passed and overall run completed/success",
+      "1222 applicable unit tests passed on macOS with one platform-specific skip",
+      "EMA-17 three-contract regression suite passed",
       "five-provider corpus remained 140/140 malicious caught and 140/140 legitimate Safe",
-      "real Chromium Health cleanup reduced old-mail eligibility for RealNews Weekly from 1 to 0",
-      "real Chromium deterministic ordering race kept RealNews Weekly at the newer 1-message post-cleanup state after releasing the stale 2-message pre-cleanup response",
-      "governance-only final head was independently requalified before merge"
+      "real Chromium rendered three authenticated provider events as two distinct consumer warning groups while state remained attention",
+      "final governor-only head differed from the qualified code head only by .engineering/CONTINUATION.json",
+      "PR #122 had zero unresolved review threads and was merged with an expected-head guard",
+      "main points exactly to the signed/verified GitHub merge commit f1ba5cc4"
     ],
     "postMergeMainEvidence": "PUSH_RUN_NOT_QUERYABLE_BY_CURRENT_COMMIT_RUN_CONNECTOR"
   },
@@ -97,13 +80,7 @@
     "universalDetectionWave": {
       "pullRequest": 103,
       "mergeSha": "aed9e5eac3e1f6d68e25fa34066738fda49d9894",
-      "issues": [
-        "EMA-31",
-        "EMA-32",
-        "EMA-9",
-        "EMA-19",
-        "EMA-21"
-      ],
+      "issues": ["EMA-31", "EMA-32", "EMA-9", "EMA-19", "EMA-21"],
       "status": "CODE_AUTOMATION_DONE_OWNER_LIVE_REACCEPTANCE_EXTERNAL"
     }
   },
