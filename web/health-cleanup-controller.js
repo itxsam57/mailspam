@@ -141,6 +141,7 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          subscriptionKey: group.key,
           senderAddress: group.senderAddress,
           senderDomain: group.senderDomain,
           olderThanDays: 30,
