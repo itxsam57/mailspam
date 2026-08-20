@@ -90,7 +90,7 @@ describe("EMA-17 authenticated provider security-alert composition", () => {
     expect(securityAlerts(report)).toHaveLength(1);
   });
 
-  it("keeps genuinely distinct authenticated alerts visible without rendering indistinguishable warning cards", async () => {
+  it("keeps genuinely distinct authenticated alert classes visible without rendering indistinguishable warning cards", async () => {
     const report = await analyzeMailboxHealth({
       provider: "gmail",
       envelopes: [
@@ -118,5 +118,34 @@ describe("EMA-17 authenticated provider security-alert composition", () => {
       expect(alert.detail).toMatch(/official app|official website|official site/i);
       expect(alert.detail).not.toMatch(/Security alert: new sign-in|Password changed/);
     }
+  });
+
+  it("groups several distinct alerts of the same class into one counted consumer warning", async () => {
+    const report = await analyzeMailboxHealth({
+      provider: "gmail",
+      envelopes: [
+        providerAlert({
+          nativeId: "provider-alert-signin-a",
+          subject: "Security alert: new sign-in",
+          preview: "A new sign-in was detected on your account.",
+          date: "2026-08-20T10:00:00.000Z",
+        }),
+        providerAlert({
+          nativeId: "provider-alert-signin-b",
+          subject: "New sign-in on your account",
+          preview: "Security alert for a new sign-in.",
+          date: "2026-08-20T12:00:00.000Z",
+        }),
+      ],
+      securityPort: checkedSecurityPort,
+    });
+
+    const alerts = securityAlerts(report);
+    expect(report.state).toBe("attention");
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]?.title).toMatch(/new sign-in/i);
+    expect(alerts[0]?.detail).toMatch(/2 (?:distinct )?authenticated/i);
+    expect(alerts[0]?.detail).toMatch(/official app|official website|official site/i);
+    expect(alerts[0]?.observedAt).toBe("2026-08-20T12:00:00.000Z");
   });
 });
