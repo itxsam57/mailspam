@@ -483,6 +483,9 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
     heartbeat.unref();
 
     worker.on("message", (message) => {
+      if (message?.operationalMetrics) {
+        localOperationalMetrics.mergeWorkerAdapterSnapshot(message.operationalMetrics);
+      }
       if (finished || terminalEventSent) return;
       if (message.type === "status") {
         writeEvent("scan-status", message.status);

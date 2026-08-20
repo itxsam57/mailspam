@@ -4,6 +4,7 @@ import type { AccountPlatformService } from "../platform/accountFamilyService.js
 import type { DeviceIdentityPort } from "../platform/accountFamilyPorts.js";
 import { sessionStore, type SessionStore } from "./sessionStore.js";
 import { defaultConsumerStateRepository } from "./defaultConsumerStateRepository.js";
+import { defaultScanStateRepository } from "./defaultScanStateRepository.js";
 import { defaultRelationshipHistoryRepository } from "./defaultRelationshipHistoryRepository.js";
 import { createAdapter } from "./adapterConfig.js";
 import { localOperationalMetrics } from "./localOperationalMetrics.js";
@@ -31,6 +32,12 @@ import type { CommunityNetwork } from "../community/network.js";
 import { communityNetwork } from "../community/network.js";
 import type { ConsumerRuleType } from "./consumerStatePersistence.js";
 import type { Provider } from "../canonical/envelope.js";
+import type { BackgroundProtectionCoordinator } from "./backgroundProtection.js";
+import {
+  cleanupWorkflowDiagnostics,
+  runtimeWorkflowDiagnosisSummaries,
+  scanHistoryDiagnostics,
+} from "../diagnostics/supportBundleDiagnostics.js";
 
 const HEALTH_TIMEOUT_MS = 190_000;
 const UNDO_TIMEOUT_MS = 45_000;
@@ -58,6 +65,7 @@ export interface ConsumerProtectionRouteDependencies {
   community?: CommunityNetwork;
   destinationAnalyzer?: DestinationAnalysisCoordinator;
   exposureLookup?: ExposureLookupPort;
+  backgroundProtection?: Pick<BackgroundProtectionCoordinator, "status" | "diagnosticSnapshot">;
 }
 
 function noStore(res: Response): void {
@@ -112,6 +120,9 @@ function runHealthWorker(
       finish(new Error("Consumer mailbox health operation exceeded its bounded deadline."));
     }, HEALTH_TIMEOUT_MS);
     worker.on("message", (message: any) => {
+      if (message?.operationalMetrics) {
+        localOperationalMetrics.mergeWorkerAdapterSnapshot(message.operationalMetrics);
+      }
       if (message?.type === "result") finish(null, message.result);
       else if (message?.type === "error") finish(new Error(String(message.error || "Consumer mailbox health worker failed.")));
     });
@@ -155,6 +166,7 @@ export function registerConsumerProtectionRoutes(
   const community = dependencies.community ?? communityNetwork;
   const destinationAnalyzer = dependencies.destinationAnalyzer ?? destinationAnalysisCoordinator;
   const exposureLookup = dependencies.exposureLookup ?? exposurePortFromEnvironment();
+  const backgroundProtection = dependencies.backgroundProtection;
 
   app.get("/api/consumer/v1/accounts/:id/state", (req, res) => {
     const session = requireSession(sessions, req, res);
@@ -477,15 +489,39 @@ export function registerConsumerProtectionRoutes(
 
   app.get("/api/consumer/v1/support-bundle", (_req, res) => {
     try {
-      const connected = sessions.list().map((session) => ({
+      const sessionList = sessions.list();
+      const connected = sessionList.map((session) => ({
         provider: session.config.provider,
         mode: session.config.mode,
         credentialStorage: session.config.mode === "live" ? "native_vault_reference" : "fixture",
       }));
-      const activityCounts = sessions.list().reduce<Record<string, number>>((counts, session) => {
-        for (const item of defaultConsumerStateRepository.listActivity(session.policyAccountKey)) counts[item.kind] = (counts[item.kind] ?? 0) + 1;
+      const activityRecords = sessionList.flatMap((session) => defaultConsumerStateRepository.listActivity(session.policyAccountKey));
+      const activityCounts = activityRecords.reduce<Record<string, number>>((counts, item) => {
+        counts[item.kind] = (counts[item.kind] ?? 0) + 1;
         return counts;
       }, {});
+      const scanRecords = sessionList.flatMap((session) => defaultScanStateRepository.list(session.policyAccountKey));
+      const operational = localOperationalMetrics.snapshot();
+      const backgroundStatuses = backgroundProtection
+        ? sessionList.map((session) => {
+            try {
+              const status = backgroundProtection.status(session.policyAccountKey);
+              return {
+                provider: session.config.provider,
+                enabled: status.enabled,
+                active: status.active,
+                status: status.status,
+                nextRunAt: status.nextRunAt,
+                lastAttemptAt: status.lastAttemptAt,
+                lastCompletedAt: status.lastCompletedAt,
+                consecutiveFailures: status.consecutiveFailures,
+                lastErrorCode: status.lastErrorCode,
+              };
+            } catch {
+              return { provider: session.config.provider, status: "unavailable" as const };
+            }
+          })
+        : [];
       const releaseIdentity = resolveRuntimeReleaseIdentity();
       noStore(res);
       res.json({
@@ -495,7 +531,25 @@ export function registerConsumerProtectionRoutes(
         runtime: { node: process.version, platform: process.platform, arch: process.arch },
         connected,
         activityCounts,
-        operational: localOperationalMetrics.snapshot(),
+        activityScope: {
+          scope: "persisted_local_activity",
+          persistent: defaultConsumerStateRepository.persistent,
+          connectedAccountCount: sessionList.length,
+        },
+        operationalScope: {
+          scope: operational.scope,
+          resetsOnProcessRestart: true,
+          workerAdapterAggregatesMergedIntoMainProcess: true,
+        },
+        scanHistory: scanHistoryDiagnostics(scanRecords),
+        cleanup: cleanupWorkflowDiagnostics(activityRecords),
+        backgroundProtection: {
+          available: Boolean(backgroundProtection),
+          coordinator: backgroundProtection?.diagnosticSnapshot() ?? null,
+          statuses: backgroundStatuses,
+        },
+        workflowDiagnosis: runtimeWorkflowDiagnosisSummaries(),
+        operational,
         privacy: "no_credentials_tokens_mail_content_subject_sender_url_family_private_data_or_device_keys",
       });
     } catch (error) { errorResponse(res, error, 500); }

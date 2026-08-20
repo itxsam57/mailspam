@@ -46,6 +46,22 @@ function providerHealth(): MutableProviderHealth {
   };
 }
 
+/** Build the fixed-cardinality provider surface without widening it to arbitrary string keys. */
+function fixedProviderRecord<T>(factory: (provider: Provider) => T): Record<Provider, T> {
+  return {
+    gmail: factory("gmail"),
+    icloud: factory("icloud"),
+    outlook: factory("outlook"),
+    yahoo: factory("yahoo"),
+    imap: factory("imap"),
+  };
+}
+
+function boundedWorkerMetric(value: unknown): number {
+  if (!Number.isFinite(value) || Number(value) < 0) return 0;
+  return Math.min(1_000_000_000, Math.floor(Number(value)));
+}
+
 export function cancelledOperationalError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
 }
@@ -99,6 +115,37 @@ export class LocalOperationalMetrics {
     health.malformed += Math.max(0, counters.malformed);
   }
 
+  /**
+   * Worker threads own separate module instances, so adapter counters recorded
+   * inside scan/Health workers must be merged explicitly into this main-process
+   * owner. Only fixed-cardinality aggregate operation counters are accepted;
+   * active gauges, labels and content are intentionally ignored.
+   */
+  mergeWorkerAdapterSnapshot(snapshot: unknown): void {
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return;
+    const root = snapshot as { schemaVersion?: unknown; providers?: unknown };
+    if (root.schemaVersion !== 1 || !root.providers || typeof root.providers !== "object" || Array.isArray(root.providers)) return;
+    const providerRecord = root.providers as Record<string, unknown>;
+    for (const provider of PROVIDERS) {
+      const candidate = providerRecord[provider];
+      if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+      const operations = (candidate as { operations?: unknown }).operations;
+      if (!operations || typeof operations !== "object" || Array.isArray(operations)) continue;
+      const operationRecord = operations as Record<string, unknown>;
+      for (const operation of OPERATIONS) {
+        const workerMetric = operationRecord[operation];
+        if (!workerMetric || typeof workerMetric !== "object" || Array.isArray(workerMetric)) continue;
+        const raw = workerMetric as Record<string, unknown>;
+        const metric = this.providers.get(provider)!.operations[operation];
+        metric.attempts += boundedWorkerMetric(raw.attempts);
+        metric.succeeded += boundedWorkerMetric(raw.succeeded);
+        metric.failed += boundedWorkerMetric(raw.failed);
+        metric.cancelled += boundedWorkerMetric(raw.cancelled);
+        metric.durationMilliseconds += boundedWorkerMetric(raw.durationMilliseconds);
+      }
+    }
+  }
+
   recordFalsePositiveApproval(): void { this.falsePositiveApprovals += 1; }
   recordAbuseReport(accepted: boolean): void {
     if (accepted) this.abuseReportsAccepted += 1;
@@ -108,10 +155,11 @@ export class LocalOperationalMetrics {
   snapshot() {
     return {
       schemaVersion: 1 as const,
+      scope: "current_process" as const,
       uptimeSeconds: Math.max(0, (this.now() - this.startedAt) / 1000),
-      providers: Object.fromEntries(PROVIDERS.map((provider) => {
+      providers: fixedProviderRecord((provider) => {
         const health = this.providers.get(provider)!;
-        return [provider, {
+        return {
           scans: {
             started: health.scansStarted,
             completed: health.scansCompleted,
@@ -124,9 +172,9 @@ export class LocalOperationalMetrics {
             skipped: health.skipped,
             malformed: health.malformed,
           },
-          operations: Object.fromEntries(OPERATIONS.map((operation) => [operation, { ...health.operations[operation] }])),
-        }];
-      })),
+          operations: Object.fromEntries(OPERATIONS.map((operation) => [operation, { ...health.operations[operation] }])) as Record<AdapterOperation, MutableAdapterMetric>,
+        };
+      }),
       review: {
         falsePositiveApprovals: this.falsePositiveApprovals,
         abuseReportsAccepted: this.abuseReportsAccepted,

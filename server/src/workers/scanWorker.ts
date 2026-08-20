@@ -1,5 +1,6 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { createAdapter, type AdapterConfig } from "../api/adapterConfig.js";
+import { localOperationalMetrics } from "../api/localOperationalMetrics.js";
 import type { SecureAdapterConfig } from "../security/secureAdapterConfig.js";
 import {
   quickScan,
@@ -154,15 +155,23 @@ async function main() {
       ? { phase: "complete", message: "Scan completed and signed/durable protection actions were enforced." }
       : { phase: "complete", message: "Scan completed, but the selected folder contained no additional readable messages." },
   });
-  parentPort?.postMessage({ type: "complete" });
 }
 
 async function run() {
   try {
     await main();
+    parentPort?.postMessage({
+      type: "complete",
+      operationalMetrics: localOperationalMetrics.snapshot(),
+    });
   } catch (error) {
     const err = error as Error;
-    parentPort?.postMessage({ type: "error", message: err.message, name: err.name });
+    parentPort?.postMessage({
+      type: "error",
+      message: err.message,
+      name: err.name,
+      operationalMetrics: localOperationalMetrics.snapshot(),
+    });
   } finally {
     parentPort?.close();
   }
