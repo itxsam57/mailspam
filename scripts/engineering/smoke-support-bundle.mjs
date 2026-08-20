@@ -54,16 +54,20 @@ function assert(condition, message) {
 
 const sleep = (ms) => new Promise((resolveWait) => setTimeout(resolveWait, ms));
 
+function childProcessExited(processRef) {
+  return processRef.exitCode !== null || processRef.signalCode !== null;
+}
+
 async function stopChildProcess(processRef, label, timeoutMs = 5_000) {
-  if (!processRef || processRef.exitCode !== null) return;
+  if (!processRef || childProcessExited(processRef)) return;
   const exited = new Promise((resolveExit) => processRef.once("exit", resolveExit));
   try { processRef.kill(); } catch {}
   await Promise.race([exited, sleep(timeoutMs)]);
-  if (processRef.exitCode === null) {
+  if (!childProcessExited(processRef)) {
     try { processRef.kill("SIGKILL"); } catch {}
     await Promise.race([exited, sleep(1_000)]);
   }
-  if (processRef.exitCode === null) {
+  if (!childProcessExited(processRef)) {
     throw new Error(`${label} did not exit during Support Bundle teardown.`);
   }
 }
