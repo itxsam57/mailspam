@@ -11,6 +11,7 @@
     family: null,
     radar: null,
   };
+  let healthRequestGeneration = 0;
 
   const style = document.createElement('style');
   style.textContent = `
@@ -334,14 +335,17 @@
 
   async function runHealth() {
     let id = null;
+    const healthRequestGenerationAtStart = ++healthRequestGeneration;
     try {
       id = selectedSessionOrThrow();
       setHealthStatus('Inspecting bounded mailbox health locally…');
       const result = await post(`/api/consumer/v1/accounts/${encodeURIComponent(id)}/health`);
+      if (healthRequestGenerationAtStart !== healthRequestGeneration) return;
       if (!stillSelected(id)) return;
       renderHealth(result, id);
       setHealthStatus('Health check complete. Unsupported provider checks remain explicitly marked unavailable.');
     } catch (error) {
+      if (healthRequestGenerationAtStart !== healthRequestGeneration) return;
       if (!id || stillSelected(id)) setHealthStatus(error.message || String(error), true);
     }
   }
