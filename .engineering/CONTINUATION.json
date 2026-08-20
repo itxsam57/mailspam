@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "project": "Email Shield",
   "repository": "itxsam57/mailspam",
-  "updatedAt": "2026-08-20T13:21:00+05:00",
+  "updatedAt": "2026-08-20T18:15:00+05:00",
   "governor": {
     "mode": "AUTONOMOUS",
     "allowedStopStates": [
@@ -16,58 +16,58 @@
   },
   "sourceOfTruth": {
     "baseBranch": "main",
-    "baseSha": "ac36fe70b665cad1ed7bf8157feee8611a7890e7",
-    "activeBranch": "repair/ema-5-diagnostic-flight-recorder-stack-20260818",
-    "activePullRequest": 118,
-    "observedHeadSha": "ed2f68430f0d1b9b73762c0d0daabfd0225d33da"
+    "baseSha": "1745f61717cd58278c31b503e5cb2fa6e675d74e",
+    "activeBranch": "repair/ema-40-health-request-ordering-20260820",
+    "activePullRequest": null,
+    "observedHeadSha": "1745f61717cd58278c31b503e5cb2fa6e675d74e"
   },
   "activeBatch": [
-    "EMA-5 Diagnostic Flight Recorder",
-    "EMA-20 Truthful Privacy-Safe Support Bundle",
-    "EMA-17 Health Security-Alert Composition"
+    "EMA-40 Health request ordering",
+    "EMA-17 Health security-alert composition",
+    "EMA-15 Health identity aggregation"
   ],
   "activeIssue": {
-    "id": "EMA-5",
-    "phase": "GREEN_IMPLEMENTED_QUALIFICATION_PENDING",
-    "redEvidence": {
-      "runId": 32113938647,
-      "result": "EXPECTED_RED",
-      "existingTestsPassed": 1202,
-      "newTestsFailed": 6,
-      "integrationCorpus": "140/140 malicious caught; 140/140 legitimate Safe"
-    },
-    "greenImplementation": {
-      "sourceProofSha": "7bdf04f6d7a3b1f3fdb4ad5a15ce30463a5695b5",
-      "restackedSha": "ed2f68430f0d1b9b73762c0d0daabfd0225d33da",
-      "preservedCurrentMainOwner": "web/local-security.js",
-      "repairedContracts": [
-        "owner-declared Home navigation semantics",
-        "provider credential/connect semantic separation",
-        "automatic workspace restore root and terminal checkpoints",
-        "automatic legitimate-learning root and terminal checkpoints",
-        "automatic trace context released on completed checkpoint",
-        "scan projection_rendered before visible ui_confirmed",
-        "dynamic onboarding semantic ownership",
-        "exact privacy-safe route-template allowlist"
-      ]
-    },
-    "nextAction": "Run a fresh exact-head Engineering Gate across Windows, macOS, Ubuntu/Linux plus summary. If completely green, inspect net PR diff/reviews, mark ready, squash merge the exact verified head, and require independent merged-main verification before closing EMA-5."
+    "id": "EMA-40",
+    "phase": "RED_TEST_PENDING",
+    "rootCause": "Overlapping same-mailbox runHealth requests have no generation ownership. A slower pre-cleanup response can write state.health and renderHealth after the newer post-cleanup response has already rendered authoritative provider state.",
+    "requiredContracts": [
+      "newest same-mailbox Health request exclusively owns state.health and Health DOM presentation",
+      "stale Health success cannot overwrite a newer success",
+      "stale Health failure cannot overwrite a newer success",
+      "stale request finalization cannot clear busy state owned by a newer request",
+      "mailbox selection isolation remains fail-closed",
+      "cleanup completion triggers immediate authoritative Health refresh without arbitrary timing delays"
+    ],
+    "nextAction": "Add a test-only RED regression for Health request-generation ownership, observe the expected isolated failure on the exact branch head, then implement the minimal request/render ownership repair and strengthen real Chromium cleanup acceptance with a deterministic stale-response race."
   },
-  "physicalAcceptance": {
-    "artifactCommit": "215b3fd966df69e61dffefeafa9744507f6f5d22",
-    "status": "PASSED_FOR_EMA_5_GREEN",
-    "verified": [
-      "desktop/mobile rendering remained stable",
-      "Home to Scan navigation traced as navigation.scan",
-      "iCloud app-password setup traced as provider.credentials.icloud rather than provider connection",
-      "fixture Gmail connected through the visible consumer flow",
-      "fixture Gmail Quick Scan completed with 20 visible result rows",
-      "mailbox.scan.quick.projection_rendered occurred before mailbox.scan.quick.ui_confirmed",
-      "zero page errors",
-      "zero failed runtime trace-event requests and zero trace-event HTTP 400 responses"
-    ]
+  "lastVerifiedRepair": {
+    "id": "EMA-39",
+    "pullRequest": 120,
+    "verifiedHeadSha": "7c15e2987a033930322599b94f2d116e6f593b31",
+    "engineeringGateRunId": 32372214375,
+    "engineeringGateRunNumber": 1402,
+    "mergeSha": "1745f61717cd58278c31b503e5cb2fa6e675d74e",
+    "evidence": [
+      "Windows full applicable Engineering Gate passed",
+      "macOS full applicable Engineering Gate passed",
+      "Ubuntu full Engineering Gate passed with real Linux Secret Service, audit and capacity stress",
+      "Gate Result Summary passed",
+      "1217 unit tests passed on reviewed macOS run with one platform skip",
+      "five-provider corpus remained 140/140 malicious caught and 140/140 legitimate Safe",
+      "real Chromium standalone Trash action returned requested=1 moved=1 and rescan reduced the exact target count 1 to 0"
+    ],
+    "postMergeMainEvidence": "PUSH_RUN_NOT_QUERYABLE_BY_CURRENT_COMMIT_RUN_CONNECTOR"
+  },
+  "reconciledClosures": {
+    "universalDetectionWave": {
+      "pullRequest": 103,
+      "mergeSha": "aed9e5eac3e1f6d68e25fa34066738fda49d9894",
+      "issues": ["EMA-31", "EMA-32", "EMA-9", "EMA-19", "EMA-21"],
+      "status": "CODE_AUTOMATION_DONE_OWNER_LIVE_REACCEPTANCE_EXTERNAL"
+    }
   },
   "externalAcceptance": {
+    "universalDetectionLiveMailboxes": "OWNER_LIVE_REACCEPTANCE_MAN_021_PENDING",
     "gmailLive": "OWNER_TEST_ACCOUNT_PENDING",
     "outlookLive": "DEFERRED_BY_OWNER",
     "paidFamily": "OWNER_OR_ENTITLEMENT_REQUIRED"
