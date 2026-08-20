@@ -61,18 +61,101 @@ const SECURITY_BURST_MIN_MESSAGES = 30;
 const SECURITY_BURST_MIN_FIRST_CONTACT = 20;
 const SECURITY_BURST_MIN_DISTINCT_FIRST_CONTACT_SENDERS = 20;
 
+type TrustedProviderAlertClass =
+  | "new_sign_in"
+  | "password_change"
+  | "recovery"
+  | "unusual_activity"
+  | "account_access"
+  | "security_alert";
+
+interface TrustedProviderAlertGroup {
+  kind: TrustedProviderAlertClass;
+  count: number;
+  latestObservedAt: number | null;
+}
+
+const PROVIDER_LABELS: Readonly<Record<Provider, string>> = Object.freeze({
+  gmail: "Google",
+  outlook: "Microsoft",
+  icloud: "Apple",
+  yahoo: "Yahoo",
+  imap: "Email provider",
+});
+
+const ALERT_CLASS_LABELS: Readonly<Record<TrustedProviderAlertClass, string>> = Object.freeze({
+  new_sign_in: "New sign-in",
+  password_change: "Password change",
+  recovery: "Account recovery",
+  unusual_activity: "Unusual account activity",
+  account_access: "Account access",
+  security_alert: "Security alert",
+});
+
 function authPassed(envelope: CanonicalEnvelope): boolean {
   return envelope.authentication.dmarc === "pass"
     || (envelope.authentication.spf === "pass" && envelope.authentication.dkim === "pass");
 }
 
-function trustedProviderAlert(envelope: CanonicalEnvelope): boolean {
+function classifyTrustedProviderAlert(envelope: CanonicalEnvelope): TrustedProviderAlertClass | null {
   const domain = envelope.from.domain?.toLowerCase() ?? "";
   const allowed = TRUSTED_SECURITY_ALERT_DOMAINS[envelope.provider];
-  if (!allowed.some((candidate) => domain === candidate || domain.endsWith(`.${candidate}`))) return false;
-  if (!authPassed(envelope)) return false;
+  if (!allowed.some((candidate) => domain === candidate || domain.endsWith(`.${candidate}`))) return null;
+  if (!authPassed(envelope)) return null;
   const text = `${envelope.subject}\n${envelope.textPreview ?? ""}`;
-  return /\b(security alert|new sign[- ]?in|unusual activity|password changed|recovery|suspicious sign[- ]?in|account access)\b/i.test(text);
+  if (/\bnew sign[- ]?in\b/i.test(text)) return "new_sign_in";
+  if (/\bpassword changed\b/i.test(text)) return "password_change";
+  if (/\brecovery\b/i.test(text)) return "recovery";
+  if (/\b(unusual activity|suspicious sign[- ]?in)\b/i.test(text)) return "unusual_activity";
+  if (/\baccount access\b/i.test(text)) return "account_access";
+  if (/\bsecurity alert\b/i.test(text)) return "security_alert";
+  return null;
+}
+
+function trustedProviderAlertEventIdentity(envelope: CanonicalEnvelope): string {
+  const nativeIdentity = envelope.providerNativeId.trim() || envelope.messageId.trim();
+  return `${envelope.provider}\0${envelope.accountProof}\0${nativeIdentity}`;
+}
+
+function trustedProviderAlertIndicators(envelopes: readonly CanonicalEnvelope[]): MailboxHealthIndicator[] {
+  const seenEvents = new Set<string>();
+  const groups = new Map<string, TrustedProviderAlertGroup>();
+  for (const envelope of envelopes.slice(0, 250)) {
+    const kind = classifyTrustedProviderAlert(envelope);
+    if (!kind) continue;
+    const eventIdentity = trustedProviderAlertEventIdentity(envelope);
+    if (seenEvents.has(eventIdentity)) continue;
+    seenEvents.add(eventIdentity);
+
+    const key = `${envelope.provider}\0${kind}`;
+    const group = groups.get(key) ?? { kind, count: 0, latestObservedAt: null };
+    group.count += 1;
+    const observedAt = Date.parse(envelope.date);
+    if (Number.isFinite(observedAt)) {
+      group.latestObservedAt = group.latestObservedAt === null
+        ? observedAt
+        : Math.max(group.latestObservedAt, observedAt);
+    }
+    groups.set(key, group);
+  }
+
+  return [...groups.entries()].map(([key, group]) => {
+    const [providerValue] = key.split("\0");
+    const provider = providerValue as Provider;
+    const providerLabel = PROVIDER_LABELS[provider] ?? "Email provider";
+    const alertLabel = ALERT_CLASS_LABELS[group.kind];
+    const countText = group.count === 1
+      ? `1 authenticated ${alertLabel.toLowerCase()} observation was`
+      : `${group.count} distinct authenticated ${alertLabel.toLowerCase()} observations were`;
+    return {
+      code: "TRUSTED_PROVIDER_SECURITY_ALERT",
+      severity: "warning" as const,
+      title: `${providerLabel} · ${alertLabel} security alert`,
+      detail: `${countText} observed from a trusted ${providerLabel} identity. Review recent account activity by opening the provider's official app or website directly rather than using message links.`,
+      observedAt: group.latestObservedAt === null ? null : new Date(group.latestObservedAt).toISOString(),
+      provenance: "mailbox_observation" as const,
+    };
+  });
 }
 
 function senderIdentity(envelope: CanonicalEnvelope): string {
@@ -149,17 +232,8 @@ function envelopeIndicators(envelopes: readonly CanonicalEnvelope[]): MailboxHea
   for (const envelope of envelopes.slice(0, 250)) {
     if (envelope.threadContext.relationshipAuthenticationDowngrade) relationshipDowngrades += 1;
     if (envelope.threadContext.replyToChangedFromRelationshipHistory || envelope.threadContext.replyToChangedMidThread) replyToDrift += 1;
-    if (trustedProviderAlert(envelope)) {
-      indicators.push({
-        code: "TRUSTED_PROVIDER_SECURITY_ALERT",
-        severity: "warning",
-        title: "Provider security alert observed",
-        detail: "Email Shield observed an authenticated security-alert message from a trusted provider identity. Review it by opening the provider's official app or website directly rather than using message links.",
-        observedAt: Number.isFinite(Date.parse(envelope.date)) ? new Date(envelope.date).toISOString() : null,
-        provenance: "mailbox_observation",
-      });
-    }
   }
+  indicators.push(...trustedProviderAlertIndicators(envelopes));
   if (relationshipDowngrades > 0) {
     indicators.push({
       code: "ESTABLISHED_IDENTITY_AUTH_DOWNGRADE",
