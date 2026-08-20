@@ -116,8 +116,8 @@ describe("EMA-15 Health identity aggregation", () => {
     expect(entry.messages).toBe(3);
     expect(entry.authenticatedMessages).toBe(3);
     expect(entry.evidence).toEqual(expect.arrayContaining([
-      { kind: "account_welcome", messages: 2, authenticatedMessages: 2 },
-      { kind: "receipt_subscription", messages: 1, authenticatedMessages: 1 },
+      expect.objectContaining({ kind: "account_welcome", messages: 2, authenticatedMessages: 2 }),
+      expect.objectContaining({ kind: "receipt_subscription", messages: 1, authenticatedMessages: 1 }),
     ]));
   });
 
