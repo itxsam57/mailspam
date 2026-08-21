@@ -3,6 +3,13 @@
   if (installedModules.has('developer-controls')) return;
   installedModules.add('developer-controls');
 
+  const operationsPanel = document.getElementById('operationsPanel');
+  if (operationsPanel instanceof HTMLElement) {
+    operationsPanel.hidden = true;
+    operationsPanel.dataset.emailShieldDeveloperDiagnostic = 'true';
+    delete operationsPanel.dataset.emailShieldDeveloperEnabled;
+  }
+
   const button = document.getElementById('devSuiteBtn');
   const panel = document.getElementById('devPanel');
   const results = document.getElementById('devResults');
@@ -54,6 +61,11 @@
     document.querySelectorAll('[data-email-shield-developer-control="true"]').forEach((element) => {
       if (element instanceof HTMLElement) element.hidden = false;
     });
+    if (operationsPanel instanceof HTMLElement) {
+      operationsPanel.dataset.emailShieldDeveloperEnabled = 'true';
+      operationsPanel.hidden = false;
+    }
+    window.dispatchEvent(new CustomEvent('email-shield-developer-ui-enabled'));
   }
 
   function addResultLine(label, value, pass = null) {
