@@ -227,8 +227,7 @@ try {
     headers: protectedHeaders(),
     signal: AbortSignal.timeout(5_000),
   });
-  const operations = await json(operationsResponse, "Privacy-safe operations snapshot");
-  assertOperationsPrivacy(operationsResponse, operations);
+  assert(operationsResponse.status === 404, `Consumer operations snapshot returned HTTP ${operationsResponse.status} instead of 404.`);
 
   const replayNonce = await json(await fetch(`${baseUrl}/api/security/mutation-token`, {
     method: "POST",
@@ -373,6 +372,7 @@ try {
 
   console.log(`Compiled consumer server/API smoke passed at ${baseUrl}.`);
   console.log(`Consumer Fixture isolation: HTTP ${deniedFixture.status}; no synthetic account created.`);
+  console.log(`Consumer operations diagnostics isolation: HTTP ${operationsResponse.status}.`);
   console.log(`Developer Fixture messages examined: ${lastProgress.counters.examined}.`);
   console.log(`Verified community feed entries: ${communityStatus.verifiedFeedEntries}.`);
   console.log(`Consumer developer-route isolation: HTTP ${consumerDeveloperRoute.status}.`);

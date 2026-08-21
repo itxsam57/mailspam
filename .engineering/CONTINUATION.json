@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "project": "Email Shield",
   "repository": "itxsam57/mailspam",
-  "updatedAt": "2026-08-20T23:35:00+05:00",
+  "updatedAt": "2026-08-21T15:39:37+05:00",
   "governor": {
     "mode": "AUTONOMOUS",
     "allowedStopStates": ["OWNER_REQUIRED", "BLOCKED", "WAIT_EXTERNAL", "LOOP_DETECTED", "COMPLETE"],
@@ -12,7 +12,7 @@
     "baseBranch": "main",
     "baseSha": "c52b368ef04094fecf6dad1158154c7ce6741255",
     "activeBranch": "repair/ema-11-consumer-community-boundary-20260820",
-    "activePullRequest": null,
+    "activePullRequest": 124,
     "lastQualifiedCodeHeadSha": null
   },
   "activeBatch": [
@@ -22,27 +22,46 @@
   ],
   "activeIssue": {
     "id": "EMA-11",
-    "phase": "RED_TEST_PENDING",
-    "rootCause": "The consumer shell still authorizes a real Community route and mounts the internal operations dashboard into it. The later consumer layer may hide the sidebar button, but both app-shell and ui-router still authorize direct #community navigation, operations-dashboard explicitly treats that route/hash as visible, and /api/operations/v1/snapshot is served in ordinary consumer mode. This is a route-authorization and server-boundary defect, not merely a navigation-label/selector defect.",
+    "phase": "GREEN_CANDIDATE_PENDING_EXACT_HEAD_GATE",
+    "plan": "docs/superpowers/plans/2026-08-21-ema-11-consumer-diagnostics-boundary.md",
+    "rootCause": "The visual shell still materializes a legacy Community route and internal operations dashboard, while the authoritative router still treated Community as navigable and the canonical consumer server inherited the reusable local operations endpoint. Downstream button hiding could not revoke direct hash/history authorization or the HTTP contract. The repair therefore belongs at the authoritative router, explicit developer presentation boundary, entitled dashboard loader, and canonical consumer composition boundary.",
     "requiredContracts": [
       "normal consumer navigation exposes no Community route or internal operations controls",
       "direct #community, back/forward, or router navigation cannot expose the retired internal route and resolves safely to Home without breaking unrelated anchors such as #mainContent",
-      "operations diagnostics live only inside the intended developer diagnostics path under Settings",
-      "operations diagnostics require both explicit developer launch and resolved development entitlement before becoming visible or loading",
-      "ordinary consumer mode returns 404 for the operations snapshot endpoint instead of advertising an internal diagnostics contract",
-      "development-entitled mode retains aggregate-only operations metrics with no mailbox identity, sender identity, message content, account IDs, tokens, or provider-native IDs",
-      "existing privacy, local-session, CSRF, same-origin and developer-route isolation remain intact",
-      "RED regressions precede production changes and real Chromium acceptance validates both normal-consumer denial and entitled diagnostic access"
+      "operations diagnostics are re-homed under Settings and remain hidden unless explicit developer UI request plus resolved development entitlement both succeed",
+      "ordinary canonical consumer mode returns 404 for /api/operations/v1/snapshot",
+      "development-entitled mode retains the existing aggregate-only privacy-safe operations metrics",
+      "existing privacy, loopback, local-session, CSRF, same-origin, CSP and developer-route isolation remain intact",
+      "real Chromium validates retired-route presentation and entitled Settings diagnostics",
+      "full immutable-head three-platform Engineering Gate and corpus parity are required before merge"
     ],
-    "evidenceBeforeRepair": [
-      "app-shell.js defines a nav-visible community route and mounts operationsPanel into its route container",
-      "ui-router.js authorizes community in its route set and accepts location.hash routes",
-      "operations-dashboard.js treats community route/#community as its visibility condition",
-      "consumer-product.js hiding of the Community sidebar is downstream presentation only and cannot revoke route authorization",
-      "localDesktopServer.ts serves /api/operations/v1/snapshot in ordinary consumer mode after protected-read checks",
-      "localApiSecurity.test.ts currently codifies ordinary consumer HTTP 200 for the aggregate operations endpoint"
+    "redEvidence": {
+      "headSha": "cb281e7590ad78a8f4c945ceb9771612f3274180",
+      "engineeringGateRunId": 32404729057,
+      "engineeringGateRunNumber": 1436,
+      "failures": [
+        "consumerCommunityBoundary: authoritative ROUTES still contained community",
+        "consumerCommunityBoundary: developer-controls did not own operationsPanel entitlement presentation",
+        "operationsDiagnosticsBoundary: canonical consumer operations snapshot returned 200 instead of 404"
+      ],
+      "independentHealth": [
+        "1226 existing tests passed with one platform-specific skip on macOS",
+        "five-provider corpus remained 140/140 malicious caught and 140/140 legitimate Safe",
+        "existing real Chromium boot/onboarding/Google/scan/Trash/Health/support-bundle smokes passed",
+        "compiled server/community/account/background/package/release smokes passed"
+      ]
+    },
+    "candidateTree": "4996140b285cc80e58eb2e01ffecb0b818e42227",
+    "candidateChanges": [
+      "ui-router removes Community from active routes, retires #community to Home, preserves #mainContent, re-homes operationsPanel under Settings, and removes legacy Community DOM",
+      "developer-controls hides operationsPanel by default and exposes it only after ?developer=1 plus protected development entitlement proof",
+      "operations-dashboard loads only while entitled diagnostics are visible under Settings",
+      "consumerDesktopServer returns 404 for the operations snapshot in normal consumer composition while development mode preserves the reusable aggregate endpoint",
+      "UI workflow and compiled server engineering contracts now enforce the new boundary",
+      "new real Chromium Community/operations boundary smoke is wired into smoke:browser",
+      "EMA-11 implementation plan is committed with the repair"
     ],
-    "nextAction": "Add isolated test-only RED contracts for retired Community navigation/route authorization and development-entitled operations diagnostics. Open a draft PR from exact signed main c52b368e and observe the intended RED before any production change."
+    "nextAction": "Create one commit from the assembled candidate tree on top of RED head cb281e75, move PR #124 branch once, then inspect the exact-head Engineering Gate. Fix only evidence-backed failures; do not merge until Windows, macOS, Ubuntu real Secret Service, Gate Summary, corpus, browser and release checks are green."
   },
   "lastVerifiedRepair": {
     "id": "EMA-15",
@@ -75,6 +94,7 @@
       "status": "CODE_AUTOMATION_DONE_OWNER_LIVE_REACCEPTANCE_EXTERNAL"
     }
   },
+  "remainingCodeQueue": ["EMA-26", "EMA-27", "EMA-28", "EMA-30", "EMA-12", "EMA-22", "EMA-13", "EMA-24", "EMA-29"],
   "externalAcceptance": {
     "universalDetectionLiveMailboxes": "OWNER_LIVE_REACCEPTANCE_MAN_021_PENDING",
     "gmailLive": "OWNER_TEST_ACCOUNT_PENDING",

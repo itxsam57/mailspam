@@ -55,7 +55,14 @@
     status.textContent = t('operations.updated', { date: i18n?.formatDate(data.generatedAt) || data.generatedAt });
   }
 
+  function diagnosticsVisible() {
+    if (panel.dataset.emailShieldDeveloperEnabled !== 'true' || panel.hidden) return false;
+    const route = panel.closest('.app-route');
+    return Boolean(route && !route.hidden && route.dataset.route === 'settings');
+  }
+
   async function load() {
+    if (!diagnosticsVisible()) return;
     refresh.disabled = true;
     status.textContent = t('operations.loading');
     try {
@@ -73,22 +80,20 @@
     }
   }
 
-  function communityVisible() {
-    const route = panel.closest('.app-route');
-    return route ? !route.hidden && route.dataset.route === 'community' : location.hash === '#community';
-  }
-
   function loadWhenVisible() {
-    if (communityVisible() && (!loaded || dirty)) void load();
+    if (diagnosticsVisible() && (!loaded || dirty)) void load();
   }
 
-  refresh.addEventListener('click', load);
+  refresh.addEventListener('click', () => {
+    if (diagnosticsVisible()) void load();
+  });
   window.addEventListener('email-shield-scan-history-changed', () => {
     dirty = true;
     loadWhenVisible();
   });
   window.addEventListener('email-shield-route-changed', (event) => {
-    if (event.detail?.route === 'community') loadWhenVisible();
+    if (event.detail?.route === 'settings') loadWhenVisible();
   });
-  if (location.hash === '#community') queueMicrotask(loadWhenVisible);
+  window.addEventListener('email-shield-developer-ui-enabled', loadWhenVisible);
+  queueMicrotask(loadWhenVisible);
 })();

@@ -3,7 +3,9 @@
   if (installedModules.has('ui-router')) return;
   installedModules.add('ui-router');
 
-  const ROUTES = Object.freeze(['home', 'scan', 'protection', 'family', 'community', 'history', 'account', 'settings']);
+  const ROUTES = Object.freeze(['home', 'scan', 'protection', 'family', 'history', 'account', 'settings']);
+  const RETIRED_ROUTES = Object.freeze({ community: 'home' });
+  const NON_ROUTE_ANCHORS = new Set(['mainContent']);
   const routeSet = new Set(ROUTES);
   const main = document.getElementById('mainContent');
   const sidebar = document.querySelector('.app-sidebar');
@@ -23,14 +25,29 @@
     return section.querySelector('.shell-panel-stack') || section;
   }
 
+  function sanitizeLegacyShell() {
+    const operationsPanel = document.getElementById('operationsPanel');
+    const settingsStack = routeStack('settings');
+    if (operationsPanel instanceof HTMLElement && settingsStack instanceof HTMLElement && operationsPanel.parentElement !== settingsStack) {
+      settingsStack.append(operationsPanel);
+    }
+
+    for (const button of nav.querySelectorAll('[data-route-target="community"]')) button.remove();
+    for (const button of mobileNav?.querySelectorAll('[data-mobile-route="community"]') ?? []) button.remove();
+    const retiredSection = main.querySelector('.app-route[data-route="community"]');
+    if (retiredSection instanceof HTMLElement) retiredSection.remove();
+  }
+
   function normalizeRouteContract() {
     for (const button of nav.querySelectorAll('[data-route-target]')) {
       const route = button.dataset.routeTarget;
       if (routeSet.has(route)) button.dataset.route = route;
+      else button.removeAttribute('data-route');
     }
     for (const section of main.querySelectorAll('.app-route[data-route]')) {
       const route = section.dataset.route;
       if (routeSet.has(route)) section.dataset.appRoute = route;
+      else section.removeAttribute('data-app-route');
     }
   }
 
@@ -83,14 +100,26 @@
     return true;
   }
 
+  function routeFromHash() {
+    return location.hash.startsWith('#') ? location.hash.slice(1) : '';
+  }
+
+  function navigateFromHash(route, { initial = false } = {}) {
+    if (routeSet.has(route)) return navigate(route, { focus: false, updateHash: false });
+    const retiredTarget = RETIRED_ROUTES[route];
+    if (retiredTarget) return navigate(retiredTarget, { focus: false, updateHash: true });
+    if (NON_ROUTE_ANCHORS.has(route)) return false;
+    if (initial) {
+      const selected = nav.querySelector('[data-route-target][aria-current="page"]')?.dataset.routeTarget;
+      return navigate(routeSet.has(selected) ? selected : 'home', { focus: false, updateHash: false });
+    }
+    return false;
+  }
+
+  sanitizeLegacyShell();
   normalizeRouteContract();
   mountDeclaredPanels();
-
-  const requestedInitialRoute = location.hash.startsWith('#') ? location.hash.slice(1) : '';
-  const initialRoute = routeSet.has(requestedInitialRoute)
-    ? requestedInitialRoute
-    : nav.querySelector('[data-route-target][aria-current="page"]')?.dataset.routeTarget || 'home';
-  navigate(initialRoute, { focus: false, updateHash: false });
+  navigateFromHash(routeFromHash(), { initial: true });
 
   const router = Object.freeze({
     routes: ROUTES,
@@ -132,8 +161,7 @@
   }, true);
 
   window.addEventListener('hashchange', () => {
-    const route = location.hash.startsWith('#') ? location.hash.slice(1) : '';
-    if (routeSet.has(route)) navigate(route, { updateHash: false });
+    navigateFromHash(routeFromHash());
   });
 
   let mountScheduled = false;
@@ -142,6 +170,7 @@
     mountScheduled = true;
     queueMicrotask(() => {
       mountScheduled = false;
+      sanitizeLegacyShell();
       normalizeRouteContract();
       mountDeclaredPanels();
     });
