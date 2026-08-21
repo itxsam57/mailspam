@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "project": "Email Shield",
   "repository": "itxsam57/mailspam",
-  "updatedAt": "2026-08-21T15:44:30+05:00",
+  "updatedAt": "2026-08-21T15:54:30+05:00",
   "governor": {
     "mode": "AUTONOMOUS",
     "allowedStopStates": ["OWNER_REQUIRED", "BLOCKED", "WAIT_EXTERNAL", "LOOP_DETECTED", "COMPLETE"],
@@ -13,26 +13,18 @@
     "baseSha": "c52b368ef04094fecf6dad1158154c7ce6741255",
     "activeBranch": "repair/ema-11-consumer-community-boundary-20260820",
     "activePullRequest": 124,
-    "lastQualifiedCodeHeadSha": null
+    "lastQualifiedCodeHeadSha": "f11c48d2944fb04d16e1c1c729d19d41e1392601"
   },
   "activeBatch": [
     "EMA-11 consumer Community/operations exposure",
     "EMA-26/27/28/29/30 onboarding workflow cluster",
-    "EMA-12 notification delivery contract"
+    "EMA-12/22/13/24 consumer finishing wave"
   ],
   "activeIssue": {
     "id": "EMA-11",
-    "phase": "GREEN_CANDIDATE_VERIFICATION_ARTIFACT_REPAIR",
+    "phase": "QUALIFIED_CODE_HEAD_GOVERNOR_ONLY_FINAL_GATE_PENDING",
     "plan": "docs/superpowers/plans/2026-08-21-ema-11-consumer-diagnostics-boundary.md",
-    "rootCause": "The visual shell still materialized a legacy Community route and internal operations dashboard, the authoritative router still treated Community as navigable, and the canonical consumer server inherited the reusable local operations endpoint. The production repair revokes those consumer contracts at router, developer-presentation, dashboard-loader, and canonical-server boundaries while retaining aggregate-only diagnostics for explicit development mode.",
-    "requiredContracts": [
-      "normal consumer navigation exposes no Community route or internal operations controls",
-      "direct #community resolves safely to Home while #mainContent remains an accessibility anchor",
-      "operations diagnostics live under Settings and require explicit ?developer=1 plus resolved development entitlement",
-      "ordinary canonical consumer mode returns 404 for /api/operations/v1/snapshot",
-      "development-entitled mode retains aggregate_only_no_mailbox_identity_or_content diagnostics",
-      "full immutable-head Windows/macOS/Ubuntu real-Secret-Service gate, corpus, browser and release checks are required before merge"
-    ],
+    "rootCause": "The consumer shell materialized a legacy Community/internal-operations surface, the authoritative router authorized that route, and the canonical consumer server inherited the internal operations endpoint. The repair revokes consumer route and HTTP authorization at the authoritative boundaries while retaining aggregate-only diagnostics for explicit development mode under Settings.",
     "redEvidence": {
       "headSha": "cb281e7590ad78a8f4c945ceb9771612f3274180",
       "engineeringGateRunId": 32404729057,
@@ -43,26 +35,29 @@
         "canonical consumer operations snapshot returned 200 instead of 404"
       ]
     },
-    "firstGreenCandidate": {
-      "headSha": "12113dcd4413d437f15768bfb53b1b3fe79dc93b",
-      "engineeringGateRunId": 32473725967,
-      "engineeringGateRunNumber": 1437,
-      "macosFindings": [
-        "all EMA-11 unit/API regressions passed",
-        "compiled consumer server proved operations diagnostics HTTP 404 and development aggregate endpoint remained privacy-safe",
+    "qualifiedCodeEvidence": {
+      "headSha": "f11c48d2944fb04d16e1c1c729d19d41e1392601",
+      "engineeringGateRunId": 32474140596,
+      "engineeringGateRunNumber": 1438,
+      "platforms": {
+        "windows": "PASS",
+        "macos": "PASS",
+        "ubuntuRealSecretService": "PASS",
+        "gateResultSummary": "PASS"
+      },
+      "evidence": [
+        "macOS: 1229 unit/API/regression tests passed with one platform-specific Windows-native skip",
         "five-provider corpus remained 140/140 malicious caught and 140/140 legitimate Safe",
-        "all established Chromium scan/Trash/Health/support-bundle smokes passed",
-        "one stale startupPerformanceArchitecture assertion still required the retired community route",
-        "the new dump-dom acceptance harness timed out; established CDP browser smokes passed immediately before and after, identifying the new harness rather than production as the failure source"
+        "UI workflow audit passed with seven active consumer routes and retired Community migration",
+        "real Chromium direct #community navigation retired to Home with no Community navigation/route DOM and no consumer diagnostics exposure",
+        "real Chromium explicit ?developer=1 plus protected development entitlement rendered aggregate-only operations diagnostics under Settings",
+        "compiled normal consumer operations snapshot returned HTTP 404 while development-entitled aggregate endpoint retained privacy-safe schema",
+        "existing Google/onboarding/scan/Trash/Health/support-bundle browser smokes passed",
+        "compiled server/community/account/background smokes and portable package/release lifecycle passed",
+        "PR #124 currently has zero review threads"
       ]
     },
-    "currentCandidateChanges": [
-      "production EMA-11 code from 12113dcd is unchanged",
-      "startup performance architecture test now expects route-lazy Settings diagnostics and rejects Community hydration",
-      "Community boundary browser acceptance now uses the repository's established DevToolsActivePort/CDP execution pattern instead of blocking dump-dom",
-      "CDP acceptance checks direct #community migration, no Community DOM, hidden plain-consumer diagnostics, entitled Settings diagnostics, aggregate render completion and zero runtime exceptions"
-    ],
-    "nextAction": "Commit the verification-artifact repair on top of 12113dcd, fast-forward PR #124, and run a fresh immutable exact-head Engineering Gate. Do not change production unless new evidence demonstrates a product defect."
+    "nextAction": "Verify this commit differs from f11c48d only by .engineering/CONTINUATION.json, run the full exact-head Engineering Gate on the governor-only head, then mark PR #124 ready and squash-merge with expected-head guard if all platforms and Gate Summary pass."
   },
   "lastVerifiedRepair": {
     "id": "EMA-15",
@@ -71,16 +66,10 @@
     "qualifiedCodeHeadSha": "36c8bf2caa626361a1620999686904e3791f4aa6",
     "engineeringGateRunId": 32403220066,
     "engineeringGateRunNumber": 1432,
-    "mergeSha": "c52b368ef04094fecf6dad1158154c7ce6741255",
-    "evidence": [
-      "qualified code and governor heads passed Windows, macOS and Ubuntu real Secret Service gates",
-      "five-provider corpus remained perfect",
-      "PR #123 merged with zero unresolved review threads and expected-head guard",
-      "main points to signed/verified merge commit c52b368e"
-    ]
+    "mergeSha": "c52b368ef04094fecf6dad1158154c7ce6741255"
   },
   "reconciledClosures": {
-    "EMA-18": "Done; persisted 30-minute minimum scheduler contract is authoritative for EMA-26 UI composition",
+    "EMA-18": "Done; persisted minimum-30-minute scheduled-protection state is the scheduler contract that the onboarding composition must expose and coordinate with realtime change processing.",
     "universalDetectionWave": {
       "pullRequest": 103,
       "mergeSha": "aed9e5eac3e1f6d68e25fa34066738fda49d9894",
@@ -88,7 +77,7 @@
       "status": "CODE_AUTOMATION_DONE_OWNER_LIVE_REACCEPTANCE_EXTERNAL"
     }
   },
-  "remainingCodeQueue": ["EMA-26", "EMA-27", "EMA-28", "EMA-30", "EMA-12", "EMA-22", "EMA-13", "EMA-24", "EMA-29"],
+  "remainingCodeQueue": ["EMA-26", "EMA-27", "EMA-28", "EMA-29", "EMA-30", "EMA-12", "EMA-22", "EMA-13", "EMA-24"],
   "externalAcceptance": {
     "universalDetectionLiveMailboxes": "OWNER_LIVE_REACCEPTANCE_MAN_021_PENDING",
     "gmailLive": "OWNER_TEST_ACCOUNT_PENDING",
