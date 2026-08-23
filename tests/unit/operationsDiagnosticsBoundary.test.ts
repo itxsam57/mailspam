@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { createConsumerDesktopServer } from "../../server/src/api/consumerDesktopServer.js";
@@ -13,7 +14,7 @@ interface BrowserContext {
 const servers: Server[] = [];
 
 afterEach(async () => {
-  await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
+  await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolveClose) => server.close(() => resolveClose()))));
 });
 
 async function start(developmentEntitlementsEnabled = false): Promise<BrowserContext> {
@@ -23,7 +24,7 @@ async function start(developmentEntitlementsEnabled = false): Promise<BrowserCon
   });
   const server = app.listen(0, "127.0.0.1");
   servers.push(server);
-  await new Promise<void>((resolve) => server.once("listening", resolve));
+  await new Promise<void>((resolveListen) => server.once("listening", resolveListen));
   const port = (server.address() as AddressInfo).port;
   const baseUrl = `http://127.0.0.1:${port}`;
   const home = await fetch(baseUrl);
@@ -67,5 +68,12 @@ describe("EMA-11 canonical consumer operations diagnostics HTTP boundary", () =>
     for (const forbidden of ["subject", "fromAddress", "messageId", "accountId", "providerNativeId", "exception", "token", "body"]) {
       expect(serialized).not.toContain(`\"${forbidden}\"`);
     }
+  });
+
+  it("gives the runtime diagnostics controller sole ownership of its mutable status text", () => {
+    const source = readFileSync(new URL("../../web/operations-dashboard.js", import.meta.url), "utf8");
+    expect(source).toContain("status.removeAttribute('data-i18n')");
+    expect(source).toContain("status.textContent = t('operations.loading')");
+    expect(source).toContain("status.textContent = t('operations.updated'");
   });
 });
