@@ -142,6 +142,10 @@ const realtimeProtection = new RealtimeProtectionService({
   repository: inboundEventRepository,
   processor: realtimeProcessor,
   pollProbe: new AdapterMailboxCheckpointProbe(credentialVault),
+  // One persisted consumer switch authorizes every automatic protection source.
+  // Provider push/IDLE/change metadata may still prove reachability while paused,
+  // but cannot execute a scan until this exact state is enabled.
+  protectionEnabled: (accountKey) => backgroundProtection.status(accountKey).enabled === true,
 });
 realtimeProtection.start();
 
