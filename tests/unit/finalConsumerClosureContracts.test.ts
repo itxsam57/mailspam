@@ -103,7 +103,7 @@ describe("final consumer closure contracts", () => {
     expect(background).toContain("Connect or select a mailbox to configure continuous protection.");
     expect(background).toContain("Provider-event protection");
     expect(background).toContain("metadata checkpoint fallback");
-    expect(shell).toContain("routeContainers.get('settings').append(protectionBackground)");
+    expect(shell).toContain("routeContainers.get('settings').append(settingsProtection)");
     expect(shell).not.toContain("routeContainers.get('protection').append(protectionBackground)");
     expect(i18n).toContain("'background.heading': 'Continuous Protection'");
 

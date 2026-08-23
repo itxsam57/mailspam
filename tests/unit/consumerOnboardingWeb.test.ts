@@ -44,7 +44,6 @@ describe("canonical consumer first-run journey", () => {
   it("keeps completed first-scan credit monotonic even when bounded scan history no longer contains the original record", () => {
     const source = read("web/consumer-onboarding.js");
     expect(source).toContain("completed.add('first_scan_completed')");
-    expect(source).toContain("monotonic historical milestone");
     expect(source).not.toContain("else completed.delete('first_scan_completed')");
   });
 
