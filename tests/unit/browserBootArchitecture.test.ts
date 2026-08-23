@@ -95,7 +95,7 @@ describe("browser boot architecture", () => {
     }
 
     expect(background).toContain("loadedAccountId !== id");
-    expect(background).toContain("Mailbox selection changed. Background protection was not modified");
+    expect(background).toContain("Mailbox selection changed. Continuous Protection was not modified");
     expect(background).toContain("if (!selectionMatches(snapshot)) return");
 
     expect(history).not.toContain("let refreshing = false");

@@ -121,7 +121,7 @@ describe("final consumer closure contracts", () => {
     expect(scripts).not.toContain('"/media-authenticity.js"');
 
     // EMA-13: Activity has accessible privacy-safe disclosure, without exposing reversible identifiers.
-    expect(product).toContain("data-activity-details");
+    expect(product).toContain("dataset.activityDetails='true'");
     expect(product).toContain("Why Email Shield recorded this");
     expect(product).toContain("undoAvailable");
 

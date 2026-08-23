@@ -233,6 +233,18 @@ try {
   const result = await evaluate(client, `(async () => {
     const accountsBefore = document.querySelectorAll('#accountsList .account-chip').length;
     window.emailShieldNavigate('home', { focus: false });
+
+    const permissionStep = document.querySelector('.first-run-step[data-step="permissions_reviewed"]');
+    permissionStep?.querySelector('button')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const permissionNote = document.getElementById('consumerPermissionNote');
+
+    const familyStep = document.querySelector('.first-run-step[data-step="family_option_reviewed"]');
+    [...(familyStep?.querySelectorAll('button') || [])].find((button) => button.textContent?.trim() === 'Open')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const familyNote = document.getElementById('consumerFamilyReviewNote');
+
+    window.emailShieldNavigate('home', { focus: false });
     const sensitivityStep = document.querySelector('.first-run-step[data-step="sensitivity_chosen"]');
     const sensitivityButton = sensitivityStep?.querySelector('button');
     sensitivityButton?.click();
@@ -246,6 +258,12 @@ try {
     return {
       accountsBefore,
       accountsAfter,
+      permissionReviewAvailable: Boolean(permissionNote && permissionNote.hidden === false),
+      permissionText: permissionNote?.textContent || '',
+      permissionComplete: permissionStep?.dataset.complete === 'true',
+      familyReviewAvailable: Boolean(familyNote && familyNote.hidden === false),
+      familyText: familyNote?.textContent || '',
+      familyComplete: familyStep?.dataset.complete === 'true',
       settingsVisible: settings?.hidden === false,
       guidanceVisible: Boolean(guidance && guidance.hidden === false),
       guidanceTextPresent: Boolean(guidance?.textContent?.includes('Connect a mailbox to continue')),
@@ -253,15 +271,25 @@ try {
       providerFocused: typeof focusedProvider === 'string' && focusedProvider.length > 0,
       focusedProvider,
       sensitivityComplete: sensitivityStep?.dataset.complete === 'true',
+      notificationSurfacePresent: Boolean(document.body.textContent?.includes('Notification privacy')),
+      richerNotificationControlPresent: Boolean(document.querySelector('[id$="RicherNotifications"]')),
+      mediaScriptMounted: [...document.scripts].some((script) => /media-authenticity\.js$/i.test(script.src || '')),
+      mediaToolPresent: Boolean(document.body.textContent?.includes('Media Authenticity')),
     };
   })()`);
 
   assert(result.accountsBefore === 0 && result.accountsAfter === 0, `Onboarding smoke expected zero connected mailboxes: ${JSON.stringify(result)}`);
+  assert(result.permissionReviewAvailable === true && /Gmail: OpenID identity \+ Gmail modify access/.test(result.permissionText) && /Microsoft: identity \+ Mail\.ReadWrite/.test(result.permissionText), `Pre-connect provider permission review was not truthful: ${JSON.stringify(result)}`);
+  assert(result.permissionComplete === false, `Permission review was incorrectly persisted without a mailbox: ${JSON.stringify(result)}`);
+  assert(result.familyReviewAvailable === true && /paid Family entitlement/i.test(result.familyText), `Pre-connect Family review/entitlement boundary was not visible: ${JSON.stringify(result)}`);
+  assert(result.familyComplete === false, `Family setup was incorrectly persisted without a mailbox: ${JSON.stringify(result)}`);
   assert(result.settingsVisible === true, `Sensitivity prerequisite did not route to Mailboxes & Settings: ${JSON.stringify(result)}`);
   assert(result.guidanceVisible === true && result.guidanceTextPresent === true, `Provider setup guidance did not become visible: ${JSON.stringify(result)}`);
   assert(result.providerGridPresent === true && result.providerFocused === true, `Provider choices were not surfaced/focused: ${JSON.stringify(result)}`);
   assert(result.focusedProvider !== 'outlook', `Postponed Outlook became reachable in normal consumer setup: ${JSON.stringify(result)}`);
   assert(result.sensitivityComplete === false, `Sensitivity was incorrectly credited without a connected mailbox: ${JSON.stringify(result)}`);
+  assert(result.notificationSurfacePresent === false && result.richerNotificationControlPresent === false, `Release UI still advertised an undelivered notification contract: ${JSON.stringify(result)}`);
+  assert(result.mediaScriptMounted === false && result.mediaToolPresent === false, `Release UI still advertised unavailable Media Authenticity: ${JSON.stringify(result)}`);
 
   const connectionStarted = await evaluate(client, `(() => {
     const provider = document.getElementById('providerSelect');
@@ -288,12 +316,13 @@ try {
         if (!selected || !status || !indicator) return null;
         window.emailShieldNavigate?.('home', { focus: false });
         return {
+          accountId: selected.dataset.id || null,
           rowReachability: selected.dataset.reachability || null,
           text: status.textContent?.trim() || '',
           indicatorReachability: indicator.dataset.reachability || null,
         };
       })()`);
-      if (mailboxStatus?.rowReachability && mailboxStatus?.text) break;
+      if (mailboxStatus?.rowReachability && mailboxStatus?.text && mailboxStatus?.accountId) break;
     } catch {}
     await sleep(100);
   }
@@ -309,9 +338,103 @@ try {
   assert(mailboxStatus.indicatorReachability === mailboxStatus.rowReachability, `Home indicator did not follow the canonical selected mailbox reachability: ${JSON.stringify(mailboxStatus)}`);
   assert(!/protection ready/i.test(mailboxStatus.text), `Home inferred protection from mailbox selection: ${JSON.stringify(mailboxStatus)}`);
 
-  console.log(`Executable onboarding handoff smoke passed with ${browserExecutable}.`);
-  console.log("No-mailbox sensitivity action routed to provider setup, surfaced guidance/provider focus, preserved Outlook postponement, and granted no false completion.");
-  console.log("Connected fixture mailbox retained explicit sanitized reachability state and Home rendered fail-closed status instead of inferring protection from selection.");
+  const continuousDeadline = Date.now() + 15_000;
+  let continuousBefore = null;
+  while (Date.now() < continuousDeadline) {
+    continuousBefore = await evaluate(client, `(() => {
+      window.emailShieldNavigate?.('protection', { focus: false });
+      const panel = document.getElementById('backgroundProtection');
+      const toggle = document.getElementById('backgroundToggle');
+      const status = document.getElementById('backgroundStatus');
+      return {
+        heading: panel?.querySelector('h3')?.textContent?.trim() || '',
+        pressed: toggle?.getAttribute('aria-pressed') || '',
+        disabled: toggle?.disabled === true,
+        status: status?.textContent || '',
+      };
+    })()`);
+    if (continuousBefore?.heading === 'Continuous Protection' && continuousBefore?.disabled === false && /metadata checkpoint fallback/i.test(continuousBefore.status)) break;
+    await sleep(100);
+  }
+  assert(continuousBefore?.heading === 'Continuous Protection', `Continuous Protection control was not composed in the real UI: ${JSON.stringify(continuousBefore)}`);
+  assert(continuousBefore?.pressed === 'false', `Fresh fixture unexpectedly started with Continuous Protection enabled: ${JSON.stringify(continuousBefore)}`);
+  assert(/Provider-event protection/i.test(continuousBefore?.status || '') && /metadata checkpoint fallback/i.test(continuousBefore?.status || ''), `Automatic-protection capability truth was missing: ${JSON.stringify(continuousBefore)}`);
+
+  const toggled = await evaluate(client, `(() => {
+    const toggle = document.getElementById('backgroundToggle');
+    if (!(toggle instanceof HTMLButtonElement) || toggle.disabled) return false;
+    toggle.click();
+    return true;
+  })()`);
+  assert(toggled === true, `Could not enable Continuous Protection from the real consumer control: ${JSON.stringify(continuousBefore)}`);
+
+  const enabledDeadline = Date.now() + 15_000;
+  let continuousAfter = null;
+  while (Date.now() < enabledDeadline) {
+    continuousAfter = await evaluate(client, `(async () => {
+      const toggle = document.getElementById('backgroundToggle');
+      const status = document.getElementById('backgroundStatus');
+      const response = await fetch('/api/accounts/${mailboxStatus.accountId}/background-protection', { cache: 'no-store' });
+      const body = await response.json().catch(() => ({}));
+      return {
+        ok: response.ok,
+        pressed: toggle?.getAttribute('aria-pressed') || '',
+        enabled: body.enabled === true,
+        automaticEnabled: body.automaticProtection?.automaticProcessingEnabled === true,
+        providerEvents: body.automaticProtection?.providerEvents || null,
+        fallback: body.automaticProtection?.metadataCheckpointFallback || null,
+        status: status?.textContent || '',
+      };
+    })()`);
+    if (continuousAfter?.ok && continuousAfter?.pressed === 'true' && continuousAfter?.enabled && continuousAfter?.automaticEnabled) break;
+    await sleep(100);
+  }
+  assert(continuousAfter?.enabled === true && continuousAfter?.automaticEnabled === true, `Persisted switch did not authorize automatic protection end-to-end: ${JSON.stringify(continuousAfter)}`);
+  assert(continuousAfter?.providerEvents === 'not_configured_in_desktop_runtime' && continuousAfter?.fallback === 'available', `Continuous Protection overstated provider-event capability or lost metadata fallback: ${JSON.stringify(continuousAfter)}`);
+
+  const healthStarted = await evaluate(client, `(() => {
+    window.emailShieldNavigate?.('protection', { focus: false });
+    const button = document.getElementById('consumerRunHealth');
+    if (!(button instanceof HTMLButtonElement)) return false;
+    button.click();
+    return true;
+  })()`);
+  assert(healthStarted === true, "Could not start real fixture Health check for Activity acceptance.");
+
+  const healthDeadline = Date.now() + 30_000;
+  let healthComplete = false;
+  while (Date.now() < healthDeadline) {
+    healthComplete = await evaluate(client, `/Health check complete/i.test(document.getElementById('consumerHealthStatus')?.textContent || '')`).catch(() => false);
+    if (healthComplete) break;
+    await sleep(100);
+  }
+  assert(healthComplete, `Fixture Health did not complete before Activity acceptance. Server stderr:\n${serverStderr}`);
+
+  const activityDeadline = Date.now() + 15_000;
+  let activityState = null;
+  while (Date.now() < activityDeadline) {
+    activityState = await evaluate(client, `(async () => {
+      window.emailShieldNavigate?.('history', { focus: false });
+      document.getElementById('consumerRefreshActivity')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 75));
+      const details = document.querySelector('#consumerActivityList [data-activity-details]');
+      return {
+        present: Boolean(details),
+        summary: details?.querySelector('summary')?.textContent?.trim() || '',
+        text: details?.textContent || '',
+        listText: document.getElementById('consumerActivityList')?.textContent || '',
+      };
+    })()`);
+    if (activityState?.present) break;
+    await sleep(100);
+  }
+  assert(activityState?.present === true && activityState?.summary === 'Why Email Shield recorded this', `Activity explanation disclosure was missing: ${JSON.stringify(activityState)}`);
+  assert(/health check/i.test(activityState?.listText || '') && /reason codes:/i.test(activityState?.text || ''), `Activity disclosure did not explain the real Health activity privacy-safely: ${JSON.stringify(activityState)}`);
+
+  console.log(`Executable final consumer onboarding/protection smoke passed with ${browserExecutable}.`);
+  console.log("Pre-connect permissions and Family review were available without false completion or entitlement bypass; unsupported release surfaces were absent.");
+  console.log("One persisted Continuous Protection switch authorized scheduled/provider-change automation while truthfully reporting provider-event availability and metadata fallback.");
+  console.log("A real Health action produced an Activity row with an accessible privacy-safe reason disclosure.");
 } finally {
   try { cdpSocket?.close(); } catch {}
   if (browser && browser.exitCode === null) {
