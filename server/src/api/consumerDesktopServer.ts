@@ -122,6 +122,21 @@ export function createConsumerDesktopServer(options: ConsumerDesktopServerOption
     });
   }
 
+  // Aggregate provider/runtime operations are an internal engineering surface.
+  // The reusable local desktop server retains the privacy-safe implementation,
+  // but the canonical consumer composition does not advertise that contract at
+  // all unless this process was explicitly started with development entitlement.
+  if (localOptions.developmentEntitlementsEnabled !== true) {
+    app.use(
+      "/api/operations/v1/snapshot",
+      security.validateLoopbackRequest,
+      security.securityHeaders,
+      (_req, res) => {
+        res.status(404).json({ error: "Not found." });
+      },
+    );
+  }
+
   app.use(createLocalDesktopServer({
     ...localOptions,
     security,

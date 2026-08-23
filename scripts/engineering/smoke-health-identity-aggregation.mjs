@@ -20,6 +20,22 @@ function assert(condition, message) {
 
 const sleep = (ms) => new Promise((resolveWait) => setTimeout(resolveWait, ms));
 
+function childProcessExited(processRef) {
+  return !processRef || processRef.exitCode !== null || processRef.signalCode !== null;
+}
+
+async function stopChild(processRef, label) {
+  if (childProcessExited(processRef)) return;
+  try { processRef.kill(); } catch {}
+  const gracefulDeadline = Date.now() + 3_000;
+  while (!childProcessExited(processRef) && Date.now() < gracefulDeadline) await sleep(50);
+  if (childProcessExited(processRef)) return;
+  try { processRef.kill("SIGKILL"); } catch {}
+  const forcedDeadline = Date.now() + 3_000;
+  while (!childProcessExited(processRef) && Date.now() < forcedDeadline) await sleep(50);
+  assert(childProcessExited(processRef), `${label} did not exit during Health identity teardown.`);
+}
+
 async function freePort() {
   return await new Promise((resolvePort, reject) => {
     const listener = net.createServer();
@@ -349,9 +365,8 @@ try {
   process.exitCode = 1;
 } finally {
   try { socket?.close(); } catch {}
-  if (browser && browser.exitCode === null) browser.kill();
-  if (server && server.exitCode === null) server.kill();
-  await sleep(100);
-  rmSync(browserProfile, { recursive: true, force: true });
-  rmSync(dataDir, { recursive: true, force: true });
+  await stopChild(browser, "Chromium");
+  await stopChild(server, "Email Shield server");
+  try { rmSync(browserProfile, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 }); } catch {}
+  try { rmSync(dataDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 }); } catch {}
 }

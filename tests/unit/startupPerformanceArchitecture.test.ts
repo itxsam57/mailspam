@@ -71,8 +71,10 @@ describe("desktop startup performance architecture", () => {
     const billing = read("web/billing-plan-ui.js");
     const guardian = read("web/family-guardian-preferences.js");
 
-    expect(operations).toContain("event.detail?.route === 'community'");
+    expect(operations).toContain("event.detail?.route === 'settings'");
+    expect(operations).toContain("email-shield-developer-ui-enabled");
     expect(operations).toContain("loadWhenVisible()");
+    expect(operations).not.toContain("event.detail?.route === 'community'");
     expect(billing).toContain("event.detail?.route === 'account'");
     expect(billing).not.toContain("setTimeout(mount, 350)");
     expect(guardian).toContain("event.detail?.route === 'family'");

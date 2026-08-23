@@ -45,7 +45,7 @@ for (const id of [...buttonIds].sort()) {
   }
 }
 
-const routeIds = ["home", "scan", "protection", "family", "community", "history", "account", "settings"];
+const routeIds = ["home", "scan", "protection", "family", "history", "account", "settings"];
 const shell = read("web/app-shell.js");
 const router = read("web/ui-router.js");
 const consumer = read("web/consumer-product.js");
@@ -53,6 +53,8 @@ const providerOnboarding = read("web/consumer-provider-onboarding.js");
 const gmailOAuth = read("web/gmail-oauth.js");
 const outlookOAuth = read("web/outlook-oauth.js");
 const onboarding = read("web/consumer-onboarding.js");
+const developerControls = read("web/developer-controls.js");
+const operationsDashboard = read("web/operations-dashboard.js");
 const composition = read("server/src/api/dashboardScripts.ts");
 
 for (const route of routeIds) {
@@ -60,6 +62,27 @@ for (const route of routeIds) {
     fail(`App shell no longer declares required route ${route}.`);
   }
   if (!router.includes(`'${route}'`)) fail(`Authoritative UI router no longer declares route ${route}.`);
+}
+if (/const\s+ROUTES\s*=\s*Object\.freeze\(\[[^\]]*["']community["']/s.test(router)) {
+  fail("Community must not remain in the authoritative consumer route set.");
+}
+if (!router.includes("RETIRED_ROUTES") || !/community\s*:\s*['\"]home['\"]/.test(router)) {
+  fail("Authoritative UI router must retire legacy Community navigation to Home.");
+}
+if (!router.includes("NON_ROUTE_ANCHORS") || !router.includes("mainContent")) {
+  fail("Retired route migration must preserve the main-content accessibility anchor.");
+}
+if (!router.includes("operationsPanel") || !router.includes("routeStack('settings')")) {
+  fail("Authoritative UI router must re-home legacy operations diagnostics under Settings.");
+}
+if (!router.includes("data-route-target=\"community\"") || !router.includes("button.remove()")) {
+  fail("Authoritative UI router must remove any legacy Community navigation button.");
+}
+if (!developerControls.includes("operationsPanel") || !developerControls.includes("email-shield-developer-ui-enabled")) {
+  fail("Developer controls no longer own the fail-closed operations-diagnostics presentation boundary.");
+}
+if (!operationsDashboard.includes("emailShieldDeveloperEnabled") || !operationsDashboard.includes("route.dataset.route === 'settings'")) {
+  fail("Operations dashboard must remain inert unless entitled diagnostics are visible under Settings.");
 }
 
 if (!shell.includes("data-route-target")) fail("App shell navigation no longer declares data-route-target buttons.");
@@ -140,7 +163,7 @@ if (!gmailOAuth.includes("Object.defineProperty(window, 'emailShieldGoogleOAuth'
 // Microsoft remains implemented internally for later controlled acceptance even
 // though normal consumer onboarding deliberately omits it for the current build.
 if (!outlookOAuth.includes("Object.defineProperty(window, 'emailShieldMicrosoftOAuth'")) {
-  fail("Microsoft OAuth module no longer exposes its internal hardened start boundary.");
+  fail("Microsoft OAuth module no longer exposes its internal hardened consumer start boundary.");
 }
 
 const actionableDataAttributes = [
@@ -162,4 +185,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log(`UI workflow audit passed: ${buttonIds.size} static button IDs and ${routeIds.length} dashboard routes are wired.`);
+console.log(`UI workflow audit passed: ${buttonIds.size} static button IDs, ${routeIds.length} active dashboard routes, and retired Community migration are wired.`);

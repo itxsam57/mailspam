@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "project": "Email Shield",
   "repository": "itxsam57/mailspam",
-  "updatedAt": "2026-08-20T23:25:00+05:00",
+  "updatedAt": "2026-08-21T15:54:30+05:00",
   "governor": {
     "mode": "AUTONOMOUS",
     "allowedStopStates": ["OWNER_REQUIRED", "BLOCKED", "WAIT_EXTERNAL", "LOOP_DETECTED", "COMPLETE"],
@@ -10,73 +10,66 @@
   },
   "sourceOfTruth": {
     "baseBranch": "main",
-    "baseSha": "f1ba5cc45855d6026036fef5939668ae75c57beb",
-    "activeBranch": "repair/ema-15-health-identity-aggregation-20260820",
-    "activePullRequest": 123,
-    "lastQualifiedCodeHeadSha": "36c8bf2caa626361a1620999686904e3791f4aa6"
+    "baseSha": "c52b368ef04094fecf6dad1158154c7ce6741255",
+    "activeBranch": "repair/ema-11-consumer-community-boundary-20260820",
+    "activePullRequest": 124,
+    "lastQualifiedCodeHeadSha": "f11c48d2944fb04d16e1c1c729d19d41e1392601"
   },
   "activeBatch": [
-    "EMA-15 Health identity aggregation and cleanup targeting",
     "EMA-11 consumer Community/operations exposure",
-    "EMA-26 continuous-protection consumer composition"
+    "EMA-26/27/28/29/30 onboarding workflow cluster",
+    "EMA-12/22/13/24 consumer finishing wave"
   ],
   "activeIssue": {
-    "id": "EMA-15",
-    "phase": "QUALIFIED_MERGE_PENDING",
-    "rootCause": "Health had two identity-composition failures plus one destructive-target boundary failure. Digital Account Footprint grouped by domain plus evidence kind, so one service/domain became multiple top-level entries. Subscription inventory preserved distinct list/sender keys, but the consumer renderer discarded that identity and showed only displayName. The destructive Health cleanup path selected a row by canonical key in the browser but submitted only sender address/domain, so sibling list identities sharing one sender could collide.",
-    "repair": [
-      "aggregate Digital Account Footprint by canonical service/domain while preserving per-category evidence counts and observation metadata",
-      "preserve distinct actionable subscription identities and render a privacy-safe same-name source differentiator",
-      "carry the selected canonical subscription key from rendered Health row through cleanup controller, API and worker",
-      "fail closed when destructive cleanup lacks the canonical selected subscription identity",
-      "retain sender/domain and age checks as additional narrowing constraints rather than as the destructive identity",
-      "add opt-in EMA-15 fixture data isolated from normal fixture/corpus startup",
-      "wire a permanent real Chromium acceptance through smoke:browser-scan"
-    ],
-    "qualifiedEvidence": {
-      "codeHeadSha": "36c8bf2caa626361a1620999686904e3791f4aa6",
-      "engineeringGateRunId": 32401651448,
-      "engineeringGateRunNumber": 1431,
-      "evidence": [
-        "Windows full applicable Engineering Gate passed",
-        "macOS full applicable Engineering Gate passed",
-        "Ubuntu full Engineering Gate passed with real Linux Secret Service",
-        "Gate Result Summary passed",
-        "1225 unit tests passed on macOS with one platform-specific skip",
-        "EMA-15 healthIdentityAggregation 3/3 and healthCleanupTargeting 4/4 passed",
-        "five-provider corpus remained 140/140 malicious caught and 140/140 legitimate Safe",
-        "real Chromium rendered two same-name and same-sender Instagram list identities distinctly",
-        "real Chromium cleaned one selected Instagram list while its sibling list remained",
-        "real Chromium rendered Private Relay once with account-welcome count 2 and receipt/subscription count 1",
-        "existing Health cleanup, request-ordering, security-alert composition, Support Bundle, server, account, background and release lifecycle smokes remained green"
+    "id": "EMA-11",
+    "phase": "QUALIFIED_CODE_HEAD_GOVERNOR_ONLY_FINAL_GATE_PENDING",
+    "plan": "docs/superpowers/plans/2026-08-21-ema-11-consumer-diagnostics-boundary.md",
+    "rootCause": "The consumer shell materialized a legacy Community/internal-operations surface, the authoritative router authorized that route, and the canonical consumer server inherited the internal operations endpoint. The repair revokes consumer route and HTTP authorization at the authoritative boundaries while retaining aggregate-only diagnostics for explicit development mode under Settings.",
+    "redEvidence": {
+      "headSha": "cb281e7590ad78a8f4c945ceb9771612f3274180",
+      "engineeringGateRunId": 32404729057,
+      "engineeringGateRunNumber": 1436,
+      "failures": [
+        "authoritative ROUTES still contained community",
+        "developer-controls did not own operationsPanel entitlement presentation",
+        "canonical consumer operations snapshot returned 200 instead of 404"
       ]
     },
-    "nextAction": "Verify the governor-only head differs from qualified code head only by .engineering/CONTINUATION.json, qualify that exact governor-only head, require zero unresolved review threads, mark PR #123 ready, merge with expected-head guard, confirm signed main, close EMA-15 in Linear, then branch EMA-11 from the exact merged main and start with isolated RED navigation/reachability regressions."
+    "qualifiedCodeEvidence": {
+      "headSha": "f11c48d2944fb04d16e1c1c729d19d41e1392601",
+      "engineeringGateRunId": 32474140596,
+      "engineeringGateRunNumber": 1438,
+      "platforms": {
+        "windows": "PASS",
+        "macos": "PASS",
+        "ubuntuRealSecretService": "PASS",
+        "gateResultSummary": "PASS"
+      },
+      "evidence": [
+        "macOS: 1229 unit/API/regression tests passed with one platform-specific Windows-native skip",
+        "five-provider corpus remained 140/140 malicious caught and 140/140 legitimate Safe",
+        "UI workflow audit passed with seven active consumer routes and retired Community migration",
+        "real Chromium direct #community navigation retired to Home with no Community navigation/route DOM and no consumer diagnostics exposure",
+        "real Chromium explicit ?developer=1 plus protected development entitlement rendered aggregate-only operations diagnostics under Settings",
+        "compiled normal consumer operations snapshot returned HTTP 404 while development-entitled aggregate endpoint retained privacy-safe schema",
+        "existing Google/onboarding/scan/Trash/Health/support-bundle browser smokes passed",
+        "compiled server/community/account/background smokes and portable package/release lifecycle passed",
+        "PR #124 currently has zero review threads"
+      ]
+    },
+    "nextAction": "Verify this commit differs from f11c48d only by .engineering/CONTINUATION.json, run the full exact-head Engineering Gate on the governor-only head, then mark PR #124 ready and squash-merge with expected-head guard if all platforms and Gate Summary pass."
   },
   "lastVerifiedRepair": {
-    "id": "EMA-17",
-    "pullRequest": 122,
-    "verifiedHeadSha": "af1e884a19a23bd6a6bb1c67f4ab18f72b482ddb",
-    "qualifiedCodeHeadSha": "82e4f557cb5e03e64a04f3fb8b2bd229670453a3",
-    "engineeringGateRunId": 32386171804,
-    "engineeringGateRunNumber": 1421,
-    "mergeSha": "f1ba5cc45855d6026036fef5939668ae75c57beb",
-    "evidence": [
-      "Windows full applicable Engineering Gate passed",
-      "macOS full applicable Engineering Gate passed",
-      "Ubuntu full Engineering Gate passed with real Linux Secret Service",
-      "Gate Result Summary passed and overall run completed/success",
-      "1222 applicable unit tests passed on macOS with one platform-specific skip",
-      "EMA-17 three-contract regression suite passed",
-      "five-provider corpus remained 140/140 malicious caught and 140/140 legitimate Safe",
-      "real Chromium rendered three authenticated provider events as two distinct consumer warning groups while state remained attention",
-      "final governor-only head differed from the qualified code head only by .engineering/CONTINUATION.json",
-      "PR #122 had zero unresolved review threads and was merged with an expected-head guard",
-      "main points exactly to the signed/verified GitHub merge commit f1ba5cc4"
-    ],
-    "postMergeMainEvidence": "PUSH_RUN_NOT_QUERYABLE_BY_CURRENT_COMMIT_RUN_CONNECTOR"
+    "id": "EMA-15",
+    "pullRequest": 123,
+    "verifiedHeadSha": "eceae5a8ff52edba387adc931e32812590fff6d3",
+    "qualifiedCodeHeadSha": "36c8bf2caa626361a1620999686904e3791f4aa6",
+    "engineeringGateRunId": 32403220066,
+    "engineeringGateRunNumber": 1432,
+    "mergeSha": "c52b368ef04094fecf6dad1158154c7ce6741255"
   },
   "reconciledClosures": {
+    "EMA-18": "Done; persisted minimum-30-minute scheduled-protection state is the scheduler contract that the onboarding composition must expose and coordinate with realtime change processing.",
     "universalDetectionWave": {
       "pullRequest": 103,
       "mergeSha": "aed9e5eac3e1f6d68e25fa34066738fda49d9894",
@@ -84,6 +77,7 @@
       "status": "CODE_AUTOMATION_DONE_OWNER_LIVE_REACCEPTANCE_EXTERNAL"
     }
   },
+  "remainingCodeQueue": ["EMA-26", "EMA-27", "EMA-28", "EMA-29", "EMA-30", "EMA-12", "EMA-22", "EMA-13", "EMA-24"],
   "externalAcceptance": {
     "universalDetectionLiveMailboxes": "OWNER_LIVE_REACCEPTANCE_MAN_021_PENDING",
     "gmailLive": "OWNER_TEST_ACCOUNT_PENDING",
