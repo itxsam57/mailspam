@@ -6,6 +6,10 @@
   const rows = document.getElementById('operationsRows');
   if (!panel || !refresh || !status || !summary || !rows) return;
 
+  // This node is runtime-owned. A later localization pass must not overwrite a
+  // completed/error state with the static loading label from the HTML shell.
+  status.removeAttribute('data-i18n');
+
   const i18n = window.emailShieldI18n;
   const t = (key, values) => i18n?.t(key, values) || key;
   const number = (value) => i18n?.formatNumber(value) || String(Number(value) || 0);
