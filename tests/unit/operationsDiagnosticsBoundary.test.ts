@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import { resolve } from "node:path";
 import { createConsumerDesktopServer } from "../../server/src/api/consumerDesktopServer.js";
 import { LocalSecurityManager } from "../../server/src/api/localSecurity.js";
 
@@ -72,7 +71,7 @@ describe("EMA-11 canonical consumer operations diagnostics HTTP boundary", () =>
   });
 
   it("gives the runtime diagnostics controller sole ownership of its mutable status text", () => {
-    const source = readFileSync(resolve(process.cwd(), "web/operations-dashboard.js"), "utf8");
+    const source = readFileSync(new URL("../../web/operations-dashboard.js", import.meta.url), "utf8");
     expect(source).toContain("status.removeAttribute('data-i18n')");
     expect(source).toContain("status.textContent = t('operations.loading')");
     expect(source).toContain("status.textContent = t('operations.updated'");
