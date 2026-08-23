@@ -34,6 +34,8 @@ export interface MailboxReachabilitySnapshot {
   lastReachableAt: number | null;
 }
 
+export type RealtimeProtectionOutcome = InboundEventOutcome | { status: "disabled" };
+
 interface MailboxReachabilityRecord extends MailboxReachabilitySnapshot {
   sessionId: string;
 }
@@ -83,12 +85,19 @@ function pollingEvent(
  * metadata checkpoint. It establishes a protected baseline without scanning,
  * ignores unchanged mailboxes, and enters the shared replay-safe Quick scan
  * path only after the checkpoint genuinely changes.
+ *
+ * Continuous Protection is the single authorization boundary for every
+ * automatic scan source. Disabling it pauses scheduled work and also rejects
+ * push/IDLE processing while the metadata poll remains free to prove mailbox
+ * reachability and observe a non-scanning baseline.
  */
 export class RealtimeProtectionService {
   readonly #sessions: Pick<SessionStore, "list">;
   readonly #coordinator: InboundProtectionCoordinator;
   readonly #pollIntervalMs: number;
   readonly #pollProbe: MailboxCheckpointProbe | null;
+  readonly #protectionEnabled: (accountKey: string) => boolean;
+  readonly #disabledPollObservations = new Map<string, string>();
   #timer: NodeJS.Timeout | null = null;
   #pollRunning = false;
   #lastPollAt: number | null = null;
@@ -103,10 +112,12 @@ export class RealtimeProtectionService {
     processor: Pick<RealtimeProtectionProcessor, "process">;
     pollProbe?: MailboxCheckpointProbe;
     pollIntervalMs?: number;
+    protectionEnabled?: (accountKey: string) => boolean;
   }) {
     this.#sessions = options.sessions;
     this.#pollProbe = options.pollProbe ?? null;
     this.#pollIntervalMs = boundedInterval(options.pollIntervalMs ?? DEFAULT_REALTIME_POLL_INTERVAL_MS);
+    this.#protectionEnabled = options.protectionEnabled ?? (() => true);
     this.#coordinator = new InboundProtectionCoordinator({
       repository: options.repository,
       processor: (event) => options.processor.process(event),
@@ -177,7 +188,8 @@ export class RealtimeProtectionService {
     });
   }
 
-  async enqueue(event: CanonicalInboundEventV1): Promise<InboundEventOutcome> {
+  async enqueue(event: CanonicalInboundEventV1): Promise<RealtimeProtectionOutcome> {
+    if (!this.#protectionEnabled(event.accountKey)) return { status: "disabled" };
     try {
       const outcome = await this.#coordinator.enqueue(event);
       if (outcome.status !== "duplicate") this.#lastSuccessAt = Date.now();
@@ -189,8 +201,8 @@ export class RealtimeProtectionService {
     }
   }
 
-  async enqueueBatch(batch: ProviderInboundBatch): Promise<InboundEventOutcome[]> {
-    const outcomes: InboundEventOutcome[] = [];
+  async enqueueBatch(batch: ProviderInboundBatch): Promise<RealtimeProtectionOutcome[]> {
+    const outcomes: RealtimeProtectionOutcome[] = [];
     for (const event of batch.events) outcomes.push(await this.enqueue(event));
     return outcomes;
   }
@@ -220,7 +232,23 @@ export class RealtimeProtectionService {
       }
       return;
     }
-    if (current === checkpoint) return;
+    if (current === checkpoint) {
+      if (this.#protectionEnabled(session.policyAccountKey)) this.#disabledPollObservations.delete(session.policyAccountKey);
+      return;
+    }
+
+    if (!this.#protectionEnabled(session.policyAccountKey)) {
+      // Keep observing metadata while disabled so enabling protection does not
+      // immediately treat mail received during the paused period as a provider
+      // event. No message content is fetched and no scan is run here.
+      this.#disabledPollObservations.set(session.policyAccountKey, checkpoint);
+      return;
+    }
+
+    if (this.#disabledPollObservations.get(session.policyAccountKey) === checkpoint) {
+      this.#disabledPollObservations.delete(session.policyAccountKey);
+      return;
+    }
 
     try {
       await this.enqueue(pollingEvent(session.policyAccountKey, provider, current, checkpoint));
