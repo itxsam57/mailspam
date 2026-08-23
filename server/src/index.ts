@@ -36,9 +36,6 @@ if (!["127.0.0.1", "localhost", "::1"].includes(HOST)) {
   throw new Error("The Email Shield desktop server may bind only to a loopback host.");
 }
 
-// Technical telemetry is a separate, opt-in boundary. It receives only fixed
-// startup-health events and anonymous platform/version metadata. Mailbox data,
-// account identity, device identity, credentials and raw errors never cross it.
 const telemetry = createTechnicalTelemetryFromEnvironment({
   appVersion: process.env.EMAIL_SHIELD_RELEASE_VERSION ?? "0.2.0",
 });
@@ -47,11 +44,6 @@ void telemetry.capture("email_shield_app_started");
 const dataDirectory = defaultEmailShieldDataDirectory();
 ensureManagedDataDirectory(dataDirectory);
 
-// Source/live owner acceptance gets a separate local diagnostic trace. It is
-// automatically enabled by the source development launchers, bounded on disk,
-// and accepts only the fixed privacy-safe workflow schema. Normal packaged
-// consumer startup remains unaffected unless the diagnostic environment flag is
-// explicitly enabled.
 const workflowTrace = initializeRuntimeWorkflowTrace({ dataDirectory });
 if (workflowTrace.enabled) {
   workflowTrace.record({
@@ -66,12 +58,6 @@ if (workflowTrace.enabled) {
   console.log(`Email Shield runtime workflow trace active for run ${workflowTrace.runId}.`);
 }
 
-// Resolve or migrate protected local encryption keys before the desktop API
-// becomes reachable. One native runtime vault is shared across every protected
-// repository and provider session so Windows initializes its trusted helper
-// once instead of recompiling it for each credential operation. Independent
-// repositories start together; the vault itself remains the serialization
-// boundary for sensitive native operations.
 const credentialVault = getRuntimeCredentialVault();
 const protectedStateStartedAt = Date.now();
 let protectedStateFailureReported = false;
@@ -112,22 +98,12 @@ const accountPlatform = getAccountPlatformService();
 const accountLifecycle = getAccountLifecycleService();
 const deviceIdentity = getDesktopDeviceIdentity();
 
-// Consumer mailbox authorization is one-time by default. The encrypted local
-// registry contains only provider identity/config metadata and OS-vault handles;
-// refresh tokens/app passwords remain in the native vault. Restore live sessions
-// before either scheduled or realtime protection starts so restart does not
-// create an unprotected gap. If the platform cannot persist vault-backed state,
-// Email Shield still starts for Scam Check but refuses new durable live connects.
 sessionStore.configureLiveConnectionPersistence(liveConnections, { required: true });
 sessionStore.restoreLiveConnections();
 
 const fixtureConnections = new FileFixtureConnectionPersistence(dataDirectory);
 fixtureConnections.restore(sessionStore);
 
-// Scheduled and realtime protection deliberately share both one underlying
-// Worker implementation and one fail-fast execution gate. This keeps bounded
-// Quick scanning, relationship history, personal policy, Family Shield and
-// verified community intelligence on one path without creating a hidden queue.
 const workerProtectionExecutor = new WorkerBackgroundProtectionExecutor(communityNetwork, accountPlatform);
 const protectionExecutor = new SerialProtectionExecutor(workerProtectionExecutor);
 const backgroundProtection = new BackgroundProtectionCoordinator({
@@ -142,11 +118,13 @@ const realtimeProtection = new RealtimeProtectionService({
   repository: inboundEventRepository,
   processor: realtimeProcessor,
   pollProbe: new AdapterMailboxCheckpointProbe(credentialVault),
+  protectionEnabled: (accountKey) => backgroundProtection.status(accountKey).enabled === true,
 });
 realtimeProtection.start();
 
 const app = createConsumerDesktopServer({
   accountReachability: (session) => realtimeProtection.mailboxReachability(session),
+  accountAutomaticProtection: (session) => realtimeProtection.accountStatus(session),
   backgroundProtection,
   fixtureConnections,
   accountPlatform,

@@ -30,7 +30,6 @@ const DESKTOP_ONLY_SCRIPTS = [
   "/health-cleanup-controller.js",
   "/consumer-provider-onboarding.js",
   "/shopping-safety.js",
-  "/media-authenticity.js",
   "/consumer-onboarding.js",
   "/billing-plan-ui.js",
   "/family-guardian-preferences.js",
@@ -56,16 +55,14 @@ function scriptTags(paths: readonly string[]): string {
  * expose the base HTML button; app-shell then constructs the visual route
  * containers. ui-router becomes the authoritative navigation/mount contract
  * before consumer feature modules declare route-owned panels. consumer-product
- * constructs the consumer provider cards and settings tools; the dedicated
- * health-cleanup-controller then becomes the sole destructive Inbox Health
- * cleanup owner, reconciling rendered subscription controls against the
- * authoritative cleanupGroups returned by the local Health worker before any
- * Trash mutation is allowed. consumer-provider-onboarding then becomes the
- * authoritative normal-consumer provider interaction boundary while keeping
- * the legacy engineering connector hidden. Shopping Safety and capability-gated
- * Media Authenticity mount after that boundary. scan-monitor owns the scan
- * stream; consumer-scan-results owns only the all-message consumer projection
- * derived from scan-monitor's bounded rows.
+ * constructs the supported consumer provider, Health, Activity and safety-tool
+ * surfaces; unavailable release capabilities are not advertised merely because
+ * a dormant capability-gated API exists. The dedicated health-cleanup-controller
+ * then becomes the sole destructive Inbox Health cleanup owner, reconciling
+ * rendered subscription controls against the authoritative cleanupGroups before
+ * any Trash mutation is allowed. consumer-provider-onboarding owns normal
+ * provider interaction while keeping legacy engineering connection controls
+ * hidden. Shopping Safety mounts as an explicit supported consumer tool.
  */
 export function dashboardScriptTags(desktop: boolean): string {
   return scriptTags(desktop

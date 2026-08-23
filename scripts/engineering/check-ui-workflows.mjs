@@ -119,8 +119,14 @@ for (const route of ["protection", "history", "family", "settings"]) {
 if (!onboarding.includes("emailShieldNavigate")) {
   fail("Consumer onboarding must navigate through the authoritative UI router instead of querying shell-private selectors.");
 }
-if (!onboarding.includes("route('protection')")) {
-  fail("Continuous-protection onboarding must open the Protection route where Background Protection is mounted.");
+if (!onboarding.includes("route('settings')")) {
+  fail("Continuous-protection onboarding must open Mailboxes & Settings where Continuous Protection is mounted.");
+}
+if (!shell.includes("routeContainers.get('settings').append(settingsProtection)")) {
+  fail("Continuous Protection must remain mounted under Mailboxes & Settings.");
+}
+if (shell.includes("routeContainers.get('protection').append(protectionBackground)")) {
+  fail("Continuous Protection must not be re-mounted under the Health/Protection route.");
 }
 
 const providerOnboardingLocks = [

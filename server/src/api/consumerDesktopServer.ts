@@ -18,6 +18,7 @@ import { localSecurity } from "./localSecurity.js";
 import { registerRuntimeWorkflowTraceRoutes } from "./runtimeWorkflowTraceRoutes.js";
 import { registerScamCheckRoutes } from "./scamCheckRoutes.js";
 import { registerShoppingSafetyRoute } from "./shoppingSafetyRoute.js";
+import { sessionStore, type AccountSession } from "./sessionStore.js";
 
 type LocalDesktopOptions = NonNullable<Parameters<typeof createLocalDesktopServer>[0]>;
 
@@ -26,6 +27,7 @@ export type ConsumerDesktopServerOptions = LocalDesktopOptions & {
   accountLifecycle?: AccountLifecycleService;
   mediaAuthenticityDetector?: MediaAuthenticityPort;
   exposureLookup?: ExposureLookupPort;
+  accountAutomaticProtection?: (session: AccountSession) => unknown;
 };
 
 /**
@@ -44,6 +46,7 @@ export function createConsumerDesktopServer(options: ConsumerDesktopServerOption
     accountLifecycle,
     mediaAuthenticityDetector,
     exposureLookup,
+    accountAutomaticProtection,
     ...localOptions
   } = options;
   const security = localOptions.security ?? localSecurity;
@@ -52,9 +55,6 @@ export function createConsumerDesktopServer(options: ConsumerDesktopServerOption
     ?? createBackgroundProtectionCoordinator(community, localOptions.accountPlatform);
   const app = express();
 
-  // Correlation is diagnostic-only and fail-closed. It runs before route
-  // composition so every protected consumer route sees one AsyncLocalStorage
-  // context, but it neither authenticates requests nor reads request bodies.
   app.use(createRuntimeTraceHttpMiddleware());
 
   registerRuntimeWorkflowTraceRoutes(app, { security });
@@ -101,8 +101,6 @@ export function createConsumerDesktopServer(options: ConsumerDesktopServerOption
     detector: mediaAuthenticityDetector,
   });
 
-  // The binary media route above consumes application/octet-stream itself.
-  // Remaining consumer API operations are small, strictly bounded JSON.
   app.use("/api/consumer", express.json({ limit: "64kb", strict: true }));
   registerShoppingSafetyRoute(app);
   registerConsumerUnsubscribeActivityRoutes(app);
@@ -122,10 +120,35 @@ export function createConsumerDesktopServer(options: ConsumerDesktopServerOption
     });
   }
 
-  // Aggregate provider/runtime operations are an internal engineering surface.
-  // The reusable local desktop server retains the privacy-safe implementation,
-  // but the canonical consumer composition does not advertise that contract at
-  // all unless this process was explicitly started with development entitlement.
+  // The canonical consumer GET enriches the persisted schedule record with the
+  // automatic provider-change runtime state. It is mounted before the reusable
+  // legacy desktop server so consumers see one Continuous Protection contract;
+  // direct createLocalDesktopServer consumers retain their original API shape.
+  if (accountAutomaticProtection) {
+    app.get(
+      "/api/accounts/:id/background-protection",
+      security.validateLoopbackRequest,
+      security.securityHeaders,
+      security.redactResponses(),
+      security.requireProtectedRead(),
+      (req, res) => {
+        const session = sessionStore.getCanonical(req.params.id!);
+        if (!session) return res.status(404).json({ error: "Unknown account" });
+        try {
+          res.setHeader("Cache-Control", "no-store");
+          res.json({
+            ...backgroundProtection.status(session.policyAccountKey),
+            automaticProtection: accountAutomaticProtection(session),
+          });
+        } catch (error) {
+          res.status(500).json({
+            error: `Continuous protection status could not be read: ${error instanceof Error ? error.message : String(error)}`,
+          });
+        }
+      },
+    );
+  }
+
   if (localOptions.developmentEntitlementsEnabled !== true) {
     app.use(
       "/api/operations/v1/snapshot",
