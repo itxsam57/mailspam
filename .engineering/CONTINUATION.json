@@ -2,69 +2,63 @@
   "schemaVersion": 1,
   "project": "Email Shield",
   "repository": "itxsam57/mailspam",
-  "updatedAt": "2026-08-23T22:41:00+05:00",
+  "updatedAt": "2026-08-23T23:23:31+05:00",
   "governor": {
     "mode": "AUTONOMOUS",
-    "allowedStopStates": ["OWNER_REQUIRED", "BLOCKED", "WAIT_EXTERNAL", "LOOP_DETECTED", "COMPLETE"],
+    "allowedStopStates": [
+      "OWNER_REQUIRED",
+      "BLOCKED",
+      "WAIT_EXTERNAL",
+      "LOOP_DETECTED",
+      "COMPLETE"
+    ],
     "currentState": "ACTIVE"
   },
   "sourceOfTruth": {
     "baseBranch": "main",
-    "baseSha": "3af75b142f11951905e0ae8827ed8bafd8ca46d1",
-    "activeBranch": "repair/final-consumer-closure-20260823",
-    "activePullRequest": 125,
-    "lastQualifiedCodeHeadSha": "7e5be88841a752201aec7fa0d2771a02389abdeb"
+    "baseSha": "2db40f87ff5be7c0569b997d0d1337b2bae34f97",
+    "activeBranch": "chore/live-acceptance-reconcile-20260823",
+    "activePullRequest": null,
+    "lastQualifiedCodeHeadSha": "7e5be88841a752201aec7fa0d2771a02389abdeb",
+    "lastQualifiedGovernorHeadSha": "86a2a4bc83014188c719377b7a4c828d1ece0b76",
+    "lastMergedMainSha": "2db40f87ff5be7c0569b997d0d1337b2bae34f97"
   },
   "activeBatch": [
-    "EMA-26/27/28/29/30 onboarding and continuous-protection workflow",
-    "EMA-12 unsupported notification setting",
-    "EMA-22 deferred Media Authenticity release surface",
-    "EMA-13 Activity details",
-    "EMA-24 Restore Purchase terminal diagnostics",
-    "EMA-11 post-merge diagnostics status ownership folded from qualified PR #126"
+    "Milestone 2 live-acceptance configuration handoff",
+    "post-merge continuation/governance reconciliation"
   ],
   "activeIssue": {
-    "id": "FINAL_CONSUMER_CLOSURE",
-    "phase": "QUALIFIED_READY_TO_MERGE",
-    "rootCause": "The remaining consumer queue shared one composition/runtime boundary: automatic protection authorization was split between scheduled and realtime paths; onboarding review actions applied mailbox prerequisites too broadly; unsupported release promises remained visible; Activity lacked explanatory disclosure; Restore Purchase lacked real-browser terminal/race acceptance; and mutable developer diagnostics status could be overwritten by localization.",
-    "qualifiedCodeHeadSha": "7e5be88841a752201aec7fa0d2771a02389abdeb",
+    "id": "M2_LIVE_ACCEPTANCE_HANDOFF",
+    "phase": "QUALIFICATION_PENDING",
+    "rootCause": "PR #125 merged and superseded PR #126 closed, but the continuation governor still described the pre-merge state. In addition, source Outlook live acceptance requires EMAIL_SHIELD_MICROSOFT_CLIENT_ID while the checked-in environment template did not expose that required handoff. The provider runtime itself is already implemented; this batch repairs configuration and governance truth without changing detector or provider behavior.",
     "qualification": {
-      "engineeringGateRunId": 32651987770,
-      "engineeringGateRunNumber": 1452,
+      "finalConsumerCodeGateRunId": 32651987770,
+      "finalConsumerCodeGateRunNumber": 1452,
+      "finalConsumerGovernorGateRunId": 32655749742,
+      "finalConsumerGovernorGateRunNumber": 1453,
       "platforms": {
         "windows": "PASS",
         "macos": "PASS",
         "ubuntuRealSecretService": "PASS",
         "gateResultSummary": "PASS"
       },
-      "tests": "1233 passed, 1 platform-specific skip on macOS qualification evidence; integration 6/6",
-      "corpus": "140/140 malicious caught and 140/140 legitimate Safe across five provider fixtures",
-      "browserAcceptance": [
-        "normal consumer Community/internal operations surface retired; developer-entitled aggregate diagnostics remain under Settings",
-        "pre-connect Permissions and Family review remain available without entitlement bypass or false completion",
-        "one persisted Continuous Protection switch under Settings authorizes scheduled/provider-change automation while truthfully reporting provider-event availability and fallback",
-        "real Health action creates an Activity row with accessible privacy-safe reason disclosure",
-        "real Account Restore Purchase reaches bridge-unavailable, nothing-to-restore, verification-rejected, and stale-safe terminal states without raw store evidence",
-        "Google consumer entrypoint reaches hardened PKCE authorization",
-        "scan results, Trash, Health cleanup/request ordering/security-alert composition/identity aggregation, and Support Bundle smokes pass"
-      ],
-      "release": "portable package verification and signed release install/activation/uninstall lifecycle passed",
-      "foldedFollowUp": "PR #126 diagnostics status ownership was independently qualified by Gate #1445 on Windows/macOS/Ubuntu real Secret Service plus Gate Result Summary before being folded byte-for-byte into PR #125"
+      "mergedMainPostMergeGate": "UNCONFIRMED_IN_CURRENT_CONNECTOR"
     },
-    "nextAction": "Qualify this Governor-only head, prove only .engineering/CONTINUATION.json changed from qualified code head, require zero unresolved review threads, mark PR #125 ready, squash-merge with expected-head guard, verify signed/verified main, close superseded PR #126, and reconcile eligible Linear issues."
+    "nextAction": "Qualify this configuration/governance-only branch on Windows, macOS and Ubuntu real Secret Service, merge only the exact qualified head, then prove the resulting exact final main and proceed through docs/MILESTONE_2_LIVE_ACCEPTANCE.md. Do not invent new implementation work unless live evidence exposes a reproducible code defect."
   },
   "lastVerifiedRepair": {
-    "id": "EMA-11",
-    "pullRequest": 124,
-    "verifiedHeadSha": "5e9b6095d51f0e07cf2e89147a9f362f8afcabf2",
-    "engineeringGateRunId": 32643390275,
-    "engineeringGateRunNumber": 1441,
-    "mergeSha": "3af75b142f11951905e0ae8827ed8bafd8ca46d1",
+    "id": "FINAL_CONSUMER_CLOSURE",
+    "pullRequest": 125,
+    "verifiedCodeHeadSha": "7e5be88841a752201aec7fa0d2771a02389abdeb",
+    "verifiedGovernorHeadSha": "86a2a4bc83014188c719377b7a4c828d1ece0b76",
+    "engineeringGateRunId": 32655749742,
+    "engineeringGateRunNumber": 1453,
+    "mergeSha": "2db40f87ff5be7c0569b997d0d1337b2bae34f97",
     "evidence": [
-      "Windows, macOS, Ubuntu real Secret Service and Gate Result Summary passed",
-      "normal consumer Community/internal operations surface retired and consumer operations endpoint returns 404",
-      "explicit development-entitled Settings retains aggregate-only diagnostics",
-      "main merge is GitHub signed and verified"
+      "Final consumer code head passed Windows, macOS, Ubuntu real Secret Service and Gate Result Summary in Gate #1452",
+      "Governor-only final PR head passed Windows, macOS, Ubuntu real Secret Service and Gate Result Summary in Gate #1453",
+      "PR #125 merged to main as GitHub signed and verified commit 2db40f87ff5be7c0569b997d0d1337b2bae34f97",
+      "No separate post-merge main gate is claimed here without direct evidence"
     ]
   },
   "remainingCodeQueue": [],
@@ -72,6 +66,10 @@
     "EMA-14-paidFamily": "OWNER_OR_VERIFIED_PAID_ENTITLEMENT_REQUIRED",
     "universalDetectionLiveMailboxes": "OWNER_LIVE_REACCEPTANCE_MAN_021_PENDING",
     "gmailLive": "OWNER_TEST_ACCOUNT_PENDING",
-    "outlookLive": "DEFERRED_BY_OWNER"
+    "outlookLive": "OWNER_LIVE_ACCEPTANCE_PENDING",
+    "GAP-001-googlePublication": "EXTERNAL_PROVIDER_APPROVAL_PENDING",
+    "GAP-004-communityDeployment": "EXTERNAL_DEPLOYMENT_PENDING",
+    "GAP-005-analyzeLinksLive": "CONTROLLED_PUBLIC_INFRASTRUCTURE_PENDING",
+    "GAP-008-gatewayAbuseControls": "PRODUCTION_GATEWAY_PENDING"
   }
 }
