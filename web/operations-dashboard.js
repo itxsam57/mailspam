@@ -11,6 +11,7 @@
   const number = (value) => i18n?.formatNumber(value) || String(Number(value) || 0);
   let loaded = false;
   let dirty = true;
+  let loading = false;
 
   function cell(value, scope) {
     const element = document.createElement(scope ? 'th' : 'td');
@@ -62,7 +63,8 @@
   }
 
   async function load() {
-    if (!diagnosticsVisible()) return;
+    if (!diagnosticsVisible() || loading) return;
+    loading = true;
     refresh.disabled = true;
     status.textContent = t('operations.loading');
     try {
@@ -76,6 +78,7 @@
       dirty = true;
       status.textContent = error instanceof Error ? error.message : t('operations.failed');
     } finally {
+      loading = false;
       refresh.disabled = false;
     }
   }
