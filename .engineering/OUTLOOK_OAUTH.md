@@ -32,6 +32,24 @@ The application must allow the account audience intended for the Email Shield bu
 
 No Microsoft client secret is required or expected for guided desktop OAuth.
 
+### Source live-acceptance handoff
+
+For an owner-controlled source test, keep the application ID only in the ignored repository-local `.env.local` file. Start from `.env.example` when creating that file and set:
+
+```text
+EMAIL_SHIELD_MICROSOFT_CLIENT_ID=<Microsoft Application (client) ID>
+```
+
+Do **not** add a Microsoft client secret. The guided desktop path is intentionally a public client and source startup reads `.env.local` before launching the local server.
+
+Then start the production-like consumer source boundary with:
+
+```text
+npm run dev
+```
+
+Do not use `npm run dev:fixtures` for real Microsoft acceptance. Before starting sign-in, the Outlook connection surface must report that Microsoft OAuth is configured; if it does not, stop and correct the application-ID handoff instead of testing with a different OAuth path.
+
 ## Requested permissions
 
 The guided Outlook path requests only:
