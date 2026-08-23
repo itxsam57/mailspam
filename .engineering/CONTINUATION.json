@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "project": "Email Shield",
   "repository": "itxsam57/mailspam",
-  "updatedAt": "2026-08-23T23:31:32+05:00",
+  "updatedAt": "2026-08-23T23:39:58+05:00",
   "governor": {
     "mode": "AUTONOMOUS",
     "allowedStopStates": [
@@ -12,59 +12,66 @@
       "LOOP_DETECTED",
       "COMPLETE"
     ],
-    "currentState": "ACTIVE"
+    "currentState": "OWNER_REQUIRED"
   },
   "sourceOfTruth": {
     "baseBranch": "main",
-    "baseSha": "2db40f87ff5be7c0569b997d0d1337b2bae34f97",
-    "activeBranch": "chore/live-acceptance-reconcile-20260823",
-    "activePullRequest": 127,
+    "baseSha": "5ed6572fa9fec18a929cbd230568b8d7904da4b0",
+    "activeBranch": null,
+    "activePullRequest": null,
     "lastQualifiedCodeHeadSha": "050ed25d7cd59c1aa92de917969ba669c7de3201",
-    "lastQualifiedGovernorHeadSha": "86a2a4bc83014188c719377b7a4c828d1ece0b76",
-    "lastMergedMainSha": "2db40f87ff5be7c0569b997d0d1337b2bae34f97"
+    "lastQualifiedGovernorHeadSha": "3abf902e93911ce183af3e4f53ebb5c381c02f9e",
+    "lastMergedMainSha": "5ed6572fa9fec18a929cbd230568b8d7904da4b0",
+    "qualifiedTreeSha": "c4e49a69dd40fe86236cc1e375512bfe34e0bf79"
   },
   "activeBatch": [
-    "Milestone 2 live-acceptance configuration handoff",
-    "post-merge continuation/governance reconciliation"
+    "Milestone 2 external/live acceptance"
   ],
   "activeIssue": {
-    "id": "M2_LIVE_ACCEPTANCE_HANDOFF",
-    "phase": "QUALIFIED_CODE_GOVERNOR_PENDING",
-    "rootCause": "PR #125 merged and superseded PR #126 closed, but the continuation governor still described the pre-merge state. In addition, source Outlook live acceptance requires EMAIL_SHIELD_MICROSOFT_CLIENT_ID while the checked-in environment template did not expose that required handoff. The provider runtime itself is already implemented; this batch repairs configuration and governance truth without changing detector or provider behavior.",
+    "id": "M2_EXTERNAL_LIVE_ACCEPTANCE",
+    "phase": "OWNER_LIVE_ACCEPTANCE_PENDING",
+    "rootCause": "All confirmed repository-buildable Milestone 2 work is exhausted. The remaining acceptance boundary depends on owner-controlled provider accounts, provider publication, controlled public destination infrastructure, and production community/gateway deployment. No new implementation work should be invented unless live evidence exposes a reproducible code defect.",
     "qualification": {
-      "finalConsumerCodeGateRunId": 32651987770,
-      "finalConsumerCodeGateRunNumber": 1452,
-      "finalConsumerGovernorGateRunId": 32655749742,
-      "finalConsumerGovernorGateRunNumber": 1453,
       "liveHandoffQualifiedHeadSha": "050ed25d7cd59c1aa92de917969ba669c7de3201",
       "liveHandoffGateRunId": 32657936870,
       "liveHandoffGateRunNumber": 1458,
+      "governorQualifiedHeadSha": "3abf902e93911ce183af3e4f53ebb5c381c02f9e",
+      "governorGateRunId": 32658327985,
+      "governorGateRunNumber": 1459,
       "platforms": {
         "windows": "PASS",
         "macos": "PASS",
         "ubuntuRealSecretService": "PASS",
         "gateResultSummary": "PASS"
       },
-      "mergedMainPostMergeGate": "UNCONFIRMED_IN_CURRENT_CONNECTOR"
+      "mergedMainSha": "5ed6572fa9fec18a929cbd230568b8d7904da4b0",
+      "mergedMainTreeSha": "c4e49a69dd40fe86236cc1e375512bfe34e0bf79",
+      "qualifiedGovernorTreeSha": "c4e49a69dd40fe86236cc1e375512bfe34e0bf79",
+      "mergeSignature": "GITHUB_SIGNED_VERIFIED",
+      "exactMergedMainPostMergeGate": "UNCONFIRMED_IN_CURRENT_CONNECTOR"
     },
-    "nextAction": "Qualify this governor-only head, prove only .engineering/CONTINUATION.json changed from qualified live-handoff head 050ed25d7cd59c1aa92de917969ba669c7de3201, require zero unresolved review threads, mark PR #127 ready, squash-merge with expected-head guard, verify signed/verified main, then prove the resulting exact final main and proceed through docs/MILESTONE_2_LIVE_ACCEPTANCE.md."
+    "nextAction": "Owner checks out the final main, runs npm ci and npm run gate as the exact-main Phase A proof, then follows docs/MILESTONE_2_LIVE_ACCEPTANCE.md. Begin with final fixture/browser acceptance and the controlled Outlook public-client flow now that the required .env.local handoff is documented. Record any failure exactly and reopen engineering only for a reproducible code defect."
   },
   "lastVerifiedRepair": {
     "id": "M2_LIVE_ACCEPTANCE_HANDOFF",
     "pullRequest": 127,
-    "verifiedHeadSha": "050ed25d7cd59c1aa92de917969ba669c7de3201",
-    "engineeringGateRunId": 32657936870,
-    "engineeringGateRunNumber": 1458,
-    "mergeSha": null,
+    "verifiedCodeHeadSha": "050ed25d7cd59c1aa92de917969ba669c7de3201",
+    "verifiedGovernorHeadSha": "3abf902e93911ce183af3e4f53ebb5c381c02f9e",
+    "engineeringGateRunId": 32658327985,
+    "engineeringGateRunNumber": 1459,
+    "mergeSha": "5ed6572fa9fec18a929cbd230568b8d7904da4b0",
     "evidence": [
-      "PR #127 live-acceptance handoff head passed Windows, macOS, Ubuntu real Secret Service and Gate Result Summary",
-      "The qualified head changed only .env.example, .engineering/OUTLOOK_OAUTH.md and .engineering/CONTINUATION.json from main",
-      "No detector, provider adapter, OAuth flow or scope behavior changed",
-      "No separate post-merge main gate is claimed here without direct evidence"
+      "PR #127 code/config/governance head passed Windows, macOS, Ubuntu real Secret Service and Gate Result Summary in Gate #1458",
+      "Governor-only final PR head changed only .engineering/CONTINUATION.json from the qualified code/config head and passed the same four jobs in Gate #1459",
+      "PR #127 squash-merged with expected-head guard to GitHub signed/verified main commit 5ed6572fa9fec18a929cbd230568b8d7904da4b0",
+      "Merged main tree c4e49a69dd40fe86236cc1e375512bfe34e0bf79 exactly matches the qualified governor-head tree",
+      "No exact-SHA post-merge workflow is claimed without direct evidence; Phase A local npm run gate remains required on final main"
     ]
   },
   "remainingCodeQueue": [],
   "externalAcceptance": {
+    "finalExactMainGate": "OWNER_PHASE_A_PENDING",
+    "finalFixtureBrowserAcceptance": "OWNER_PENDING",
     "EMA-14-paidFamily": "OWNER_OR_VERIFIED_PAID_ENTITLEMENT_REQUIRED",
     "universalDetectionLiveMailboxes": "OWNER_LIVE_REACCEPTANCE_MAN_021_PENDING",
     "gmailLive": "OWNER_TEST_ACCOUNT_PENDING",
