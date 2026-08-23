@@ -35,6 +35,7 @@
     .consumer-onboarding-card h2{font-size:19px;text-transform:none;letter-spacing:0;color:var(--text);margin-bottom:8px}.consumer-onboarding-card p{color:var(--text-muted);line-height:1.6;font-size:13px}
     .consumer-step{padding:12px 0;border-top:1px solid var(--border)}.consumer-step:first-of-type{border-top:0}.consumer-step strong{display:block;margin-bottom:4px}
     .consumer-two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.consumer-input{width:100%}
+    .consumer-activity-details{margin-top:7px;font-size:11px;color:var(--text-muted)}.consumer-activity-details summary{cursor:pointer;color:var(--text);font-weight:600}.consumer-activity-details .hint{line-height:1.5}
     #modeSelectFieldConsumerHidden,#modeSelectConsumerHidden{display:none!important}
     @media(max-width:760px){.consumer-provider-grid,.consumer-two{grid-template-columns:1fr}.consumer-status-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
     @media(max-width:460px){.consumer-status-grid{grid-template-columns:1fr}}
@@ -244,7 +245,6 @@
     <div><h2>Safety Tools & Privacy</h2><p class="hint">Explicit checks only. Email Shield does not upload browser history, mailbox content or passwords.</p></div>
     <div class="consumer-two">
       <div class="consumer-card"><h3>Protection sensitivity</h3><p>Changes how much borderline activity asks for your attention. Hard threat/authentication rules stay locked.</p><div class="consumer-actions"><button data-consumer-sensitivity="high_protection">High protection</button><button data-consumer-sensitivity="balanced">Balanced</button><button data-consumer-sensitivity="low_noise">Low noise</button></div><div id="consumerSensitivityStatus" class="hint"></div></div>
-      <div class="consumer-card"><h3>Notification privacy</h3><p>Default notifications are generic. Richer local previews are optional and remain device-local.</p><label class="row"><input id="consumerRicherNotifications" type="checkbox"> Allow richer local notification text</label></div>
       <div class="consumer-card"><h3>Check a destination</h3><label class="field"><span>Website URL</span><input id="consumerBrowserUrl" class="consumer-input" type="url" placeholder="https://example.com"></label><div class="consumer-actions"><button id="consumerCheckBrowser" type="button">Check before opening</button></div><div id="consumerBrowserResult" class="hint"></div></div>
       <div class="consumer-card"><h3>Payment / callback / remote-access check</h3><textarea id="consumerInterventionText" class="consumer-input" rows="5" maxlength="32000" placeholder="Paste the suspicious request or conversation"></textarea><div class="consumer-actions"><button id="consumerCheckIntervention" type="button">Check interaction</button></div><div id="consumerInterventionResult" class="hint"></div></div>
       <div class="consumer-card"><h3>Exposure check</h3><p>Optional privacy-preserving lookup. Only a short hash prefix leaves the device when a vetted service is configured.</p><label class="field"><span>Email</span><input id="consumerExposureEmail" class="consumer-input" type="email"></label><div class="consumer-actions"><button id="consumerCheckExposure" type="button">Check exposure</button></div><div id="consumerExposureResult" class="hint"></div></div>
@@ -365,9 +365,22 @@
       const consumer = await json(await fetch(`/api/consumer/v1/accounts/${encodeURIComponent(id)}/state`));
       if (!stillSelected(id)) return;
       state.consumer = consumer;
-      const check=document.getElementById('consumerRicherNotifications'); if (check instanceof HTMLInputElement) check.checked=consumer.richerLocalNotifications===true;
       const status=document.getElementById('consumerSensitivityStatus'); if(status) status.textContent=`Current: ${String(consumer.sensitivity || 'balanced').replace(/_/g,' ')}`;
     } catch {}
+  }
+
+  function activityExplanation(item) {
+    const pieces = [
+      `Type: ${String(item.kind || 'activity').replace(/_/g, ' ')}`,
+      `Severity: ${String(item.severity || 'info').replace(/_/g, ' ')}`,
+    ];
+    if (item.provider) pieces.push(`Provider: ${String(item.provider)}`);
+    if (Array.isArray(item.reasonCodes) && item.reasonCodes.length) {
+      pieces.push(`Reason codes: ${item.reasonCodes.map((code) => String(code).replace(/_/g, ' ').toLowerCase()).join(', ')}`);
+    } else {
+      pieces.push('Reason codes: no additional privacy-safe reason code was recorded.');
+    }
+    return pieces.join(' · ');
   }
 
   async function loadActivity() {
@@ -383,6 +396,16 @@
         const row=document.createElement('div'); row.className='consumer-list-item';
         const info=document.createElement('div');
         info.innerHTML=`<strong>${escapeHtml(item.title)}</strong><div class="hint">${escapeHtml(item.detail || '')}</div><div class="hint">${new Date(item.createdAt).toLocaleString()}${item.provider ? ` · ${escapeHtml(item.provider)}` : ''}</div>`;
+        const details=document.createElement('details');
+        details.dataset.activityDetails='true';
+        details.className='consumer-activity-details';
+        const summary=document.createElement('summary');
+        summary.textContent='Why Email Shield recorded this';
+        const explanation=document.createElement('div');
+        explanation.className='hint';
+        explanation.textContent=activityExplanation(item);
+        details.append(summary, explanation);
+        info.append(details);
         const controls=document.createElement('div');
         if(item.undoAvailable){const undo=document.createElement('button');undo.type='button';undo.textContent='Undo';undo.addEventListener('click',async()=>{if(!stillSelected(id)){document.getElementById('consumerActivityStatus').textContent='Mailbox selection changed. Refresh Activity before using Undo.';return;}try{await post(`/api/consumer/v1/accounts/${encodeURIComponent(id)}/activity/${encodeURIComponent(item.activityId)}/undo`);if(stillSelected(id))await loadActivity();}catch(error){if(stillSelected(id))document.getElementById('consumerActivityStatus').textContent=error.message||String(error);}});controls.append(undo);}
         row.append(info,controls); list.append(row);
@@ -413,7 +436,6 @@
   document.getElementById('consumerRefreshFamily')?.addEventListener('click',loadFamily);
   document.getElementById('consumerClearActivity')?.addEventListener('click',async()=>{const id=activeMailboxId();if(!id)return;const confirmation=prompt('Type CLEAR ACTIVITY to delete local activity history');if(confirmation!=='CLEAR ACTIVITY'||activeMailboxId()!==id)return;try{await json(await fetch(`/api/consumer/v1/accounts/${encodeURIComponent(id)}/activity`,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmation})}));if(activeMailboxId()===id)await loadActivity();}catch(error){if(activeMailboxId()===id)document.getElementById('consumerActivityStatus').textContent=error.message||String(error);}});
   document.querySelectorAll('[data-consumer-sensitivity]').forEach(button=>button.addEventListener('click',async()=>{const id=selectedSessionOrThrow();try{const consumer=await post(`/api/consumer/v1/accounts/${encodeURIComponent(id)}/sensitivity`,{profile:button.dataset.consumerSensitivity});if(stillSelected(id)){state.consumer=consumer;await loadConsumerState();}}catch(error){if(stillSelected(id))document.getElementById('consumerSensitivityStatus').textContent=error.message||String(error);}}));
-  document.getElementById('consumerRicherNotifications')?.addEventListener('change',async(event)=>{const id=selectedSessionOrThrow();try{await post(`/api/consumer/v1/accounts/${encodeURIComponent(id)}/notifications`,{richerLocalNotifications:event.target.checked});}catch(error){if(stillSelected(id))event.target.checked=!event.target.checked;else void loadConsumerState();}});
   document.getElementById('consumerCheckBrowser')?.addEventListener('click',async()=>{const out=document.getElementById('consumerBrowserResult');try{const url=document.getElementById('consumerBrowserUrl').value;const result=await post('/api/consumer/v1/browser/check',{schemaVersion:1,url,context:'explicit_check'});out.textContent=`${result.disposition.toUpperCase()}: ${result.explanation}`;}catch(error){out.textContent=error.message||String(error);}});
   document.getElementById('consumerCheckIntervention')?.addEventListener('click',async()=>{const out=document.getElementById('consumerInterventionResult');try{const text=document.getElementById('consumerInterventionText').value;const result=await post('/api/consumer/v1/intervention/check',{text});out.textContent=result.recommendedAction;}catch(error){out.textContent=error.message||String(error);}});
   document.getElementById('consumerCheckExposure')?.addEventListener('click',async()=>{const out=document.getElementById('consumerExposureResult');try{const email=document.getElementById('consumerExposureEmail').value;if(!confirm('Check this email using the configured privacy-preserving exposure service? Only a short local hash prefix is sent.'))return;const result=await post('/api/consumer/v1/exposure/email',{email,consent:true});out.textContent=result.state==='unavailable'?result.limitations?.[0]||'Exposure service unavailable.':result.state==='exposed'?'Exposure evidence was found. Change reused credentials and review account security.':'No matching exposure was returned by the configured source. This is not proof the address was never exposed.';}catch(error){out.textContent=error.message||String(error);}});
@@ -429,7 +451,7 @@
     await loadConsumerState();
     if(!stillSelected(id))return;
     if(state.consumer?.onboarding?.dismissedAt||state.consumer?.onboarding?.completedSteps?.includes('consumer_intro'))return;
-    const overlay=document.createElement('div');overlay.className='consumer-onboarding';overlay.innerHTML=`<div class="consumer-onboarding-card"><h2>Email Shield is protecting this mailbox</h2><p>Your mailbox stays with your provider. Email Shield reads bounded mail locally when protection runs, keeps provider secrets in the operating system credential vault, and sends only privacy-reduced threat evidence when Community or Family sharing is enabled.</p><div class="consumer-step"><strong>1. Protection runs after restart</strong><p>Your approved mailbox connection is restored automatically while Email Shield is running.</p></div><div class="consumer-step"><strong>2. Hard threats stay hard</strong><p>Sensitivity changes borderline attention, not authentication failures, verified threats or your explicit Block/Catch & Trash rules.</p></div><div class="consumer-step"><strong>3. Unknown is not Safe</strong><p>If a provider check, exposure service or media detector is unavailable, Email Shield tells you it is unavailable instead of displaying a green result.</p></div><div class="consumer-actions"><button id="consumerOnboardingDone" class="primary" type="button">Got it — continue</button></div></div>`;
+    const overlay=document.createElement('div');overlay.className='consumer-onboarding';overlay.innerHTML=`<div class="consumer-onboarding-card"><h2>Email Shield is protecting this mailbox</h2><p>Your mailbox stays with your provider. Email Shield reads bounded mail locally when protection runs, keeps provider secrets in the operating system credential vault, and sends only privacy-reduced threat evidence when Community or Family sharing is enabled.</p><div class="consumer-step"><strong>1. Protection runs after restart</strong><p>Your approved mailbox connection is restored automatically while Email Shield is running.</p></div><div class="consumer-step"><strong>2. Hard threats stay hard</strong><p>Sensitivity changes borderline attention, not authentication failures, verified threats or your explicit Block/Catch & Trash rules.</p></div><div class="consumer-step"><strong>3. Unknown is not Safe</strong><p>If a provider check or exposure service is unavailable, Email Shield tells you it is unavailable instead of displaying a green result.</p></div><div class="consumer-actions"><button id="consumerOnboardingDone" class="primary" type="button">Got it — continue</button></div></div>`;
     document.body.append(overlay);
     overlay.querySelector('#consumerOnboardingDone')?.addEventListener('click',async()=>{
       if(!stillSelected(id)){overlay.remove();return;}

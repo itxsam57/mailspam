@@ -3,6 +3,7 @@ import type { Provider } from "../canonical/envelope.js";
 import { sha256Hex } from "../core/sha256.js";
 import {
   InboundProtectionCoordinator,
+  normalizeInboundEvent,
   type CanonicalInboundEventV1,
   type InboundEventOutcome,
   type InboundEventStateRepository,
@@ -28,13 +29,25 @@ export interface RealtimeProtectionStatus {
   lastErrorCode: "scan_conflict" | "provider_unavailable" | "provider_mismatch" | "processing_failure" | null;
 }
 
+export interface AccountAutomaticProtectionStatus {
+  automaticProcessingEnabled: boolean;
+  providerEvents: "not_configured_in_desktop_runtime";
+  metadataCheckpointFallback: "available" | "unavailable";
+  pollIntervalMs: number;
+  persistentReplayState: boolean;
+  lastPollAt: number | null;
+  lastSuccessAt: number | null;
+  lastErrorAt: number | null;
+  lastErrorCode: RealtimeProtectionStatus["lastErrorCode"];
+}
+
+export type RealtimeProtectionOutcome = InboundEventOutcome | { status: "disabled" };
+
 export interface MailboxReachabilitySnapshot {
   state: "checking" | "reachable" | "unavailable";
   checkedAt: number | null;
   lastReachableAt: number | null;
 }
-
-export type RealtimeProtectionOutcome = InboundEventOutcome | { status: "disabled" };
 
 interface MailboxReachabilityRecord extends MailboxReachabilitySnapshot {
   sessionId: string;
@@ -84,12 +97,8 @@ function pollingEvent(
  * immediately. The polling fallback first compares a provider-native opaque
  * metadata checkpoint. It establishes a protected baseline without scanning,
  * ignores unchanged mailboxes, and enters the shared replay-safe Quick scan
- * path only after the checkpoint genuinely changes.
- *
- * Continuous Protection is the single authorization boundary for every
- * automatic scan source. Disabling it pauses scheduled work and also rejects
- * push/IDLE processing while the metadata poll remains free to prove mailbox
- * reachability and observe a non-scanning baseline.
+ * path only after the checkpoint genuinely changes AND the account's persisted
+ * Continuous Protection state authorizes automatic processing.
  */
 export class RealtimeProtectionService {
   readonly #sessions: Pick<SessionStore, "list">;
@@ -97,7 +106,6 @@ export class RealtimeProtectionService {
   readonly #pollIntervalMs: number;
   readonly #pollProbe: MailboxCheckpointProbe | null;
   readonly #protectionEnabled: (accountKey: string) => boolean;
-  readonly #disabledPollObservations = new Map<string, string>();
   #timer: NodeJS.Timeout | null = null;
   #pollRunning = false;
   #lastPollAt: number | null = null;
@@ -128,8 +136,8 @@ export class RealtimeProtectionService {
     if (this.#timer) return;
     this.#timer = setInterval(() => { void this.pollNow(); }, this.#pollIntervalMs);
     this.#timer.unref();
-    // Establish provider baselines immediately, but never turn startup itself
-    // into a scan or Activity entry.
+    // Establish provider baselines/reachability immediately, but startup never
+    // becomes a scan and disabled accounts remain scan-paused.
     void this.pollNow();
   }
 
@@ -152,6 +160,20 @@ export class RealtimeProtectionService {
       queued: backlog.queued,
       processing: backlog.processing,
       connectedAccounts,
+      lastPollAt: this.#lastPollAt,
+      lastSuccessAt: this.#lastSuccessAt,
+      lastErrorAt: this.#lastErrorAt,
+      lastErrorCode: this.#lastErrorCode,
+    };
+  }
+
+  accountStatus(session: AccountSession): AccountAutomaticProtectionStatus {
+    return {
+      automaticProcessingEnabled: this.#protectionEnabled(session.policyAccountKey),
+      providerEvents: "not_configured_in_desktop_runtime",
+      metadataCheckpointFallback: this.#pollProbe ? "available" : "unavailable",
+      pollIntervalMs: this.#pollIntervalMs,
+      persistentReplayState: this.#coordinator.persistent,
       lastPollAt: this.#lastPollAt,
       lastSuccessAt: this.#lastSuccessAt,
       lastErrorAt: this.#lastErrorAt,
@@ -188,8 +210,13 @@ export class RealtimeProtectionService {
     });
   }
 
-  async enqueue(event: CanonicalInboundEventV1): Promise<RealtimeProtectionOutcome> {
-    if (!this.#protectionEnabled(event.accountKey)) return { status: "disabled" };
+  async enqueue(input: CanonicalInboundEventV1): Promise<RealtimeProtectionOutcome> {
+    const event = normalizeInboundEvent(input);
+    if (!this.#protectionEnabled(event.accountKey)) {
+      if (event.checkpoint) this.#coordinator.observeCheckpoint(event.accountKey, event.provider, event.source, event.checkpoint);
+      this.#lastErrorCode = null;
+      return { status: "disabled" };
+    }
     try {
       const outcome = await this.#coordinator.enqueue(event);
       if (outcome.status !== "duplicate") this.#lastSuccessAt = Date.now();
@@ -232,21 +259,15 @@ export class RealtimeProtectionService {
       }
       return;
     }
-    if (current === checkpoint) {
-      if (this.#protectionEnabled(session.policyAccountKey)) this.#disabledPollObservations.delete(session.policyAccountKey);
-      return;
-    }
+    if (current === checkpoint) return;
 
     if (!this.#protectionEnabled(session.policyAccountKey)) {
-      // Keep observing metadata while disabled so enabling protection does not
-      // immediately treat mail received during the paused period as a provider
-      // event. No message content is fetched and no scan is run here.
-      this.#disabledPollObservations.set(session.policyAccountKey, checkpoint);
-      return;
-    }
-
-    if (this.#disabledPollObservations.get(session.policyAccountKey) === checkpoint) {
-      this.#disabledPollObservations.delete(session.policyAccountKey);
+      try {
+        this.#coordinator.observeCheckpoint(session.policyAccountKey, provider, "poll", checkpoint);
+        this.#lastErrorCode = null;
+      } catch (error) {
+        this.#recordError(error);
+      }
       return;
     }
 
@@ -261,7 +282,8 @@ export class RealtimeProtectionService {
   /**
    * Metadata-only fallback tick. Connected accounts are probed concurrently so
    * a slow or unavailable provider cannot prevent another account from being
-   * protected. The shared inbound coordinator still serializes actual scans.
+   * observed. The probe is permitted while Continuous Protection is paused only
+   * for reachability/latest-checkpoint state; it cannot launch a scan.
    */
   async pollNow(now = Date.now()): Promise<void> {
     if (this.#pollRunning) return;

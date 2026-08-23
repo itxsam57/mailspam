@@ -248,6 +248,30 @@ export class InboundProtectionCoordinator {
     return normalized.checkpoint!;
   }
 
+  /**
+   * Records the latest trusted provider checkpoint without acknowledging or
+   * executing an inbound event. Continuous Protection uses this while disabled
+   * so reachability/change observation cannot later be replayed as a scan for
+   * mail that arrived during an explicitly paused period.
+   */
+  observeCheckpoint(accountKey: string, provider: Provider, source: InboundEventSource, checkpoint: string): string {
+    const normalized = normalizeInboundEvent({
+      schemaVersion: 1,
+      accountKey,
+      provider,
+      source,
+      kind: "mailbox_changed",
+      eventId: "checkpoint-observation",
+      checkpoint,
+    });
+    const key = checkpointKey(normalized);
+    const next = cloneState(this.#state);
+    next.checkpoints[key] = normalized.checkpoint!;
+    this.#repository.save(next);
+    this.#state = next;
+    return normalized.checkpoint!;
+  }
+
   async enqueue(input: unknown): Promise<InboundEventOutcome> {
     const event = normalizeInboundEvent(input);
     const key = replayKey(event);

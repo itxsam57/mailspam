@@ -4,6 +4,8 @@
   installed.add('billing-plan-ui');
 
   const developerMode = new URLSearchParams(location.search).get('developer') === '1';
+  const runtimeTrace = window.emailShieldRuntimeTrace;
+  let restoreGeneration = 0;
 
   function enforceDeveloperVisibility() {
     const devPlans = document.getElementById('accountDevPlans');
@@ -58,22 +60,56 @@
     }
   }
 
+  function restoreTerminal(generation, code, message, outcome = 'success') {
+    if (generation !== restoreGeneration) return false;
+    const status = document.getElementById('consumerBillingStatus');
+    if (status) {
+      status.dataset.restoreState = code;
+      status.textContent = message;
+    }
+    runtimeTrace?.checkpoint('billing.purchase.restore.ui_confirmed', outcome, {
+      component: 'billing_plan_ui',
+      step: code,
+    });
+    return true;
+  }
+
+  function restoreResultCode(result) {
+    if (!result || typeof result !== 'object') return 'nothing_to_restore';
+    const raw = String(result.code || result.status || result.reason || '').trim().toLowerCase();
+    if (['nothing_to_restore', 'none', 'not_found', 'no_purchase', 'no_purchases'].includes(raw)) return 'nothing_to_restore';
+    return result.verified === true ? 'restored_verified' : 'verification_rejected';
+  }
+
   async function restore() {
+    const generation = ++restoreGeneration;
     const status = document.getElementById('consumerBillingStatus');
     const bridge = billingBridge();
     if (!bridge || typeof bridge.restore !== 'function') {
-      if (status) status.textContent = 'Purchase restore requires the signed production store bridge on this platform.';
+      restoreTerminal(generation, 'bridge_unavailable', 'Purchase restore requires the signed production store bridge on this platform.', 'unavailable');
       return;
     }
+    if (status && generation === restoreGeneration) {
+      status.dataset.restoreState = 'checking';
+      status.textContent = 'Checking previous purchases…';
+    }
     try {
-      if (status) status.textContent = 'Checking previous purchases…';
       const result = await bridge.restore();
-      if (!result || result.verified !== true) throw new Error('No server-verified restorable Email Shield purchase was returned.');
-      if (status) status.textContent = 'Purchase restored and verified.';
+      if (generation !== restoreGeneration) return;
+      const code = restoreResultCode(result);
+      if (code === 'nothing_to_restore') {
+        restoreTerminal(generation, 'nothing_to_restore', 'No restorable Email Shield purchase was found for the signed-in store account.', 'success');
+        return;
+      }
+      if (code === 'verification_rejected') {
+        restoreTerminal(generation, 'verification_rejected', 'A store record was returned, but Email Shield could not verify a valid entitlement. No paid access was granted.', 'failure');
+        return;
+      }
       await refreshCurrentPlan();
+      if (!restoreTerminal(generation, 'restored_verified', 'Purchase restored and server-verified.', 'success')) return;
       window.dispatchEvent(new CustomEvent('email-shield-profile-changed'));
     } catch (error) {
-      if (status) status.textContent = error.message || String(error);
+      restoreTerminal(generation, 'restore_failed', error?.message || String(error), 'failure');
     }
   }
 
@@ -97,9 +133,11 @@
     const devPlans = document.getElementById('accountDevPlans');
     if (devPlans?.parentElement === signedIn) signedIn.insertBefore(card, devPlans);
     else signedIn.append(card);
+    const restoreButton = card.querySelector('#consumerRestorePurchase');
     card.querySelector('#consumerBuyIndividual')?.addEventListener('click', () => { void purchase('individual'); });
     card.querySelector('#consumerBuyFamily')?.addEventListener('click', () => { void purchase('family'); });
-    card.querySelector('#consumerRestorePurchase')?.addEventListener('click', () => { void restore(); });
+    restoreButton?.addEventListener('click', () => { void restore(); });
+    if (restoreButton) runtimeTrace?.registerControl(restoreButton, 'billing.purchase.restore', 'billing.purchase.restore', 'billing_restore');
     void refreshCurrentPlan();
   }
 
@@ -114,10 +152,6 @@
     if (accountVisible()) mount();
   }
 
-  // Billing visibility is driven by explicit application state changes. Do not
-  // observe the entire document for `hidden` mutations: this module itself owns
-  // `accountDevPlans.hidden`, so a global attribute observer can feed its own
-  // write back into the microtask queue and starve the renderer indefinitely.
   window.addEventListener('email-shield-profile-changed', () => {
     enforceDeveloperVisibility();
     if (accountVisible()) {

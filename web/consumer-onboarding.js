@@ -66,24 +66,26 @@
   panel.id = 'consumerFirstRun';
   panel.setAttribute('aria-labelledby', 'consumerFirstRunHeading');
   panel.innerHTML = `
-    <div class="first-run-head"><div><h2 id="consumerFirstRunHeading">Finish protection setup</h2><p>Eight clear steps take Email Shield from local Scam Check to continuous mailbox and optional Family protection. Private mailbox content stays with your provider and on this device.</p></div><span id="consumerFirstRunProgress" class="first-run-progress" role="status" aria-live="polite"></span></div>
+    <div class="first-run-head"><div><h2 id="consumerFirstRunHeading">Finish protection setup</h2><p>Eight clear steps take Email Shield from local Scam Check to Continuous Protection and optional Family Shield. Private mailbox content stays with your provider and on this device.</p></div><span id="consumerFirstRunProgress" class="first-run-progress" role="status" aria-live="polite"></span></div>
     <div id="consumerFirstRunList" class="first-run-list"></div>
-    <div id="consumerPermissionNote" class="first-run-note" hidden><strong>Permission promise</strong><br>Gmail uses browser OAuth. iCloud, Yahoo and other IMAP providers use only the credentials required by that provider. Secrets stay in the operating-system credential vault. Email Shield requests mail access to inspect and perform the actions you explicitly enable; it does not upload mailbox bodies to the account, Family or Community services. You can disconnect a mailbox independently of your Email Shield account.</div>
+    <div id="consumerPermissionNote" class="first-run-note" hidden><strong>Permission promise — Review provider permissions before connecting a mailbox</strong><br>Gmail: OpenID identity + Gmail modify access. Microsoft: identity + Mail.ReadWrite (plus offline access for durable authorization). iCloud, Yahoo and other IMAP providers use only the credentials required by that provider. Secrets stay in the operating-system credential vault. Email Shield requests mail access only to inspect and perform actions you explicitly enable; it does not upload mailbox bodies to the account, Family or Community services. You can disconnect a mailbox independently of your Email Shield account.</div>
+    <div id="consumerFamilyReviewNote" class="first-run-note" hidden><strong>Family Shield can be reviewed before mailbox setup</strong><br>Family Shield is optional and never lets another family member browse your raw mailbox. A paid Family entitlement is still required to create or join protected Family state; this onboarding review never grants or bypasses that entitlement.</div>
     <div id="consumerFirstRunStatus" class="hint" role="status" aria-live="polite" style="margin-top:10px"></div>`;
   home.prepend(panel);
   const list = panel.querySelector('#consumerFirstRunList');
   const progress = panel.querySelector('#consumerFirstRunProgress');
   const status = panel.querySelector('#consumerFirstRunStatus');
   const permissionNote = panel.querySelector('#consumerPermissionNote');
+  const familyReviewNote = panel.querySelector('#consumerFamilyReviewNote');
 
   const definitions = [
     ['account_ready', 'Create or sign in', 'Use an Email Shield account for cross-device entitlement and Family features. Scam Check remains available locally before you sign in.', 'account'],
     ['mailbox_connected', 'Connect a mailbox', 'Requires a connected, selected mailbox. Choose Gmail, iCloud, Yahoo or another IMAP provider. Each mailbox remains independently removable.', 'connect'],
-    ['permissions_reviewed', 'Review permissions', 'Requires a connected, selected mailbox. See exactly why provider access is requested and what Email Shield never uploads.', 'permissions'],
+    ['permissions_reviewed', 'Review permissions', 'Review the exact provider access Email Shield requests before connecting. Saving this milestone remains mailbox-scoped after a mailbox is selected.', 'permissions'],
     ['first_scan_completed', 'Run the first protection scan', 'Requires a connected, selected mailbox. Complete at least one protection scan so the dashboard has an observed baseline.', 'scan'],
     ['sensitivity_chosen', 'Choose protection sensitivity', 'Requires a connected, selected mailbox. Explicitly save High Protection, Balanced or Low Noise. Hard threats and authentication contradictions can never be disabled.', 'sensitivity'],
-    ['continuous_protection_configured', 'Enable continuous protection', 'Requires a connected, selected mailbox. Enable background protection. Near-real-time provider events use the same protected scan pipeline when available and the schedule remains a fallback.', 'background'],
-    ['family_option_reviewed', 'Review Family Shield', 'Requires a connected, selected mailbox to save this setup choice. Create or join a Shield Circle if useful, or explicitly skip it. Family members cannot browse one another’s mail by default.', 'family'],
+    ['continuous_protection_configured', 'Continuous Protection', 'Requires a connected, selected mailbox. One persisted switch authorizes scheduled and provider-change automatic scans. Metadata-only reachability checks may continue while paused, but cannot launch a scan.', 'background'],
+    ['family_option_reviewed', 'Review Family Shield', 'Review the optional Family model before mailbox setup. Creating or joining protected Family state still requires the real paid entitlement.', 'family'],
     ['consumer_home_ready', 'Confirm your protection home', 'Requires a connected, selected mailbox and completed steps 1–7. Return Home so protection status, activity, Family state and connection problems are easy to find.', 'home'],
   ];
 
@@ -127,8 +129,14 @@
       skip.textContent = 'Not now';
       runtimeTrace?.registerControl(skip, 'onboarding.family.skip', 'onboarding.family.skip', 'onboarding_family');
       skip.addEventListener('click', async () => {
-        const id = await ensureBoundMailbox();
-        if (!id) { requestMailboxSetup('family'); return; }
+        familyReviewNote.hidden = false;
+        const id = activeMailboxId();
+        if (!id) {
+          status.textContent = 'Family Shield was reviewed. Connect a mailbox later to save this mailbox-scoped setup choice; no paid entitlement was granted.';
+          return;
+        }
+        await ensureBoundMailbox();
+        if (state.mailboxId !== id) return;
         state.completed.add('family_option_reviewed');
         await persistProgress(false, id).catch(showError);
         render();
@@ -214,16 +222,21 @@
       return;
     }
     if (action === 'permissions') {
-      const id = await ensureBoundMailbox();
-      if (!id) { requestMailboxSetup('permissions'); return; }
       permissionNote.hidden = false;
-      state.completed.add('permissions_reviewed');
-      await persistProgress(false, id).catch(showError);
-      render();
+      const id = activeMailboxId();
       runtimeTrace?.checkpoint('onboarding.permissions.review.ui_confirmed', 'success', {
         component: 'consumer_onboarding',
         step: 'permission_promise_visible',
       });
+      if (!id) {
+        status.textContent = 'Provider permissions are available for review before connection. Connect a mailbox when ready; reviewing this page does not authorize access by itself.';
+        return;
+      }
+      const bound = await ensureBoundMailbox();
+      if (!bound) return;
+      state.completed.add('permissions_reviewed');
+      await persistProgress(false, bound).catch(showError);
+      render();
       return;
     }
     if (action === 'scan') {
@@ -237,15 +250,21 @@
       if (!id) { requestMailboxSetup('background'); return; }
       route('protection');
       document.querySelector('#backgroundProtection')?.scrollIntoView({ block: 'center' });
-      status.textContent = 'Enable Background Protection. This step completes only after the enabled state is observed.';
+      status.textContent = 'Enable Continuous Protection. This step completes only after the persisted enabled state is observed.';
       return;
     }
     if (action === 'family') {
-      const id = await ensureBoundMailbox();
-      if (!id) { requestMailboxSetup('family'); return; }
+      familyReviewNote.hidden = false;
       route('family');
+      const id = activeMailboxId();
+      if (!id) {
+        status.textContent = 'Family Shield can be reviewed now. Connect a mailbox later to save this setup milestone; a paid Family entitlement is still required for protected Family state.';
+        return;
+      }
+      const bound = await ensureBoundMailbox();
+      if (!bound) return;
       state.completed.add('family_option_reviewed');
-      await persistProgress(false, id).catch(showError);
+      await persistProgress(false, bound).catch(showError);
       render();
       return;
     }
@@ -293,7 +312,7 @@
       const [consumer, scanHistory, background] = await Promise.all([
         readJson(await fetch(`/api/consumer/v1/accounts/${encodeURIComponent(requestedMailboxId)}/state`, { cache: 'no-store' }), 'Onboarding state'),
         readJson(await fetch(`/api/accounts/${encodeURIComponent(requestedMailboxId)}/scan-history`, { cache: 'no-store' }), 'Scan history'),
-        readJson(await fetch(`/api/accounts/${encodeURIComponent(requestedMailboxId)}/background-protection`, { cache: 'no-store' }), 'Background protection'),
+        readJson(await fetch(`/api/accounts/${encodeURIComponent(requestedMailboxId)}/background-protection`, { cache: 'no-store' }), 'Continuous Protection'),
       ]);
       if (activeMailboxId() !== requestedMailboxId) { state.refreshQueued = true; return; }
 
@@ -329,6 +348,7 @@
       void persistProgress(false, state.mailboxId).finally(render);
     } else void refresh();
   });
+  window.addEventListener('email-shield-continuous-protection-changed', () => { void refresh(); });
   window.addEventListener('email-shield-scan-history-changed', () => { void refresh(); });
   const accounts = document.querySelector('#accountsList');
   if (accounts) new MutationObserver(() => { void refresh(); }).observe(accounts, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'aria-current'] });

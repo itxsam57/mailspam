@@ -73,9 +73,9 @@ async function postMedia(
 }
 
 describe("Media Authenticity capability-gated integration", () => {
-  it("renders the consumer tool but truthfully disables capability when no vetted detector is configured", async () => {
+  it("keeps the dormant detector API truthful without advertising an unavailable consumer release surface", async () => {
     const session = await startDesktop();
-    expect(session.html).toContain('<script defer src="/media-authenticity.js"></script>');
+    expect(session.html).not.toContain('<script defer src="/media-authenticity.js"></script>');
 
     const source = readFileSync(new URL("../../web/media-authenticity.js", import.meta.url), "utf8");
     expect(source).toContain("Media Authenticity");
