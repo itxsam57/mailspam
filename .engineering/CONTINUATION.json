@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "project": "Email Shield",
   "repository": "itxsam57/mailspam",
-  "updatedAt": "2026-08-23T23:23:31+05:00",
+  "updatedAt": "2026-08-23T23:24:07+05:00",
   "governor": {
     "mode": "AUTONOMOUS",
     "allowedStopStates": [
@@ -18,7 +18,7 @@
     "baseBranch": "main",
     "baseSha": "2db40f87ff5be7c0569b997d0d1337b2bae34f97",
     "activeBranch": "chore/live-acceptance-reconcile-20260823",
-    "activePullRequest": null,
+    "activePullRequest": 127,
     "lastQualifiedCodeHeadSha": "7e5be88841a752201aec7fa0d2771a02389abdeb",
     "lastQualifiedGovernorHeadSha": "86a2a4bc83014188c719377b7a4c828d1ece0b76",
     "lastMergedMainSha": "2db40f87ff5be7c0569b997d0d1337b2bae34f97"
@@ -44,7 +44,7 @@
       },
       "mergedMainPostMergeGate": "UNCONFIRMED_IN_CURRENT_CONNECTOR"
     },
-    "nextAction": "Qualify this configuration/governance-only branch on Windows, macOS and Ubuntu real Secret Service, merge only the exact qualified head, then prove the resulting exact final main and proceed through docs/MILESTONE_2_LIVE_ACCEPTANCE.md. Do not invent new implementation work unless live evidence exposes a reproducible code defect."
+    "nextAction": "Qualify PR #127 on Windows, macOS and Ubuntu real Secret Service, merge only the exact qualified head, then prove the resulting exact final main and proceed through docs/MILESTONE_2_LIVE_ACCEPTANCE.md. Do not invent new implementation work unless live evidence exposes a reproducible code defect."
   },
   "lastVerifiedRepair": {
     "id": "FINAL_CONSUMER_CLOSURE",
