@@ -94,13 +94,18 @@ describe("final consumer closure contracts", () => {
     const product = readFileSync(new URL("../../web/consumer-product.js", import.meta.url), "utf8");
     const scripts = readFileSync(new URL("../../server/src/api/dashboardScripts.ts", import.meta.url), "utf8");
     const billing = readFileSync(new URL("../../web/billing-plan-ui.js", import.meta.url), "utf8");
+    const shell = readFileSync(new URL("../../web/app-shell.js", import.meta.url), "utf8");
+    const i18n = readFileSync(new URL("../../web/i18n.js", import.meta.url), "utf8");
 
-    // EMA-26: the promised workflow lands on actual controls, including a truthful zero-mailbox state.
+    // EMA-26: Continuous Protection is one Settings-owned workflow with truthful runtime capability state.
     expect(onboarding).toContain("route('settings')");
     expect(onboarding).toContain("Continuous Protection");
     expect(background).toContain("Connect or select a mailbox to configure continuous protection.");
     expect(background).toContain("Provider-event protection");
     expect(background).toContain("metadata checkpoint fallback");
+    expect(shell).toContain("routeContainers.get('settings').append(protectionBackground)");
+    expect(shell).not.toContain("routeContainers.get('protection').append(protectionBackground)");
+    expect(i18n).toContain("'background.heading': 'Continuous Protection'");
 
     // EMA-27 + EMA-30: review surfaces are available before mailbox authorization; entitlement remains separate.
     expect(onboarding).toContain("Review provider permissions before connecting a mailbox");
