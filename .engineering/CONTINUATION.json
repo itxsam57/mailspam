@@ -1,8 +1,8 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "project": "Email Shield",
   "repository": "itxsam57/mailspam",
-  "updatedAt": "2026-08-23T23:39:58+05:00",
+  "updatedAt": "2026-08-23T19:23:30Z",
   "governor": {
     "mode": "AUTONOMOUS",
     "allowedStopStates": [
@@ -16,13 +16,13 @@
   },
   "sourceOfTruth": {
     "baseBranch": "main",
-    "baseSha": "5ed6572fa9fec18a929cbd230568b8d7904da4b0",
+    "currentMainResolution": "RESOLVE_FROM_REPOSITORY_HEAD",
+    "doNotPersistSelfReferentialCurrentMainSha": true,
     "activeBranch": null,
     "activePullRequest": null,
     "lastQualifiedCodeHeadSha": "050ed25d7cd59c1aa92de917969ba669c7de3201",
-    "lastQualifiedGovernorHeadSha": "3abf902e93911ce183af3e4f53ebb5c381c02f9e",
-    "lastMergedMainSha": "5ed6572fa9fec18a929cbd230568b8d7904da4b0",
-    "qualifiedTreeSha": "c4e49a69dd40fe86236cc1e375512bfe34e0bf79"
+    "lastQualifiedGovernorHeadSha": "a6809a8e33606eff8cce7b2ffb8dfd307271e611",
+    "lastQualifiedGovernorTreeSha": "238b87955d9f444a4a1777462f56be4b7a67a749"
   },
   "activeBatch": [
     "Milestone 2 external/live acceptance"
@@ -35,37 +35,42 @@
       "liveHandoffQualifiedHeadSha": "050ed25d7cd59c1aa92de917969ba669c7de3201",
       "liveHandoffGateRunId": 32657936870,
       "liveHandoffGateRunNumber": 1458,
-      "governorQualifiedHeadSha": "3abf902e93911ce183af3e4f53ebb5c381c02f9e",
-      "governorGateRunId": 32658327985,
-      "governorGateRunNumber": 1459,
+      "liveHandoffGovernorHeadSha": "3abf902e93911ce183af3e4f53ebb5c381c02f9e",
+      "liveHandoffGovernorGateRunId": 32658327985,
+      "liveHandoffGovernorGateRunNumber": 1459,
+      "closureQualifiedHeadSha": "a6809a8e33606eff8cce7b2ffb8dfd307271e611",
+      "closureQualifiedTreeSha": "238b87955d9f444a4a1777462f56be4b7a67a749",
+      "closureGateRunId": 32660698037,
+      "closureGateRunNumber": 1461,
+      "closurePullRequest": 128,
+      "closureMergeSha": "3aeb9e8edb0bc40e3a94f1e2affabe6b815e1f0e",
+      "closureMergeSignature": "GITHUB_SIGNED_VERIFIED",
+      "closureMergeTreeMatchesQualifiedTree": true,
       "platforms": {
         "windows": "PASS",
         "macos": "PASS",
         "ubuntuRealSecretService": "PASS",
         "gateResultSummary": "PASS"
       },
-      "mergedMainSha": "5ed6572fa9fec18a929cbd230568b8d7904da4b0",
-      "mergedMainTreeSha": "c4e49a69dd40fe86236cc1e375512bfe34e0bf79",
-      "qualifiedGovernorTreeSha": "c4e49a69dd40fe86236cc1e375512bfe34e0bf79",
-      "mergeSignature": "GITHUB_SIGNED_VERIFIED",
       "exactMergedMainPostMergeGate": "UNCONFIRMED_IN_CURRENT_CONNECTOR"
     },
-    "nextAction": "Owner checks out the final main, runs npm ci and npm run gate as the exact-main Phase A proof, then follows docs/MILESTONE_2_LIVE_ACCEPTANCE.md. Begin with final fixture/browser acceptance and the controlled Outlook public-client flow now that the required .env.local handoff is documented. Record any failure exactly and reopen engineering only for a reproducible code defect."
+    "nextAction": "Resolve the current final main SHA from the repository head rather than from this file. Owner checks out that exact main, runs npm ci and npm run gate as the Phase A exact-main proof, then follows docs/MILESTONE_2_LIVE_ACCEPTANCE.md. Begin with final fixture/browser acceptance and the controlled Outlook public-client flow. Record any failure exactly and reopen engineering only for a reproducible code defect."
   },
   "lastVerifiedRepair": {
-    "id": "M2_LIVE_ACCEPTANCE_HANDOFF",
-    "pullRequest": 127,
-    "verifiedCodeHeadSha": "050ed25d7cd59c1aa92de917969ba669c7de3201",
-    "verifiedGovernorHeadSha": "3abf902e93911ce183af3e4f53ebb5c381c02f9e",
-    "engineeringGateRunId": 32658327985,
-    "engineeringGateRunNumber": 1459,
-    "mergeSha": "5ed6572fa9fec18a929cbd230568b8d7904da4b0",
+    "id": "M2_LIVE_ACCEPTANCE_STATE_CLOSURE",
+    "pullRequest": 128,
+    "verifiedHeadSha": "a6809a8e33606eff8cce7b2ffb8dfd307271e611",
+    "verifiedTreeSha": "238b87955d9f444a4a1777462f56be4b7a67a749",
+    "engineeringGateRunId": 32660698037,
+    "engineeringGateRunNumber": 1461,
+    "mergeSha": "3aeb9e8edb0bc40e3a94f1e2affabe6b815e1f0e",
     "evidence": [
-      "PR #127 code/config/governance head passed Windows, macOS, Ubuntu real Secret Service and Gate Result Summary in Gate #1458",
-      "Governor-only final PR head changed only .engineering/CONTINUATION.json from the qualified code/config head and passed the same four jobs in Gate #1459",
-      "PR #127 squash-merged with expected-head guard to GitHub signed/verified main commit 5ed6572fa9fec18a929cbd230568b8d7904da4b0",
-      "Merged main tree c4e49a69dd40fe86236cc1e375512bfe34e0bf79 exactly matches the qualified governor-head tree",
-      "No exact-SHA post-merge workflow is claimed without direct evidence; Phase A local npm run gate remains required on final main"
+      "PR #128 changed only .engineering/CONTINUATION.json from accepted main",
+      "PR #128 exact head passed Windows, macOS, Ubuntu real Secret Service and Gate Result Summary in Gate #1461",
+      "PR #128 squash-merged with expected-head guard",
+      "The merge is GitHub signed and verified",
+      "Merged tree 238b87955d9f444a4a1777462f56be4b7a67a749 exactly matches the qualified PR #128 head tree",
+      "Current main identity is deliberately resolved from Git instead of stored self-referentially in this file"
     ]
   },
   "remainingCodeQueue": [],
