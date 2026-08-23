@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "project": "Email Shield",
   "repository": "itxsam57/mailspam",
-  "updatedAt": "2026-08-23T18:58:00+05:00",
+  "updatedAt": "2026-08-23T22:41:00+05:00",
   "governor": {
     "mode": "AUTONOMOUS",
     "allowedStopStates": ["OWNER_REQUIRED", "BLOCKED", "WAIT_EXTERNAL", "LOOP_DETECTED", "COMPLETE"],
@@ -12,30 +12,46 @@
     "baseBranch": "main",
     "baseSha": "3af75b142f11951905e0ae8827ed8bafd8ca46d1",
     "activeBranch": "repair/final-consumer-closure-20260823",
-    "activePullRequest": null,
-    "lastQualifiedCodeHeadSha": "5e9b6095d51f0e07cf2e89147a9f362f8afcabf2"
+    "activePullRequest": 125,
+    "lastQualifiedCodeHeadSha": "7e5be88841a752201aec7fa0d2771a02389abdeb"
   },
   "activeBatch": [
     "EMA-26/27/28/29/30 onboarding and continuous-protection workflow",
     "EMA-12 unsupported notification setting",
     "EMA-22 deferred Media Authenticity release surface",
     "EMA-13 Activity details",
-    "EMA-24 Restore Purchase terminal diagnostics"
+    "EMA-24 Restore Purchase terminal diagnostics",
+    "EMA-11 post-merge diagnostics status ownership folded from qualified PR #126"
   ],
   "activeIssue": {
     "id": "FINAL_CONSUMER_CLOSURE",
-    "phase": "RED_TEST_PENDING",
-    "rootCause": "The remaining queue shares a final consumer-composition boundary: automatic protection authorization is split between scheduled and realtime paths, several onboarding review actions apply mailbox prerequisites too broadly, and the release still exposes settings/tools or shallow result surfaces whose runtime contract is incomplete.",
-    "requiredContracts": [
-      "one persisted Continuous Protection state authorizes both scheduled and provider-event/change-triggered automatic scans",
-      "permissions and Family review are available before mailbox authorization without granting entitlement or cross-account setup state",
-      "first scan and sensitivity remain truthfully mailbox-scoped",
-      "unsupported notification and Media Authenticity promises are absent from normal release UI",
-      "Activity offers accessible privacy-safe explanatory details",
-      "Restore Purchase always reaches a stale-safe terminal result with privacy-safe diagnostic evidence",
-      "one immutable full Windows/macOS/Ubuntu real-Secret-Service gate and real Chromium acceptance before merge"
-    ],
-    "nextAction": "Attach the consolidated RED regression contracts only, run one immutable matrix, then implement all remaining production repairs in one atomic candidate tree."
+    "phase": "QUALIFIED_READY_TO_MERGE",
+    "rootCause": "The remaining consumer queue shared one composition/runtime boundary: automatic protection authorization was split between scheduled and realtime paths; onboarding review actions applied mailbox prerequisites too broadly; unsupported release promises remained visible; Activity lacked explanatory disclosure; Restore Purchase lacked real-browser terminal/race acceptance; and mutable developer diagnostics status could be overwritten by localization.",
+    "qualifiedCodeHeadSha": "7e5be88841a752201aec7fa0d2771a02389abdeb",
+    "qualification": {
+      "engineeringGateRunId": 32651987770,
+      "engineeringGateRunNumber": 1452,
+      "platforms": {
+        "windows": "PASS",
+        "macos": "PASS",
+        "ubuntuRealSecretService": "PASS",
+        "gateResultSummary": "PASS"
+      },
+      "tests": "1233 passed, 1 platform-specific skip on macOS qualification evidence; integration 6/6",
+      "corpus": "140/140 malicious caught and 140/140 legitimate Safe across five provider fixtures",
+      "browserAcceptance": [
+        "normal consumer Community/internal operations surface retired; developer-entitled aggregate diagnostics remain under Settings",
+        "pre-connect Permissions and Family review remain available without entitlement bypass or false completion",
+        "one persisted Continuous Protection switch under Settings authorizes scheduled/provider-change automation while truthfully reporting provider-event availability and fallback",
+        "real Health action creates an Activity row with accessible privacy-safe reason disclosure",
+        "real Account Restore Purchase reaches bridge-unavailable, nothing-to-restore, verification-rejected, and stale-safe terminal states without raw store evidence",
+        "Google consumer entrypoint reaches hardened PKCE authorization",
+        "scan results, Trash, Health cleanup/request ordering/security-alert composition/identity aggregation, and Support Bundle smokes pass"
+      ],
+      "release": "portable package verification and signed release install/activation/uninstall lifecycle passed",
+      "foldedFollowUp": "PR #126 diagnostics status ownership was independently qualified by Gate #1445 on Windows/macOS/Ubuntu real Secret Service plus Gate Result Summary before being folded byte-for-byte into PR #125"
+    },
+    "nextAction": "Qualify this Governor-only head, prove only .engineering/CONTINUATION.json changed from qualified code head, require zero unresolved review threads, mark PR #125 ready, squash-merge with expected-head guard, verify signed/verified main, close superseded PR #126, and reconcile eligible Linear issues."
   },
   "lastVerifiedRepair": {
     "id": "EMA-11",
@@ -51,7 +67,7 @@
       "main merge is GitHub signed and verified"
     ]
   },
-  "remainingCodeQueue": ["EMA-26", "EMA-27", "EMA-28", "EMA-29", "EMA-30", "EMA-12", "EMA-22", "EMA-13", "EMA-24"],
+  "remainingCodeQueue": [],
   "externalAcceptance": {
     "EMA-14-paidFamily": "OWNER_OR_VERIFIED_PAID_ENTITLEMENT_REQUIRED",
     "universalDetectionLiveMailboxes": "OWNER_LIVE_REACCEPTANCE_MAN_021_PENDING",
