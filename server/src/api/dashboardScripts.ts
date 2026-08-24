@@ -11,6 +11,7 @@ const SHARED_DASHBOARD_SCRIPTS = [
 ] as const;
 
 const DESKTOP_ONLY_SCRIPTS = [
+  "/scan-live-reattach.js",
   "/workspace-restore.js",
   "/scan-history.js",
   "/background-protection.js",
@@ -51,18 +52,21 @@ function scriptTags(paths: readonly string[]): string {
  * destination action, and consumer projections load after those card owners.
  * Every external dashboard module is deferred so the browser can fetch them in
  * parallel without blocking HTML parsing/first paint; execution order remains
- * deterministic. Developer controls fail closed before the visual shell can
- * expose the base HTML button; app-shell then constructs the visual route
- * containers. ui-router becomes the authoritative navigation/mount contract
- * before consumer feature modules declare route-owned panels. consumer-product
- * constructs the supported consumer provider, Health, Activity and safety-tool
- * surfaces; unavailable release capabilities are not advertised merely because
- * a dormant capability-gated API exists. The dedicated health-cleanup-controller
- * then becomes the sole destructive Inbox Health cleanup owner, reconciling
- * rendered subscription controls against the authoritative cleanupGroups before
- * any Trash mutation is allowed. consumer-provider-onboarding owns normal
- * provider interaction while keeping legacy engineering connection controls
- * hidden. Shopping Safety mounts as an explicit supported consumer tool.
+ * deterministic. On desktop, scan-live-reattach loads before workspace-restore
+ * so a refreshed document can adopt the existing server-owned scan worker by
+ * observing protected workspace snapshots without starting another scan.
+ * Developer controls fail closed before the visual shell can expose the base
+ * HTML button; app-shell then constructs the visual route containers. ui-router
+ * becomes the authoritative navigation/mount contract before consumer feature
+ * modules declare route-owned panels. consumer-product constructs the supported
+ * consumer provider, Health, Activity and safety-tool surfaces; unavailable
+ * release capabilities are not advertised merely because a dormant
+ * capability-gated API exists. The dedicated health-cleanup-controller then
+ * becomes the sole destructive Inbox Health cleanup owner, reconciling rendered
+ * subscription controls against the authoritative cleanupGroups before any Trash
+ * mutation is allowed. consumer-provider-onboarding owns normal provider
+ * interaction while keeping legacy engineering connection controls hidden.
+ * Shopping Safety mounts as an explicit supported consumer tool.
  */
 export function dashboardScriptTags(desktop: boolean): string {
   return scriptTags(desktop
