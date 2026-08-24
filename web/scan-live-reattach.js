@@ -63,14 +63,23 @@
     pollTimer = setTimeout(() => { void poll(generation); }, POLL_MS);
   }
 
-  async function loadWorkspace() {
-    const response = await fetch('/api/accounts/workspace', {
+  async function fetchJson(path) {
+    const response = await fetch(path, {
       headers: { Accept: 'application/json' },
       cache: 'no-store',
     });
-    const workspace = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(workspace.error || `Server returned HTTP ${response.status}`);
-    return workspace;
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || `Server returned HTTP ${response.status}`);
+    return body;
+  }
+
+  function loadWorkspace() {
+    return fetchJson('/api/accounts/workspace');
+  }
+
+  function loadAdoptedHistory() {
+    if (!adopted) return Promise.resolve({ history: [] });
+    return fetchJson(`/api/accounts/${encodeURIComponent(adopted.accountId)}/scan-history`);
   }
 
   function presentationMatches(workspace) {
@@ -107,17 +116,41 @@
     return false;
   }
 
+  async function pollWhenAnotherAccountIsSelected(generation) {
+    const historyPayload = await loadAdoptedHistory();
+    if (!adopted || generation !== pollGeneration) return;
+    const record = Array.isArray(historyPayload.history)
+      ? historyPayload.history.find((item) => item?.scanId === adopted.scanId)
+      : null;
+    if (!record) {
+      setStatus('The running scan could no longer be matched to protected history. Return to its mailbox and check Activity before starting another scan.', 'error');
+      finishAdoption();
+      return;
+    }
+    if (record.status === 'running') {
+      setStatus('A scan is still running for another connected mailbox. Return to that mailbox to watch progress or stop it.', 'running');
+      setRunningControls(true);
+      schedulePoll(generation);
+      return;
+    }
+    finishAdoption();
+  }
+
   async function poll(generation) {
     if (!adopted || generation !== pollGeneration) return;
     try {
       const workspace = await loadWorkspace();
       if (!adopted || generation !== pollGeneration) return;
-      if (!presentationMatches(workspace)) {
-        setStatus('The running scan could no longer be matched to the protected workspace. Check Activity before starting another scan.', 'error');
-        finishAdoption();
+      if (presentationMatches(workspace)) {
+        if (renderAdoptedWorkspace(workspace)) schedulePoll(generation);
         return;
       }
-      if (renderAdoptedWorkspace(workspace)) schedulePoll(generation);
+      if (selectedAccountId() !== adopted.accountId) {
+        await pollWhenAnotherAccountIsSelected(generation);
+        return;
+      }
+      setStatus('The running scan could no longer be matched to the protected workspace. Check Activity before starting another scan.', 'error');
+      finishAdoption();
     } catch (error) {
       if (!adopted || generation !== pollGeneration) return;
       setStatus(`Could not refresh the running scan view: ${error instanceof Error ? error.message : String(error)}`, 'error');
@@ -189,9 +222,14 @@
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || `Server returned HTTP ${response.status}`);
       if (result.active !== false) throw new Error('Email Shield did not confirm that the scan worker stopped.');
-      const workspace = await loadWorkspace();
-      if (adopted && presentationMatches(workspace)) renderAdoptedWorkspace(workspace);
-      else finishAdoption();
+      if (selectedAccountId() === adopted.accountId) {
+        const workspace = await loadWorkspace();
+        if (adopted && presentationMatches(workspace)) {
+          renderAdoptedWorkspace(workspace);
+          return;
+        }
+      }
+      finishAdoption();
     } catch (error) {
       stopInFlight = false;
       setRunningControls(true);
