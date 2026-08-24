@@ -6,12 +6,15 @@ const root = join(import.meta.dirname, "../..");
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 describe("live scan refresh reattachment architecture", () => {
-  it("loads a dedicated running-scan reattachment controller before workspace restore", () => {
+  it("loads reattachment before both scan monitor and workspace restore", () => {
     const source = read("server/src/api/dashboardScripts.ts");
     const reattach = source.indexOf('"/scan-live-reattach.js"');
+    const monitor = source.indexOf('"/scan-monitor.js"');
     const restore = source.indexOf('"/workspace-restore.js"');
     expect(reattach).toBeGreaterThanOrEqual(0);
+    expect(monitor).toBeGreaterThanOrEqual(0);
     expect(restore).toBeGreaterThanOrEqual(0);
+    expect(reattach).toBeLessThan(monitor);
     expect(reattach).toBeLessThan(restore);
   });
 
@@ -19,9 +22,12 @@ describe("live scan refresh reattachment architecture", () => {
     const source = read("web/scan-live-reattach.js");
     expect(source).toContain("email-shield-workspace-restored");
     expect(source).toContain("/api/accounts/workspace");
-    expect(source).toContain("email-shield-workspace-restored");
     expect(source).toContain("presentation.status === 'running'");
     expect(source).toContain("/scan/stop");
+    expect(source).toContain("stopImmediatePropagation");
+    expect(source).toContain("quickScanBtn");
+    expect(source).toContain("fullScanBtn");
+    expect(source).toContain("spamScanBtn");
     expect(source).not.toContain("emailShieldStartScan");
     expect(source).not.toContain("/scan/full");
     expect(source).not.toContain("/scan/quick");
