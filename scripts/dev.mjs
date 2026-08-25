@@ -5,7 +5,10 @@ import { parseEnv } from "node:util";
 import { enforceDevelopmentEntitlementBoundary } from "./development-entitlement-boundary.mjs";
 
 const FIXTURE_LAUNCH_ARG = "--email-shield-fixtures";
+const OWNER_QA_LAUNCH_ARG = "--email-shield-owner-qa";
 const dedicatedFixtureLaunch = process.argv.includes(FIXTURE_LAUNCH_ARG);
+const ownerQaLaunch = process.argv.includes(OWNER_QA_LAUNCH_ARG);
+const dedicatedEntitlementLaunch = dedicatedFixtureLaunch || ownerQaLaunch;
 
 // npm exposes the JavaScript entry point that launched this lifecycle script.
 // Capture it before loading project-local configuration so .env.local can never
@@ -32,8 +35,9 @@ try {
 }
 
 // Apply after .env.local. Normal source startup always strips stale development
-// entitlement; only the dedicated fixture launcher argument can enable it.
-enforceDevelopmentEntitlementBoundary(process.env, dedicatedFixtureLaunch);
+// entitlement; only an explicit engineering fixture/owner-QA argv capability
+// can enable it for this process tree.
+enforceDevelopmentEntitlementBoundary(process.env, dedicatedEntitlementLaunch);
 
 // Source/browser acceptance is diagnostic mode. Enable the privacy-safe local
 // workflow trace automatically unless the owner explicitly disables it in
@@ -45,12 +49,17 @@ if (process.env.EMAIL_SHIELD_RUNTIME_TRACE === undefined) {
 const googleClientIdLoaded = Boolean(process.env.EMAIL_SHIELD_GOOGLE_CLIENT_ID?.trim());
 const googleClientSecretLoaded = Boolean(process.env.EMAIL_SHIELD_GOOGLE_CLIENT_SECRET?.trim());
 const runtimeTraceEnabled = process.env.EMAIL_SHIELD_RUNTIME_TRACE === "1";
+const entitlementLaunchLabel = ownerQaLaunch
+  ? "owner QA launcher"
+  : dedicatedFixtureLaunch
+    ? "dedicated fixture launcher"
+    : "disabled";
 console.log(
   `Email Shield source configuration: .env.local ${envLocalLoaded ? "loaded" : "not found"}; `
   + `Google client ID ${googleClientIdLoaded ? "loaded" : "missing"}; `
   + `Google client secret ${googleClientSecretLoaded ? "loaded" : "missing"}; `
   + `runtime workflow trace ${runtimeTraceEnabled ? "enabled" : "disabled"}; `
-  + `development entitlement ${dedicatedFixtureLaunch ? "dedicated fixture launcher" : "disabled"}.`,
+  + `development entitlement ${entitlementLaunchLabel}.`,
 );
 
 let command;
