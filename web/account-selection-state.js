@@ -26,6 +26,15 @@
     }));
   }
 
+  function publishSelectionSettled(snapshot) {
+    window.dispatchEvent(new CustomEvent('email-shield-account-selection-settled', {
+      detail: Object.freeze({
+        accountId: snapshot.id,
+        generation: snapshot.generation,
+      }),
+    }));
+  }
+
   function reflectSelection(id) {
     const normalized = typeof id === 'string' && id.trim() ? id : null;
     const previousId = selectedId;
@@ -65,10 +74,16 @@
   // effects run, so scan/action modules never have to infer selection from a
   // DOM refresh that may still be in flight. A monotonically increasing
   // generation also rejects A -> B -> A stale async responses that an ID-only
-  // comparison would incorrectly accept.
+  // comparison would incorrectly accept. The settled event is emitted only
+  // after the legacy owner has finished persisting the selected workspace.
   window.selectAccount = function emailShieldSelectAccountState(id, options = {}) {
     reflectSelection(id);
-    return originalSelect.call(this, id, options);
+    const snapshot = capture();
+    const result = originalSelect.call(this, id, options);
+    Promise.resolve(result).then(() => {
+      if (matches(snapshot)) publishSelectionSettled(snapshot);
+    }).catch(() => undefined);
+    return result;
   };
 
   // refreshAccounts() rebuilds the account-chip DOM after connect/disconnect.
