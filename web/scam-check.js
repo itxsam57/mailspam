@@ -104,11 +104,11 @@
     if (inspected.classification === 'benign') {
       return {
         heading: 'Destination inspected',
-        detail: 'No credential trap or malware was found in the inspected destination content. This does not prove the site or message is safe.',
+        detail: inspected.detail || 'No credential trap or malware was found in the inspected destination content. This does not prove the site or message is safe.',
       };
     }
     if (inspected.classification === 'credential_trap') {
-      return { heading: 'Credential trap detected', detail: 'The inspected destination contains a password-entry pattern. Do not enter credentials there.' };
+      return { heading: 'Credential trap detected', detail: inspected.detail || 'The inspected destination contains a password-entry pattern. Do not enter credentials there.' };
     }
     if (inspected.classification === 'malware') {
       return { heading: 'Malware destination detected', detail: inspected.detail || 'The inspected destination matched a deterministic malware-behavior signature.' };
