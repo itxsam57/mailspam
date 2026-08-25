@@ -50,4 +50,14 @@ describe("live scan refresh reattachment architecture", () => {
     expect(workspaceCheckpoint).toBeGreaterThan(progressHandler);
     expect(workspaceCheckpoint).toBeLessThan(detachedReturn);
   });
+
+  it("rehydrates the selected mailbox only after account selection persistence settles", () => {
+    const selection = read("web/account-selection-state.js");
+    const reattach = read("web/scan-live-reattach.js");
+    expect(selection).toContain("email-shield-account-selection-settled");
+    expect(selection).toContain("Promise.resolve(result)");
+    expect(reattach).toContain("email-shield-account-selection-settled");
+    expect(reattach).toContain("await loadWorkspace()");
+    expect(reattach).toContain("dispatchWorkspace(workspace)");
+  });
 });
