@@ -521,6 +521,13 @@ function createHandler(options: { community: CommunityNetwork; resume: boolean }
         }
         durableCheckpointAvailable = Boolean(record.checkpoint);
 
+        // Keep a token-free, privacy-safe workspace checkpoint current even
+        // when the page refresh has detached the SSE consumer. This is the
+        // authoritative reattachment state; action tokens are still minted
+        // only while a live browser stream exists.
+        const detachedSafeProgress = publicScanProgress(progress);
+        sessionStore.rememberWorkspaceProgress(session, detachedSafeProgress);
+
         // A detached dashboard has no consumer for browser action tokens. Keep
         // the Worker and protected checkpoint advancing, but do not accumulate
         // thousands of unusable review/unsubscribe tokens after a page refresh.
