@@ -95,6 +95,22 @@ describe("consumer Scam Check", () => {
     expect(["review", "high_risk"]).toContain(result.verdict);
   });
 
+  it("canonicalizes whole percent-encoded web destinations before local link evidence", () => {
+    const direct = evaluateConsumerScamCheck({
+      schemaVersion: 1,
+      kind: "url",
+      url: "https%3A%2F%2Fshop.example%2Faccount%3Fmode%3Dreview",
+    });
+    const html = evaluateConsumerScamCheck({
+      schemaVersion: 1,
+      kind: "message",
+      html: '<a href="https%3A%2F%2Fshop.example%2Faccount%3Fmode%3Dreview">Manage preferences</a>',
+    });
+
+    expect(direct.evidence.some((item) => item.code === "MALFORMED_URL")).toBe(false);
+    expect(html.evidence.some((item) => item.code === "MALFORMED_URL")).toBe(false);
+  });
+
   it("does not invent trusted mailbox authentication for submitted content", () => {
     const result = evaluateConsumerScamCheck({
       schemaVersion: 1,
