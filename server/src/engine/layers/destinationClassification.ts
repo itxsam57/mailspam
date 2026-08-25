@@ -71,6 +71,12 @@ function containsDeterministicMalwareBehavior(body: string): boolean {
   return unixDownloadExecute;
 }
 
+function transportDetail(url: URL): string {
+  return url.protocol === "http:"
+    ? "Submitted destination uses unencrypted HTTP transport."
+    : "Submitted destination uses HTTPS transport.";
+}
+
 /**
  * Explicit Analyze Links classifier. Network acquisition is isolated behind
  * fetchImpl and the production composition root supplies hardenedFetch, which
@@ -99,9 +105,16 @@ export async function classifyDestination(
     };
   }
 
+  const transport = transportDetail(parsed);
   const result = await fetchImpl(url);
   if (!result) {
-    return { url, classification: "error", hasForm: false, hasPasswordField: false, detail: "Fetch failed, timed out, was blocked by network safety checks, or exceeded inspection limits." };
+    return {
+      url,
+      classification: "error",
+      hasForm: false,
+      hasPasswordField: false,
+      detail: `${transport} Fetch failed, timed out, was blocked by network safety checks, or exceeded inspection limits.`,
+    };
   }
 
   if (result.contentType !== "text/html" && result.contentType !== "text/plain") {
@@ -111,8 +124,8 @@ export async function classifyDestination(
       hasForm: false,
       hasPasswordField: false,
       detail: result.contentType
-        ? `Destination returned unsupported content type ${result.contentType}; it was not treated as benign.`
-        : "Destination did not provide an inspectable text content type; it was not treated as benign.",
+        ? `${transport} Destination returned unsupported content type ${result.contentType}; it was not treated as benign.`
+        : `${transport} Destination did not provide an inspectable text content type; it was not treated as benign.`,
     };
   }
 
@@ -136,8 +149,10 @@ export async function classifyDestination(
     hasForm,
     hasPasswordField,
     detail: classification === "malware"
-      ? "Fetched destination text matched a deterministic local malware-behavior signature. Content was inspected as text and never executed."
-      : "Classified from the resolved destination.",
+      ? `${transport} Fetched destination text matched a deterministic local malware-behavior signature. Content was inspected as text and never executed.`
+      : classification === "benign"
+        ? `${transport} No deterministic credential trap or malware behavior was found in the inspected destination text. This does not prove the destination is safe.`
+        : `${transport} Classified from the resolved destination content as ${classification.replace(/_/g, " ")}.`,
   };
 }
 
