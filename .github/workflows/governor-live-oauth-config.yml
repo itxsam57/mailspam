@@ -1,0 +1,76 @@
+name: Governor Live OAuth Config
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - qa/live-failure-behavior-regressions-20260825
+    paths:
+      - '.github/workflows/governor-live-oauth-config.yml'
+      - '.env.local.example'
+      - 'scripts/dev.mjs'
+      - 'server/**'
+      - 'package*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  oauth-config-smoke:
+    name: Windows OAuth config smoke
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      EMAIL_SHIELD_GOOGLE_CLIENT_ID: ${{ secrets.EMAIL_SHIELD_GOOGLE_CLIENT_ID }}
+      EMAIL_SHIELD_GOOGLE_CLIENT_SECRET: ${{ secrets.EMAIL_SHIELD_GOOGLE_CLIENT_SECRET }}
+    steps:
+      - name: Checkout tested branch
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Require encrypted OAuth inputs
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:EMAIL_SHIELD_GOOGLE_CLIENT_ID)) { throw 'Missing EMAIL_SHIELD_GOOGLE_CLIENT_ID Actions secret' }
+          if ([string]::IsNullOrWhiteSpace($env:EMAIL_SHIELD_GOOGLE_CLIENT_SECRET)) { throw 'Missing EMAIL_SHIELD_GOOGLE_CLIENT_SECRET Actions secret' }
+          'OAuth inputs are present in the runner environment.'
+
+      - name: Materialize temporary .env.local
+        shell: pwsh
+        run: |
+          @(
+            "EMAIL_SHIELD_GOOGLE_CLIENT_ID=$env:EMAIL_SHIELD_GOOGLE_CLIENT_ID"
+            "EMAIL_SHIELD_GOOGLE_CLIENT_SECRET=$env:EMAIL_SHIELD_GOOGLE_CLIENT_SECRET"
+          ) | Set-Content -Path .env.local -Encoding utf8
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify source launcher reads OAuth config without printing values
+        shell: pwsh
+        run: |
+          $job = Start-Job -ScriptBlock {
+            Set-Location $using:PWD
+            npm run dev 2>&1
+          }
+          Start-Sleep -Seconds 8
+          $out = Receive-Job $job -Keep | Out-String
+          Stop-Job $job -ErrorAction SilentlyContinue
+          Remove-Job $job -Force -ErrorAction SilentlyContinue
+          if ($out -notmatch 'Google client ID loaded') { throw 'Source launcher did not load Google client ID from .env.local' }
+          if ($out -notmatch 'Google client secret loaded') { throw 'Source launcher did not load Google client secret from .env.local' }
+          if ($out -match [regex]::Escape($env:EMAIL_SHIELD_GOOGLE_CLIENT_SECRET)) { throw 'Client secret leaked into launcher output' }
+          'Email Shield loaded both OAuth values and did not print the secret.'
+
+      - name: Remove temporary env file
+        if: always()
+        shell: pwsh
+        run: Remove-Item .env.local -Force -ErrorAction SilentlyContinue
