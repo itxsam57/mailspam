@@ -9,6 +9,7 @@
   let pollTimer = null;
   let pollGeneration = 0;
   let stopInFlight = false;
+  let selectionHydrationGeneration = 0;
 
   function selectedAccountId() {
     return window.emailShieldAccountSelection?.currentId?.()
@@ -181,6 +182,23 @@
     schedulePoll(generation);
   }
 
+  async function rehydrateSettledSelection(event) {
+    const detail = event instanceof CustomEvent ? event.detail : null;
+    const accountId = typeof detail?.accountId === 'string' ? detail.accountId : null;
+    if (!accountId || selectedAccountId() !== accountId) return;
+    const generation = ++selectionHydrationGeneration;
+    try {
+      const workspace = await loadWorkspace();
+      if (generation !== selectionHydrationGeneration) return;
+      if (selectedAccountId() !== accountId || workspace?.selectedAccountId !== accountId) return;
+      if (workspace.presentation?.status === 'running') adopt(workspace);
+      else dispatchWorkspace(workspace);
+    } catch (error) {
+      if (generation !== selectionHydrationGeneration || selectedAccountId() !== accountId) return;
+      setStatus(`Could not restore this mailbox scan view: ${error instanceof Error ? error.message : String(error)}`, 'error');
+    }
+  }
+
   window.addEventListener('email-shield-workspace-restored', (event) => {
     const detail = event instanceof CustomEvent ? event.detail : null;
     if (!detail || detail.liveReattachUpdate === true) return;
@@ -188,6 +206,7 @@
   });
 
   window.addEventListener('email-shield-account-selection-changed', () => {
+    selectionHydrationGeneration += 1;
     if (!adopted) return;
     const selected = selectedAccountId();
     if (selected === adopted.accountId) {
@@ -198,7 +217,12 @@
     setRunningControls(true);
   });
 
+  window.addEventListener('email-shield-account-selection-settled', (event) => {
+    void rehydrateSettledSelection(event);
+  });
+
   window.addEventListener('email-shield-session-expired', () => {
+    selectionHydrationGeneration += 1;
     finishAdoption();
   });
 
