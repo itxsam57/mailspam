@@ -32,4 +32,22 @@ describe("live scan refresh reattachment architecture", () => {
     expect(source).not.toContain("/scan/full");
     expect(source).not.toContain("/scan/quick");
   });
+
+  it("keeps the protected workspace checkpoint advancing after the browser SSE detaches", () => {
+    const source = read("server/src/api/scanStream.ts");
+    const progressHandler = source.indexOf('message.type === "progress"');
+    const detachedReturn = source.indexOf(
+      "if (res.writableEnded || res.destroyed) return;",
+      progressHandler,
+    );
+    const workspaceCheckpoint = source.indexOf(
+      "sessionStore.rememberWorkspaceProgress",
+      progressHandler,
+    );
+
+    expect(progressHandler).toBeGreaterThanOrEqual(0);
+    expect(detachedReturn).toBeGreaterThan(progressHandler);
+    expect(workspaceCheckpoint).toBeGreaterThan(progressHandler);
+    expect(workspaceCheckpoint).toBeLessThan(detachedReturn);
+  });
 });
