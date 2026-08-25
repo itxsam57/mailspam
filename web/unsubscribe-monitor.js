@@ -14,6 +14,8 @@
   `;
   document.head.appendChild(style);
 
+  const manualMailtoDrafts = new Map();
+
   function selectionSnapshot() {
     const owner = window.emailShieldAccountSelection;
     if (owner?.capture) return owner.capture();
@@ -68,8 +70,36 @@
   function labelFor(action) {
     if (action.alreadyUnsubscribed && action.method === 'one_click_post') return 'Unsubscribed ✓';
     if (action.method === 'link_only') return 'Open unsubscribe page (not confirmed)';
-    if (action.method === 'mailto') return 'Open unsubscribe email (not confirmed)';
+    if (action.method === 'mailto') return 'Prepare unsubscribe email (not confirmed)';
     return 'Unsubscribe';
+  }
+
+  function oneLine(value) {
+    return String(value || '').replace(/[\r\n]+/g, ' ').trim();
+  }
+
+  function parseMailtoDraft(target) {
+    let parsed;
+    try { parsed = new URL(target); }
+    catch { throw new Error('The unsubscribe email request is malformed.'); }
+    if (parsed.protocol !== 'mailto:') throw new Error('The unsubscribe email request is malformed.');
+
+    let decodedRecipient = parsed.pathname;
+    try { decodedRecipient = decodeURIComponent(parsed.pathname); }
+    catch {}
+    const recipient = oneLine(decodedRecipient);
+    if (!recipient || !recipient.includes('@')) throw new Error('The unsubscribe email recipient is invalid.');
+
+    const subject = oneLine(parsed.searchParams.get('subject') || '');
+    const body = String(parsed.searchParams.get('body') || '')
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .slice(0, 4096);
+    const lines = [`To: ${recipient}`];
+    if (subject) lines.push(`Subject: ${subject}`);
+    lines.push('');
+    if (body) lines.push(body);
+    return Object.freeze({ recipient, subject, body, text: lines.join('\n') });
   }
 
   window.renderCard = function renderCardWithUnsubscribe(result) {
@@ -119,9 +149,43 @@
 
   document.addEventListener('click', async (event) => {
     const button = event.target instanceof Element
-      ? event.target.closest('[data-action="unsubscribe"]')
+      ? event.target.closest('[data-action="unsubscribe"],[data-action="copy-unsubscribe-email"]')
       : null;
     if (!(button instanceof HTMLButtonElement) || button.disabled) return;
+
+    if (button.dataset.action === 'copy-unsubscribe-email') {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const actionKey = button.dataset.unsubscribeKey;
+      const draft = actionKey ? manualMailtoDrafts.get(actionKey) : null;
+      const container = actionContainer(button);
+      const actionStatus = actionStatusFor(container);
+      if (!draft) {
+        if (actionStatus) {
+          actionStatus.className = 'unsubscribe-action-status error';
+          actionStatus.textContent = 'The prepared unsubscribe request expired from this page. Rescan the mailbox to prepare it again.';
+        }
+        setGlobalStatus('The prepared unsubscribe request is no longer available. Rescan the mailbox and try again.', 'error');
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(draft.text);
+        button.textContent = 'Copied ✓ — paste and send';
+        if (actionStatus) {
+          actionStatus.className = 'unsubscribe-action-status success';
+          actionStatus.textContent = 'The unsubscribe request was copied. Paste it into your email service and send it. Email Shield still does not claim completion.';
+        }
+        setGlobalStatus('Unsubscribe request copied. Paste it into your email service and send it; completion remains unconfirmed.', 'complete');
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (actionStatus) {
+          actionStatus.className = 'unsubscribe-action-status error';
+          actionStatus.textContent = `Could not copy the unsubscribe request: ${message}`;
+        }
+        setGlobalStatus(`Could not copy the unsubscribe request: ${message}`, 'error');
+      }
+      return;
+    }
 
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -144,7 +208,7 @@
       ? 'Email Shield will send the message-authorized RFC 8058 request without opening the destination. A successful endpoint response can be recorded as confirmed.'
       : method === 'link_only'
         ? 'The service unsubscribe page will open in a new browser tab. Email Shield can record only that the page opened; completion remains unconfirmed until the external service provides a verifiable result.'
-        : 'Your default email application will open a pre-addressed unsubscribe request. Email Shield can record only that the request opened; you must send it and completion remains unconfirmed.';
+        : 'Email Shield cannot send this unsubscribe email with the connected mailbox permissions. It will prepare a copyable request inside the app. Nothing will be opened automatically, and completion remains unconfirmed until you paste and send it from your mail service.';
     const confirmed = window.confirm(
       `Continue with this unsubscribe option?\n\n${subject}\n${sender}\n\n${explanation}`,
     );
@@ -204,34 +268,37 @@
           }
           pendingWindow.location.replace(result.target);
           button.textContent = 'Open unsubscribe page again (not confirmed)';
+          button.disabled = false;
           if (actionStatus) {
             actionStatus.className = 'unsubscribe-action-status success';
             actionStatus.textContent = 'The service unsubscribe page was opened and can be recorded in Activity. Completion is still unconfirmed.';
           }
-        } else {
-          const anchor = document.createElement('a');
-          anchor.href = result.target;
-          anchor.style.display = 'none';
-          document.body.appendChild(anchor);
-          anchor.click();
-          anchor.remove();
-          button.textContent = 'Open unsubscribe email again (not confirmed)';
-          if (actionStatus) {
-            actionStatus.className = 'unsubscribe-action-status success';
-            actionStatus.textContent = 'A pre-addressed unsubscribe email was opened. Completion is still unconfirmed until you send it and the external service processes it.';
+
+          try {
+            if (method === 'link_only') {
+              await recordManualActivity(accountId, token, actionKey, method);
+            }
+            if (!selectionMatches(ownerSnapshot)) return;
+            refreshConsumerActivity();
+            setGlobalStatus('Unsubscribe page opening recorded in Activity. It is intentionally not counted as a Confirmed unsubscribe.', 'complete');
+          } catch (activityError) {
+            if (!selectionMatches(ownerSnapshot)) return;
+            const detail = activityError instanceof Error ? activityError.message : String(activityError);
+            setGlobalStatus(`The unsubscribe page opened, but Activity could not be saved: ${detail}`, 'error');
           }
+          return;
         }
+
+        const draft = parseMailtoDraft(result.target);
+        manualMailtoDrafts.set(actionKey, draft);
+        button.dataset.action = 'copy-unsubscribe-email';
+        button.textContent = 'Copy unsubscribe request';
         button.disabled = false;
-        try {
-          await recordManualActivity(accountId, token, actionKey, method);
-          if (!selectionMatches(ownerSnapshot)) return;
-          refreshConsumerActivity();
-          setGlobalStatus('Manual unsubscribe handoff recorded in Activity. It is intentionally not counted as a Confirmed unsubscribe.', 'complete');
-        } catch (activityError) {
-          if (!selectionMatches(ownerSnapshot)) return;
-          const detail = activityError instanceof Error ? activityError.message : String(activityError);
-          setGlobalStatus(`The unsubscribe option opened, but Activity could not be saved: ${detail}`, 'error');
+        if (actionStatus) {
+          actionStatus.className = 'unsubscribe-action-status success';
+          actionStatus.textContent = 'Email Shield cannot send this unsubscribe email with the connected mailbox permissions. Nothing was opened automatically. Click “Copy unsubscribe request”, paste it into your mail service, and send it. Completion remains unconfirmed.';
         }
+        setGlobalStatus('Unsubscribe email prepared inside Email Shield. Nothing was opened automatically and no completion is claimed.', 'complete');
         return;
       }
 
