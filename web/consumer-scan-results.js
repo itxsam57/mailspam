@@ -113,8 +113,7 @@
       const item = document.createElement('article');
       item.className = 'consumer-scan-message';
       item.setAttribute('role', 'listitem');
-      item.dataset.messageRow = 'true';
-      item.dataset.reviewToken = row.dataset.reviewToken || '';
+      item.dataset.consumerScanRow = 'true';
       item.dataset.unsubscribeAvailable = row.dataset.unsubscribeAvailable || 'false';
       item.dataset.unsubscribeToken = row.dataset.unsubscribeToken || '';
       item.dataset.unsubscribeKey = row.dataset.unsubscribeKey || '';
