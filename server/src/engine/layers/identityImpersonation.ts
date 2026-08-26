@@ -46,7 +46,7 @@ const GENERIC_IDENTITY_WORDS = new Set([
 const TRANSACTIONAL_CONTEXT = /\b(?:account|bank|billing|card|delivery|invoice|order|password|payment|purchase|refund|reward|security|subscription|tax|transaction|verify|wallet)\b/i;
 const ORGANIZATION_CONTEXT = /\b(?:airlines?|association|bank|clinic|college|company|corp(?:oration)?|credit union|department|financial|foundation|group|health|hospital|hotel|inc(?:orporated)?|labs?|limited|llc|ltd|market|payments?|school|services?|shop|store|systems?|team|technolog(?:y|ies)|university)\b/i;
 const EXPLICIT_DOMAIN_RE = /(?:^|[^a-z0-9-])((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63})(?=$|[^a-z0-9-])/gi;
-const EXPLICIT_DOMAIN_PREFIX = /(?:https?:\/\/|www\.|@|\b(?:at|domain|from|portal|site|via|website)\s*[:=-]?\s*)$/i;
+const EXPLICIT_DOMAIN_PREFIX = /(?:https?:\/\/|www\.|\b(?:at|domain|from|portal|site|via|website)\s*[:=-]?\s*)$/i;
 const EXPLICIT_DOMAIN_SUFFIX = /^\s*(?:domain|portal|site|website)\b/i;
 
 function words(value: string): string[] {
@@ -60,9 +60,10 @@ function words(value: string): string[] {
 
 /**
  * A dotted token is not automatically a domain claim. Usernames, filenames,
- * product versions and generated identifiers commonly contain dots. Treat it
- * as an asserted network identity only when nearby syntax explicitly presents
- * it as a URL, email/domain, site, portal, sender, or destination.
+ * product versions, recipient addresses and generated identifiers commonly
+ * contain dots. Treat it as an asserted network identity only when nearby
+ * syntax explicitly presents it as a URL, domain, site, portal, sender, or
+ * destination rather than merely as the domain portion of an email address.
  */
 function explicitDomains(value: string): string[] {
   const found = new Set<string>();
