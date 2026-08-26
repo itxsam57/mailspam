@@ -174,22 +174,33 @@ async function evaluate(client, expression, timeoutMs = 10_000) {
   return result.result?.value;
 }
 
-async function waitForScanComplete(client, timeoutMs = 45_000) {
+async function waitForScanComplete(client, accountId, previousScanId = null, timeoutMs = 45_000) {
   const deadline = Date.now() + timeoutMs;
   let state = null;
   while (Date.now() < deadline) {
-    state = await evaluate(client, `(() => ({
-      status: document.getElementById('scanMonitorStatus')?.textContent || '',
-      busy: document.getElementById('scanPanel')?.getAttribute('aria-busy') || '',
-      trashButtons: [...document.querySelectorAll('.card button[data-action="trash"]')]
-        .filter((button) => !button.disabled && button.dataset.reviewToken).length,
-      cards: document.querySelectorAll('#cards .card').length,
-    }))()`);
-    // Trash behavior is the subject of this smoke. Completion is established by
-    // the canonical scan owner releasing aria-busy and exposing an authorized
-    // Trash capability; do not couple this gate to presentation wording that can
-    // legitimately say either "Scan complete" or "Reattached scan complete".
-    if (state?.busy !== "true" && state?.trashButtons > 0) return state;
+    state = await evaluate(client, `(async () => {
+      const response = await fetch('/api/accounts/${encodeURIComponent(accountId)}/scan-history', { cache: 'no-store' });
+      const body = await response.json().catch(() => ({}));
+      const history = Array.isArray(body.history) ? body.history : [];
+      const previousScanId = ${JSON.stringify(previousScanId)};
+      const record = history.find((item) => item?.scanId && (!previousScanId || item.scanId !== previousScanId)) || null;
+      return {
+        status: document.getElementById('scanMonitorStatus')?.textContent || '',
+        busy: document.getElementById('scanPanel')?.getAttribute('aria-busy') || '',
+        trashButtons: [...document.querySelectorAll('.card button[data-action="trash"]')]
+          .filter((button) => !button.disabled && button.dataset.reviewToken).length,
+        cards: document.querySelectorAll('#cards .card').length,
+        scanId: record?.scanId || null,
+        scanStatus: record?.status || null,
+        examined: Number(record?.counters?.examined || 0),
+      };
+    })()`);
+    if (
+      state?.scanId &&
+      state.scanStatus === "completed" &&
+      state.busy !== "true" &&
+      state.trashButtons > 0
+    ) return state;
     await sleep(100);
   }
   throw new Error(`Full scan did not complete before the Trash-action deadline. Last state: ${JSON.stringify(state)}`);
@@ -282,7 +293,7 @@ try {
   })()`, 20_000);
   assert(typeof accountId === "string" && accountId.length > 0, "Trash-action fixture account did not return an account id.");
 
-  const firstScan = await waitForScanComplete(client);
+  const firstScan = await waitForScanComplete(client, accountId);
   assert(firstScan.trashButtons > 0, `Full fixture scan exposed no standalone Trash action. State: ${JSON.stringify(firstScan)}`);
 
   const targetState = await evaluate(client, `(() => {
@@ -361,7 +372,8 @@ try {
     `Global scan status did not truthfully announce standalone Trash success. State: ${JSON.stringify(actionState)}`);
 
   await evaluate(client, `document.getElementById('fullScanBtn').click()`);
-  await waitForScanComplete(client);
+  const rescan = await waitForScanComplete(client, accountId, firstScan.scanId);
+  assert(rescan.scanId !== firstScan.scanId, `Trash rescan reused the previous scan record instead of completing a new run: ${JSON.stringify({ firstScan, rescan })}`);
   const rescanState = await evaluate(client, `(() => {
     const matchingAfter = [...document.querySelectorAll('#cards .card')].filter((candidate) =>
       candidate.querySelector('.card-subject')?.textContent?.trim() === ${JSON.stringify(targetState.subject)} &&
