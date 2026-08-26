@@ -44,9 +44,12 @@ describe("Personal Policy browser ownership", () => {
   it("keeps manual unsubscribe activity separate from confirmed encrypted policy", () => {
     const unsubscribe = read("web/unsubscribe-monitor.js");
     const policy = read("web/policy-management.js");
-    expect(unsubscribe).toContain("Manual unsubscribe handoff recorded in Activity");
-    expect(unsubscribe).toContain("not counted as a Confirmed unsubscribe");
+    expect(unsubscribe).toContain("Unsubscribe page opening recorded in Activity");
+    expect(unsubscribe).toContain("Nothing was opened automatically");
+    expect(unsubscribe).toContain("no completion is claimed");
     expect(policy).toContain("Confirmed unsubscribes");
-    expect(policy).toContain("Opening an external unsubscribe page or email request is recorded in Activity instead");
+    expect(policy).toContain("Opening an external unsubscribe page can be recorded in Activity without claiming completion");
+    expect(policy).toContain("A mailto unsubscribe request is prepared inside Email Shield");
+    expect(policy).toContain("not recorded as opened, sent, or completed");
   });
 });
