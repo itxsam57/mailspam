@@ -49,6 +49,7 @@ const EXPLICIT_DOMAIN_RE = /(?:^|[^a-z0-9-])((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-
 const EXPLICIT_DOMAIN_PREFIX = /(?:https?:\/\/|www\.|\b(?:at|domain|from|portal|site|via|website)\s*[:=-]?\s*)$/i;
 const EXPLICIT_DOMAIN_SUFFIX = /^\s*(?:domain|portal|site|website)\b/i;
 const MAILBOX_LOCAL_PART_PREFIX = /[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@$/i;
+const URL_USERINFO_PREFIX = /https?:\/\/[a-z0-9._~!$&'()*+,;=:%-]+@$/i;
 
 function words(value: string): string[] {
   return value
@@ -94,9 +95,11 @@ function explicitDomains(
       options.mailboxAddressClaims === true
       || EXPLICIT_DOMAIN_PREFIX.test(beforeMailbox)
     );
+    const urlUserinfoIsExplicit = URL_USERINFO_PREFIX.test(value.slice(0, start));
     const explicit = candidate.toLowerCase().startsWith("www.")
       || (!mailboxLocalPart && EXPLICIT_DOMAIN_PREFIX.test(before))
       || mailboxIsExplicit
+      || urlUserinfoIsExplicit
       || EXPLICIT_DOMAIN_SUFFIX.test(after);
     if (explicit) found.add(normalizeDomainName(candidate));
   }
