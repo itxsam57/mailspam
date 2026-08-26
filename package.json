@@ -29,7 +29,7 @@
     "vault": "npm run build && node scripts/engineering/regression-vault-cli.mjs",
     "smoke:server": "node scripts/engineering/smoke-server.mjs",
     "smoke:browser": "npm run check:chromium-port && node scripts/engineering/smoke-browser-boot-resilient.mjs && node scripts/engineering/smoke-community-boundary.mjs && node scripts/engineering/smoke-onboarding-handoff.mjs && node scripts/engineering/smoke-restore-purchase.mjs && node scripts/engineering/smoke-google-provider.mjs",
-    "smoke:browser-scan": "node scripts/engineering/smoke-browser-scan-results.mjs && node scripts/engineering/smoke-governor-live-blockers.mjs && node scripts/engineering/smoke-trash-action.mjs && node scripts/engineering/smoke-health-cleanup.mjs && node scripts/engineering/smoke-health-request-ordering.mjs && node scripts/engineering/smoke-health-security-alert-composition.mjs && node scripts/engineering/smoke-health-identity-aggregation.mjs && node scripts/engineering/smoke-support-bundle.mjs",
+    "smoke:browser-scan": "node scripts/engineering/smoke-browser-scan-results.mjs && node scripts/engineering/smoke-governor-live-blockers-v2.mjs && node scripts/engineering/smoke-trash-action.mjs && node scripts/engineering/smoke-health-cleanup.mjs && node scripts/engineering/smoke-health-request-ordering.mjs && node scripts/engineering/smoke-health-security-alert-composition.mjs && node scripts/engineering/smoke-health-identity-aggregation.mjs && node scripts/engineering/smoke-support-bundle.mjs",
     "smoke:community": "node scripts/engineering/smoke-community.mjs",
     "smoke:account-service": "node scripts/engineering/smoke-account-service.mjs",
     "smoke:background": "node --max-old-space-size=192 scripts/engineering/smoke-background-protection.mjs",
