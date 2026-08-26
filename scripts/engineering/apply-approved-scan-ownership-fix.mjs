@@ -59,19 +59,21 @@ writeFileSync(monitorPath, monitor);
 const reattachPath = "web/scan-live-reattach.js";
 let reattach = readFileSync(reattachPath, "utf8");
 
-reattach = replaceExactly(
-  reattach,
-  "  function presentationMatches(workspace) {\n    return Boolean(\n      adopted\n      && workspace?.selectedAccountId === adopted.accountId\n      && workspace?.presentation?.scanId === adopted.scanId,\n    );\n  }",
-  "  function presentationMatches(workspace) {\n    return Boolean(\n      adopted\n      && workspace?.selectedAccountId === adopted.accountId\n      && workspace?.presentation?.scanId === adopted.scanId,\n    );\n  }\n\n  function liveMonitorOwns(workspace) {\n    const ownership = window.emailShieldScanMonitorOwnership;\n    return Boolean(\n      ownership?.ownsLiveScan?.(\n        workspace?.selectedAccountId ?? null,\n        workspace?.presentation?.scanId ?? null,\n      ),\n    );\n  }\n\n  function relinquishAdoptionToLiveMonitor() {\n    if (!adopted) return;\n    cancelPoll();\n    adopted = null;\n    stopInFlight = false;\n    // Do not change controls or presentation here. The live scan monitor already\n    // owns them; changing them would race the EventSource we are yielding to.\n  }",
-  "reattach live monitor ownership helper",
-);
+if (!reattach.includes("function liveMonitorOwns(workspace)")) {
+  reattach = replaceExactly(
+    reattach,
+    "  function presentationMatches(workspace) {\n    return Boolean(\n      adopted\n      && workspace?.selectedAccountId === adopted.accountId\n      && workspace?.presentation?.scanId === adopted.scanId,\n    );\n  }",
+    "  function presentationMatches(workspace) {\n    return Boolean(\n      adopted\n      && workspace?.selectedAccountId === adopted.accountId\n      && workspace?.presentation?.scanId === adopted.scanId,\n    );\n  }\n\n  function liveMonitorOwns(workspace) {\n    const ownership = window.emailShieldScanMonitorOwnership;\n    return Boolean(\n      ownership?.ownsLiveScan?.(\n        workspace?.selectedAccountId ?? null,\n        workspace?.presentation?.scanId ?? null,\n      ),\n    );\n  }\n\n  function relinquishAdoptionToLiveMonitor() {\n    if (!adopted) return;\n    cancelPoll();\n    adopted = null;\n    stopInFlight = false;\n    // Do not change controls or presentation here. The live scan monitor already\n    // owns them; changing them would race the EventSource we are yielding to.\n  }",
+    "reattach live monitor ownership helper",
+  );
 
-reattach = replaceExactly(
-  reattach,
-  "  function adopt(workspace) {\n    const presentation = workspace?.presentation;\n    if (!presentation || presentation.status !== 'running') return;\n    if (typeof workspace.selectedAccountId !== 'string' || !workspace.selectedAccountId) return;\n    if (typeof presentation.scanId !== 'string' || !presentation.scanId) return;\n\n    if (adopted?.accountId === workspace.selectedAccountId && adopted?.scanId === presentation.scanId) {",
-  "  function adopt(workspace) {\n    const presentation = workspace?.presentation;\n    if (!presentation || presentation.status !== 'running') return;\n    if (typeof workspace.selectedAccountId !== 'string' || !workspace.selectedAccountId) return;\n    if (typeof presentation.scanId !== 'string' || !presentation.scanId) return;\n\n    // Reattach is a detached-document recovery owner only. Never replay the\n    // server workspace over a scan that this document is already receiving via\n    // scan-monitor's live EventSource; doing so duplicates cards/action tokens.\n    if (liveMonitorOwns(workspace)) {\n      relinquishAdoptionToLiveMonitor();\n      return;\n    }\n\n    if (adopted?.accountId === workspace.selectedAccountId && adopted?.scanId === presentation.scanId) {",
-  "reattach adoption ownership gate",
-);
+  reattach = replaceExactly(
+    reattach,
+    "  function adopt(workspace) {\n    const presentation = workspace?.presentation;\n    if (!presentation || presentation.status !== 'running') return;\n    if (typeof workspace.selectedAccountId !== 'string' || !workspace.selectedAccountId) return;\n    if (typeof presentation.scanId !== 'string' || !presentation.scanId) return;\n\n    if (adopted?.accountId === workspace.selectedAccountId && adopted?.scanId === presentation.scanId) {",
+    "  function adopt(workspace) {\n    const presentation = workspace?.presentation;\n    if (!presentation || presentation.status !== 'running') return;\n    if (typeof workspace.selectedAccountId !== 'string' || !workspace.selectedAccountId) return;\n    if (typeof presentation.scanId !== 'string' || !presentation.scanId) return;\n\n    // Reattach is a detached-document recovery owner only. Never replay the\n    // server workspace over a scan that this document is already receiving via\n    // scan-monitor's live EventSource; doing so duplicates cards/action tokens.\n    if (liveMonitorOwns(workspace)) {\n      relinquishAdoptionToLiveMonitor();\n      return;\n    }\n\n    if (adopted?.accountId === workspace.selectedAccountId && adopted?.scanId === presentation.scanId) {",
+    "reattach adoption ownership gate",
+  );
+  writeFileSync(reattachPath, reattach);
+}
 
-writeFileSync(reattachPath, reattach);
 console.log("Applied approved live-scan ownership fix.");
