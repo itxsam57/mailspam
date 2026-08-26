@@ -382,7 +382,7 @@ async function refreshAccounts() {
     button.textContent = t('account.use');
     button.setAttribute('aria-pressed', String(selected));
     if (selected) button.setAttribute('aria-current', 'true');
-    button.addEventListener('click', () => selectAccount(button.dataset.select));
+    button.addEventListener('click', () => window.selectAccount(button.dataset.select));
     row.append(identity, button);
     accountsList.append(row);
   }
@@ -405,7 +405,7 @@ function selectAccount(id, options = {}) {
 }
 
 Object.defineProperty(window, 'emailShieldSelectAccount', {
-  value: (id, options = {}) => selectAccount(id, options),
+  value: (id, options = {}) => window.selectAccount(id, options),
   writable: false,
   configurable: false,
 });
@@ -448,7 +448,7 @@ connectBtn.addEventListener('click', async () => {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Connect failed');
     await refreshAccounts();
-    selectAccount(data.accountId);
+    window.selectAccount(data.accountId);
     connectStatus.textContent = 'Account connected. Scan controls are ready.';
   } catch (err) {
     connectStatus.textContent = err instanceof Error ? err.message : String(err);

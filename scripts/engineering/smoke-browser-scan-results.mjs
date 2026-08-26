@@ -288,12 +288,16 @@ try {
   const scanDeadline = Date.now() + 45_000;
   while (Date.now() < scanDeadline) {
     snapshot = await evaluate(client, `(() => {
-      const rows = [...document.querySelectorAll('#consumerScanMessageFeed [data-message-row="true"]')];
+      const rows = [...document.querySelectorAll('#consumerScanMessageFeed [data-consumer-scan-row="true"]')];
+      const canonicalRows = [...document.querySelectorAll('#scanDiagnosticAudit tbody tr[data-message-row="true"]')];
       const newsletter = rows.find((row) => row.querySelector('.safe-subject')?.textContent?.trim() === 'Your weekly digest') || null;
       const malicious = rows.find((row) => row.querySelector('.safe-subject')?.textContent?.includes("You're still subscribed") ) || null;
       const unsubscribe = newsletter?.querySelector('button[data-action="unsubscribe"]') || null;
       return {
         rowCount: rows.length,
+        canonicalRowCount: canonicalRows.length,
+        consumerReviewTokenCount: document.querySelectorAll('#consumerScanMessageFeed [data-review-token]').length,
+        canonicalReviewTokenCount: canonicalRows.filter((row) => Boolean(row.dataset.reviewToken)).length,
         newsletterVisible: Boolean(newsletter),
         newsletterSafe: Boolean(newsletter?.querySelector('.consumer-scan-verdict.safe')),
         unsubscribeVisible: Boolean(unsubscribe),
@@ -309,6 +313,12 @@ try {
   }
 
   assert(snapshot?.rowCount > 0, `Consumer scan page rendered no examined emails. Last state: ${JSON.stringify(snapshot)}`);
+  assert(snapshot.canonicalRowCount === snapshot.rowCount,
+    `Consumer scan projection diverged from canonical diagnostic rows. Last state: ${JSON.stringify(snapshot)}`);
+  assert(snapshot.consumerReviewTokenCount === 0,
+    `Consumer scan projection copied protected review-token authority. Last state: ${JSON.stringify(snapshot)}`);
+  assert(snapshot.canonicalReviewTokenCount > 0,
+    `Canonical scan rows lost protected review-token authority. Last state: ${JSON.stringify(snapshot)}`);
   assert(snapshot.newsletterVisible === true, `Legitimate newsletter was not visible on the Scan page. Last state: ${JSON.stringify(snapshot)}`);
   assert(snapshot.newsletterSafe === true, `Legitimate authenticated newsletter was not presented as Safe. Last state: ${JSON.stringify(snapshot)}`);
   assert(snapshot.unsubscribeVisible === true, `Legitimate newsletter had no visible Unsubscribe action. Last state: ${JSON.stringify(snapshot)}`);

@@ -91,6 +91,25 @@
     );
   }
 
+  function liveMonitorOwns(workspace) {
+    const ownership = window.emailShieldScanMonitorOwnership;
+    return Boolean(
+      ownership?.ownsLiveScan?.(
+        workspace?.selectedAccountId ?? null,
+        workspace?.presentation?.scanId ?? null,
+      ),
+    );
+  }
+
+  function relinquishAdoptionToLiveMonitor() {
+    if (!adopted) return;
+    cancelPoll();
+    adopted = null;
+    stopInFlight = false;
+    // Do not change controls or presentation here. The live scan monitor already
+    // owns them; changing them would race the EventSource we are yielding to.
+  }
+
   function renderAdoptedWorkspace(workspace) {
     const presentation = workspace.presentation;
     if (selectedAccountId() === adopted.accountId) dispatchWorkspace(workspace);
@@ -164,6 +183,14 @@
     if (!presentation || presentation.status !== 'running') return;
     if (typeof workspace.selectedAccountId !== 'string' || !workspace.selectedAccountId) return;
     if (typeof presentation.scanId !== 'string' || !presentation.scanId) return;
+
+    // Reattach is a detached-document recovery owner only. Never replay the
+    // server workspace over a scan that this document is already receiving via
+    // scan-monitor's live EventSource; doing so duplicates cards/action tokens.
+    if (liveMonitorOwns(workspace)) {
+      relinquishAdoptionToLiveMonitor();
+      return;
+    }
 
     if (adopted?.accountId === workspace.selectedAccountId && adopted?.scanId === presentation.scanId) {
       renderAdoptedWorkspace(workspace);

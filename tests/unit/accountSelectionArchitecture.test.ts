@@ -6,15 +6,27 @@ const root = join(import.meta.dirname, "../..");
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 describe("account selection authority architecture", () => {
-  it("publishes one monotonic generation and reconciles legacy account-list rebuilds", () => {
+  it("publishes one monotonic generation only after its exact workspace persistence transaction succeeds", () => {
     const source = read("web/account-selection-state.js");
     expect(source).toContain("let generation = 0");
     expect(source).toContain("if (changed) generation += 1");
     expect(source).toContain("email-shield-account-selection-changed");
+    expect(source).toContain("email-shield-account-selection-settled");
+    expect(source).toContain("email-shield-account-selection-persistence-failed");
     expect(source).toContain("new MutationObserver");
     expect(source).toContain("const activeId = accountsList.querySelector('.account-chip.active')?.dataset.id || null");
     expect(source).toContain("if (activeId !== selectedId) reflectSelection(activeId)");
-    expect(source).toContain("ghost account ID");
+    expect(source).toContain("async function persistSelection(snapshot, attempt)");
+    expect(source).toContain("method: 'POST'");
+    expect(source).toContain("body: JSON.stringify({ accountId: snapshot.id })");
+    expect(source).toContain("workspace?.selectedAccountId !== snapshot.id");
+    expect(source).toContain("if (!matches(snapshot) || attempt !== settleAttempt) return false");
+    expect(source).toContain("publishSelectionSettled(snapshot)");
+    expect(source).toContain("originalSelect.call(this, id, { ...options, remember: false })");
+    expect(source).not.toContain("waitForPersistedSelection");
+    expect(source).not.toContain("SETTLE_RETRY_MS");
+    expect(source).not.toContain("SETTLE_TIMEOUT_MS");
+    expect(source).toContain("ghost");
   });
 
   it("clears previously rendered scan content synchronously when mailbox selection changes", () => {
