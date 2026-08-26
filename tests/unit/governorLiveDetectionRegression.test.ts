@@ -124,4 +124,30 @@ describe("Governor live identity-domain regression", () => {
       }),
     ]));
   });
+
+  it("still treats an HTTPS URL host with userinfo syntax as an explicit domain claim", () => {
+    const result = identityImpersonationLayer(envelope({
+      from: {
+        displayName: "Example Security",
+        address: "security@unrelated.example",
+        domain: "unrelated.example",
+      },
+      subject: "Review https://user@cobalt-bank.example/secure",
+      authentication: {
+        spf: "pass",
+        dkim: "pass",
+        dmarc: "pass",
+        arc: "none",
+        providerTrust: "trusted",
+        rawHeader: "mx.receiver.example; spf=pass smtp.mailfrom=unrelated.example; dkim=pass header.d=unrelated.example header.s=s1; dmarc=pass header.from=unrelated.example",
+      },
+    }));
+
+    expect(result.evidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "EXPLICIT_DOMAIN_CLAIM_MISMATCH",
+        scoreContribution: 4,
+      }),
+    ]));
+  });
 });
