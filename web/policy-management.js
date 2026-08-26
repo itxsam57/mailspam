@@ -49,7 +49,7 @@
     </div>
     <div id="policyStatus" class="policy-status" role="status" aria-live="polite" aria-atomic="true">Select a connected account to manage its personal policy.</div>
     <div id="policyCounts" class="policy-counts" role="status" aria-label="Personal policy counts"></div>
-    <div class="hint" style="margin-bottom:12px;">Confirmed unsubscribes include only endpoints Email Shield can verify as completed. Opening an external unsubscribe page or email request is recorded in Activity instead and does not falsely claim completion.</div>
+    <div class="hint" style="margin-bottom:12px;">Confirmed unsubscribes include only endpoints Email Shield can verify as completed. Opening an external unsubscribe page can be recorded in Activity without claiming completion. A mailto unsubscribe request is prepared inside Email Shield for you to copy and send; it is not recorded as opened, sent, or completed.</div>
     <div id="policyList" class="policy-list" aria-label="Personal policy entries"></div>
   `;
 

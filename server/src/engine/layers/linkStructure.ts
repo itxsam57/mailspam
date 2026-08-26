@@ -1,5 +1,6 @@
 import type { CanonicalEnvelope, LinkInfo } from "../../canonical/envelope.js";
 import { organizationalDomain, sameOrganizationalDomain } from "../../util/domainRelation.js";
+import { canonicalizeWebDestination } from "../../util/htmlInteraction.js";
 import {
   authenticatedSenderIdentityDomains,
   sensitiveActionText,
@@ -20,6 +21,17 @@ const SHORTENERS = new Set([
 
 const NON_NAVIGATING_SCHEMES = new Set(["cid:", "mailto:", "sms:", "tel:"]);
 const UNSAFE_SCHEMES = new Set(["data:", "file:", "javascript:", "vbscript:"]);
+const URL_ACTION_WORDS = new Set([
+  "account", "auth", "authenticate", "authentication", "credential", "credentials",
+  "login", "password", "recover", "recovery", "reset", "secure", "security",
+  "signin", "verify", "verification",
+]);
+const GENERIC_SUBDOMAIN_WORDS = new Set([
+  "app", "apps", "auth", "authenticate", "authentication", "account", "accounts",
+  "client", "cloud", "credential", "credentials", "id", "identity", "login", "mail",
+  "mobile", "online", "portal", "secure", "security", "service", "services", "signin",
+  "support", "user", "users", "verify", "verification", "web", "www",
+]);
 
 function isRawIp(host: string): boolean {
   return /^\d{1,3}(\.\d{1,3}){3}$/.test(host) || (/^[0-9a-f:]+$/i.test(host) && host.includes(":"));
@@ -49,7 +61,7 @@ function displayedUrl(text: string | null): URL | null {
 }
 
 function normalizedLinkValue(link: LinkInfo): string {
-  return (link.normalizedUrl || link.rawUrl).trim();
+  return canonicalizeWebDestination((link.normalizedUrl || link.rawUrl).trim(), null);
 }
 
 function explicitScheme(value: string): string | null {
@@ -63,6 +75,52 @@ function isNonNavigatingReference(link: LinkInfo): boolean {
       const scheme = explicitScheme(value);
       return scheme !== null && NON_NAVIGATING_SCHEMES.has(scheme);
     });
+}
+
+function decodedWords(value: string): string[] {
+  let decoded = value;
+  try { decoded = decodeURIComponent(value); }
+  catch { /* Keep malformed encodings as literal bounded structure. */ }
+  return decoded
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
+/**
+ * Detect identity-like labels combined with sign-in/verification wording on a
+ * subdomain that is not owned by that identity label. This is deliberately
+ * generic: no organization or brand allowlist is compiled into the engine.
+ * A normal `brand-login.brand.example` shape is not flagged because the
+ * distinctive token matches the registrable organization's own label.
+ */
+function identityActionSubdomain(host: string): string | null {
+  const organization = organizationalDomain(host);
+  if (!organization || organization === host || !host.endsWith(`.${organization}`)) return null;
+  const organizationLabel = organization.split(".")[0]?.toLowerCase() ?? "";
+  const prefix = host.slice(0, -(organization.length + 1));
+  for (const label of prefix.split(".")) {
+    const words = decodedWords(label);
+    if (!words.some((word) => URL_ACTION_WORDS.has(word))) continue;
+    const distinctive = words.find((word) => (
+      word.length >= 4
+      && !URL_ACTION_WORDS.has(word)
+      && !GENERIC_SUBDOMAIN_WORDS.has(word)
+      && word !== organizationLabel
+    ));
+    if (distinctive) return label;
+  }
+  return null;
+}
+
+function hasSensitiveAccountPath(url: URL): boolean {
+  const words = new Set(decodedWords(url.pathname));
+  let matched = 0;
+  for (const word of words) {
+    if (URL_ACTION_WORDS.has(word)) matched += 1;
+    if (matched >= 2) return true;
+  }
+  return false;
 }
 
 function isAuthenticatedBulkRedirect(
@@ -110,7 +168,7 @@ export function linkStructureLayer(envelope: CanonicalEnvelope): LayerResult {
     let url: URL;
     try { url = new URL(value); }
     catch {
-      addUniqueEvidence(evidence, seen, `MALFORMED_URL:${link.rawUrl}`, {
+      addUniqueEvidence(evidence, seen, `MALFORMED_URL:${value.toLowerCase()}`, {
         layer: "link_structure",
         code: "MALFORMED_URL",
         description: `Link "${link.rawUrl}" could not be parsed as a valid URL.`,
@@ -138,6 +196,37 @@ export function linkStructureLayer(envelope: CanonicalEnvelope): LayerResult {
     const linkIsSensitive = link.interaction === "form_action"
       || link.interaction === "automatic_redirect"
       || sensitiveActionText(link.visibleText);
+
+    if (url.protocol === "http:") {
+      addUniqueEvidence(evidence, seen, `INSECURE_HTTP_LINK:${host}`, {
+        layer: "link_structure",
+        code: "INSECURE_HTTP_LINK",
+        description: "Link uses unencrypted HTTP transport instead of HTTPS, so traffic to the destination is not protected in transit.",
+        scoreContribution: 1,
+        source: "local",
+      });
+    }
+
+    const identityActionLabel = identityActionSubdomain(host);
+    if (identityActionLabel) {
+      addUniqueEvidence(evidence, seen, `IDENTITY_ACTION_SUBDOMAIN:${organizationalDomain(host)}:${identityActionLabel}`, {
+        layer: "link_structure",
+        code: "IDENTITY_ACTION_SUBDOMAIN",
+        description: "A destination subdomain combines an identity-like label with sign-in or verification wording outside that identity's registrable domain.",
+        scoreContribution: 1,
+        source: "local",
+      });
+    }
+
+    if (hasSensitiveAccountPath(url)) {
+      addUniqueEvidence(evidence, seen, `SENSITIVE_ACCOUNT_PATH:${host}`, {
+        layer: "link_structure",
+        code: "SENSITIVE_ACCOUNT_PATH",
+        description: "The destination path combines multiple account, credential, sign-in, recovery, or verification action terms.",
+        scoreContribution: 1,
+        source: "local",
+      });
+    }
 
     if (link.interaction === "automatic_redirect") {
       addUniqueEvidence(evidence, seen, `AUTOMATIC_HTML_REDIRECT:${host}`, {

@@ -94,6 +94,59 @@ describe("Scam Check explicit URL destination integration", () => {
     expect(fetchImpl).toHaveBeenCalledWith("https://example.com/account");
   });
 
+  it("distinguishes plain HTTP from HTTPS in both local Why evidence and destination detail", async () => {
+    const fetchImpl = vi.fn(async (url: string) => ({
+      finalUrl: url,
+      contentType: "text/html",
+      body: "<html><body>Ordinary public page.</body></html>",
+    }));
+    const session = await startDesktop(fetchImpl);
+
+    const httpsResponse = await scamCheck(session, {
+      schemaVersion: 1,
+      kind: "url",
+      url: "https://example.com",
+    });
+    const httpResponse = await scamCheck(session, {
+      schemaVersion: 1,
+      kind: "url",
+      url: "http://example.com",
+    });
+
+    expect(httpsResponse.status).toBe(200);
+    expect(httpResponse.status).toBe(200);
+    const httpsBody = await httpsResponse.json() as any;
+    const httpBody = await httpResponse.json() as any;
+    const httpsCodes = (httpsBody.explanation?.strongestSignals ?? []).map((item: any) => item.code);
+    const httpCodes = (httpBody.explanation?.strongestSignals ?? []).map((item: any) => item.code);
+
+    expect(httpsCodes).not.toContain("INSECURE_HTTP_LINK");
+    expect(httpCodes).toContain("INSECURE_HTTP_LINK");
+    expect(httpBody.explanation?.summary).not.toBe(httpsBody.explanation?.summary);
+    expect(httpBody.destinationAnalysis?.results?.[0]?.detail).toMatch(/unencrypted HTTP/i);
+    expect(httpsBody.destinationAnalysis?.results?.[0]?.detail).toMatch(/HTTPS/i);
+  });
+
+  it("surfaces deterministic URL-structure risk without relying on a live malicious destination", async () => {
+    const fetchImpl = vi.fn(async () => null);
+    const session = await startDesktop(fetchImpl);
+    const response = await scamCheck(session, {
+      schemaVersion: 1,
+      kind: "url",
+      url: "http://paypal-login.example.invalid/verify-account",
+    });
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as any;
+    const codes = (body.explanation?.strongestSignals ?? []).map((item: any) => item.code);
+    expect(codes).toContain("INSECURE_HTTP_LINK");
+    expect(codes).toContain("IDENTITY_ACTION_SUBDOMAIN");
+    expect(codes).toContain("SENSITIVE_ACCOUNT_PATH");
+    expect(body.verdict).toBe("review");
+    expect(body.explanation?.strongestSignals).not.toEqual([]);
+    expect(body.destinationAnalysis?.results?.[0]?.classification).toBe("error");
+  });
+
   it("does not add destination network inspection to pasted-message mode", async () => {
     const fetchImpl = vi.fn(async (url: string) => ({
       finalUrl: url,

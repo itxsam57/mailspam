@@ -46,6 +46,7 @@
     "verify": "npm run gate",
     "dev": "node scripts/dev.mjs",
     "dev:fixtures": "node scripts/dev-fixtures.mjs",
+    "dev:owner-qa": "node scripts/dev-owner-qa.mjs",
     "dev:community": "npm run dev:community -w server",
     "dev:account-service": "npm run dev:account-service -w server",
     "recover:local-state": "npm run recover:local-state -w server",
