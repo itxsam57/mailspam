@@ -51,13 +51,19 @@ describe("live scan refresh reattachment architecture", () => {
     expect(workspaceCheckpoint).toBeLessThan(detachedReturn);
   });
 
-  it("rehydrates the selected mailbox only after account selection persistence settles", () => {
+  it("rehydrates the selected mailbox only after the protected selection transaction settles", () => {
     const selection = read("web/account-selection-state.js");
     const reattach = read("web/scan-live-reattach.js");
     expect(selection).toContain("email-shield-account-selection-settled");
-    expect(selection).toContain("Promise.resolve(result)");
+    expect(selection).toContain("async function persistSelection(snapshot, attempt)");
+    expect(selection).toContain("body: JSON.stringify({ accountId: snapshot.id })");
+    expect(selection).toContain("workspace?.selectedAccountId !== snapshot.id");
+    expect(selection).toContain("originalSelect.call(this, id, { ...options, remember: false })");
+    expect(selection).toContain("void settleWhenPersisted(snapshot)");
+    expect(selection).not.toContain("Promise.resolve(result)");
     expect(reattach).toContain("email-shield-account-selection-settled");
     expect(reattach).toContain("await loadWorkspace()");
+    expect(reattach).toContain("liveMonitorOwns(workspace)");
     expect(reattach).toContain("dispatchWorkspace(workspace)");
   });
 });
