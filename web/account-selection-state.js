@@ -13,8 +13,11 @@
     throw new Error('Email Shield connected-account list is unavailable.');
   }
 
+  const SETTLE_RETRY_MS = 50;
+  const SETTLE_TIMEOUT_MS = 5_000;
   let selectedId = accountsList.querySelector('.account-chip.active')?.dataset.id || null;
   let generation = 0;
+  let settleAttempt = 0;
 
   function publishSelectionChange(previousId, accountId) {
     window.dispatchEvent(new CustomEvent('email-shield-account-selection-changed', {
@@ -69,29 +72,67 @@
     );
   }
 
+  async function waitForPersistedSelection(snapshot, attempt) {
+    if (!snapshot?.id || !matches(snapshot) || attempt !== settleAttempt) return;
+    const deadline = Date.now() + SETTLE_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      if (!matches(snapshot) || attempt !== settleAttempt) return;
+      try {
+        const response = await fetch('/api/accounts/workspace', {
+          headers: { Accept: 'application/json' },
+          cache: 'no-store',
+        });
+        const workspace = await response.json().catch(() => ({}));
+        if (
+          response.ok
+          && workspace?.selectedAccountId === snapshot.id
+          && matches(snapshot)
+          && attempt === settleAttempt
+        ) {
+          publishSelectionSettled(snapshot);
+          return;
+        }
+      } catch {
+        // The local workspace write may still be in flight. Keep the selection
+        // unsettled rather than publishing a false account ownership boundary.
+      }
+      await new Promise((resolve) => setTimeout(resolve, SETTLE_RETRY_MS));
+    }
+  }
+
+  function settleWhenPersisted(snapshot = capture()) {
+    const attempt = ++settleAttempt;
+    void waitForPersistedSelection(snapshot, attempt);
+  }
+
   // The legacy shell still owns account list construction/persistence. This
   // wrapper establishes one synchronous selection boundary before those async
-  // effects run, so scan/action modules never have to infer selection from a
-  // DOM refresh that may still be in flight. A monotonically increasing
-  // generation also rejects A -> B -> A stale async responses that an ID-only
-  // comparison would incorrectly accept. The settled event is emitted only
-  // after the legacy owner has finished persisting the selected workspace.
+  // effects run. The legacy bootstrap also has lexical selection call sites
+  // that cannot be wrapped here, so the MutationObserver below reconciles those
+  // paths. A selection is considered settled only after the protected server
+  // workspace confirms the same account; this prevents a fast workspace read
+  // from racing ahead of the fire-and-forget persistence write.
   window.selectAccount = function emailShieldSelectAccountState(id, options = {}) {
     reflectSelection(id);
     const snapshot = capture();
     const result = originalSelect.call(this, id, options);
     Promise.resolve(result).then(() => {
-      if (matches(snapshot)) publishSelectionSettled(snapshot);
+      if (matches(snapshot)) settleWhenPersisted(snapshot);
     }).catch(() => undefined);
     return result;
   };
 
-  // refreshAccounts() rebuilds the account-chip DOM after connect/disconnect.
-  // Reconcile that authoritative list after each rebuild so removing the
-  // selected mailbox cannot leave a ghost account ID in account-scoped modules.
+  // refreshAccounts() rebuilds the account-chip DOM after connect/disconnect
+  // and after lexical legacy selectAccount() calls. Reconcile that authoritative
+  // list so removing the selected mailbox cannot leave a ghost account ID, and
+  // establish the same persisted-settlement boundary for paths that bypass the
+  // window.selectAccount wrapper.
   new MutationObserver(() => {
     const activeId = accountsList.querySelector('.account-chip.active')?.dataset.id || null;
-    if (activeId !== selectedId) reflectSelection(activeId);
+    if (activeId !== selectedId) {
+      reflectSelection(activeId);
+      if (activeId) settleWhenPersisted(capture());
+    }
   }).observe(accountsList, { childList: true, subtree: true });
 
   Object.defineProperty(window, 'emailShieldAccountSelection', {
