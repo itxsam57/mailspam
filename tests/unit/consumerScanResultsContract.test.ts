@@ -22,18 +22,25 @@ describe("consumer scanned-email presentation contract", () => {
     expect(consumerIndex).toBeGreaterThan(scanIndex);
   });
 
-  it("reflects exactly one selected account synchronously before legacy async refresh/persistence", () => {
+  it("reflects selection synchronously but publishes settled ownership only after the protected workspace agrees", () => {
     expect(selection).toContain("window.selectAccount = function emailShieldSelectAccountState");
     expect(selection).toContain("reflectSelection(id);");
     expect(selection).toContain("const result = originalSelect.call(this, id, options);");
     expect(selection.indexOf("reflectSelection(id);")).toBeLessThan(selection.indexOf("const result = originalSelect.call(this, id, options);"));
     expect(selection).toContain("email-shield-account-selection-settled");
-    expect(selection).toContain("if (matches(snapshot)) publishSelectionSettled(snapshot);");
+    expect(selection).toContain("async function waitForPersistedSelection(snapshot, attempt)");
+    expect(selection).toContain("workspace?.selectedAccountId === snapshot.id");
+    expect(selection).toContain("&& matches(snapshot)");
+    expect(selection).toContain("&& attempt === settleAttempt");
+    const persistedCheck = selection.indexOf("workspace?.selectedAccountId === snapshot.id");
+    const settledPublish = selection.indexOf("publishSelectionSettled(snapshot)", persistedCheck);
+    expect(persistedCheck).toBeGreaterThan(-1);
+    expect(settledPublish).toBeGreaterThan(persistedCheck);
     expect(selection).toContain("return result;");
     expect(selection).toContain("row.classList.toggle('active', active)");
     expect(selection).toContain("button.setAttribute('aria-pressed', String(active))");
     expect(selection).toContain("button.removeAttribute('aria-current')");
-    expect(selection).not.toContain("setTimeout");
+    expect(selection).toContain("const SETTLE_TIMEOUT_MS = 5_000");
     expect(selection).not.toContain("requestAnimationFrame");
   });
 
