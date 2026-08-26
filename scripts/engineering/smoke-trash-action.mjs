@@ -185,7 +185,11 @@ async function waitForScanComplete(client, timeoutMs = 45_000) {
         .filter((button) => !button.disabled && button.dataset.reviewToken).length,
       cards: document.querySelectorAll('#cards .card').length,
     }))()`);
-    if (state?.busy !== "true" && /Scan complete|No additional readable messages/.test(state?.status || "")) return state;
+    // Trash behavior is the subject of this smoke. Completion is established by
+    // the canonical scan owner releasing aria-busy and exposing an authorized
+    // Trash capability; do not couple this gate to presentation wording that can
+    // legitimately say either "Scan complete" or "Reattached scan complete".
+    if (state?.busy !== "true" && state?.trashButtons > 0) return state;
     await sleep(100);
   }
   throw new Error(`Full scan did not complete before the Trash-action deadline. Last state: ${JSON.stringify(state)}`);
