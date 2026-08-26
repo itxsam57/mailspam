@@ -86,7 +86,9 @@ describe("browser boot architecture", () => {
     expect(selection).toContain("capture,");
     expect(selection).toContain("matches,");
     expect(selection).toContain("snapshot.generation === generation");
-    expect(selection).toContain("A -> B -> A stale async responses");
+    expect(selection).toContain("let settleAttempt = 0");
+    expect(selection).toContain("const attempt = ++settleAttempt");
+    expect(selection).toContain("if (!matches(snapshot) || attempt !== settleAttempt) return");
 
     for (const source of [background, history, policy, monitor]) {
       expect(source).toContain("emailShieldAccountSelection");
