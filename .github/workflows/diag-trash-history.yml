@@ -1,0 +1,89 @@
+name: Trash History Diagnostic
+
+on:
+  push:
+    branches:
+      - diag/trash-history-1507
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_SHA: 51488d357cf89fd14ab6d26ca88f29f7cac3762d
+
+jobs:
+  diagnose:
+    name: Trash history browser boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout diagnostic branch
+        uses: actions/checkout@v4
+
+      - name: Assert production source parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent="$(git rev-parse HEAD^)"
+          test "$parent" = "$SOURCE_SHA" || {
+            echo "Expected diagnostic commit parent $SOURCE_SHA but got $parent" >&2
+            exit 1
+          }
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Build exact production source
+        run: npm run build
+
+      - name: Add read-only browser boundary diagnostics
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/engineering/smoke-trash-action.mjs')
+          text = path.read_text()
+          old = '''      const response = await fetch('/api/accounts/${encodeURIComponent(accountId)}/scan-history', { cache: 'no-store' });
+                const body = await response.json().catch(() => ({}));
+                const history = Array.isArray(body.history) ? body.history : [];
+                const previousScanId = ${JSON.stringify(previousScanId)};
+                const record = history.find((item) => item?.scanId && (!previousScanId || item.scanId !== previousScanId)) || null;
+                return {
+                  status: document.getElementById('scanMonitorStatus')?.textContent || '',
+                  busy: document.getElementById('scanPanel')?.getAttribute('aria-busy') || '',
+          '''
+          new = '''      const response = await fetch('/api/accounts/${encodeURIComponent(accountId)}/scan-history', { cache: 'no-store' });
+                const body = await response.json().catch(() => ({}));
+                const history = Array.isArray(body.history) ? body.history : [];
+                const workspaceResponse = await fetch('/api/accounts/workspace', { cache: 'no-store' });
+                const workspace = await workspaceResponse.json().catch(() => ({}));
+                const previousScanId = ${JSON.stringify(previousScanId)};
+                const record = history.find((item) => item?.scanId && (!previousScanId || item.scanId !== previousScanId)) || null;
+                return {
+                  historyHttpStatus: response.status,
+                  historyHttpOk: response.ok,
+                  historyError: body?.error || null,
+                  historyCount: history.length,
+                  historyIds: history.slice(0, 4).map((item) => ({ scanId: item?.scanId || null, status: item?.status || null, examined: Number(item?.counters?.examined || 0) })),
+                  workspaceHttpStatus: workspaceResponse.status,
+                  workspaceSelectedAccountId: workspace?.selectedAccountId || null,
+                  workspaceScanId: workspace?.presentation?.scanId || null,
+                  workspaceScanStatus: workspace?.presentation?.status || null,
+                  workspaceExamined: Number(workspace?.presentation?.counters?.examined || 0),
+                  browserSelectedAccountId: window.emailShieldAccountSelection?.currentId?.() || null,
+                  status: document.getElementById('scanMonitorStatus')?.textContent || '',
+                  busy: document.getElementById('scanPanel')?.getAttribute('aria-busy') || '',
+          '''
+          if old not in text:
+              raise SystemExit('Expected Trash waiter source block not found; refusing diagnostic mutation.')
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+      - name: Run isolated Trash browser smoke
+        run: node scripts/engineering/smoke-trash-action.mjs
