@@ -27,7 +27,7 @@ jobs:
           node scripts/engineering/apply-approved-scan-ownership-fix.mjs
           git diff --check
           changed="$(git diff --name-only | sort)"
-          expected='web/scan-monitor.js'
+          expected=$'web/scan-live-reattach.js\nweb/scan-monitor.js'
           test "$changed" = "$expected" || {
             echo "Unexpected changed files:" >&2
             printf '%s\n' "$changed" >&2
@@ -40,6 +40,9 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add web/scan-monitor.js
-          git commit -m "fix: complete single live scan presentation ownership"
+          git add web/scan-live-reattach.js web/scan-monitor.js
+          git commit -m "fix: enforce single live scan presentation owner"
           git push origin HEAD:qa/governor-executable-browser-final
+
+# trigger: approved ownership repair
+# trigger-2: 2026-08-26T15:31Z
