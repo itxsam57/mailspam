@@ -112,7 +112,10 @@ describe("browser boot architecture", () => {
     expect(policy).toContain("if (!selectionMatches(ownerSnapshot)) return");
 
     expect(monitor).toContain("let scanOwnerSnapshot = null");
-    expect(monitor).toContain("const presentationIsCurrent = () => source === es && selectionMatches(requestedSelection)");
+    expect(monitor).toContain("email-shield-account-selection-settled");
+    expect(monitor).toContain("scanOwnerSnapshot = current");
+    expect(monitor).toContain("const presentationIsCurrent = () => source === es && selectionMatches(scanOwnerSnapshot)");
+    expect(monitor).toContain("Object.defineProperty(window, 'emailShieldScanMonitorOwnership'");
     expect(monitor).toContain("email-shield-account-selection-changed");
     expect(monitor).toContain("clearScanPresentation()");
     expect(monitor).toContain("finish(es)");
