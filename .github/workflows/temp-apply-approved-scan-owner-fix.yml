@@ -1,0 +1,45 @@
+name: Temporary Apply Approved Scan Owner Fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/temp-apply-approved-scan-owner-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout QA repair branch
+        uses: actions/checkout@v4
+        with:
+          ref: qa/governor-executable-browser-final
+          fetch-depth: 0
+
+      - name: Apply approved exact-string repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/engineering/apply-approved-scan-ownership-fix.mjs
+          git diff --check
+          changed="$(git diff --name-only | sort)"
+          expected=$'web/scan-live-reattach.js\nweb/scan-monitor.js'
+          test "$changed" = "$expected" || {
+            echo "Unexpected changed files:" >&2
+            printf '%s\n' "$changed" >&2
+            exit 1
+          }
+
+      - name: Commit approved production repair to QA only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/scan-live-reattach.js web/scan-monitor.js
+          git commit -m "fix: enforce single live scan presentation owner"
+          git push origin HEAD:qa/governor-executable-browser-final
