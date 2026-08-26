@@ -46,8 +46,10 @@ const GENERIC_IDENTITY_WORDS = new Set([
 const TRANSACTIONAL_CONTEXT = /\b(?:account|bank|billing|card|delivery|invoice|order|password|payment|purchase|refund|reward|security|subscription|tax|transaction|verify|wallet)\b/i;
 const ORGANIZATION_CONTEXT = /\b(?:airlines?|association|bank|clinic|college|company|corp(?:oration)?|credit union|department|financial|foundation|group|health|hospital|hotel|inc(?:orporated)?|labs?|limited|llc|ltd|market|payments?|school|services?|shop|store|systems?|team|technolog(?:y|ies)|university)\b/i;
 const EXPLICIT_DOMAIN_RE = /(?:^|[^a-z0-9-])((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63})(?=$|[^a-z0-9-])/gi;
-const EXPLICIT_DOMAIN_PREFIX = /(?:https?:\/\/|www\.|@|\b(?:at|domain|from|portal|site|via|website)\s*[:=-]?\s*)$/i;
+const EXPLICIT_DOMAIN_PREFIX = /(?:https?:\/\/|www\.|\b(?:at|domain|from|portal|site|via|website)\s*[:=-]?\s*)$/i;
 const EXPLICIT_DOMAIN_SUFFIX = /^\s*(?:domain|portal|site|website)\b/i;
+const MAILBOX_LOCAL_PART_PREFIX = /[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@$/i;
+const URL_USERINFO_PREFIX = /https?:\/\/[a-z0-9._~!$&'()*+,;=:%-]+@$/i;
 
 function words(value: string): string[] {
   return value
@@ -60,11 +62,21 @@ function words(value: string): string[] {
 
 /**
  * A dotted token is not automatically a domain claim. Usernames, filenames,
- * product versions and generated identifiers commonly contain dots. Treat it
- * as an asserted network identity only when nearby syntax explicitly presents
- * it as a URL, email/domain, site, portal, sender, or destination.
+ * product versions, recipient addresses and generated identifiers commonly
+ * contain dots. Treat it as an asserted network identity only when nearby
+ * syntax explicitly presents it as a URL, domain, site, portal, sender, or
+ * destination rather than merely as the domain portion of an email address.
+ *
+ * Sender display names are already an identity-bearing field, so an address
+ * rendered there can assert a domain. Free-form subject text is different: a
+ * mailbox address must also have explicit claim syntax (for example "from")
+ * before its local part, otherwise recipient addresses would impersonate the
+ * recipient's mail provider.
  */
-function explicitDomains(value: string): string[] {
+function explicitDomains(
+  value: string,
+  options: { mailboxAddressClaims?: boolean } = {},
+): string[] {
   const found = new Set<string>();
   EXPLICIT_DOMAIN_RE.lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -75,8 +87,19 @@ function explicitDomains(value: string): string[] {
     const end = start + candidate.length;
     const before = value.slice(Math.max(0, start - 48), start);
     const after = value.slice(end, Math.min(value.length, end + 24));
+    const mailboxLocalPart = before.match(MAILBOX_LOCAL_PART_PREFIX)?.[0] ?? null;
+    const beforeMailbox = mailboxLocalPart
+      ? before.slice(0, -mailboxLocalPart.length)
+      : before;
+    const mailboxIsExplicit = Boolean(mailboxLocalPart) && (
+      options.mailboxAddressClaims === true
+      || EXPLICIT_DOMAIN_PREFIX.test(beforeMailbox)
+    );
+    const urlUserinfoIsExplicit = URL_USERINFO_PREFIX.test(value.slice(0, start));
     const explicit = candidate.toLowerCase().startsWith("www.")
-      || EXPLICIT_DOMAIN_PREFIX.test(before)
+      || (!mailboxLocalPart && EXPLICIT_DOMAIN_PREFIX.test(before))
+      || mailboxIsExplicit
+      || urlUserinfoIsExplicit
       || EXPLICIT_DOMAIN_SUFFIX.test(after);
     if (explicit) found.add(normalizeDomainName(candidate));
   }
@@ -210,7 +233,7 @@ export function identityImpersonationLayer(envelope: CanonicalEnvelope): LayerRe
   }
 
   const claimedDomains = new Set([
-    ...explicitDomains(envelope.from.displayName ?? ""),
+    ...explicitDomains(envelope.from.displayName ?? "", { mailboxAddressClaims: true }),
     ...explicitDomains(envelope.subject),
   ]);
   for (const claimed of claimedDomains) {

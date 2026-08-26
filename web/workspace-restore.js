@@ -12,6 +12,7 @@
         step,
       });
     };
+    const restoreSelectionSnapshot = window.emailShieldAccountSelection?.capture?.() ?? null;
     try {
       const response = await fetch('/api/accounts/workspace', {
         headers: { Accept: 'application/json' },
@@ -36,6 +37,22 @@
         complete('incomplete', 'selected_account_not_rendered');
         return;
       }
+
+      // Startup restore is allowed to hydrate the protected selection only while
+      // this tab has not made a newer selection decision. A user/tab selection
+      // can settle the process-global protected workspace while this restore is
+      // still waiting for account-chip rendering. Replaying the older workspace
+      // snapshot afterward would split browser-local and protected ownership.
+      const currentSelectionSnapshot = window.emailShieldAccountSelection?.capture?.() ?? null;
+      if (
+        restoreSelectionSnapshot
+        && currentSelectionSnapshot
+        && currentSelectionSnapshot.generation !== restoreSelectionSnapshot.generation
+      ) {
+        complete('success', 'newer_tab_selection_preserved');
+        return;
+      }
+
       select(workspace.selectedAccountId, { remember: false });
       window.dispatchEvent(new CustomEvent('email-shield-workspace-restored', { detail: workspace }));
       complete('success', 'selection_restored');
