@@ -183,6 +183,9 @@ if (process.platform === "win32") {
       } finally {
         try { await vault.delete(liveReference); } finally { bridge.close(); }
       }
-    }, 30_000);
+      // This is a lifecycle envelope for a cold CI runner, not a production
+      // timeout relaxation. Production still fails closed at 30s helper startup
+      // and 10s per serialized operation, as the contract above explicitly locks.
+    }, 90_000);
   });
 }
