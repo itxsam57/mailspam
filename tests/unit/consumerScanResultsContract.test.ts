@@ -22,25 +22,29 @@ describe("consumer scanned-email presentation contract", () => {
     expect(consumerIndex).toBeGreaterThan(scanIndex);
   });
 
-  it("reflects selection synchronously but publishes settled ownership only after the protected workspace agrees", () => {
+  it("reflects selection synchronously while one protected persistence owner publishes settled generations", () => {
     expect(selection).toContain("window.selectAccount = function emailShieldSelectAccountState");
     expect(selection).toContain("reflectSelection(id);");
-    expect(selection).toContain("const result = originalSelect.call(this, id, options);");
-    expect(selection.indexOf("reflectSelection(id);")).toBeLessThan(selection.indexOf("const result = originalSelect.call(this, id, options);"));
-    expect(selection).toContain("email-shield-account-selection-settled");
-    expect(selection).toContain("async function waitForPersistedSelection(snapshot, attempt)");
-    expect(selection).toContain("workspace?.selectedAccountId === snapshot.id");
-    expect(selection).toContain("&& matches(snapshot)");
-    expect(selection).toContain("&& attempt === settleAttempt");
-    const persistedCheck = selection.indexOf("workspace?.selectedAccountId === snapshot.id");
-    const settledPublish = selection.indexOf("publishSelectionSettled(snapshot)", persistedCheck);
-    expect(persistedCheck).toBeGreaterThan(-1);
-    expect(settledPublish).toBeGreaterThan(persistedCheck);
-    expect(selection).toContain("return result;");
+    expect(selection).toContain("const result = originalSelect.call(this, id, { ...options, remember: false });");
+    expect(selection.indexOf("reflectSelection(id);")).toBeLessThan(
+      selection.indexOf("const result = originalSelect.call(this, id, { ...options, remember: false });"),
+    );
+    expect(selection).toContain("async function persistSelection(snapshot, attempt)");
+    expect(selection).toContain("method: 'POST'");
+    expect(selection).toContain("body: JSON.stringify({ accountId: snapshot.id })");
+    expect(selection).toContain("workspace?.selectedAccountId !== snapshot.id");
+    expect(selection).toContain("if (!matches(snapshot) || attempt !== settleAttempt) return false");
+    const confirmedWorkspace = selection.indexOf("workspace?.selectedAccountId !== snapshot.id");
+    const settledPublish = selection.indexOf("publishSelectionSettled(snapshot)", confirmedWorkspace);
+    expect(confirmedWorkspace).toBeGreaterThan(-1);
+    expect(settledPublish).toBeGreaterThan(confirmedWorkspace);
+    expect(selection).toContain("void settleWhenPersisted(snapshot);");
+    expect(selection).toContain("email-shield-account-selection-persistence-failed");
     expect(selection).toContain("row.classList.toggle('active', active)");
     expect(selection).toContain("button.setAttribute('aria-pressed', String(active))");
     expect(selection).toContain("button.removeAttribute('aria-current')");
-    expect(selection).toContain("const SETTLE_TIMEOUT_MS = 5_000");
+    expect(selection).not.toContain("waitForPersistedSelection");
+    expect(selection).not.toContain("SETTLE_TIMEOUT_MS");
     expect(selection).not.toContain("requestAnimationFrame");
   });
 
@@ -56,6 +60,13 @@ describe("consumer scanned-email presentation contract", () => {
     expect(renderer).not.toContain("/scan/quick");
     expect(renderer).not.toContain("/scan/full");
     expect(renderer).not.toContain("/scan/spam");
+  });
+
+  it("keeps protected review authority only on canonical rows while the consumer projection stays presentation-only", () => {
+    expect(renderer).toContain("item.dataset.consumerScanRow = 'true'");
+    expect(renderer).not.toContain("item.dataset.messageRow = 'true'");
+    expect(renderer).not.toContain("item.dataset.reviewToken");
+    expect(renderer).toContain("item.dataset.unsubscribeToken = row.dataset.unsubscribeToken || ''");
   });
 
   it("surfaces protected unsubscribe actions for safe newsletter rows without exposing destinations", () => {
