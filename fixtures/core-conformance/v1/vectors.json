@@ -93,7 +93,7 @@
       "expectedResponse": {
         "schemaVersion": 1,
         "verdict": "high_risk",
-        "score": 8,
+        "score": 9,
         "confirmedByRule": false,
         "action": "allow_one_click_block",
         "evidence": [
@@ -116,6 +116,13 @@
             "code": "CREDENTIAL_PHISH_INTENT",
             "description": "Message asks for credentials/OTP under time or suspension pressure.",
             "scoreContribution": 3,
+            "source": "local"
+          },
+          {
+            "layer": "link_structure",
+            "code": "INSECURE_HTTP_LINK",
+            "description": "Link uses unencrypted HTTP transport instead of HTTPS, so traffic to the destination is not protected in transit.",
+            "scoreContribution": 1,
             "source": "local"
           },
           {
@@ -184,7 +191,15 @@
           {
             "layer": "link_structure",
             "applicable": true,
-            "evidence": [],
+            "evidence": [
+              {
+                "layer": "link_structure",
+                "code": "INSECURE_HTTP_LINK",
+                "description": "Link uses unencrypted HTTP transport instead of HTTPS, so traffic to the destination is not protected in transit.",
+                "scoreContribution": 1,
+                "source": "local"
+              }
+            ],
             "incomplete": false
           },
           {
@@ -327,7 +342,7 @@
       "expectedResponse": {
         "schemaVersion": 1,
         "verdict": "high_risk",
-        "score": 8,
+        "score": 9,
         "confirmedByRule": false,
         "action": "allow_one_click_block",
         "evidence": [
@@ -350,6 +365,13 @@
             "code": "CREDENTIAL_PHISH_INTENT",
             "description": "Message asks for credentials/OTP under time or suspension pressure.",
             "scoreContribution": 3,
+            "source": "local"
+          },
+          {
+            "layer": "link_structure",
+            "code": "INSECURE_HTTP_LINK",
+            "description": "Link uses unencrypted HTTP transport instead of HTTPS, so traffic to the destination is not protected in transit.",
+            "scoreContribution": 1,
             "source": "local"
           },
           {
@@ -418,7 +440,15 @@
           {
             "layer": "link_structure",
             "applicable": true,
-            "evidence": [],
+            "evidence": [
+              {
+                "layer": "link_structure",
+                "code": "INSECURE_HTTP_LINK",
+                "description": "Link uses unencrypted HTTP transport instead of HTTPS, so traffic to the destination is not protected in transit.",
+                "scoreContribution": 1,
+                "source": "local"
+              }
+            ],
             "incomplete": false
           },
           {
@@ -561,7 +591,7 @@
       "expectedResponse": {
         "schemaVersion": 1,
         "verdict": "high_risk",
-        "score": 8,
+        "score": 9,
         "confirmedByRule": false,
         "action": "allow_one_click_block",
         "evidence": [
@@ -584,6 +614,13 @@
             "code": "CREDENTIAL_PHISH_INTENT",
             "description": "Message asks for credentials/OTP under time or suspension pressure.",
             "scoreContribution": 3,
+            "source": "local"
+          },
+          {
+            "layer": "link_structure",
+            "code": "INSECURE_HTTP_LINK",
+            "description": "Link uses unencrypted HTTP transport instead of HTTPS, so traffic to the destination is not protected in transit.",
+            "scoreContribution": 1,
             "source": "local"
           },
           {
@@ -652,7 +689,15 @@
           {
             "layer": "link_structure",
             "applicable": true,
-            "evidence": [],
+            "evidence": [
+              {
+                "layer": "link_structure",
+                "code": "INSECURE_HTTP_LINK",
+                "description": "Link uses unencrypted HTTP transport instead of HTTPS, so traffic to the destination is not protected in transit.",
+                "scoreContribution": 1,
+                "source": "local"
+              }
+            ],
             "incomplete": false
           },
           {
@@ -795,7 +840,7 @@
       "expectedResponse": {
         "schemaVersion": 1,
         "verdict": "high_risk",
-        "score": 8,
+        "score": 9,
         "confirmedByRule": false,
         "action": "allow_one_click_block",
         "evidence": [
@@ -818,6 +863,13 @@
             "code": "CREDENTIAL_PHISH_INTENT",
             "description": "Message asks for credentials/OTP under time or suspension pressure.",
             "scoreContribution": 3,
+            "source": "local"
+          },
+          {
+            "layer": "link_structure",
+            "code": "INSECURE_HTTP_LINK",
+            "description": "Link uses unencrypted HTTP transport instead of HTTPS, so traffic to the destination is not protected in transit.",
+            "scoreContribution": 1,
             "source": "local"
           },
           {
@@ -886,7 +938,15 @@
           {
             "layer": "link_structure",
             "applicable": true,
-            "evidence": [],
+            "evidence": [
+              {
+                "layer": "link_structure",
+                "code": "INSECURE_HTTP_LINK",
+                "description": "Link uses unencrypted HTTP transport instead of HTTPS, so traffic to the destination is not protected in transit.",
+                "scoreContribution": 1,
+                "source": "local"
+              }
+            ],
             "incomplete": false
           },
           {
@@ -1029,7 +1089,7 @@
       "expectedResponse": {
         "schemaVersion": 1,
         "verdict": "high_risk",
-        "score": 8,
+        "score": 9,
         "confirmedByRule": false,
         "action": "allow_one_click_block",
         "evidence": [
@@ -1052,6 +1112,13 @@
             "code": "CREDENTIAL_PHISH_INTENT",
             "description": "Message asks for credentials/OTP under time or suspension pressure.",
             "scoreContribution": 3,
+            "source": "local"
+          },
+          {
+            "layer": "link_structure",
+            "code": "INSECURE_HTTP_LINK",
+            "description": "Link uses unencrypted HTTP transport instead of HTTPS, so traffic to the destination is not protected in transit.",
+            "scoreContribution": 1,
             "source": "local"
           },
           {
@@ -1120,7 +1187,15 @@
           {
             "layer": "link_structure",
             "applicable": true,
-            "evidence": [],
+            "evidence": [
+              {
+                "layer": "link_structure",
+                "code": "INSECURE_HTTP_LINK",
+                "description": "Link uses unencrypted HTTP transport instead of HTTPS, so traffic to the destination is not protected in transit.",
+                "scoreContribution": 1,
+                "source": "local"
+              }
+            ],
             "incomplete": false
           },
           {
