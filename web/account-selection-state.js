@@ -13,8 +13,6 @@
     throw new Error('Email Shield connected-account list is unavailable.');
   }
 
-  const SETTLE_RETRY_MS = 50;
-  const SETTLE_TIMEOUT_MS = 5_000;
   let selectedId = accountsList.querySelector('.account-chip.active')?.dataset.id || null;
   let generation = 0;
   let settleAttempt = 0;
@@ -34,6 +32,16 @@
       detail: Object.freeze({
         accountId: snapshot.id,
         generation: snapshot.generation,
+      }),
+    }));
+  }
+
+  function publishSelectionPersistenceFailure(snapshot, message) {
+    window.dispatchEvent(new CustomEvent('email-shield-account-selection-persistence-failed', {
+      detail: Object.freeze({
+        accountId: snapshot?.id ?? null,
+        generation: snapshot?.generation ?? generation,
+        message,
       }),
     }));
   }
@@ -72,67 +80,64 @@
     );
   }
 
-  async function waitForPersistedSelection(snapshot, attempt) {
-    if (!snapshot?.id || !matches(snapshot) || attempt !== settleAttempt) return;
-    const deadline = Date.now() + SETTLE_TIMEOUT_MS;
-    while (Date.now() < deadline) {
-      if (!matches(snapshot) || attempt !== settleAttempt) return;
-      try {
-        const response = await fetch('/api/accounts/workspace', {
-          headers: { Accept: 'application/json' },
-          cache: 'no-store',
-        });
-        const workspace = await response.json().catch(() => ({}));
-        if (
-          response.ok
-          && workspace?.selectedAccountId === snapshot.id
-          && matches(snapshot)
-          && attempt === settleAttempt
-        ) {
-          publishSelectionSettled(snapshot);
-          return;
-        }
-      } catch {
-        // The local workspace write may still be in flight. Keep the selection
-        // unsettled rather than publishing a false account ownership boundary.
+  async function persistSelection(snapshot, attempt) {
+    if (!snapshot?.id || !matches(snapshot) || attempt !== settleAttempt) return false;
+    try {
+      const response = await fetch('/api/accounts/workspace', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ accountId: snapshot.id }),
+      });
+      const workspace = await response.json().catch(() => ({}));
+      if (!response.ok || workspace?.selectedAccountId !== snapshot.id) {
+        const message = workspace?.error || `Workspace selection returned HTTP ${response.status}.`;
+        if (matches(snapshot) && attempt === settleAttempt) publishSelectionPersistenceFailure(snapshot, message);
+        return false;
       }
-      await new Promise((resolve) => setTimeout(resolve, SETTLE_RETRY_MS));
+      if (!matches(snapshot) || attempt !== settleAttempt) return false;
+      publishSelectionSettled(snapshot);
+      return true;
+    } catch (error) {
+      if (matches(snapshot) && attempt === settleAttempt) {
+        publishSelectionPersistenceFailure(
+          snapshot,
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+      return false;
     }
   }
 
   function settleWhenPersisted(snapshot = capture()) {
     const attempt = ++settleAttempt;
-    void waitForPersistedSelection(snapshot, attempt);
+    return persistSelection(snapshot, attempt);
   }
 
-  // The legacy shell still owns account list construction/persistence. This
-  // wrapper establishes one synchronous selection boundary before those async
-  // effects run. The legacy bootstrap also has lexical selection call sites
-  // that cannot be wrapped here, so the MutationObserver below reconciles those
-  // paths. A selection is considered settled only after the protected server
-  // workspace confirms the same account; this prevents a fast workspace read
-  // from racing ahead of the fire-and-forget persistence write.
+  // Account-selection-state owns the persistence transaction. The legacy shell
+  // still owns visual account-list construction, but its fire-and-forget
+  // workspace write is explicitly suppressed here. A generation becomes
+  // settled only when this exact protected POST confirms the same account. This
+  // avoids polling one process-global workspace value that another legitimate
+  // browser tab may change immediately afterward.
   window.selectAccount = function emailShieldSelectAccountState(id, options = {}) {
     reflectSelection(id);
     const snapshot = capture();
-    const result = originalSelect.call(this, id, options);
-    Promise.resolve(result).then(() => {
-      if (matches(snapshot)) settleWhenPersisted(snapshot);
-    }).catch(() => undefined);
+    const result = originalSelect.call(this, id, { ...options, remember: false });
+    if (options.remember === false || !snapshot.id) return result;
+    void settleWhenPersisted(snapshot);
     return result;
   };
 
-  // refreshAccounts() rebuilds the account-chip DOM after connect/disconnect
-  // and after lexical legacy selectAccount() calls. Reconcile that authoritative
-  // list so removing the selected mailbox cannot leave a ghost account ID, and
-  // establish the same persisted-settlement boundary for paths that bypass the
-  // window.selectAccount wrapper.
+  // refreshAccounts() rebuilds the account-chip DOM after connect/disconnect.
+  // Reconcile that list so removing the selected mailbox cannot leave a ghost
+  // account ID. Persistence remains owned by the explicit selection transaction
+  // above; DOM reconstruction never manufactures a second workspace write.
   new MutationObserver(() => {
     const activeId = accountsList.querySelector('.account-chip.active')?.dataset.id || null;
-    if (activeId !== selectedId) {
-      reflectSelection(activeId);
-      if (activeId) settleWhenPersisted(capture());
-    }
+    if (activeId !== selectedId) reflectSelection(activeId);
   }).observe(accountsList, { childList: true, subtree: true });
 
   Object.defineProperty(window, 'emailShieldAccountSelection', {
