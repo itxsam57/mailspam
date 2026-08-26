@@ -1,1 +1,1 @@
-Exact-head CI trigger for Governor branch head 4bf95e539e761db3076c8727121dfd898fe6e5a4. Remove before merge.
+Exact-head CI trigger. Current branch code under test precedes this marker; this file has no runtime effect. Remove before merge.
