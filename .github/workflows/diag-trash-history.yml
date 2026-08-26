@@ -17,16 +17,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
-      - name: Checkout diagnostic branch
+      - name: Checkout exact production source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
 
-      - name: Assert production source parent
+      - name: Assert exact production source
         shell: bash
         run: |
           set -euo pipefail
-          parent="$(git rev-parse HEAD^)"
-          test "$parent" = "$SOURCE_SHA" || {
-            echo "Expected diagnostic commit parent $SOURCE_SHA but got $parent" >&2
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$SOURCE_SHA" || {
+            echo "Expected diagnostic source $SOURCE_SHA but got $actual" >&2
             exit 1
           }
 
