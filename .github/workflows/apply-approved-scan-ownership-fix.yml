@@ -5,6 +5,7 @@ on:
     branches: [qa/governor-executable-browser-final]
     paths:
       - scripts/engineering/apply-approved-scan-ownership-fix.mjs
+      - .github/workflows/apply-approved-scan-ownership-fix.yml
 
 permissions:
   contents: write
