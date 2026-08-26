@@ -455,5 +455,5 @@ try {
   await stopChild(browser);
   await stopChild(server);
   rmSync(dataDir, { recursive: true, force: true });
-  rmSync(browserProfile, { recursive: true, force: true });
+  rmSync(browserProfile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }
