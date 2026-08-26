@@ -51,3 +51,4 @@ jobs:
 # trigger-5: stop
 # trigger-6: final
 # trigger-7: actual-final
+# trigger-8: terminate-loop
