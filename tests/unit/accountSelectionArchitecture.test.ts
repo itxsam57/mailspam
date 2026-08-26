@@ -32,7 +32,8 @@ describe("account selection authority architecture", () => {
   it("prevents delayed startup workspace restore from overwriting a newer tab-local mailbox selection", () => {
     const selection = read("web/account-selection-state.js");
     const restore = read("web/workspace-restore.js");
-    expect(selection).toContain("capture: () => capture()");
+    expect(selection).toContain("capture,");
+    expect(selection).toContain("generation: () => generation");
     expect(restore).toContain("const restoreSelectionSnapshot = window.emailShieldAccountSelection?.capture?.() ?? null");
     expect(restore).toContain("const currentSelectionSnapshot = window.emailShieldAccountSelection?.capture?.() ?? null");
     expect(restore).toContain("currentSelectionSnapshot.generation !== restoreSelectionSnapshot.generation");
