@@ -67,6 +67,7 @@
 
   let source = null;
   let accountId = null;
+  let activeScanId = null;
   let scanOwnerSnapshot = null;
   let receivedServerEvent = false;
   let diagnosticRows = [];
@@ -135,6 +136,7 @@
     source?.close();
     source = null;
     accountId = null;
+    activeScanId = null;
     scanOwnerSnapshot = null;
     return true;
   }
@@ -200,6 +202,17 @@
     setStatus(detail?.accountId
       ? 'Selected account changed. Scan controls are ready.'
       : 'Select a connected account to scan.');
+  });
+
+  // A live EventSource remains the scan-presentation owner across mailbox
+  // navigation. Rebind its generation only after the protected server workspace
+  // confirms that the same mailbox selection has settled. This preserves stale
+  // account protection while allowing A -> B -> A to resume live rendering.
+  window.addEventListener('email-shield-account-selection-settled', (event) => {
+    const detail = event instanceof CustomEvent ? event.detail : null;
+    if (!source || !accountId || detail?.accountId !== accountId) return;
+    const current = selectionSnapshot();
+    if (current.id === accountId) scanOwnerSnapshot = current;
   });
 
   function renderProgress(progress) {
@@ -286,13 +299,14 @@
     const es = new EventSource(streamPath);
     source = es;
 
-    const presentationIsCurrent = () => source === es && selectionMatches(requestedSelection);
+    const presentationIsCurrent = () => source === es && selectionMatches(scanOwnerSnapshot);
 
     es.addEventListener('scan-started', (event) => {
       receivedServerEvent = true;
+      let value = { resumed: Boolean(resumeScanId), counters: null, scanId: null };
+      try { value = JSON.parse(event.data); } catch {}
+      if (typeof value.scanId === 'string' && value.scanId) activeScanId = value.scanId;
       if (presentationIsCurrent()) {
-        let value = { resumed: Boolean(resumeScanId), counters: null };
-        try { value = JSON.parse(event.data); } catch {}
         if (value.resumed === true && value.counters) {
           if (typeof window.renderCounters === 'function') window.renderCounters(value.counters);
           else counters.textContent = `${Number(value.counters.examined || 0)} messages examined`;
@@ -479,6 +493,17 @@
 
   document.addEventListener('click', handlePolicyAction, true);
   document.addEventListener('click', handleTrashAction, true);
+
+  Object.defineProperty(window, 'emailShieldScanMonitorOwnership', {
+    value: Object.freeze({
+      ownsLiveScan(candidateAccountId, candidateScanId = null) {
+        if (!source || !accountId || candidateAccountId !== accountId) return false;
+        if (typeof candidateScanId !== 'string' || !candidateScanId || !activeScanId) return true;
+        return candidateScanId === activeScanId;
+      },
+    }),
+    writable: false, configurable: false, enumerable: false,
+  });
 
   Object.defineProperty(window, 'emailShieldStartScan', {
     value: (type, options = {}) => start(type, options), writable: false, configurable: false, enumerable: false,
