@@ -98,4 +98,30 @@ describe("Governor live identity-domain regression", () => {
       }),
     ]));
   });
+
+  it("still treats an email-domain claim in the sender display identity as explicit", () => {
+    const result = identityImpersonationLayer(envelope({
+      from: {
+        displayName: "Billing support@cobalt-bank.example",
+        address: "notice@unrelated-sender.example",
+        domain: "unrelated-sender.example",
+      },
+      subject: "Account payment alert",
+      authentication: {
+        spf: "pass",
+        dkim: "pass",
+        dmarc: "pass",
+        arc: "none",
+        providerTrust: "trusted",
+        rawHeader: "mx.receiver.example; spf=pass smtp.mailfrom=unrelated-sender.example; dkim=pass header.d=unrelated-sender.example header.s=s1; dmarc=pass header.from=unrelated-sender.example",
+      },
+    }));
+
+    expect(result.evidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "EXPLICIT_DOMAIN_CLAIM_MISMATCH",
+        scoreContribution: 4,
+      }),
+    ]));
+  });
 });
