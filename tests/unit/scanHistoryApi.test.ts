@@ -4,6 +4,7 @@ import type { Server } from "node:http";
 import { createLocalDesktopServer } from "../../server/src/api/localDesktopServer.js";
 import { LocalSecurityManager } from "../../server/src/api/localSecurity.js";
 import { defaultScanStateRepository } from "../../server/src/api/defaultScanStateRepository.js";
+import { activeScanLifecycle } from "../../server/src/api/scanLifecycle.js";
 import { sessionStore } from "../../server/src/api/sessionStore.js";
 import type { ScanHistoryRecord } from "../../server/src/api/scanStatePersistence.js";
 
@@ -167,6 +168,57 @@ describe("protected scan history API", () => {
     expect(retained?.status).toBe("failed");
     expect(retained?.checkpoint?.currentCursor).toBe("1");
     expect(retained?.counters.examined).toBe(1);
+  });
+
+  it("does not advertise a stopped checkpoint as resumable until its active lifecycle has finalized", async () => {
+    const context = await start();
+    const connected = await mutate(context, "/api/accounts/connect", {
+      provider: "gmail",
+      mode: "fixture",
+      label: "scan-history-finalization-race",
+    });
+    expect(connected.status).toBe(200);
+    const accountId = (await connected.json()).accountId as string;
+    accountIds.push(accountId);
+    const session = sessionStore.get(accountId);
+    expect(session).toBeDefined();
+
+    const record: ScanHistoryRecord = {
+      ...resumableRecord(),
+      status: "stopped",
+    };
+    defaultScanStateRepository.save(session!.policyAccountKey, record);
+    activeScanLifecycle.begin(session!.id, record.scanId);
+
+    try {
+      const duringFinalization = await fetch(`${context.baseUrl}/api/accounts/${accountId}/scan-history`, {
+        headers: headers(context),
+      });
+      expect(duringFinalization.status).toBe(200);
+      const duringBody = await duringFinalization.json();
+      expect(duringBody.history.find((item: { scanId?: string }) => item.scanId === record.scanId)).toMatchObject({
+        status: "stopped",
+        resumable: false,
+      });
+    } finally {
+      activeScanLifecycle.finalize(session!.id, record.scanId, {
+        scanId: record.scanId,
+        status: "stopped",
+        historySaved: true,
+        resumable: true,
+        counters: { ...record.counters },
+      });
+    }
+
+    const afterFinalization = await fetch(`${context.baseUrl}/api/accounts/${accountId}/scan-history`, {
+      headers: headers(context),
+    });
+    expect(afterFinalization.status).toBe(200);
+    const afterBody = await afterFinalization.json();
+    expect(afterBody.history.find((item: { scanId?: string }) => item.scanId === record.scanId)).toMatchObject({
+      status: "stopped",
+      resumable: true,
+    });
   });
 
   it("rejects resume requests that do not belong to the selected account", async () => {
