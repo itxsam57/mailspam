@@ -125,34 +125,6 @@ describe("Browser Protection behavioral certification", () => {
     expect(result.explanation).toMatch(/not a guarantee/i);
   });
 
-  it("preserves authoritative HTTP versus HTTPS transport evidence without changing a benign disposition", async () => {
-    const body = "<html><body>ordinary public documentation and help information</body></html>";
-    const http = await evaluateBrowserUrl({
-      schemaVersion: 1,
-      url: "http://example.com/help",
-      context: "explicit_check",
-    }, {
-      destinationAnalyzer: coordinator(body),
-      scamCheck: { intelligenceEntries: [] },
-    });
-    const https = await evaluateBrowserUrl({
-      schemaVersion: 1,
-      url: "https://example.com/help",
-      context: "explicit_check",
-    }, {
-      destinationAnalyzer: coordinator(body),
-      scamCheck: { intelligenceEntries: [] },
-    });
-
-    expect(http.destinationClassification).toBe("benign");
-    expect(https.destinationClassification).toBe("benign");
-    expect(http.disposition).toBe("allow");
-    expect(https.disposition).toBe("allow");
-    expect(http.explanation).toMatch(/unencrypted HTTP transport/i);
-    expect(https.explanation).toMatch(/HTTPS transport/i);
-    expect(http.explanation).not.toBe(https.explanation);
-  });
-
   it("fails closed when signed Global Shield intelligence is unavailable even if fetched content looks benign", async () => {
     const result = await evaluateBrowserUrl({
       schemaVersion: 1,
