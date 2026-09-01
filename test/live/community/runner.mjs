@@ -5,6 +5,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import net from "node:net";
 import { execFileSync, spawn } from "node:child_process";
+import {
+  COMMUNITY_REVIEW_MIN_SPAN_MS,
+  EncryptedCommunityAggregateStore,
+} from "../../../server/dist/community/aggregateStore.js";
 import { verifyCommunityFeed } from "../../../server/dist/community/signing.js";
 
 const root = resolve(process.cwd());
@@ -15,7 +19,8 @@ const rotationDir = join(baseTmp, "rotation");
 const backupFile = join(baseTmp, "community-backup.json");
 const passphraseFile = join(baseTmp, "backup-passphrase.txt");
 const metricsToken = `metrics-${createHash("sha256").update(baseTmp).digest("hex")}`;
-const campaign = createHash("sha256").update("email-shield-live-community-governed-campaign").digest("hex");
+const publicCampaign = createHash("sha256").update("email-shield-live-community-public-time-forgery-probe").digest("hex");
+const governedCampaign = createHash("sha256").update("email-shield-live-community-governed-campaign").digest("hex");
 const reporterProofs = Array.from({ length: 5 }, (_, index) => createHash("sha256").update(`email-shield-live-community-reporter-${index}`).digest("hex"));
 let child = null;
 let serviceLogs = "";
@@ -110,32 +115,60 @@ function runOps(args, env = {}) {
   return stdout ? JSON.parse(stdout) : null;
 }
 
-function report(index, reportedAt) {
+function report(campaignFingerprint, index, reportedAt) {
   return {
     schemaVersion: 1,
     reporterProof: reporterProofs[index],
-    campaignFingerprint: campaign,
+    campaignFingerprint,
     reportedAt,
     verdict: "high_risk",
     evidenceScore: 8,
     evidenceCodes: ["USER_REPORTED_SCAM", "REPLY_TO_MISMATCH"],
     indicators: [
-      { type: "campaign", value: campaign },
+      { type: "campaign", value: campaignFingerprint },
       { type: "sender", value: "live-community-controlled@example.test" },
       { type: "reply_to_domain", value: "controlled-reply.example" },
     ],
   };
 }
 
-function spreadTimes() {
-  const now = Date.now();
-  return [25, 24, 23, 22, 1].map((hoursAgo) => new Date(now - hoursAgo * 60 * 60_000).toISOString());
+function spreadTimes(referenceMs = Date.now()) {
+  return [25, 24, 23, 22, 1].map((hoursAgo) => new Date(referenceMs - hoursAgo * 60 * 60_000).toISOString());
 }
 
-function assertConfirmedFeed(document, publicKey) {
+function candidateMatches(item, campaignFingerprint) {
+  return item.campaignFingerprint === campaignFingerprint &&
+    item.independentReporters === 5 &&
+    item.strongReporters === 5 &&
+    item.distinctUtcDays >= 2 &&
+    item.observedSpanMs >= COMMUNITY_REVIEW_MIN_SPAN_MS;
+}
+
+function seedServerAuthoritativeReviewCandidate(directory) {
+  const times = spreadTimes();
+  let authoritativeNow = new Date(times[0]);
+  const store = new EncryptedCommunityAggregateStore(directory, undefined, {
+    now: () => new Date(authoritativeNow),
+  });
+  try {
+    for (let index = 0; index < 5; index++) {
+      authoritativeNow = new Date(times[index]);
+      const receipt = store.accept(report(governedCampaign, index, times[index]));
+      assert.equal(receipt.accepted, true);
+      assert.equal(receipt.duplicate, false);
+      assert.notEqual(receipt.status, "confirmed");
+    }
+    const candidates = store.listReviewCandidates();
+    assert(candidates.some((item) => candidateMatches(item, governedCampaign)), "Server-authoritative controlled clock did not create the expected review candidate");
+  } finally {
+    store.close();
+  }
+}
+
+function assertConfirmedFeed(document, publicKey, campaignFingerprint = governedCampaign) {
   const payload = verifyCommunityFeed(document, [publicKey]);
   assert(payload, "Signed Community feed failed verification with the published key");
-  const entry = payload.entries.find((item) => item.type === "campaign" && item.value === campaign);
+  const entry = payload.entries.find((item) => item.type === "campaign" && item.value === campaignFingerprint);
   assert(entry && entry.confirmedThreat === true && entry.independentReports >= 5, "Confirmed governed campaign missing from verified feed");
   return payload;
 }
@@ -164,18 +197,19 @@ try {
 
   assert.equal((await fetch(`${baseUrl}/metrics`)).status, 401);
   const metricsBefore = await (await fetch(`${baseUrl}/metrics`, { headers: { Authorization: `Bearer ${metricsToken}` } })).text();
-  assert(!metricsBefore.includes(campaign));
+  assert(!metricsBefore.includes(publicCampaign));
+  assert(!metricsBefore.includes(governedCampaign));
   assert(!reporterProofs.some((proof) => metricsBefore.includes(proof)));
   assert(!metricsBefore.includes("live-community-controlled@example.test"));
   console.log("LIVE-C03 PASS — metrics require bearer auth and expose no campaign/reporter/message identifiers");
 
-  const times = spreadTimes();
+  const forgedTimes = spreadTimes();
   for (let index = 0; index < 5; index++) {
     const receipt = await json(await fetch(`${baseUrl}/api/community/v1/report`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(report(index, times[index])),
-    }), `Community report ${index + 1}`);
+      body: JSON.stringify(report(publicCampaign, index, forgedTimes[index])),
+    }), `Community public report ${index + 1}`);
     assert.equal(receipt.accepted, true);
     assert.equal(receipt.duplicate, false);
     assert.equal(receipt.independentReporters, index + 1);
@@ -186,13 +220,18 @@ try {
   const preReviewPayload = verifyCommunityFeed(preReviewFeed, [initialPublicKey]);
   assert(preReviewPayload);
   assert(preReviewPayload.entries.every((entry) => entry.confirmedThreat !== true), "Community API auto-confirmed before trusted review");
-  console.log("LIVE-C04 PASS — five strong temporally spread reports remain warning/non-confirmed before trusted review");
 
   await stopService();
+  const forgedCandidates = runOps(["review-list", dataDir]);
+  assert(Array.isArray(forgedCandidates));
+  assert(!forgedCandidates.some((item) => item.campaignFingerprint === publicCampaign), "Client-supplied timestamps forged server temporal corroboration");
+  console.log("LIVE-C04 PASS — public reports cannot forge the six-hour/two-day review boundary with client-supplied timestamps");
+
+  seedServerAuthoritativeReviewCandidate(dataDir);
   const candidates = runOps(["review-list", dataDir]);
-  assert(Array.isArray(candidates) && candidates.some((item) => item.campaignFingerprint === campaign && item.independentReporters === 5 && item.strongReporters === 5 && item.distinctUtcDays >= 2 && item.observedSpanMs >= 6 * 60 * 60_000));
-  const review = runOps(["review-resolve", dataDir, campaign, "approve", "live-reviewer-001"], {
-    EMAIL_SHIELD_COMMUNITY_REVIEW_REASON: "Controlled live acceptance: five independent strong human reports persisted across the required observation window.",
+  assert(Array.isArray(candidates) && candidates.some((item) => candidateMatches(item, governedCampaign)));
+  const review = runOps(["review-resolve", dataDir, governedCampaign, "approve", "live-reviewer-001"], {
+    EMAIL_SHIELD_COMMUNITY_REVIEW_REASON: "Controlled live acceptance: five independent strong reports were accepted across the required server-authoritative observation window.",
   });
   assert.equal(review.decision, "approved");
   assert.equal(review.reporterHistoriesUpdated, 5);
@@ -204,10 +243,11 @@ try {
   assertConfirmedFeed(postReviewFeed, initialPublicKey);
   const status = await json(await fetch(`${baseUrl}/api/community/v1/status`), "Post-review status");
   assert.equal(status.stats.confirmed, 1);
-  console.log("LIVE-C05 PASS — trusted review promotes to Confirmed and restart preserves aggregate state plus signing identity");
+  console.log("LIVE-C05 PASS — server-authoritative temporal spread plus trusted review promotes to Confirmed and survives restart");
 
   const metricsAfter = await (await fetch(`${baseUrl}/metrics`, { headers: { Authorization: `Bearer ${metricsToken}` } })).text();
-  assert(!metricsAfter.includes(campaign));
+  assert(!metricsAfter.includes(publicCampaign));
+  assert(!metricsAfter.includes(governedCampaign));
   assert(!reporterProofs.some((proof) => metricsAfter.includes(proof)));
   await stopService();
 
@@ -218,7 +258,8 @@ try {
   assert.equal(backup.aggregateStoragePresent, true);
   assert(statSync(backupFile).size > 0);
   const backupText = readFileSync(backupFile, "utf8");
-  assert(!backupText.includes(campaign), "Encrypted backup leaked campaign fingerprint in plaintext");
+  assert(!backupText.includes(publicCampaign), "Encrypted backup leaked public probe fingerprint in plaintext");
+  assert(!backupText.includes(governedCampaign), "Encrypted backup leaked governed campaign fingerprint in plaintext");
   assert(!backupText.includes("PRIVATE KEY"), "Encrypted backup leaked private signing key in plaintext");
   const restore = runOps(["restore", backupFile, restoredDir], {
     EMAIL_SHIELD_COMMUNITY_BACKUP_PASSPHRASE_FILE: passphraseFile,
@@ -260,7 +301,7 @@ try {
   const nextFeed = await json(await fetch(`${baseUrl}/api/community/v1/feed`), "Rotated signed feed");
   const overlapPayload = verifyCommunityFeed(nextFeed, [initialPublicKey, nextPublicKey]);
   assert(overlapPayload, "Rotated feed failed overlap-trust verification");
-  assert(overlapPayload.entries.some((entry) => entry.type === "campaign" && entry.value === campaign && entry.confirmedThreat === true));
+  assert(overlapPayload.entries.some((entry) => entry.type === "campaign" && entry.value === governedCampaign && entry.confirmedThreat === true));
   console.log("LIVE-C07 PASS — rotation package uses protected private material and next-key feed verifies under explicit overlap trust");
 
   console.log("COMMUNITY_SHIELD_APP_ACCEPTANCE=PASS");
