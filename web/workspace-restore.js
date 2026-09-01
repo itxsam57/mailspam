@@ -1,4 +1,15 @@
 (() => {
+  async function waitForRenderedAccountIds() {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const accountIds = [...document.querySelectorAll('.account-chip[data-id]')]
+        .map((row) => row.dataset.id)
+        .filter((id) => typeof id === 'string' && id);
+      if (accountIds.length > 0) return accountIds;
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    return [];
+  }
+
   async function restore() {
     const trace = window.emailShieldRuntimeTrace;
     trace?.automaticRoot('system.workspace.restore', 'workspace.restore');
@@ -19,8 +30,8 @@
         cache: 'no-store',
       });
       const workspace = await response.json().catch(() => ({}));
-      if (!response.ok || typeof workspace.selectedAccountId !== 'string') {
-        complete('success', 'no_persisted_selection');
+      if (!response.ok) {
+        complete('incomplete', 'workspace_unavailable');
         return;
       }
 
@@ -29,20 +40,12 @@
         complete('incomplete', 'selector_unavailable');
         return;
       }
-      for (let attempt = 0; attempt < 20; attempt += 1) {
-        if (document.querySelector(`.account-chip[data-id="${CSS.escape(workspace.selectedAccountId)}"]`)) break;
-        await new Promise((resolve) => requestAnimationFrame(resolve));
-      }
-      if (!document.querySelector(`.account-chip[data-id="${CSS.escape(workspace.selectedAccountId)}"]`)) {
-        complete('incomplete', 'selected_account_not_rendered');
-        return;
-      }
 
-      // Startup restore is allowed to hydrate the protected selection only while
-      // this tab has not made a newer selection decision. A user/tab selection
-      // can settle the process-global protected workspace while this restore is
-      // still waiting for account-chip rendering. Replaying the older workspace
-      // snapshot afterward would split browser-local and protected ownership.
+      const accountIds = await waitForRenderedAccountIds();
+
+      // Startup restore is allowed to hydrate selection only while this tab has
+      // not made a newer selection decision. A user/tab selection can settle
+      // while account chips are rendering, so preserve that newer decision.
       const currentSelectionSnapshot = window.emailShieldAccountSelection?.capture?.() ?? null;
       if (
         restoreSelectionSnapshot
@@ -50,6 +53,23 @@
         && currentSelectionSnapshot.generation !== restoreSelectionSnapshot.generation
       ) {
         complete('success', 'newer_tab_selection_preserved');
+        return;
+      }
+
+      if (typeof workspace.selectedAccountId !== 'string') {
+        if (accountIds.length !== 1) {
+          complete('success', 'no_persisted_selection');
+          return;
+        }
+        if (accountIds.length === 1) {
+          select(accountIds[0], { remember: false });
+          complete('success', 'single_restored_account_selected');
+          return;
+        }
+      }
+
+      if (!accountIds.includes(workspace.selectedAccountId)) {
+        complete('incomplete', 'selected_account_not_rendered');
         return;
       }
 
