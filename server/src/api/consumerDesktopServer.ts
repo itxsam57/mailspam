@@ -54,6 +54,7 @@ export function createConsumerDesktopServer(options: ConsumerDesktopServerOption
   const backgroundProtection = localOptions.backgroundProtection
     ?? createBackgroundProtectionCoordinator(community, localOptions.accountPlatform);
   const app = express();
+  app.disable("x-powered-by");
 
   app.use(createRuntimeTraceHttpMiddleware());
 
