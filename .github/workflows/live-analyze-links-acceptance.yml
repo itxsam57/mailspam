@@ -100,6 +100,30 @@ jobs:
           cat /tmp/cloudflared.log >&2
           exit 1
 
+      - name: Diagnose compressed representation across tunnel boundary
+        shell: bash
+        env:
+          PUBLIC_URL: ${{ steps.tunnel.outputs.public_url }}
+        run: |
+          set -euo pipefail
+          curl --raw --silent --show-error -H 'Accept-Encoding: identity' \
+            -D /tmp/compressed-origin.headers \
+            -o /tmp/compressed-origin.body \
+            http://127.0.0.1:8787/compressed
+          curl --raw --silent --show-error -H 'Accept-Encoding: identity' \
+            -D /tmp/compressed-public.headers \
+            -o /tmp/compressed-public.body \
+            "$PUBLIC_URL/compressed"
+
+          echo '--- local origin compressed headers ---'
+          cat /tmp/compressed-origin.headers
+          echo '--- public tunnel compressed headers ---'
+          cat /tmp/compressed-public.headers
+          echo '--- local origin first 8 bytes ---'
+          xxd -l 8 -p /tmp/compressed-origin.body
+          echo '--- public tunnel first 8 bytes ---'
+          xxd -l 8 -p /tmp/compressed-public.body
+
       - name: Run LIVE-G01 through LIVE-G06 against shipping transport
         shell: bash
         env:
