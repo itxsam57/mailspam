@@ -1,0 +1,68 @@
+name: Community Shield Live Acceptance
+
+on:
+  push:
+    branches:
+      - live/community-shield-acceptance
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: community-shield-live-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  accept:
+    name: Community Shield app acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout immutable tested SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Assert immutable tested SHA
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$EXPECTED_SHA" || {
+            echo "Expected immutable test SHA $EXPECTED_SHA but checkout is $actual" >&2
+            exit 1
+          }
+          echo "Exact tested SHA: $actual"
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Build shipping server
+        run: npm run build
+
+      - name: Run Community Shield acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/live-community
+          node test/live/community/runner.mjs 2>&1 | tee artifacts/live-community/acceptance.log
+          grep -F "COMMUNITY_SHIELD_APP_ACCEPTANCE=PASS" artifacts/live-community/acceptance.log
+
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: community-shield-live-${{ github.run_id }}
+          path: artifacts/live-community/
+          if-no-files-found: warn
+          retention-days: 14
