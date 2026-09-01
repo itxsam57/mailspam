@@ -5,6 +5,8 @@ on:
     branches: [live/analyze-links-acceptance-targets]
     paths:
       - .github/workflows/live-analyze-links-acceptance.yml
+      - test/live/analyze-links/**
+      - acceptance-fixtures/analyze-links/**
   workflow_dispatch:
 
 permissions:
