@@ -2,12 +2,14 @@ import http from "node:http";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { gzipSync } from "node:zlib";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const credentialTrap = await readFile(
   join(here, "../../../acceptance-fixtures/analyze-links/credential-trap.html"),
   "utf8",
 );
+const compressedBody = gzipSync(Buffer.from("controlled compressed Analyze Links response", "utf8"));
 const port = Number(process.env.PORT || 8787);
 
 function send(res, statusCode, headers, body = "") {
@@ -50,10 +52,13 @@ const server = http.createServer((req, res) => {
   }
 
   if (url.pathname === "/compressed") {
-    send(res, 200, {
+    res.writeHead(200, {
+      "Cache-Control": "no-store",
       "Content-Type": "text/html; charset=utf-8",
       "Content-Encoding": "gzip",
-    }, "not actually compressed because the analyzer must reject on the header before reading");
+      "Content-Length": String(compressedBody.length),
+    });
+    res.end(compressedBody);
     return;
   }
 
