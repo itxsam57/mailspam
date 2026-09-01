@@ -1,0 +1,118 @@
+name: Live Analyze Links Acceptance
+
+on:
+  push:
+    branches: [live/analyze-links-acceptance-targets]
+    paths:
+      - .github/workflows/live-analyze-links-acceptance.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  live-analyze-links:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout immutable acceptance SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Assert disposable branch and current-main ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "live/analyze-links-acceptance-targets"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          git merge-base --is-ancestor c38183ae0addfbeda44e0eee7709a7ba67025d42 HEAD
+          git diff --quiet c38183ae0addfbeda44e0eee7709a7ba67025d42 -- server/src web scripts package.json package-lock.json || {
+            echo "Product code changed on the disposable live-acceptance branch." >&2
+            exit 1
+          }
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Build exact product code
+        run: npm run build
+
+      - name: Start controlled local target
+        shell: bash
+        run: |
+          set -euo pipefail
+          node test/live/analyze-links/server.mjs >/tmp/analyze-target.log 2>&1 &
+          echo $! >/tmp/analyze-target.pid
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:8787/health >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/analyze-target.log >&2
+          exit 1
+
+      - name: Open disposable public HTTPS tunnel
+        id: tunnel
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --silent --show-error \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+            -o /tmp/cloudflared
+          chmod +x /tmp/cloudflared
+          /tmp/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8787 >/tmp/cloudflared.log 2>&1 &
+          echo $! >/tmp/cloudflared.pid
+
+          public_url=""
+          for attempt in $(seq 1 60); do
+            public_url="$(grep -Eo 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' /tmp/cloudflared.log | head -n 1 || true)"
+            if [ -n "$public_url" ]; then
+              break
+            fi
+            sleep 1
+          done
+          if [ -z "$public_url" ]; then
+            cat /tmp/cloudflared.log >&2
+            exit 1
+          fi
+
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --show-error "$public_url/health" >/dev/null; then
+              echo "public_url=$public_url" >> "$GITHUB_OUTPUT"
+              echo "Controlled public target: $public_url"
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/cloudflared.log >&2
+          exit 1
+
+      - name: Run LIVE-G01 through LIVE-G06 against shipping transport
+        shell: bash
+        env:
+          PUBLIC_URL: ${{ steps.tunnel.outputs.public_url }}
+        run: |
+          set -euo pipefail
+          node test/live/analyze-links/runner.mjs "$PUBLIC_URL" | tee /tmp/analyze-live-acceptance.log
+          grep -F 'ANALYZE_LINKS_LIVE_ACCEPTANCE=PASS' /tmp/analyze-live-acceptance.log
+
+      - name: Print diagnostics on failure
+        if: failure()
+        shell: bash
+        run: |
+          echo '--- target log ---'
+          cat /tmp/analyze-target.log 2>/dev/null || true
+          echo '--- cloudflared log ---'
+          cat /tmp/cloudflared.log 2>/dev/null || true
+          echo '--- acceptance log ---'
+          cat /tmp/analyze-live-acceptance.log 2>/dev/null || true
