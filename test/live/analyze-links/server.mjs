@@ -4,7 +4,10 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const credentialTrap = await readFile(join(here, "credential-trap.html"), "utf8");
+const credentialTrap = await readFile(
+  join(here, "../../../acceptance-fixtures/analyze-links/credential-trap.html"),
+  "utf8",
+);
 const port = Number(process.env.PORT || 8787);
 
 function send(res, statusCode, headers, body = "") {
