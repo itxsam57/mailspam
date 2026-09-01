@@ -53,7 +53,7 @@ const server = http.createServer((req, res) => {
 
   if (url.pathname === "/compressed") {
     res.writeHead(200, {
-      "Cache-Control": "no-store",
+      "Cache-Control": "no-store, no-transform",
       "Content-Type": "text/html; charset=utf-8",
       "Content-Encoding": "gzip",
       "Content-Length": String(compressedBody.length),
