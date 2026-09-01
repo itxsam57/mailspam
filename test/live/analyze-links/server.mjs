@@ -36,12 +36,13 @@ const server = http.createServer((req, res) => {
   }
 
   if (url.pathname === "/oversize") {
+    const body = Buffer.alloc(600 * 1024, 0x78);
     res.writeHead(200, {
       "Cache-Control": "no-store",
       "Content-Type": "text/html; charset=utf-8",
-      "Content-Length": String(600 * 1024),
+      "Content-Length": String(body.length),
     });
-    res.end("oversize declaration");
+    res.end(body);
     return;
   }
 
