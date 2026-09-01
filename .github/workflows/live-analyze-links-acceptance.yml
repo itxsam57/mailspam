@@ -64,7 +64,7 @@ jobs:
           cat /tmp/analyze-target.log >&2
           exit 1
 
-      - name: Open disposable public HTTPS tunnel
+      - name: Open primary disposable public HTTPS tunnel
         id: tunnel
         shell: bash
         run: |
@@ -92,7 +92,7 @@ jobs:
           for attempt in $(seq 1 60); do
             if curl --fail --silent --show-error "$public_url/health" >/dev/null; then
               echo "public_url=$public_url" >> "$GITHUB_OUTPUT"
-              echo "Controlled public target: $public_url"
+              echo "Controlled primary target: $public_url"
               exit 0
             fi
             sleep 1
@@ -100,10 +100,53 @@ jobs:
           cat /tmp/cloudflared.log >&2
           exit 1
 
-      - name: Diagnose compressed representation across tunnel boundary
+      - name: Open compression-preserving disposable HTTPS tunnel
+        id: compression_tunnel
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o ExitOnForwardFailure=yes \
+            -o ServerAliveInterval=15 \
+            -p 443 \
+            -R0:localhost:8787 \
+            free.pinggy.io >/tmp/pinggy.log 2>&1 &
+          echo $! >/tmp/pinggy.pid
+
+          public_url=""
+          for attempt in $(seq 1 60); do
+            public_url="$(grep -Eo 'https://[A-Za-z0-9.-]+\.pinggy(-free)?\.link' /tmp/pinggy.log | head -n 1 || true)"
+            if [ -n "$public_url" ]; then
+              break
+            fi
+            if ! kill -0 "$(cat /tmp/pinggy.pid)" 2>/dev/null; then
+              cat /tmp/pinggy.log >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          if [ -z "$public_url" ]; then
+            cat /tmp/pinggy.log >&2
+            exit 1
+          fi
+
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --show-error "$public_url/health" >/dev/null; then
+              echo "public_url=$public_url" >> "$GITHUB_OUTPUT"
+              echo "Controlled compression target: $public_url"
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/pinggy.log >&2
+          exit 1
+
+      - name: Prove compressed representation reaches public boundary unchanged
         shell: bash
         env:
-          PUBLIC_URL: ${{ steps.tunnel.outputs.public_url }}
+          COMPRESSED_URL: ${{ steps.compression_tunnel.outputs.public_url }}
         run: |
           set -euo pipefail
           curl --raw --silent --show-error -H 'Accept-Encoding: identity' \
@@ -113,24 +156,30 @@ jobs:
           curl --raw --silent --show-error -H 'Accept-Encoding: identity' \
             -D /tmp/compressed-public.headers \
             -o /tmp/compressed-public.body \
-            "$PUBLIC_URL/compressed"
+            "$COMPRESSED_URL/compressed"
 
           echo '--- local origin compressed headers ---'
           cat /tmp/compressed-origin.headers
-          echo '--- public tunnel compressed headers ---'
+          echo '--- public compressed headers ---'
           cat /tmp/compressed-public.headers
           echo '--- local origin first 8 bytes ---'
           xxd -l 8 -p /tmp/compressed-origin.body
-          echo '--- public tunnel first 8 bytes ---'
+          echo '--- public first 8 bytes ---'
           xxd -l 8 -p /tmp/compressed-public.body
+
+          grep -i '^content-encoding:[[:space:]]*gzip' /tmp/compressed-origin.headers
+          grep -i '^content-encoding:[[:space:]]*gzip' /tmp/compressed-public.headers
+          test "$(xxd -l 2 -p /tmp/compressed-origin.body)" = '1f8b'
+          test "$(xxd -l 2 -p /tmp/compressed-public.body)" = '1f8b'
 
       - name: Run LIVE-G01 through LIVE-G06 against shipping transport
         shell: bash
         env:
           PUBLIC_URL: ${{ steps.tunnel.outputs.public_url }}
+          COMPRESSED_URL: ${{ steps.compression_tunnel.outputs.public_url }}
         run: |
           set -euo pipefail
-          node test/live/analyze-links/runner.mjs "$PUBLIC_URL" | tee /tmp/analyze-live-acceptance.log
+          node test/live/analyze-links/runner.mjs "$PUBLIC_URL" "$COMPRESSED_URL" | tee /tmp/analyze-live-acceptance.log
           grep -F 'ANALYZE_LINKS_LIVE_ACCEPTANCE=PASS' /tmp/analyze-live-acceptance.log
 
       - name: Print diagnostics on failure
@@ -141,5 +190,7 @@ jobs:
           cat /tmp/analyze-target.log 2>/dev/null || true
           echo '--- cloudflared log ---'
           cat /tmp/cloudflared.log 2>/dev/null || true
+          echo '--- pinggy log ---'
+          cat /tmp/pinggy.log 2>/dev/null || true
           echo '--- acceptance log ---'
           cat /tmp/analyze-live-acceptance.log 2>/dev/null || true
