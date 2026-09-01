@@ -7,9 +7,12 @@ import {
 import { classifyDestination } from "../../../server/dist/engine/layers/destinationClassification.js";
 
 const publicBase = process.argv[2];
+const compressedPublicBase = process.argv[3] || publicBase;
 assert(publicBase, "public target base URL is required");
 const base = new URL(publicBase);
+const compressedBase = new URL(compressedPublicBase);
 assert.equal(base.protocol, "https:", "controlled target must be public HTTPS");
+assert.equal(compressedBase.protocol, "https:", "controlled compressed target must be public HTTPS");
 
 const results = [];
 function pass(id, detail) {
@@ -74,11 +77,17 @@ function pass(id, detail) {
 }
 
 // LIVE-G05: unsupported, oversized and compressed responses never become benign.
+// The compressed subcase may use a second controlled HTTPS tunnel because some
+// reverse proxies transparently decode origin gzip despite the client requesting
+// identity, which would mean the production transport never actually receives
+// compressed content to reject.
 {
-  for (const path of ["/unsupported", "/oversize", "/compressed"]) {
+  for (const path of ["/unsupported", "/oversize"]) {
     const result = await classifyDestination(new URL(path, base).toString(), hardenedFetch);
     assert.equal(result.classification, "error", `${path} was incorrectly classified as ${result.classification}`);
   }
+  const compressedResult = await classifyDestination(new URL("/compressed", compressedBase).toString(), hardenedFetch);
+  assert.equal(compressedResult.classification, "error", `/compressed was incorrectly classified as ${compressedResult.classification}`);
   pass("LIVE-G05", "unsupported, oversized and compressed controlled responses all remained error/uninspectable");
 }
 
@@ -97,4 +106,4 @@ function pass(id, detail) {
 
 assert.equal(results.length, 6);
 console.log("ANALYZE_LINKS_LIVE_ACCEPTANCE=PASS");
-console.log(JSON.stringify({ publicBase: base.origin, results }, null, 2));
+console.log(JSON.stringify({ publicBase: base.origin, compressedPublicBase: compressedBase.origin, results }, null, 2));
