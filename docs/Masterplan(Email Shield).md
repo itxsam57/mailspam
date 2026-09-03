@@ -16,7 +16,7 @@
 
 ### 0.1 Purpose
 
-Email Shield accumulated its product truth across an original three-milestone specification, owner decisions, live-mailbox findings, a security redesign, feature-specific engineering contracts, regression locks, later account/Family/subscription decisions, a final consumer-completion milestone, and accepted production-path repairs. This Masterplan reconciles those sources into one durable high-level authority.
+Email Shield accumulated product truth across an original three-milestone specification, owner decisions, live-mailbox findings, a security redesign, feature-specific engineering contracts, regression locks, later account/Family/subscription decisions, a final consumer-completion milestone, and accepted production-path repairs. This Masterplan reconciles those sources into one durable high-level authority.
 
 It exists to prevent five failure modes:
 
@@ -24,7 +24,7 @@ It exists to prevent five failure modes:
 2. a new feature silently weakening a security or privacy invariant;
 3. green unit/CI code being mistaken for a working real consumer workflow;
 4. native clients, provider adapters or new channels forking into separate weaker security engines;
-5. project direction being changed by incidental implementation convenience rather than an explicit owner decision.
+5. project direction being changed by implementation convenience rather than an explicit owner decision.
 
 ### 0.2 Precedence when sources conflict
 
@@ -47,8 +47,6 @@ This file does not replace the Regression Register, Test Matrix, threat model, p
 A change to a lower-level constant, score, timeout, provider limit or implementation technique does not require rewriting the Masterplan unless it changes product semantics, security/privacy posture, consumer behavior, accepted scope or an acceptance boundary.
 
 ### 0.4 Status vocabulary
-
-The Masterplan uses these meanings:
 
 - **LOCKED / IMPLEMENTED** — accepted production-path repository behavior with blocking regression evidence.
 - **EXTERNAL ACCEPTANCE** — repository support exists, but the claim requires a real provider, public infrastructure, signing identity, merchant/store, operator or owner environment.
@@ -80,12 +78,12 @@ The product succeeds only when these answers are backed by production-path behav
 
 ## 2. Permanent product principles
 
-Every current and future Email Shield surface must preserve all of the following:
+Every current and future Email Shield surface must preserve:
 
 - provider neutrality;
 - local-first/private-by-default content processing;
 - deterministic security evidence as the authoritative protection layer;
-- a single shared security meaning across providers and platforms;
+- one shared security meaning across providers and platforms;
 - explicit evidence provenance;
 - earned Safe verdicts rather than optimistic Safe defaults;
 - fail-closed trust boundaries;
@@ -108,7 +106,7 @@ When convenience and security conflict, **secure behavior wins and the UI explai
 
 Raw mailbox bodies, HTML, private conversations, contacts, relationship history, mailbox credentials, OAuth tokens, app passwords, device private keys, raw provider message IDs, raw unsubscribe targets and private browsing history must not become centralized product telemetry or community data.
 
-The normal security pipeline processes mailbox content locally. A new feature may send data remotely only when all of the following are true:
+The normal security pipeline processes mailbox content locally. A new feature may send data remotely only when:
 
 1. the remote purpose is explicitly defined;
 2. the minimum schema is documented;
@@ -147,7 +145,7 @@ The user may export a support bundle containing bounded technical facts such as 
 
 ## 4. One canonical protection engine
 
-Every supported mailbox/channel follows this conceptual flow:
+Every supported mailbox/channel follows:
 
 **acquisition adapter → bounded canonical evidence → shared deterministic protection core → explanation + verdict → capability-checked action policy**
 
@@ -179,17 +177,17 @@ Requirements:
 
 ### 5.1 Gmail
 
-Guided Gmail connection uses Authorization Code + PKCE S256 with a random `127.0.0.1` loopback callback, strong state/nonce/replay boundaries, verified stable Google identity, protected refresh-token custody and explicit provider validation. Connection/revocation failures must remain truthful. Public Google OAuth publication/approval is an external launch gate.
+Guided Gmail connection uses Authorization Code + PKCE S256 with a random `127.0.0.1` loopback callback, strong state/nonce/replay boundaries, verified stable Google identity, protected refresh-token custody and explicit provider validation. Connection/revocation failures remain truthful. Public Google OAuth publication/approval is an external launch gate.
 
 ### 5.2 Outlook
 
-Guided Outlook uses a Microsoft **public desktop client** with Authorization Code + PKCE S256 and least-privilege mailbox scopes required by the accepted implementation. Browser/token exchange must not depend on a client secret. Stable mailbox identity comes from Graph identity, not the email string or refresh token. Real-Outlook connect/scan/action/disconnect/reconnect acceptance is required before Outlook can be represented as fully owner-accepted for ordinary consumers.
+Guided Outlook uses a Microsoft **public desktop client** with Authorization Code + PKCE S256 and the accepted least-privilege mailbox scopes. Browser/token exchange must not depend on a client secret. Stable mailbox identity comes from Graph identity, not the email string or refresh token. Real-Outlook connect/scan/action/disconnect/reconnect acceptance is required before Outlook can be represented as fully owner-accepted for ordinary consumers.
 
 ### 5.3 iCloud, Yahoo and generic IMAP
 
 Long-lived app-password credentials use native credential custody where available and opaque references in persistent session state. If native persistent secret storage is unavailable, Email Shield must not silently fall back to plaintext persistence.
 
-IMAP behavior remains UID/UIDVALIDITY aware, cancellation-safe, bounded and selective. It must not solve inspection gaps by downloading unlimited full raw messages.
+IMAP remains UID/UIDVALIDITY aware, cancellation-safe, bounded and selective. It must not solve inspection gaps by downloading unlimited full raw messages.
 
 ## 6. Evidence completeness and Safe-by-proof
 
@@ -209,7 +207,7 @@ Only authentication results from a trusted acquisition/provenance boundary may i
 
 ### 6.3 Evidence-family independence
 
-High-confidence Safe decisions must not be manufactured by multiple weak signals that all originate from one underlying assumption. Evidence families should be independently meaningful — for example identity/authentication, relationship/history, content/intent, destination/link behavior, attachment behavior, provider placement and trusted intelligence.
+High-confidence Safe decisions must not be manufactured by multiple weak signals that all originate from one underlying assumption. Evidence families should be independently meaningful — identity/authentication, relationship/history, content/intent, destination/link behavior, attachment behavior, provider placement and trusted intelligence.
 
 ### 6.4 Hard security floors
 
@@ -225,11 +223,9 @@ Hard threat evidence, explicit personal blocks, sufficiently trusted signed inte
 
 ### 6.5 Provider folder placement
 
-Inbox/Spam/Junk placement is evidence, not a verdict. Suspicious provider placement can raise caution and can prevent weak-positive Safe classification, but it cannot by itself justify irreversible malicious classification.
+Inbox/Spam/Junk placement is evidence, not a verdict. Suspicious provider placement can raise caution and prevent weak-positive Safe classification, but it cannot by itself justify irreversible malicious classification.
 
 ## 7. Canonical verdict model
-
-The consumer verdict vocabulary remains:
 
 - **Safe** — sufficient coherent evidence supports normal treatment.
 - **Review** — meaningful uncertainty or suspicious evidence requires attention.
@@ -239,11 +235,9 @@ The consumer verdict vocabulary remains:
 
 The UI may use consumer-friendly wording, but it must not blur these meanings.
 
-No fabricated numeric confidence should imply precision the engine does not possess. Confidence bands may be used when their semantics are defined and conservative.
+No fabricated numeric confidence should imply precision the engine does not possess. Confidence bands may be used only when their semantics are defined and conservative.
 
 ## 8. Canonical detection/evidence families
-
-Email Shield's shared engine must continue to combine generalized evidence rather than rely on brittle sender/domain lists.
 
 ### 8.1 Identity and authentication
 
@@ -259,7 +253,7 @@ Email Shield's shared engine must continue to combine generalized evidence rathe
 
 ### 8.2 Relationship and thread context
 
-- account-local, encrypted, privacy-reduced relationship history;
+- account-local encrypted privacy-reduced relationship history;
 - HMAC/fingerprint identities rather than a plaintext contact-history database;
 - repeated authenticated benign history as context only;
 - first-contact semantics preserved honestly;
@@ -272,7 +266,7 @@ Relationship history is **evidence, never an allowlist and never automatic trust
 
 ### 8.3 Message intent / social engineering
 
-The engine must recognize generalized scam intent families such as:
+The engine must recognize generalized scam intent families including:
 
 - credential/password/MFA/recovery-code theft;
 - OAuth/device-code/account-takeover lures;
@@ -292,7 +286,7 @@ The engine must recognize generalized scam intent families such as:
 - fake shopping/storefront/refund patterns where locally observable evidence is sufficient;
 - extortion/threat patterns;
 - urgent secrecy/authority pressure;
-- request to move to unsafe channels or bypass normal verification;
+- unsafe channel-switch/bypass-verification requests;
 - image-only or polished AI-written phishing where structural evidence still exists;
 - multilingual variants of the same underlying scam behavior.
 
@@ -304,7 +298,7 @@ Canonical parsing includes bounded plain text and HTML interaction evidence, inc
 
 ### 8.5 Links and destinations
 
-Static link evidence includes URL/domain structure, encoded destinations, deceptive display-versus-target behavior, redirect/lure indicators, suspicious transport or destination structure and signed/global intelligence matches.
+Static link evidence includes URL/domain structure, encoded destinations, deceptive display-versus-target behavior, redirect/lure indicators, suspicious transport/destination structure and signed/global intelligence matches.
 
 Network destination analysis is a separate **explicit user action**, not automatic mailbox crawling.
 
@@ -337,7 +331,7 @@ Protection authority is deliberately layered:
 2. **Private Family Shield intelligence** — privacy-reduced signals protect a Family circle according to Family semantics.
 3. **Global/community intelligence** — privacy-reduced independent reporting, anti-brigading logic, human review/reputation controls and signed publication protect unrelated users.
 
-One user or one family must never be able to manufacture global confirmed authority alone.
+One user or one family must never manufacture global confirmed authority alone.
 
 ### 9.1 Global Shield requirements
 
@@ -346,7 +340,7 @@ One user or one family must never be able to manufacture global confirmed author
 - bounded rate/abuse controls;
 - candidate/warning/confirmed stages;
 - warning and confirmed states based on independent evidence, not raw report count alone;
-- current locked thresholds and weighting live in the Regression Register and may only change through explicit reviewed security work;
+- current security constants/weights remain controlled by the Regression Register and security review rather than informal UI changes;
 - human review remains part of the confirmed/reputation boundary where currently locked;
 - reporter reputation derives only from retained reviewed evidence and cannot itself create confirmation;
 - signed Ed25519 feeds;
@@ -355,6 +349,8 @@ One user or one family must never be able to manufacture global confirmed author
 - verified offline cache only while signature/freshness/rollback rules pass;
 - invalid/untrusted/unavailable feed means intelligence unavailable, never clean;
 - fixed retention/expiry so stale campaigns and reputation do not become permanent truth.
+
+Current locked baseline thresholds include independent corroboration rather than single-reporter authority; changes to those exact thresholds require explicit reviewed security work and matching regressions.
 
 ### 9.2 Community privacy schema
 
@@ -376,7 +372,7 @@ Current canonical behavior is the later REG-089 model:
 
 1. persist the account-local campaign protection first;
 2. request reversible provider Trash for the current selected message;
-3. if provider Trash fails, the personal protection remains committed and the failure is shown honestly;
+3. if provider Trash fails, personal protection remains committed and failure is shown honestly;
 4. future matching locally reported campaign mail is eligible for durable account-local automatic Trash;
 5. blocking the exact sender/domain remains a separate explicit choice unless another explicit personal rule already authorizes it;
 6. Family/community evidence is privacy reduced;
@@ -387,7 +383,7 @@ Any older document saying Report Scam must never request current-message Trash i
 ### 10.2 Block Sender / Block Domain
 
 - selected-account scoped;
-- persists the personal rule before/with the governed action transaction;
+- persists personal rule before/with governed action transaction;
 - current selected message may be moved to Trash only through provider-confirmed action semantics;
 - future matches may use durable account-local automatic Trash authority;
 - reversible through protected policy management;
@@ -398,14 +394,14 @@ Any older document saying Report Scam must never request current-message Trash i
 - acts on exactly the selected opaque message capability;
 - requires provider confirmation;
 - does not create Email Shield community-report success;
-- does not imply a sender/domain block;
-- must work through provider-neutral capability semantics.
+- does not imply sender/domain block;
+- works through provider-neutral capability semantics.
 
 ### 10.4 Trash
 
 - exact-message action;
 - provider-confirmed and idempotent/replay protected;
-- UI may offer Undo/restore only when the provider supports safe reversal and retention still permits it.
+- Undo/restore only when provider capability and retention support safe reversal.
 
 ### 10.5 Mark this message Safe
 
@@ -416,20 +412,20 @@ Any older document saying Report Scam must never request current-message Trash i
 ### 10.6 Trust sender
 
 - exact-address/account-local scope;
-- contributes bounded trust context only where allowed;
+- bounded trust context only;
 - hard threat evidence still wins;
-- must remain reversible.
+- reversible.
 
 ### 10.7 Unsubscribe
 
-Automatic RFC 8058 one-click POST is a security-sensitive network action. It requires the currently locked authenticated header/DKIM provenance and destination conditions, explicit user confirmation and the hardened public HTTPS transport. Ambiguous/untrusted/missing authorization falls back to the manual in-app unsubscribe path rather than guessing.
+Automatic RFC 8058 one-click POST is a security-sensitive network action. It requires the currently locked authenticated header/DKIM provenance and destination conditions, explicit user confirmation and hardened public HTTPS transport. Ambiguous/untrusted/missing authorization falls back to the manual in-app unsubscribe path rather than guessing.
 
-`mailto:` fallback must remain in-app rather than unexpectedly handing the user to an unsafe/ambiguous OS picker when Email Shield owns the action flow.
+`mailto:` fallback remains in-app rather than unexpectedly handing the user to an unsafe/ambiguous OS picker when Email Shield owns the action flow.
 
 ### 10.8 Analyze Links
 
 - explicit user action only;
-- token/capability-bound to the selected message or explicit Scam Check input;
+- token/capability-bound to selected message or explicit Scam Check input;
 - uses hardened destination analysis;
 - never sends mailbox credentials/cookies;
 - does not automatically crawl every URL during mailbox scans.
@@ -438,7 +434,7 @@ Automatic RFC 8058 one-click POST is a security-sensitive network action. It req
 
 ### 11.1 Quick Scan
 
-Fast, bounded, consumer-responsive protection over the newest/relevant mail scope. Provider/API quotas and live IMAP limits must stay bounded. Quick Scan must not silently expand into a full mailbox crawl.
+Fast, bounded, responsive protection over newest/relevant mail scope. Provider/API quotas and live IMAP limits stay bounded. Quick Scan must not silently expand into a full mailbox crawl.
 
 ### 11.2 Full Mailbox Audit
 
@@ -452,21 +448,21 @@ Explicit inspection of provider Spam/Junk placement using the same security core
 
 - scans run in killable Worker isolation;
 - cooperative cancellation first, forced termination when necessary;
-- Stop must return control without freezing the desktop service;
-- a new scan can start after a stopped scan when ownership rules allow it;
+- Stop returns control without freezing the desktop service;
+- new scan can start after stopped scan when ownership rules allow;
 - provider sockets/operations use bounded deadlines and cancellation;
-- no huge provider page/community refresh may withhold all progress indefinitely.
+- no huge provider page/community refresh withholds all progress indefinitely.
 
 ### 11.5 Resume, refresh and restart
 
-- scan continuation/history is encrypted, account scoped and privacy reduced;
+- scan continuation/history encrypted, account scoped and privacy reduced;
 - provider cursors/checkpoints stay server side;
-- browser refresh must not cancel the running worker;
-- a refreshed page may reattach to the existing server-owned scan rather than start a duplicate;
+- browser refresh does not cancel running Worker;
+- refreshed page reattaches to existing server-owned scan rather than starting duplicate;
 - detached scans stop minting browser-only action tokens;
-- stale `running` state after process restart becomes interrupted and can be resumed only through the correct selected account;
-- stale browser sessions fail visibly and require reload/reconnect rather than silently executing against a new process;
-- restored single-mailbox startup may select the sole unambiguous mailbox, but the product must never guess between multiple accounts or overwrite a newer tab-local selection.
+- stale `running` state after process restart becomes interrupted and can resume only through correct selected account;
+- stale browser sessions fail visibly and require reload/reconnect;
+- restored single-mailbox startup may select the sole unambiguous mailbox, but never guesses between multiple accounts or overwrites newer tab-local selection.
 
 ## 12. Continuous protection
 
@@ -478,22 +474,22 @@ Continuous protection is an extension of the same engine, not a separate detecto
 - bounded schedule intervals defined by current runtime contracts;
 - one globally bounded background Worker budget;
 - manual scans have priority;
-- background runs are bounded/read-only unless an explicitly approved protection policy authorizes an action;
+- background runs bounded and read-only unless an explicitly approved protection policy authorizes action;
 - failure backoff and deadlines;
 - protected pause/resume/status;
 - disconnect removes account schedule ownership;
-- no raw results or secrets in persisted scheduler state.
+- no raw results or secrets in scheduler persistence.
 
 ### 12.2 Near-real-time inbound protection
 
 Provider-capability order:
 
-- Gmail change/push notification adapters where production capabilities permit;
+- Gmail change/push notification adapter where production capabilities permit;
 - Microsoft Graph change notifications where production capabilities permit;
 - IMAP IDLE where reliable;
 - bounded polling fallback where push/IDLE is unavailable.
 
-All inbound signals normalize into one replay-safe canonical event contract with deduplication, restart recovery, bounded backlog and manual-scan priority. Scheduled protection remains a fallback safety net.
+All signals normalize into one replay-safe canonical event contract with deduplication, restart recovery, bounded backlog and manual-scan priority. Scheduled protection remains a fallback safety net.
 
 ### 12.3 Automatic actions
 
@@ -507,7 +503,7 @@ Automation settings may control notification/quarantine/spam behavior, but hard-
 
 Personal policy remains selected-account scoped, encrypted and protected by the local API security boundary.
 
-It manages the accepted policy classes, including personal blocks, trusted/safe exceptions, unsubscribe history and locally reported campaign memory.
+It manages accepted policy classes including personal blocks, trusted/safe exceptions, unsubscribe history and locally reported campaign memory.
 
 Requirements:
 
@@ -519,22 +515,20 @@ Requirements:
 - no account/session/vault/credential/token secret in export;
 - atomic persistence/rollback on failure;
 - stale action-token invalidation after policy changes;
-- browser uses safe text rendering and no localStorage/sessionStorage secret persistence.
+- browser safe-text rendering and no localStorage/sessionStorage secret persistence.
 
 ## 14. Relationship learning safety
 
-Adaptive relationship learning is local by default and conservative.
-
 - account-local encrypted history;
-- persistent identities are HMAC/fingerprint based rather than plaintext addresses;
+- persistent identities HMAC/fingerprint based rather than plaintext addresses;
 - duplicate messages do not inflate history;
-- prior benign history provides context but never automatic trust;
+- prior benign history is context but never automatic trust;
 - explicit Safe/Scam feedback can adjust bounded personal context;
 - behavioral confidence may decay;
-- sender-pattern drift and account takeover remain detectable;
+- sender-pattern drift/account takeover remain detectable;
 - family members do not silently share private learning;
-- reset/export controls exist for user agency;
-- saturation/limit behavior must prefer stale history over corrupted/inflated trust.
+- reset/export controls preserve user agency;
+- saturation/limit behavior prefers stale history over corrupted/inflated trust.
 
 ---
 
@@ -542,43 +536,52 @@ Adaptive relationship learning is local by default and conservative.
 
 ## 15. Product identities are separate
 
-Never conflate these identities:
+Never conflate:
 
 - **Email Shield account** — stable product account identity and user-facing username/account credentials model;
 - **device** — app-generated cryptographic device identity;
 - **entitlement** — plan state verified independently of mailbox/provider state;
 - **Family Shield circle** — private membership/protection scope;
-- **mailbox account** — provider account identity used for mailbox operations/personal policy.
+- **mailbox account** — provider identity used for mailbox operations/personal policy.
 
 No hardware identifier is an Email Shield account identity.
 
 ## 16. Account security model
 
-The accepted direction uses cryptographic device identity and protected local account/family state.
-
 Core requirements:
 
 - device private identity stored through native secret custody where available;
-- stable public device ID derived from cryptographic identity rather than a hardware fingerprint;
-- account recovery uses high-entropy one-time/revolving recovery proof with only protected verification material retained;
+- stable public device ID derived from cryptographic identity, not hardware fingerprint;
+- recovery uses high-entropy recovery proof with protected verification material;
 - successful recovery rotates prior recovery authority;
-- trusted-device revocation is supported without accidentally locking the user out of the final recovery path;
-- sign out everywhere/lost-device recovery are supported by the account service model;
-- remote account/device authentication must use signed challenge/passkey-quality proof rather than trusting username + device ID text;
-- mailbox identity and mailbox OAuth/app-password state remain separate from product account identity;
-- explicit account deletion/export/clear-local-data semantics remain available without uploading mailbox contents.
+- trusted-device revocation without accidentally destroying final recovery path;
+- sign out everywhere/lost-device recovery;
+- remote account/device authentication via signed challenge/passkey-quality proof, not trusting username + device ID text;
+- mailbox identity/provider credential state separated from product account identity;
+- explicit account deletion/export/clear-local-data without uploading mailbox contents.
 
-## 17. Plan model
+## 17. Plan and purchase model
 
 Canonical plan architecture:
 
 - **Free** — useful local/manual protection and limited mailbox capability;
-- **Individual** — continuous/multi-mailbox/advanced consumer protection according to product packaging;
+- **Individual** — continuous/multi-mailbox/advanced consumer protection according to packaging;
 - **Family** — Individual-class protection plus Family Shield, trusted assistance and seat/device management.
 
-Current seat architecture uses one account seat for Free/Individual and a bounded Family plan with a default six seats unless service policy explicitly changes it.
+Current seat architecture uses one account seat for Free/Individual and a bounded Family plan with default six seats unless service policy explicitly changes it.
 
-Entitlement statuses include active, grace, expired and revoked semantics. Production entitlement authority comes from Apple, Google or web merchant verification adapters, not from browser/UI state.
+Entitlement states include active, grace, expired and revoked semantics. Production authority comes from Apple, Google or web merchant verification adapters, not browser/UI state.
+
+Purchase/entitlement lifecycle requirements:
+
+- signed store/web evidence is verified by authoritative backend/service logic;
+- duplicate subscription events are idempotent;
+- cancellation, grace, expiry and revocation are represented honestly;
+- Restore Purchase has explicit terminal states such as verified restore, nothing-to-restore, unavailable bridge and verification rejection;
+- a returned store record that cannot be verified grants no paid access;
+- stale/racing restore results cannot overwrite a newer request;
+- native/store verifier secrets never ship in browser/client code;
+- production UI cannot directly toggle paid entitlement.
 
 Final commercial prices are a business decision and are **not hardcoded into security-engine semantics**.
 
@@ -586,37 +589,35 @@ Development entitlement switching is acceptance tooling only and must never beco
 
 ### 17.1 Superseded original rule
 
-The original early product concept intentionally had no Email Shield account/subscription system. That rule was later explicitly replaced by the accepted account/device/Free-Individual-Family architecture. Future engineers must not remove the account/entitlement system merely because an old document says “no account” or “no subscription.”
+The original product concept intentionally had no Email Shield account/subscription system. That rule was later explicitly replaced by the accepted account/device/Free-Individual-Family architecture. Future engineers must not remove that architecture because an old document says “no account” or “no subscription.”
 
 ## 18. Family Shield / Shield Circle
 
-Family Shield protects people without exposing their inboxes to one another.
-
 ### 18.1 Membership
 
-- one owner for a circle;
+- one owner per circle;
 - members bounded by entitlement seat limit;
 - expiring one-time invite proofs;
 - immediate authorization invalidation on member/device/invite revocation;
 - delete circle / leave circle / seat transfer lifecycle;
 - adult/member autonomy and consent preserved where required;
-- no member can browse another member's mailbox or private history by default.
+- no member can browse another member's mailbox/private history by default.
 
 ### 18.2 Family threat sharing
 
-Default Family sharing contains only privacy-reduced threat/campaign intelligence. Sharing a specific suspicious item with a trusted person requires explicit user consent and a narrowly scoped packet.
+Default Family sharing contains privacy-reduced threat/campaign intelligence only. Sharing a specific suspicious item with a trusted person requires explicit consent and a narrowly scoped packet.
 
 One member's personal report may protect that family immediately according to Family rules but cannot manufacture Global Shield confirmation.
 
-Family warning/confirmed semantics remain distinct from public community/global consensus. Strict Family Protection may use a stronger private-family response policy, but it still cannot leak raw mailbox content or lower Global Shield authority.
+Family warning/confirmed semantics remain distinct from public community/global consensus. Strict Family Protection may use a stronger private-family policy but cannot leak raw mailbox content or lower Global Shield authority.
 
 ### 18.3 Family safety categories
 
-Family alerts/support should cover high-risk classes such as banking/payment, crypto/investment, gift cards, government/legal, delivery/payment, romance, job/task, remote-access/refund/support and account-takeover patterns.
+Family alerts/support cover high-risk classes such as banking/payment, crypto/investment, gift cards, government/legal, delivery/payment, romance, job/task, remote-access/refund/support and account-takeover patterns.
 
 ### 18.4 Failure isolation
 
-Local personal protection commits first. Family/community service failure must not undo the user's local Report Scam/Block decision.
+Local personal protection commits first. Family/community service failure must not undo local Report Scam/Block decisions.
 
 ---
 
@@ -624,9 +625,9 @@ Local personal protection commits first. Family/community service failure must n
 
 ## 19. Scam Check / Check Anything
 
-Email Shield provides one local-first consumer analysis surface for suspicious material outside a connected mailbox.
+One local-first consumer analysis surface accepts suspicious material outside a connected mailbox.
 
-Approved inputs include:
+Approved inputs:
 
 - pasted message/email text;
 - URL;
@@ -637,7 +638,7 @@ Approved inputs include:
 - future native shared text/content;
 - future explicit camera/clipboard/share-sheet inputs under platform permission rules.
 
-Inputs normalize into the same bounded evidence and shared security semantics used by mailbox protection.
+Inputs normalize into the same bounded evidence/security semantics used by mailbox protection.
 
 Output includes:
 
@@ -650,22 +651,20 @@ Output includes:
 - safe next action;
 - explicit uncertainty when evidence is insufficient.
 
-Scam Check must remain usable locally before a mailbox is connected where the requested input does not require mailbox identity.
+Scam Check remains usable locally before a mailbox is connected when input does not require mailbox identity.
 
 ## 20. Explainability and safe-action guidance
 
-Every significant verdict should be explainable in plain language.
-
-Required concepts:
+Every significant verdict is consumer-readable:
 
 - “Why this was flagged”;
 - sender/authentication/domain/link/attachment/relationship/Family/community provenance;
-- distinction between observed evidence and unavailable/inferred evidence;
+- observed evidence versus unavailable/inferred evidence;
 - “What should I do?”;
-- verification through independently obtained official channels, not suspicious message links/phone numbers;
-- specific warning against sharing passwords, MFA codes, recovery codes, seed phrases or payment credentials in response to suspicious contact;
-- no implication that Safe means mathematically guaranteed harmless;
-- no exposure of Family member private content or community reporter identity.
+- independent official-channel verification instead of suspicious message contacts;
+- warnings against sharing passwords, MFA codes, recovery codes, seed phrases or payment credentials;
+- no implication that Safe mathematically guarantees harmlessness;
+- no Family private-content/community reporter identity exposure.
 
 ## 21. Protection sensitivity
 
@@ -675,9 +674,9 @@ Profiles:
 - **Balanced** — default
 - **Low Noise**
 
-Profiles may alter treatment of soft/ambiguous evidence and notification thresholds. They may **not** suppress hard authentication contradictions, explicit personal blocks, locked malware evidence, trusted confirmed intelligence or any other hard-threat invariant.
+Profiles may change treatment of soft/ambiguous evidence and notifications. They may **not** suppress hard authentication contradictions, explicit personal blocks, locked malware evidence, trusted confirmed intelligence or any other hard-threat invariant.
 
-Per-account overrides may exist. Family owner defaults cannot silently erase required member autonomy or hard-threat floors.
+Per-account overrides may exist. Family defaults cannot erase required member autonomy or hard-threat floors.
 
 ## 22. Campaign Radar
 
@@ -688,27 +687,25 @@ Privacy-safe emerging-scam radar may use:
 - novelty/rate-change patterns;
 - optional coarse user-selected region;
 - signed campaign advisories;
-- sanitized templates describing what scammers ask people to do.
+- sanitized templates describing scammer requests.
 
 No precise location or reconstructed private message is required.
 
 ## 23. Inbox Health and safe cleanup
 
-Email Shield extends security value into controlled inbox hygiene without becoming a destructive bulk-mail bot.
-
-Approved capabilities include:
+Approved capabilities:
 
 - subscription/newsletter inventory;
-- RFC 8058-safe unsubscribe path preferred;
+- RFC 8058-safe unsubscribe preferred;
 - catch-and-trash after unsubscribe only when explicitly enabled and safely identified;
-- pause/mute/read-later style local rules;
+- pause/mute/read-later local rules;
 - bounded bulk cleanup by selected sender/category/age with confirmation;
-- sender/domain screening for previously unseen senders as an optional mode, not a universal default quarantine;
+- optional sender/domain screening for unseen senders, not universal default quarantine;
 - relationship context separate from unconditional allowlisting;
 - activity history;
-- Undo/recovery where provider support allows it;
-- keep-newest style cleanup only for explicit low-risk categories;
-- provider metadata-based mailbox volume/storage summaries where available without uploading content.
+- Undo/recovery where provider support permits;
+- keep-newest cleanup only for explicit low-risk categories;
+- provider metadata-based mailbox volume/storage summaries where available without content upload.
 
 ## 24. Mailbox Health / compromise indicators
 
@@ -717,13 +714,45 @@ Where official provider capabilities reliably expose them, Email Shield may chec
 - suspicious/new forwarding rules;
 - suspicious inbox/filter rules;
 - unexpected delegates/send-as identities;
-- deterministic trusted-provider security alert messages;
+- deterministic trusted-provider security alerts;
 - suspicious auto-delete/redirect behavior;
 - connected-app/session indicators only where official APIs safely expose them.
 
-Email content heuristics alone must never claim that the mailbox account itself is compromised. Unsupported checks are shown as unavailable, never safe.
+Email-content heuristics alone never claim the mailbox account itself is compromised. Unsupported checks are shown as unavailable, never safe.
 
-## 25. Browser and link defense
+## 25. Digital Account Footprint
+
+Digital Account Footprint is a **local discovery aid**, not a centralized identity graph or a claim of complete coverage.
+
+It may infer the user's likely online-account footprint from locally processed, suitably authenticated welcome/security/receipt/account messages and provider metadata that the existing mailbox permission already exposes.
+
+Requirements:
+
+- local by default;
+- no upload of the account inventory;
+- no claim that absence means the user has no account with a service;
+- no password extraction/storage;
+- privacy-safe category/service summaries;
+- explicit distinction between evidence found in mail and verified account ownership;
+- integrates with recovery/exposure guidance without becoming a data-broker profile.
+
+## 26. Shopping Safety
+
+Shopping Safety is an explicit consumer tool for unfamiliar storefronts/purchase requests.
+
+Inputs are only what the user deliberately provides, such as:
+
+- storefront URL;
+- optional seller name;
+- optional advertised-price text;
+- optional payment instructions;
+- optional storefront/seller text.
+
+It may reuse hardened destination analysis and social-engineering/payment evidence. It must **not** inspect browser history, orders, cookies or saved payment data.
+
+Output may distinguish high risk, caution, unknown/no-strong-signal and limitations. “No strong signal” must never be presented as proof that an unfamiliar seller is legitimate.
+
+## 27. Browser Protection and link defense
 
 The shared foundation includes:
 
@@ -735,15 +764,31 @@ The shared foundation includes:
 - real-time warn/block contract for future browser/native bridge;
 - minimal URL/security context only;
 - no passive cloud browsing-history telemetry by default;
-- explicit privacy-reduced site report action if later enabled.
+- explicit privacy-reduced site report action if enabled.
 
-A store-distributed extension may be built later, but it must consume this engine contract rather than invent its own security semantics.
+The consumer “check before opening” path and future store-distributed browser extension must consume this engine contract rather than invent their own detector.
 
-### 25.1 Hardened network boundary
+### 27.1 Hardened network boundary
 
-Explicit destination acquisition must keep the currently locked SSRF/rebinding protections: per-hop DNS validation, direct socket pinning to validated public addresses while preserving hostname/TLS identity, redirect revalidation, strict timeout/byte/redirect/content handling, no mailbox cookies/credentials and fail-closed unsupported/incomplete results.
+Explicit destination acquisition retains current SSRF/rebinding protections: per-hop DNS validation, direct socket pinning to validated public addresses while preserving hostname/TLS identity, redirect revalidation, strict timeout/byte/redirect/content handling, no mailbox cookies/credentials and fail-closed unsupported/incomplete results.
 
-## 26. Mobile scam-channel contracts
+## 28. Media Authenticity
+
+Media Authenticity is a **capability-gated explicit tool**, not an unconditional “deepfake detector” claim.
+
+Requirements:
+
+- the user explicitly selects one image/audio/video;
+- bounded input sizes by media type;
+- a detector must advertise availability/capability before the UI enables analysis;
+- unavailable detector → **UNAVAILABLE**, never authentic;
+- inconclusive result → **INCONCLUSIVE**, never authentic;
+- no supported manipulation indicator → truthfully means only that the configured detector returned no supported indicator; it is **not proof of authenticity**;
+- likely-manipulated output may include a conservative confidence band and reason;
+- selected media is never silently harvested from the device/browser;
+- any future cloud detector requires an explicit privacy/security/consent boundary and cannot become core-protection authority.
+
+## 29. Mobile scam-channel contracts
 
 Shared core contracts support future native clients for:
 
@@ -756,50 +801,50 @@ Shared core contracts support future native clients for:
 - QR from camera/image;
 - generic notification payloads without private message body by default.
 
-Permissions are minimized and feature-scoped. Native acquisition may differ, but canonical evidence and verdict semantics do not.
+Permissions are minimized and feature-scoped. Native acquisition may differ; canonical evidence/verdict semantics do not.
 
-## 27. Remote-access / payment-risk intervention
+## 30. Remote-access / payment-risk intervention
 
 Email Shield may warn on combinations such as:
 
-- suspicious messages asking the user to install remote-support software;
-- remote-access software active while strong financial-scam evidence is present, where native platforms can expose this narrowly and safely;
+- suspicious messages asking user to install remote-support software;
+- remote-access software active while strong financial-scam evidence is present, where native platforms expose this narrowly/safely;
 - gift-card/crypto/bank-transfer urgency plus impersonation evidence;
-- suspicious callback phone numbers with guidance to independently obtain the official number.
+- suspicious callback numbers with guidance to independently obtain official contact information.
 
-Email Shield is not an endpoint EDR or banking system. It must not upload a broad process inventory or pretend to block financial transactions it cannot observe.
+Email Shield is not endpoint EDR or a banking system. It does not upload broad process inventory or claim to block transactions it cannot observe.
 
-## 28. Identity exposure / credential-risk features
+## 31. Identity exposure / credential-risk features
 
 Approved privacy-preserving foundation:
 
 - explicit opt-in breach/exposure checks;
-- k-anonymity/prefix or equivalently privacy-preserving lookup where a vetted provider allows it;
+- k-anonymity/prefix or equivalently privacy-preserving lookup where a vetted provider permits it;
 - no plaintext password upload;
-- email-address exposure checks only after explicit user consent;
-- Family summary without unnecessary breach-detail disclosure;
+- email-address exposure checks only after explicit consent;
+- Family summary without unnecessary breach detail disclosure;
 - recovery guidance to independently verified official services.
 
-Credit monitoring, insurance and regulated financial surveillance are outside the core unless a future regulated partner is separately approved.
+Credit monitoring, insurance and regulated financial surveillance remain outside the core unless a future regulated partner is separately approved.
 
-## 29. AI / ML policy
+## 32. AI / ML policy
 
-The early “no AI/ML” product rule is superseded by a narrower permanent rule:
+The early “no AI/ML” rule is superseded by a narrower permanent rule:
 
 - deterministic security evidence remains authoritative;
-- AI/ML may contribute bounded evidence where its failure mode is controlled;
+- AI/ML may contribute bounded evidence where failure modes are controlled;
 - AI may provide optional explanations/presentation;
 - AI must never silently override hard deterministic threat states;
-- cloud inference requires explicit consent, redaction/minimum-data architecture and a separate privacy/security review;
-- inability to reach an AI service must never disable core local protection.
+- cloud inference requires explicit consent, redaction/minimum-data architecture and separate privacy/security review;
+- inability to reach AI never disables core local protection.
 
-The product must remain useful and secure without paid third-party inference.
+The product remains useful and secure without paid third-party inference.
 
 ---
 
 # Part VII — Activity, UI, accessibility and consumer trust
 
-## 30. Unified Protection Activity
+## 33. Unified Protection Activity
 
 One consumer-facing activity model covers manual scans, continuous protection, Family/global matches and user actions.
 
@@ -810,34 +855,46 @@ It may record privacy-safe local events such as:
 - cleanup actions;
 - recovery/Undo outcomes;
 - connection/permission health changes;
-- protection profile changes.
+- protection-profile changes.
 
-The user must be able to understand **what changed and why**. Provider-capability-gated Undo must never promise recovery after provider retention/deletion makes it impossible.
+The user can understand **what changed and why**. Provider-capability-gated Undo never promises recovery after retention/deletion makes it impossible.
 
-## 31. Notifications
+## 34. Notifications
 
 - generic/privacy-safe content by default;
 - optional richer local-only previews;
 - no body/subject leakage through remote notification routing by default;
-- notification action capability must be scoped to the correct account/message and current session;
+- notification actions scoped to correct account/message/current session;
 - Family notifications do not expose another member's private content.
 
-## 32. Consumer navigation and Home
+## 35. Consumer navigation and Home
 
-Primary consumer navigation must be outcome-focused, not developer architecture.
+Primary consumer navigation is outcome-focused, not developer architecture.
 
-The canonical first-run journey is:
+The accepted current desktop navigation model is centered on:
+
+- **Home**
+- **Check & Scan**
+- **Health**
+- **Family**
+- **Activity**
+- **Account**
+- **Settings**
+
+Internal Community/operations/developer diagnostics remain hidden from ordinary consumer navigation unless a separately authorized developer/operations surface is intentionally opened.
+
+Canonical first-run journey:
 
 1. create/sign in to Email Shield account, with local Scam Check usable before mailbox connection and local-only capability retained where feasible;
-2. review requested permissions and why they are needed;
+2. review requested permissions and why needed;
 3. connect mailbox account(s);
-4. run the first protection scan;
+4. run first protection scan;
 5. select High/Balanced/Low Noise sensitivity;
 6. enable/configure scheduled/real-time protection;
 7. optionally create/join Family Shield;
-8. arrive at a simple protection-status Home.
+8. arrive at simple protection-status Home.
 
-Home should answer:
+Home answers:
 
 - Am I protected?
 - What happened recently?
@@ -845,21 +902,19 @@ Home should answer:
 - Are my Family members protected?
 - Is any permission, connection, subscription or protection service broken?
 
-Developer/community operations, raw diagnostics and internal architecture remain outside normal primary consumer navigation.
+### 35.1 Multi-account UI ownership
 
-### 32.1 Multi-account UI ownership
+Every browser workflow displaying/mutating account-scoped state binds async results/actions to selected account generation. Switching accounts clears/rehydrates correct workspace; stale responses cannot overwrite newer account view.
 
-Every browser workflow that displays or mutates account-scoped state must bind async results/actions to the selected account generation. Switching accounts must clear or rehydrate the correct workspace; stale responses cannot overwrite the newer account view.
+## 36. Accessibility and localization
 
-## 33. Accessibility and localization
-
-Blocking architecture must support:
+Blocking architecture supports:
 
 - keyboard-only operation;
 - visible focus;
-- semantic landmarks and programmatic labels;
-- screen-reader-compatible status and tables;
-- 200%/400% zoom/narrow layouts;
+- semantic landmarks/programmatic labels;
+- screen-reader-compatible status/tables;
+- 200%/400% zoom and narrow layouts;
 - forced colors/high contrast;
 - reduced motion;
 - no security meaning encoded only by color;
@@ -867,7 +922,7 @@ Blocking architecture must support:
 - locale-safe date/number formatting;
 - local/system fonts without unnecessary tracking dependencies;
 - contextual scam-safety education;
-- respectful, non-shaming language for people who may have interacted with a scam.
+- respectful non-shaming language for scam victims.
 
 Professional translations and owner assistive-technology acceptance remain real content/manual gates rather than fake automated PASS claims.
 
@@ -875,11 +930,9 @@ Professional translations and owner assistive-technology acceptance remain real 
 
 # Part VIII — Local service, secrets and persistence
 
-## 34. Desktop local API security
+## 37. Desktop local API security
 
-The desktop browser UI talks only to the protected loopback service.
-
-Permanent requirements include:
+Permanent requirements:
 
 - loopback-only binding;
 - Host and forwarded/proxy-header rejection;
@@ -888,14 +941,14 @@ Permanent requirements include:
 - exact same-origin proof and expiring single-use mutation nonce for mutations;
 - opaque capability/action replay protection;
 - restrictive CSP/framing/opener/resource/referrer/capability headers;
-- browser storage must not hold readable local session secrets;
+- browser storage does not hold readable local session secrets;
 - credential/token/error redaction;
 - request/resource/rate bounds;
-- stale session failure must be visible and fail closed.
+- stale session failure visible and fail closed.
 
-Native wrappers may replace the browser transport later, but they may not weaken the same authority/replay/isolation properties.
+Native wrappers may replace browser transport later, but may not weaken equivalent authority/replay/isolation properties.
 
-## 35. Native secret custody
+## 38. Native secret custody
 
 Desktop persistent secret handling uses one opaque-reference abstraction across:
 
@@ -907,14 +960,14 @@ Long-lived provider credentials, OAuth refresh tokens and local encryption keys 
 
 Requirements:
 
-- secrets never passed in unsafe command-line arguments or logged;
+- no secrets in unsafe command-line arguments/logs;
 - native write/read/delete verified;
 - missing native service never triggers plaintext fallback;
-- encryption keys are scoped to the managed data root;
-- legacy key migration occurs only after authenticated decryption/read-back proof;
-- unreadable encrypted state fails closed rather than silently resetting user security data.
+- encryption keys scoped to managed data root;
+- legacy key migration only after authenticated decryption/read-back proof;
+- unreadable encrypted state fails closed rather than silently resetting security data.
 
-## 36. Encrypted local persistence
+## 39. Encrypted local persistence
 
 Security-sensitive local stores include personal policy, local report memory/outbox, scan state/history, relationship history, background schedules, account/Family state and community aggregate state when server mode is used.
 
@@ -924,18 +977,18 @@ Permanent rules:
 - descriptor-bound/no-follow resource-bounded reads where applicable;
 - separate plaintext/envelope limits;
 - atomic replace semantics;
-- failed write preserves the previous valid state;
-- private key files receive strict ownership/mode protections where native-vault custody is not the contract;
-- corruption/missing-key behavior is explicit and fail closed;
+- failed write preserves previous valid state;
+- private key files strict ownership/mode protections where native-vault custody is not the contract;
+- corruption/missing-key behavior explicit/fail closed;
 - recovery tooling archives confirmed unreadable ciphertext rather than deleting evidence blindly.
 
 ---
 
 # Part IX — Community/account infrastructure and operations
 
-## 37. Community service architecture
+## 40. Community service architecture
 
-The desktop client does not automatically become a public community server. Public ingestion/feed behavior is an explicitly configured server mode/service.
+Desktop client does not automatically become a public community server. Public ingestion/feed behavior is an explicitly configured server mode/service.
 
 Production readiness requires:
 
@@ -948,7 +1001,7 @@ Production readiness requires:
 - fixed retention;
 - signed feed publishing;
 - signing-key overlap/rotation;
-- backup and restore drills;
+- backup/restore drills;
 - generic public error surfaces;
 - fixed-cardinality privacy-safe metrics;
 - monitoring/alerts;
@@ -957,13 +1010,9 @@ Production readiness requires:
 - no production secret defaults;
 - incident kill switches for community feed, link analysis and account sync that do **not** disable local scanning.
 
-Repository readiness is not proof that these production operations have been deployed.
+Repository readiness is not proof these production operations have been deployed.
 
-## 38. Scale and cost law
-
-Email Shield should remain affordable and usable on low-resource consumer hardware.
-
-Requirements:
+## 41. Scale and cost law
 
 - avoid unnecessary paid API dependencies for core protection;
 - bound all network/cloud work;
@@ -973,15 +1022,15 @@ Requirements:
 - explicit concurrency/queue bounds;
 - bounded storage/retention;
 - 10,000-client/reporting capacity qualification for community paths where defined;
-- cost/capacity worksheets import runtime-owned ceilings rather than inventing disconnected assumptions;
+- cost/capacity worksheets import runtime-owned ceilings;
 - planning outputs are planning, not SLAs;
 - expensive optional remote capabilities cannot become required for core local protection.
 
-## 39. Operations and incident response
+## 42. Operations and incident response
 
-Operational metrics and diagnostics are fixed-cardinality/privacy-safe. Public error responses never expose stack traces, storage paths, crypto details or attacker-controlled echoed values.
+Operational metrics/diagnostics are fixed-cardinality/privacy-safe. Public error responses never expose stack traces, storage paths, crypto details or attacker-controlled echoed values.
 
-Incident response must support containment of:
+Incident response supports containment of:
 
 - compromised community signing keys;
 - feed corruption/equivocation;
@@ -998,44 +1047,42 @@ Local scanning should remain available whenever safely possible even if remote c
 
 # Part X — Release, native and cross-platform architecture
 
-## 40. Portable shared core
-
-The portable protection core is the cross-platform security authority.
+## 43. Portable shared core
 
 - exact versioned schema;
 - strict bounded runtime validation;
 - decision/evidence response only;
-- no Node/host/filesystem/network/API/adapter/OAuth/vault/Worker/shell dependency in the transitive core graph;
-- deterministic platform-neutral helper behavior;
+- no Node/host/filesystem/network/API/adapter/OAuth/vault/Worker/shell dependency in transitive core graph;
+- deterministic platform-neutral helpers;
 - committed cross-provider/adversarial vectors;
-- desktop workflows route through the same core contract.
+- desktop workflows route through same core contract.
 
-Native clients may add acquisition, secure storage, OS scheduling, notifications, permissions and UI, but **may not fork or reinterpret the accepted threat semantics**.
+Native clients may add acquisition, secure storage, OS scheduling, notifications, permissions and UI, but **may not fork or reinterpret accepted threat semantics**.
 
-## 41. Release integrity
+## 44. Release integrity
 
 Portable/release foundations require:
 
 - reproducible host-targeted package inventory;
 - exact approved runtime and production dependency closure;
-- normalized files/modes/mtimes where the format permits;
+- normalized files/modes/mtimes where format permits;
 - complete SHA-256 manifest/release identity;
 - reject secret/dev/extra/missing/symlink contamination;
 - verify every byte before/after staging;
 - signed update envelope with pinned overlap trust;
-- platform/architecture/version/release identity binding;
+- platform/architecture/version/release binding;
 - strictly newer forward update;
 - atomic activation;
 - full verification before repair/rollback;
-- one-step signed rollback only to the recorded verified predecessor;
+- one-step signed rollback only to recorded verified predecessor;
 - uninstall preserves user data by default;
-- purge requires an explicitly marked safe managed data directory.
+- purge requires explicitly marked safe managed data directory.
 
 Ephemeral CI signatures prove implementation, not production signing custody.
 
-## 42. Native application phase
+## 45. Native application phase
 
-Native Windows/macOS/Android/iOS wrappers come **after** shared consumer/security semantics are accepted enough that platform work will not be used to hide desktop/provider defects.
+Native Windows/macOS/Android/iOS wrappers come **after** shared consumer/security semantics are accepted enough that platform work will not hide desktop/provider defects.
 
 Native wrappers may add:
 
@@ -1058,7 +1105,7 @@ They may not:
 - treat platform permission failure as Safe;
 - claim continuous protection where OS policy does not allow it.
 
-## 43. Store/distribution acceptance
+## 46. Store/distribution acceptance
 
 External/native launch gates include, as applicable:
 
@@ -1077,11 +1124,11 @@ These are never replaced by portable-package CI.
 
 # Part XI — Regression, competition and security evolution
 
-## 44. Regression Vault
+## 47. Regression Vault
 
 Every discovered real defect becomes a permanent regression when technically reproducible.
 
-The Regression Vault may include sanitized owner-approved real samples only through the accepted provenance/sanitization/review pipeline. It must preserve privacy and exact expected outcomes across all five provider adapters.
+Sanitized owner-approved real samples enter only through accepted provenance/sanitization/review. Privacy and expected outcomes are preserved across all five provider adapters.
 
 Scenario families include at minimum:
 
@@ -1102,11 +1149,11 @@ Scenario families include at minimum:
 - multilingual scam language;
 - provider-specific acquisition edge cases while preserving provider-neutral verdict meaning.
 
-## 45. Competitive feature rule
+## 48. Competitive feature rule
 
-Email Shield may independently implement useful **publicly observable product behavior** from competitors — such as real-time warnings, safe browsing, Check Anything, explainability, Family protection, campaign alerts, cleanup or account exposure checks — when it improves the approved product.
+Email Shield may independently implement useful **publicly observable product behavior** from competitors — real-time warnings, safe browsing, Check Anything, explainability, Family protection, campaign alerts, cleanup, account exposure checks and similar — when it improves the approved product.
 
-It must never copy competitor source code, private APIs, trade secrets, proprietary models, private corpora, branding or protected assets.
+It never copies competitor source code, private APIs, trade secrets, proprietary models, private corpora, branding or protected assets.
 
 Competitive research may expand protection; it may not override Email Shield's privacy/security constitution.
 
@@ -1114,7 +1161,7 @@ Competitive research may expand protection; it may not override Email Shield's p
 
 # Part XII — Milestone lineage and current continuous roadmap
 
-## 46. Historical milestone foundation
+## 49. Historical milestone foundation
 
 ### Milestone 1 — Complete testable cross-adapter protection core
 
@@ -1130,32 +1177,32 @@ Foundation retained:
 - exact provider action capability/confirmation;
 - personal policies;
 - local API security;
-- privacy-reduced reporting/signed feed foundation;
+- privacy-reduced reporting/signed-feed foundation;
 - live iCloud hard testing;
 - regression/test/governance process.
 
-Later strengthening does not reopen M1; regressions against its invariants are defects.
+Later strengthening does not reopen M1; regressions are defects.
 
 ### Milestone 2 — Verified community intelligence and production hardening
 
 **Repository state: CODE-COMPLETE for canonical repository-buildable rows. Formal external acceptance remains open.**
 
-Major implemented foundations include:
+Major implemented foundations:
 
-- guided Gmail and Outlook OAuth architecture;
+- guided Gmail/Outlook OAuth architecture;
 - cross-platform native vault;
 - encrypted personal policy/scan/relationship/background state;
 - policy management centre;
 - resumable scans/history;
 - relationship context;
 - QR decoding;
-- hardened Analyze Links transport and coordinator/cache;
+- hardened Analyze Links transport/coordinator/cache;
 - thread-continuity analysis;
 - attachment hash/type integrity;
 - trusted authentication provenance/alignment + PSL domain boundary;
 - RFC 8058 one-click integrity;
 - bounded community feed/aggregate/storage/recovery/rotation;
-- scalable journal/retention and 10,000 reporter proof;
+- scalable journal/retention and 10,000-reporter proof;
 - signed-feed anti-rollback;
 - privacy-safe metrics/diagnostics;
 - dependency/security closure;
@@ -1163,9 +1210,9 @@ Major implemented foundations include:
 
 ### Milestone 3 — Release-ready continuous cross-platform product
 
-**Repository/shared-engine state: engineering implementation complete for the accepted pre-native workstreams; owner/native/external acceptance remains separate.**
+**Repository/shared-engine state: engineering implementation complete for accepted pre-native workstreams; owner/native/external acceptance remains separate.**
 
-Major foundations include:
+Major foundations:
 
 - scheduled and near-real-time continuous protection architecture;
 - portable shared core;
@@ -1174,7 +1221,8 @@ Major foundations include:
 - Check Anything;
 - explainability and sensitivity profiles;
 - Family Guardian/campaign radar;
-- Inbox/Mailbox Health;
+- Inbox/Mailbox Health and Digital Account Footprint;
+- Shopping Safety, Browser Protection and truthful Media Authenticity capability surface;
 - browser/mobile/intervention contracts;
 - account/privacy/subscription lifecycle;
 - activity/Undo/recovery;
@@ -1182,178 +1230,173 @@ Major foundations include:
 - privacy-safe support/operations;
 - regression/provider compatibility/capacity/release gates.
 
-## 47. Final Consumer Completion layer
+## 50. Final Consumer Completion layer
 
 The later approved Final Consumer Completion milestone **strengthened and completed** the original three-milestone product direction. It does not delete the three milestones; it reconciles the finished consumer promise across workstreams A-W and creates the handoff boundary to native applications.
 
-Its permanent outcome is that Email Shield becomes an understandable personal/family scam-protection product rather than a developer-facing scanner.
+Its permanent outcome is an understandable personal/family scam-protection product rather than a developer-facing scanner.
 
-Future engineers must not use the phrase “exactly three milestones” from the original brief to remove accepted Final Consumer Completion features. The original three milestones remain lineage; this Masterplan is the continuing structure after them.
+Future engineers must not use “exactly three milestones” from the original brief to remove accepted Final Consumer Completion features. The three milestones remain lineage; this Masterplan is the continuing structure after them.
 
-## 48. Current work boundary as of establishment
+## 51. Current work boundary as of establishment
 
-At the time this Masterplan was established:
+At establishment:
 
-- Milestone 1 was formally closed.
-- Milestone 2 repository-buildable rows were implemented, while real provider/deployment acceptance remained open.
-- Milestone 3/final consumer repository engineering had reached the owner/live/native acceptance-and-repair boundary.
-- later live/owner findings through current `main` continued to produce root-cause fixes; those fixes are product regressions, not new scope.
-- Android/iOS mailbox application shells remained deliberately after the stable shared-engine/live-provider boundary.
+- Milestone 1 formally closed.
+- Milestone 2 repository-buildable rows implemented; real provider/deployment acceptance remained open.
+- Milestone 3/final consumer repository engineering reached owner/live/native acceptance-and-repair boundary.
+- later owner/live findings through current `main` continued to produce root-cause fixes; those are regressions, not new scope.
+- Android/iOS mailbox application shells remained deliberately after stable shared-engine/live-provider boundary.
 
-**Do not freeze this section to a commit SHA.** Resolve current `main`, current open issues/PRs and current exact-head/post-merge gates before deciding what is unfinished.
+**Do not freeze this section to a commit SHA.** Resolve current `main`, open issues/PRs and exact-head/post-merge gates before deciding what is unfinished.
 
-## 49. External acceptance gates that cannot be faked
+## 52. External acceptance gates that cannot be faked
 
-The following remain real-world gates until current repository evidence explicitly shows they were completed after this document's establishment:
+Unless later real evidence explicitly closes them, the registered boundaries are:
 
-1. production Google OAuth publication/consent/verification for the intended public app;
-2. controlled real Outlook connect/scan/action/disconnect/reconnect owner acceptance;
-3. public Community/Global Shield deployment with DNS/TLS, persistent storage, monitoring, backup/restore and signing-key rotation ceremony;
-4. controlled public Analyze Links destination/redirect/DNS validation infrastructure;
-5. production gateway reporter enrollment/reputation/rate/volumetric/DDoS defenses;
-6. owner-visible destructive/recovery/multi-account/Family/accessibility acceptance where the test matrix marks it manual;
+1. **GAP-001 — Google publication:** production Google OAuth publication/consent/verification for intended public app;
+2. **GAP-002 — Outlook live:** controlled real Outlook connect/scan/action/disconnect/reconnect owner acceptance;
+3. **GAP-004 — Community deployment:** public Community/Global Shield DNS/TLS, persistent storage, monitoring, backup/restore and signing-key rotation ceremony;
+4. **GAP-005 — Analyze Links live:** controlled public destination/redirect/DNS validation infrastructure;
+5. **GAP-008 — Gateway abuse:** production reporter enrollment/reputation/rate/volumetric/DDoS defenses;
+6. owner-visible destructive/recovery/multi-account/Family/accessibility acceptance marked manual;
 7. native Windows/macOS packaging/signing/background-task acceptance;
 8. Android/iOS native shell, permission/background/store acceptance;
 9. real Apple/Google/web merchant verification and production entitlement events;
-10. professional translation/content review where required for release locales;
-11. production telemetry/monitoring owner acceptance if that optional service is enabled.
+10. professional translation/content review for release locales;
+11. production telemetry/monitoring owner acceptance if optional service enabled.
 
-If later real evidence closes any of these, update status/reconciliation records and, where the product boundary materially changes, update this Masterplan through the same engineering review process.
+Later real closure must update status/reconciliation evidence and, if the product boundary materially changes, this Masterplan through the same review process.
 
 ---
 
 # Part XIII — Engineering execution law
 
-## 50. Recover state before doing work
+## 53. Recover state before doing work
 
-Every new engineer/agent/session must first inspect:
+Every new engineer/agent/session first inspects:
 
 1. current `main` HEAD from Git;
 2. open PRs/issues relevant to Email Shield;
-3. `.engineering/CONTINUATION.json` as a hint, not as a substitute for current Git state;
+3. `.engineering/CONTINUATION.json` as hint, not substitute for Git;
 4. `README_REBUILD_STATUS.md`;
 5. `docs/THREE_MILESTONE_FINAL_RECONCILIATION.md`;
 6. `.engineering/CANONICAL_ROADMAP_GAP_AUDIT.md`;
 7. `.engineering/REGRESSION_REGISTER.md`;
 8. `.engineering/TEST_MATRIX.md`;
-9. this Masterplan and the feature-specific security contract for the area being changed;
-10. latest qualifying CI evidence for the exact current/PR head.
+9. this Masterplan and feature-specific security contract;
+10. latest qualifying CI evidence for exact current/PR head.
 
-Never resume from an old PR number or old SHA merely because a previous chat mentioned it.
+Never resume from old PR/SHA merely because previous chat mentioned it.
 
-## 51. Root-cause rule
+## 54. Root-cause rule
 
-A green test is not the goal. A working, secure consumer workflow is the goal.
+A green test is not the goal. A working secure consumer workflow is the goal.
 
-When a defect appears:
+When defect appears:
 
-1. preserve/reproduce the failure;
-2. trace the complete ownership chain — consumer click/state → protected API/capability → workflow/coordinator → provider/local service → persistence → returned result → browser/native reconciliation;
-3. identify the earliest incorrect assumption/boundary;
-4. add a failing regression at the correct layer when technically possible;
-5. fix the root cause, not the screenshot symptom;
-6. do not weaken assertions, timeouts, expected results, privacy boundaries or security floors merely to make CI green;
+1. preserve/reproduce failure;
+2. trace full ownership chain — consumer click/state → protected API/capability → workflow/coordinator → provider/local service → persistence → returned result → browser/native reconciliation;
+3. identify earliest incorrect assumption/boundary;
+4. add failing regression at correct layer when possible;
+5. fix root cause, not screenshot symptom;
+6. do not weaken assertions, timeouts, expected results, privacy boundaries or security floors merely to get green CI;
 7. remove temporary/debug/dead code introduced during diagnosis;
-8. rerun focused tests and the unchanged complete gate;
-9. repeat the real owner/live step that originally failed when applicable.
+8. rerun focused tests and unchanged complete gate;
+9. repeat real owner/live step that failed when applicable.
 
-A “patch” that hides the symptom while preserving the wrong producer/consumer contract is not an accepted fix.
+A patch that hides symptom while preserving wrong producer/consumer contract is not accepted.
 
-## 52. Test-before-credit rule
+## 55. Test-before-credit rule
 
-Code existing in the repository does not mean a feature works.
+Code existing in repository does not mean feature works.
 
-For a feature to receive engineering credit:
+Engineering credit requires:
 
-- production-path implementation exists;
-- producer and consumer are both wired;
-- focused regression coverage exists;
-- privacy/security invariants are tested;
-- current full Engineering Gate passes on the exact immutable candidate head;
-- browser/runtime/package path is exercised where applicable.
+- production-path implementation;
+- producer and consumer wired;
+- focused regression coverage;
+- privacy/security invariants tested;
+- full Engineering Gate on exact immutable candidate head;
+- browser/runtime/package path where applicable.
 
-For a feature to receive **live/external** credit, its required real environment must also pass.
+Live/external credit additionally requires its real environment.
 
-## 53. Exact-head pull-request law
+## 56. Exact-head pull-request law
 
-Every implementation/governance repair is qualified on the literal immutable PR head SHA, not GitHub's synthetic merge ref while pretending it is the branch head.
+Every implementation/governance repair is qualified on literal immutable PR head SHA, not GitHub synthetic merge ref while pretending it is branch head.
 
 Required sequence:
 
 1. branch from current accepted `main`;
 2. focused TDD/root-cause change;
-3. full applicable Engineering Gate on the exact PR head;
-4. Windows + macOS + Ubuntu required jobs and combined summary all green;
-5. merge only the exact verified head, using an expected-head guard where supported;
-6. run/confirm an independent post-merge gate on resulting `main` before calling the change accepted;
-7. older green runs do not transfer to a newer SHA.
+3. full applicable Engineering Gate on exact PR head;
+4. Windows + macOS + Ubuntu jobs and combined summary all green;
+5. merge only exact verified head, using expected-head guard where supported;
+6. run/confirm independent post-merge gate on resulting `main` before calling change accepted;
+7. older green runs do not transfer to newer SHA.
 
-Gate Summary is fail-closed: a failed/cancelled required platform cannot be masked by a green summary.
+Gate Summary is fail-closed: failed/cancelled required platform cannot be masked.
 
-## 54. Manual/live acceptance law
+## 57. Manual/live acceptance law
 
-Manual testing is used only where real visibility/provider/platform behavior cannot be fully proven in CI. It must be a **single clear owner handoff** where practical, not endless piecemeal guessing.
+Manual testing is used only where real visibility/provider/platform behavior cannot be fully proven in CI. It should be a **single clear owner handoff** where practical, not endless piecemeal guessing.
 
-The owner should never be asked to repeat already accepted live checks unless:
+Owner should not repeat already accepted live checks unless relevant behavior changed, a regression invalidates evidence, platform/provider changed materially, or owner explicitly asks.
 
-- the relevant behavior changed;
-- a regression specifically invalidates that evidence;
-- the provider/platform environment itself changed materially;
-- the owner explicitly asks to rerun it.
+Fixture mode is engineering tooling only and remains explicitly development-authorized/unavailable from ordinary production consumer startup.
 
-Fixture mode is engineering tooling only and must remain explicitly development-authorized and unavailable from ordinary production consumer startup.
+## 58. Security/privacy review law
 
-## 55. Security/privacy review law
-
-Every new feature must answer:
+Every new feature answers:
 
 - What private data does it acquire?
-- Where is that data normalized?
-- Does any of it leave the device?
+- Where is it normalized?
+- Does any leave device?
 - What is persisted, for how long and under what key?
-- What can the browser/native UI see?
-- What exact capability authorizes a mutation?
+- What can browser/native UI see?
+- What capability authorizes mutation?
 - What happens when evidence is incomplete?
-- What happens when the remote/provider service is unavailable?
+- What happens when remote/provider service unavailable?
 - Can one account/member/reporter affect another without explicit authority?
-- What are the CPU/memory/network/storage bounds?
-- How is abuse/replay/race/stale-state handled?
-- What regression prevents silent weakening later?
+- What are CPU/memory/network/storage bounds?
+- How are abuse/replay/race/stale-state handled?
+- What regression prevents later weakening?
 
-If these questions cannot be answered, the feature is not ready to merge.
+If these cannot be answered, feature is not merge-ready.
 
-## 56. No-stall / no-scope-drift law
+## 59. No-stall / no-scope-drift law
 
-External acceptance waiting time is not permission to invent unrelated features or redesign the product. When all repository-buildable work for the current boundary is exhausted, stop at the real external gate unless:
+External acceptance waiting time is not permission to invent unrelated features or redesign product. When repository-buildable work for current boundary is exhausted, stop at real external gate unless:
 
-- live evidence reveals a reproducible code defect;
-- the owner explicitly expands the product;
-- a security vulnerability requires remediation;
-- a dependency/platform change invalidates a locked behavior.
+- live evidence reveals reproducible code defect;
+- owner explicitly expands product;
+- security vulnerability requires remediation;
+- dependency/platform change invalidates locked behavior.
 
-Likewise, native work must not be used as an escape route around unresolved desktop/provider security defects.
+Native work must not be escape route around unresolved desktop/provider security defects.
 
 ---
 
 # Part XIV — Explicit supersession register
 
-## 57. Decisions future engineers must not accidentally revive
+## 60. Decisions future engineers must not accidentally revive
 
 ### S-01 — “No Email Shield account / no subscription”
 
-**SUPERSEDED.** Replaced by the accepted cryptographic account/device model and Free/Individual/Family entitlement architecture.
+**SUPERSEDED.** Replaced by accepted cryptographic account/device model and Free/Individual/Family entitlement architecture.
 
 ### S-02 — “No AI/ML under any circumstances”
 
-**SUPERSEDED IN PART.** The permanent rule is deterministic authority: AI/ML may contribute bounded evidence/explanation but cannot override hard deterministic security states and cannot make cloud inference mandatory for core protection.
+**SUPERSEDED IN PART.** Permanent rule is deterministic authority: AI/ML may contribute bounded evidence/explanation but cannot override hard deterministic states or make cloud inference mandatory.
 
 ### S-03 — “Exactly three milestones means no later product-completion layer”
 
-**SUPERSEDED.** The three milestones remain historical engineering lineage. The later owner-approved Final Consumer Completion workstreams A-W are accepted scope, and native wrapping follows the stable shared-engine boundary.
+**SUPERSEDED.** Three milestones remain historical lineage. Later owner-approved Final Consumer Completion A-W is accepted scope; native wrapping follows stable shared-engine boundary.
 
 ### S-04 — “Report Scam and Trash must always be separate”
 
-**SUPERSEDED by REG-089.** Report Scam commits local campaign protection first, then requests reversible Trash for the current selected message; future account-local campaign/block matches retain durable automatic Trash authority. Global/Family publication authority remains separate.
+**SUPERSEDED by REG-089.** Report Scam commits local campaign protection first, then requests reversible Trash for current selected message; future account-local campaign/block matches retain durable automatic Trash authority. Global/Family publication authority remains separate.
 
 ### S-05 — “Known sender = Safe”
 
@@ -1361,41 +1404,41 @@ Likewise, native work must not be used as an escape route around unresolved desk
 
 ### S-06 — “Authentication pass = legitimate sender/business”
 
-**REJECTED.** Authentication establishes bounded identity/alignment evidence only and must come from trusted provenance.
+**REJECTED.** Authentication establishes bounded identity/alignment evidence only and requires trusted provenance.
 
 ### S-07 — “No detected threat = Safe”
 
-**REJECTED by the security redesign.** Safe is earned. Incomplete inspection or missing intelligence cannot silently become Safe.
+**REJECTED by security redesign.** Safe is earned. Incomplete inspection/missing intelligence cannot silently become Safe.
 
-### S-08 — “Provider Spam/Junk placement alone proves maliciousness”
+### S-08 — “Provider Spam/Junk alone proves maliciousness”
 
 **REJECTED.** Placement is risk/context evidence, not sole confirmation authority.
 
-### S-09 — “One personal/community report can globally confirm a threat”
+### S-09 — “One personal/community report can globally confirm threat”
 
 **REJECTED.** Global confirmation remains independent-report/review/signing governed.
 
 ### S-10 — “Green code or fixtures prove real provider/deployment acceptance”
 
-**REJECTED.** Real Outlook, Google publication, community deployment, controlled destination infrastructure, native stores/signing and other external gates require their real environments.
+**REJECTED.** Real provider/public/native/store gates require real environments.
 
 ### S-11 — “Portable package = native consumer app”
 
-**REJECTED.** Portable/release foundations prove shared code packaging; native installer/store/background/permission acceptance remains separate.
+**REJECTED.** Portable/release foundations prove shared packaging; native installer/store/background/permission acceptance remains separate.
 
 ### S-12 — “Each provider/platform may implement its own detector”
 
-**REJECTED.** All acquisition surfaces converge on the shared portable protection semantics.
+**REJECTED.** All acquisition surfaces converge on shared portable protection semantics.
 
-### S-13 — “Solve IMAP inspection by downloading whole messages/attachments without bounds”
+### S-13 — “Solve IMAP inspection by unlimited whole-message/attachment downloads”
 
-**REJECTED.** Selective bounded MIME/attachment acquisition and explicit completeness semantics are permanent.
+**REJECTED.** Selective bounded MIME/attachment acquisition and completeness semantics are permanent.
 
-### S-14 — “Unsupported capability can be shown as safe/healthy”
+### S-14 — “Unsupported capability can be shown safe/healthy”
 
 **REJECTED.** Unsupported/unavailable is explicit and cannot be converted to Safe.
 
-### S-15 — “Developer fixture entitlement or fixture providers may ship as ordinary consumer authority”
+### S-15 — “Developer fixture entitlement/providers may ship as ordinary consumer authority”
 
 **REJECTED.** Development acceptance tooling is explicitly gated and production-disabled.
 
@@ -1403,13 +1446,19 @@ Likewise, native work must not be used as an escape route around unresolved desk
 
 **REJECTED.** Current consumer outcome/navigation contracts and accepted implementation control; historical screenshots are evidence only.
 
+### S-17 — “Media detector unavailable/inconclusive means authentic”
+
+**REJECTED.** Media Authenticity is capability-truthful: unavailable/inconclusive stays unavailable/inconclusive; no indicator is not proof of authenticity.
+
+### S-18 — “Shopping check can silently inspect browser/payment history”
+
+**REJECTED.** Shopping Safety evaluates only explicit user inputs and approved destination evidence.
+
 ---
 
 # Part XV — Canonical source registry
 
-## 58. Primary source backbone
-
-Future engineers should treat the following repository artifacts as the main supporting evidence for this Masterplan:
+## 61. Primary source backbone
 
 ### Product / roadmap / reconciliation
 
@@ -1448,7 +1497,7 @@ Future engineers should treat the following repository artifacts as the main sup
 - `.engineering/ATTACHMENT_HASH_INTELLIGENCE.md`
 - `.engineering/ATTACHMENT_TYPE_INTEGRITY.md`
 - `.engineering/HTML_INTERACTION_NORMALIZATION.md`
-- other current feature-specific `.engineering/*.md` contracts referenced by the Regression Register.
+- other current feature-specific `.engineering/*.md` contracts referenced by Regression Register.
 
 ### Account / Family / continuous / cross-platform
 
@@ -1457,6 +1506,21 @@ Future engineers should treat the following repository artifacts as the main sup
 - `.engineering/CROSS_PLATFORM_CORE_PLAN.md`
 - `docs/FINAL_MILESTONE_NATIVE_BOUNDARY.md`
 - final workstream/acceptance documents under `docs/` and `.engineering/`.
+
+### Current consumer production surfaces that must remain represented
+
+- `web/consumer-product.js`
+- `web/scam-check.js`
+- `web/shopping-safety.js`
+- `web/media-authenticity.js`
+- `web/billing-plan-ui.js`
+- `web/family-shield.js`
+- `web/family-guardian-preferences.js`
+- `web/protection-learning.js`
+- `web/health-cleanup-controller.js`
+- `web/review-actions.js`
+- `web/analyze-links-actions.js`
+- current server/engine APIs backing those surfaces.
 
 ### Production community / release / operations
 
@@ -1467,60 +1531,61 @@ Future engineers should treat the following repository artifacts as the main sup
 - `.engineering/COMMUNITY_READINESS_INTEGRITY.md`
 - `.engineering/COMMUNITY_FEED_ROLLBACK_INTEGRITY.md`
 - `docs/DEPLOYMENT_CAPACITY_COST.md`
-- release/package contracts referenced by the current Regression Register and Test Matrix.
+- release/package contracts referenced by current Regression Register/Test Matrix.
 
 ### Historical source lineage
 
-The recovered owner-approved August 2026 three-milestone engineering specification, earlier unified milestone plan, live iCloud false-Safe evidence and resulting security redesign remain historical provenance. Their surviving requirements have been integrated here. Their superseded requirements are explicitly recorded in Part XIV rather than silently deleted from history.
+The recovered owner-approved August 2026 three-milestone engineering specification, earlier unified milestone plan, live iCloud false-Safe evidence and resulting security redesign remain historical provenance. Their surviving requirements are integrated here. Superseded requirements are explicitly recorded in Part XIV rather than silently deleted from history.
 
 ---
 
 # Part XVI — Definition of the finished Email Shield
 
-## 59. Owner/product acceptance lens
+## 62. Owner/product acceptance lens
 
-Following this Masterplan to completion must produce a product with these characteristics:
+Following this Masterplan to completion must produce a product where:
 
-- a normal consumer can install/open it and understand protection without developer knowledge;
+- normal consumer can install/open it and understand protection without developer knowledge;
 - Gmail, iCloud, Outlook, Yahoo and generic IMAP use equivalent security meaning;
-- the engine catches both technical phishing and social-engineering scams, including modern polished/QR/image/known-contact variants;
-- dangerous mail is not called Safe merely because authentication passed or the detector lacked evidence;
-- the user can clearly see why something was flagged and what to do next;
-- user actions have exact understandable consequences;
+- engine catches technical phishing and social-engineering scams including polished/QR/image/known-contact variants;
+- dangerous mail is not called Safe merely because authentication passed or detector lacked evidence;
+- user clearly sees why something was flagged and what to do next;
+- actions have exact understandable consequences;
 - personal rules protect immediately without poisoning unrelated users;
-- Family Shield helps protect loved ones without exposing their inboxes;
+- Family Shield protects loved ones without exposing inboxes;
 - Global Shield gains value from independent privacy-reduced intelligence with abuse/review/signing controls;
 - Check Anything protects suspicious material outside mailboxes;
-- continuous protection, Inbox/Mailbox Health, link/browser foundations and mobile contracts extend the product beyond a manual scanner;
-- secrets and private content remain local by default;
-- optional remote services are narrow, bounded and privacy reviewed;
-- low-spec devices and provider quotas remain respected;
+- Shopping Safety, Browser Protection, Digital Account Footprint and Media Authenticity behave within their truthful privacy/capability boundaries;
+- continuous protection, Inbox/Mailbox Health and mobile contracts extend product beyond manual scanner;
+- secrets/private content remain local by default;
+- optional remote services are narrow/bounded/privacy reviewed;
+- low-spec devices/provider quotas remain respected;
 - multi-account/session/race/restart behavior is reliable in real use;
-- native clients reuse one accepted protection core instead of diverging;
+- native clients reuse one accepted core instead of diverging;
 - external/provider/store/deployment claims are made only after real acceptance;
-- regressions found by the owner become permanent protection rather than recurring bugs.
+- regressions found by owner become permanent protection rather than recurring bugs.
 
-## 60. Engineering acceptance lens
+## 63. Engineering acceptance lens
 
-The project is not “finished” because every planned function name exists. It is finished when:
+The project is not finished because every planned function exists. It is finished when:
 
 1. every approved repository-buildable feature has production-path implementation;
-2. the full regression/corpus/provider/privacy/security suite is green on the exact candidate;
-3. Windows, macOS and Ubuntu required engineering gates and summary pass;
+2. full regression/corpus/provider/privacy/security suite is green on exact candidate;
+3. Windows, macOS and Ubuntu required gates/summary pass;
 4. portable/release artifacts verify;
 5. low-resource/capacity/dependency policies pass;
-6. owner-visible workflows work in the real consumer UI;
+6. owner-visible workflows work in real consumer UI;
 7. destructive/recovery actions behave correctly;
 8. real Gmail/Outlook/IMAP-provider acceptance required for release passes;
 9. public community/account/link infrastructure passes real deployment/abuse/recovery/key-rotation acceptance;
 10. native/store/signing/background/permission acceptance passes on intended platforms;
-11. privacy/security/public documentation matches actual behavior;
-12. no known blocker is relabeled as “future” merely to declare completion.
+11. privacy/security/public docs match actual behavior;
+12. no known blocker is relabeled “future” merely to declare completion.
 
-## 61. Final invariant
+## 64. Final invariant
 
 **The core idea never changes; it gets stronger.**
 
-Email Shield must continuously improve scam detection, privacy, explainability, Family protection, reliability and cross-platform reach without weakening the accepted security meaning that existing users depend on.
+Email Shield continuously improves scam detection, privacy, explainability, Family protection, reliability and cross-platform reach without weakening accepted security meaning.
 
 When a new capability conflicts with that principle, change the capability — not the principle.
