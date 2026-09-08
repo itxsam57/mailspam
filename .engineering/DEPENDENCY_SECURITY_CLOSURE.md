@@ -29,6 +29,8 @@ Dependency remediation is accepted only if all of these remain green:
 
 Engineering Gate 446 on the reviewed dependency-only implementation reported zero installed advisories across production and development dependencies.
 
+On September 8, 2026, fresh baseline verification found two newly published `qs` advisories in the accepted `6.15.3` transitive tree. Both advisories are fixed in `qs` `6.16.0`. REG-090 therefore requires an npm-generated root override to `6.16.0`, a lockfile re-resolution through npm, zero-advisory verification, and the same complete compatibility gate before the maintenance change can be accepted.
+
 ## Non-goals
 
 This does not promise that future package advisories cannot be published. Future advisories are new evidence and must be evaluated against the same gate rather than hidden, ignored or mass-fixed with an unreviewed force upgrade.
